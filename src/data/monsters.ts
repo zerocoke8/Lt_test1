@@ -73,7 +73,7 @@ export const MONSTERS: MonsterDef[] = [
 export const BOSSES: BossDef[] = [
   {
     id: 'abyss_watcher', name: '심연의 감시자', tier: 'boss', color: '#3a0ca3', radius: 3, stationary: true,
-    stats: { maxHp: 9000, atk: 30, def: 0.2, atkSpeed: 0.5, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
+    stats: { maxHp: 8500, atk: 30, def: 0.2, atkSpeed: 0.5, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
     basic: { kind: 'projectile', speed: 11 },
     skills: [
       {
