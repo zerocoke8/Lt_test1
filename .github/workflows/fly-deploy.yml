@@ -1,10 +1,25 @@
-# Fly.io 배포 (수동 실행). GitHub → Actions → "Fly 배포" → Run workflow.
+# Fly.io 배포. 게임 코드가 바뀐 푸시마다 자동 배포 + 수동 실행(Actions → "Fly 배포" → Run workflow).
 # 준비: 저장소 Settings → Secrets and variables → Actions 에 FLY_API_TOKEN 추가 (docs/multiplayer.md 4장).
 # 앱 이름은 fly.toml 의 app 값을 씀. 앱이 아직 없으면 만들고 배포함 (머신 1대 고정).
+# 배포하면 서버가 재시작되어 열려 있던 방은 사라짐 → 문서·테스트만 바뀐 푸시는 배포하지 않음.
 name: Fly 배포
 
 on:
   workflow_dispatch:
+  push:
+    branches: [claude/design-notes-v0, main]
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'scripts/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'fly.toml'
 
 concurrency: fly-deploy
 
