@@ -65,11 +65,25 @@ export interface StatusInstance {
 
 // ─────────────────────────── Data-driven skills ───────────────────────────
 
+/** Fixed world direction. Quarter view: 'up' = −y (toward the back / top of screen), 'down' = +y. */
+export type Dir = 'right' | 'left' | 'up' | 'down';
+
 export type AreaShape =
   | { shape: 'circle'; radius: number }
   | { shape: 'single' }
-  /** Rectangle starting at caster, pointing at center. */
-  | { shape: 'line'; length: number; width: number };
+  /** Rectangle starting at caster, pointing at center (auto-aimed; normal skills / monsters). */
+  | { shape: 'line'; length: number; width: number }
+  /**
+   * Fixed-direction rectangle (기획 3차: 방향형 드래그스킬은 방향 고정, 위치로 조준).
+   * anchor 'start' (default): begins at center and extends `length` toward dir. 'center': centered on center.
+   */
+  | { shape: 'rect'; length: number; width: number; dir: Dir; anchor?: 'start' | 'center' }
+  /** Fan from center toward dir, total opening `angle` degrees. */
+  | { shape: 'cone'; radius: number; angle: number; dir: Dir }
+  /** Donut around center: inner < distance ≤ outer. */
+  | { shape: 'ring'; inner: number; outer: number }
+  /** Two bars through center: '+' (or 'X' when diagonal), each arm `length` from center, bar thickness `width`. */
+  | { shape: 'cross'; length: number; width: number; diagonal?: boolean };
 
 /** Who an action touches, relative to the caster's team. 'allies' = every ally character/summon on field (all players). */
 export type Affects = 'enemies' | 'allies' | 'self';
@@ -82,8 +96,8 @@ export type Effect =
   /** amount × target maxHp, absorbs damage, expires after duration */
   | { kind: 'shield'; amount: number; duration: number }
   | { kind: 'status'; status: StatusId; duration: number; value: number }
-  /** Push away from action center. */
-  | { kind: 'knockback'; distance: number }
+  /** Push away from action center, or toward a fixed dir when given. */
+  | { kind: 'knockback'; distance: number; dir?: Dir }
   /** Pull toward action center (never past it). */
   | { kind: 'pull'; distance: number }
   /** Remove all debuffs. */
@@ -110,6 +124,13 @@ export interface SkillAction {
   zone?: { duration: number; tickInterval: number };
   /** Spawn units at center. countMax (optional): roll count..countMax (inclusive) per cast. */
   summon?: { unitId: string; count: number; duration: number; countMax?: number };
+  /** Fixed world offset added to the resolved center, so one skill can hit several spots (e.g. a row of blasts). */
+  offset?: Vec2;
+  /**
+   * Caster dashes from the resolved center toward dir by distance (drag skill: appear at the drop point, then dash).
+   * The caster ends at the clamped end point; effects hit along the path (pair with area {shape:'rect', dir, length: distance}).
+   */
+  dash?: { dir: Dir; distance: number; duration?: number };
 }
 
 export interface SkillDef {
@@ -359,6 +380,8 @@ export interface PlayerState {
   ult: { charge: number; fullSince: number | null };
   /** 사망: all 3 characters dead at the same moment. Spectating for rest of run. */
   out: boolean;
+  /** Multiplayer: this human dropped; a bot drives the slot until they reconnect. */
+  disconnected?: boolean;
   /** Seconds left where swapping is blocked after an appearance. */
   appearLock: number;
   relics: string[];
@@ -443,16 +466,22 @@ export interface GameState {
   wavesRemaining: number;
   monstersAlive: number;
   midBossSpawned: boolean;
-  /** Offers for the local human player (player 0) during 'reward'. Bots choose instantly. */
+  /** Offers for player 0 during 'reward' (kept for compatibility; = rewardOffersByPlayer[0]). */
   rewardOffers: RewardOffer[] | null;
+  /**
+   * Per player index: offers still waiting for that human's choice, null when none / already chosen.
+   * The reward phase lasts until every non-bot, non-out player has chosen (bots pick instantly).
+   */
+  rewardOffersByPlayer: (RewardOffer[] | null)[];
   runResult: RunResult | null;
 }
 
 // ─────────────────────────── Commands & events ───────────────────────────
 
 export type DebugAction =
-  | { kind: 'chargeUlt' }
-  | { kind: 'resetCooldowns' }
+  /** player defaults to 0 (in multiplayer the server fills in the sender). */
+  | { kind: 'chargeUlt'; player?: number }
+  | { kind: 'resetCooldowns'; player?: number }
   | { kind: 'killAll' }
   | { kind: 'skipFloor' }
   | { kind: 'jumpFloor'; floor: number }
@@ -464,7 +493,9 @@ export type Command =
   | { type: 'ult'; player: number }
   | { type: 'chooseReward'; player: number; offerIndex: number }
   | { type: 'quit' }
-  | { type: 'debug'; action: DebugAction };
+  | { type: 'debug'; action: DebugAction }
+  /** Live tunables change (debug panel). In multiplayer only the room host may send it. */
+  | { type: 'tunables'; patch: Partial<Tunables> };
 
 export interface CommandResult {
   ok: boolean;
@@ -477,6 +508,8 @@ export type GameEvent =
   | { type: 'attack'; sourceId: number; targetId: number; ranged: boolean }
   | { type: 'skillCast'; sourceId: number | null; player: number | null; slot: SkillSlot | 'pet' | 'monster'; skillId: string; name: string; center: Vec2; area: AreaShape; team: Team }
   | { type: 'appear'; player: number; partyIndex: number; entityId: number; pos: Vec2 }
+  /** Caster moved along a dash (render a streak; entity pos is already at `to`). */
+  | { type: 'dash'; entityId: number; from: Vec2; to: Vec2; duration: number }
   | { type: 'leave'; player: number; partyIndex: number; pos: Vec2 }
   | { type: 'death'; entityId: number; pos: Vec2; kind: EntityKind; tier: MonsterTier | 'character' }
   | { type: 'spawnWarning'; pos: Vec2; delay: number }
@@ -550,12 +583,16 @@ export interface Game {
   drainEvents(): GameEvent[];
   canSwap(player: number, partyIndex: number): CommandResult;
   canUsePet(player: number, petIndex: number): CommandResult;
-  /** Area to preview while dragging a card (drag skill or pet action, including reward/relic radius bonuses). */
+  /** Area to preview while dragging a card (drag skill or pet action, including reward/relic radius bonuses). First part only. */
   previewArea(player: number, kind: 'swap' | 'pet', index: number): AreaShape;
+  /** Full footprint for the drag preview (every action with offsets/dash, radius bonuses applied). */
+  previewParts(player: number, kind: 'swap' | 'pet', index: number): PreviewPart[];
+  /** Hand a player slot to the bot (multiplayer disconnect) or back to its human. Sets PlayerState.isBot/disconnected. */
+  setPlayerBot(player: number, isBot: boolean): void;
   /** Clamp/snap a drop point to a legal spot in the arena. */
   clampToArena(p: Vec2): Vec2;
-  /** Per-run telemetry for the tuning log. */
-  telemetry(): Telemetry;
+  /** Per-run telemetry for the tuning log (player defaults to 0). */
+  telemetry(player?: number): Telemetry;
 }
 
 export interface Telemetry {
@@ -565,11 +602,24 @@ export interface Telemetry {
   floorTimes: { floor: number; seconds: number; outcome: 'clear' | 'fail' }[];
 }
 
+/** One piece of a drag/pet skill footprint, relative to the drop point (for previews and bot aiming). */
+export interface PreviewPart {
+  area: AreaShape;
+  /** World offset from the drop point. */
+  offset: Vec2;
+  /** Seconds after the drop when this part lands (0 = instantly). */
+  delay: number;
+  affects: Affects;
+  dash?: { dir: Dir; distance: number };
+}
+
 export interface DragPreview {
   kind: 'swap' | 'pet';
   /** World position under the finger (already offset above the finger by the ui). */
   pos: Vec2;
   area: AreaShape;
+  /** Full footprint (all actions, offsets, dash). When present the renderer draws these instead of `area`. */
+  parts?: PreviewPart[];
   valid: boolean;
   color: string;
 }
