@@ -1,7 +1,9 @@
-// Compact skill lines for the combat skill sheet (카드 탭/길게 누르기) and the normal-skill badge.
+// Compact skill lines for the combat skill sheet (카드 탭/길게 누르기) and the cards' normal-skill cooldown (마름모).
 // Pure (no DOM): every number comes from the data (src/data), so retuned skills read correctly without text edits.
 
-import type { AreaShape, BasicAttack, CharacterDef, Dir, Effect, SkillAction, SkillDef, StatusId } from '../types';
+import type { AreaShape, BasicAttack, CharacterDef, Dir, Effect, PlayerState, SkillAction, SkillDef, StatusId, Tunables } from '../types';
+import { MAX_COOLDOWN_REDUCTION } from '../sim/constants';
+import { skillMod } from '../sim/modifiers';
 
 const ARROW: Record<Dir, string> = { right: '→', left: '←', up: '↑', down: '↓' };
 
@@ -160,6 +162,26 @@ export const SKILL_TYPE_LABEL: Record<SkillRowKind, string> = {
 export function secs(v: number): string {
   if (v >= 10 || Math.abs(v - Math.round(v)) < 0.05) return String(Math.round(v));
   return v.toFixed(1);
+}
+
+/**
+ * Card cooldown number (일반스킬 마름모): one decimal under 10 s, whole seconds above — rounded up, so a skill that is
+ * still cooling never reads "0.0" ("0.1" … "9.9", "10", "12").
+ */
+export function cdText(v: number): string {
+  const t = Math.ceil(v * 10 - 1e-6) / 10;
+  if (t >= 10) return String(Math.ceil(v - 1e-6));
+  return Math.max(0.1, t).toFixed(1);
+}
+
+/**
+ * Full normal-skill cooldown of party member `idx` right now — the sim's normalCooldownFor (src/sim/cooldowns.ts):
+ * data cooldown × (1 − this character's normal-cooldown rewards, capped), 0 with instant cooldowns.
+ */
+export function normalCooldownTotal(def: CharacterDef, p: PlayerState, idx: number, tunables: Pick<Tunables, 'instantCooldowns'>): number {
+  if (tunables.instantCooldowns) return 0;
+  const red = Math.min(MAX_COOLDOWN_REDUCTION, skillMod(p, idx, 'normal', 'cooldown'));
+  return (def.normal.cooldown ?? 6) * (1 - red);
 }
 
 /**

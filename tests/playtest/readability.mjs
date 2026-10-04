@@ -180,7 +180,7 @@ async function fontAudit() {
   return page.evaluate(() => {
     const st = document.querySelector('.stage').getBoundingClientRect();
     const k = st.width / 1280;
-    const sel = ['.cc-name', '.cc-state', '.cc-count', '.ns-cap', '.ns-t', '.ns-name', '.ns-every', '.ult-pct', '.ult-sub', '.ult-name', '.pc-name', '.pc-state', '.bot-name', '.bot-char', '.fi-chip', '.timer-val', '.ss-type', '.ss-trigger', '.ss-skill', '.ss-sum', '.ss-live', '.ss-hint', '.toast'];
+    const sel = ['.cc-name', '.cc-state', '.cc-count', '.cc-norm-t', '.ult-pct', '.ult-sub', '.ult-name', '.pc-name', '.pc-state', '.bot-name', '.bot-char', '.fi-chip', '.timer-val', '.ss-type', '.ss-trigger', '.ss-skill', '.ss-sum', '.ss-live', '.ss-hint', '.toast'];
     const out = { stageScale: +k.toFixed(4), stage: { x: +st.x.toFixed(1), w: +st.width.toFixed(1), h: +st.height.toFixed(1) } };
     for (const s of sel) {
       const el = document.querySelector(s);
@@ -239,10 +239,10 @@ async function sheetTests(s) {
     await sleep(100);
     r.tapActiveAgainCloses = !(await sheetOpen());
   }
-  // 4) tap the auto-skill widget
-  await input.tap(await center(page, '.nskill'));
+  // 4) tap the "i" on the field character's card (the card underneath takes the tap)
+  await input.tap(await center(page, '.ccard.is-active .cc-info'));
   await sleep(120);
-  r.tapAutoSkillOpens = await sheetOpen();
+  r.tapInfoOpens = await sheetOpen();
   // auto close
   const t0 = Date.now();
   while ((await sheetOpen()) && Date.now() - t0 < 9000) await sleep(250);

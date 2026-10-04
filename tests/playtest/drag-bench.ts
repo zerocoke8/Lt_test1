@@ -17,10 +17,10 @@
 //
 // Measured per cast (realised in the run, not nominal): drag damage incl. DoT / delayed parts / zone ticks (no
 // overkill); enemy-seconds stunned / Σ slow×seconds and the party HP they actually kept (only while the enemy is in
-// range of the character it targets — a stun only while its swing was due — at its DPS after that character's
-// defence); pull / knockback distance actually moved (priced 0, see drag-value.ts); ally HP healed (no overheal),
-// shield actually absorbed, damage prevented by a def buff, extra ally damage from atk / attack-speed buffs (applied
-// multiplicatively), bench swap cooldown removed. drag-value.ts weighs them. Cross-check by removing effects from the
+// range of the character it targets — a stun freezes the attack timer, so each such second = one second of its DPS —
+// at its DPS after that character's defence); pull / knockback distance actually moved (priced 0, see drag-value.ts);
+// ally HP healed (no overheal), shield actually absorbed, damage prevented by a def buff, extra ally damage from
+// atk / attack-speed buffs (applied multiplicatively), bench swap cooldown removed. drag-value.ts weighs them. Cross-check by removing effects from the
 // live sim and measuring what the run loses: tests/review/drag-ablation.ts (docs/balance.md 5장).
 
 import fs from 'node:fs';
@@ -355,8 +355,9 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
 
     // realised CC on enemies (statuses from my drag skill). Only time that actually kept an attack off us is priced
     // (balance critic, outcome ablation: most stunned / slowed seconds land on enemies still walking in):
-    //   stun — the enemy is in range of the character it targets AND its attack timer is ready (the sim keeps counting
-    //          the timer down during a stun, so a stun only delays the next swing by the part of the stun after it was due)
+    //   stun — the enemy is in range of the character it targets. 기획 4차: the attack timer is frozen during a stun
+    //          (src/sim/units.ts), so every stunned second pushes all its later swings back by that second → S × DPS
+    //          (2차 rule, timer kept running: only the seconds after the swing was due counted)
     //   slow — the enemy is in range of the character it targets (slow cuts attack speed by v), not stunned at the same time
     //   both priced at the enemy's DPS after that character's defence (= the HP it would have lost)
     for (const e of s.entities) {
@@ -368,8 +369,10 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
         if (st.sourcePlayer !== 0 || st.src !== 'drag') continue;
         if (st.id === 'stun') {
           add('stunSec', DT);
-          if (t) add('stunEngSec', DT);
-          if (t && e.rt.attackCd <= 0) add('stunHp', DT * threatOn(w, e, t));
+          if (t) {
+            add('stunEngSec', DT);
+            add('stunHp', DT * threatOn(w, e, t));
+          }
         } else if (st.id === 'slow') {
           add('slowSec', st.value * DT);
           if (t && !stunned) add('slowHp', st.value * DT * threatOn(w, e, t));
@@ -548,7 +551,9 @@ for (const pol of POLICIES) {
     dmg: r0(r.comp.dmg),
     stunS: r1(r.comp.stunSec),
     stunEngS: r1(r.comp.stunEngSec),
+    stunHp: r0(r.comp.stunHp),
     slowS: r1(r.comp.slowSec),
+    slowHp: r0(r.comp.slowHp),
     disp: r1(r.comp.dispUnits),
     heal: r0(r.comp.heal),
     shieldG: r0(r.comp.shieldGranted),

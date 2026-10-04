@@ -1,6 +1,6 @@
 // 전투 HUD (기획서 13장 목업 배치). DOM is built once per run; update() diffs cheaply (~30 Hz).
 //  좌상단: 다른 플레이어 2명 (사람 이름 또는 BOT) · 상단 중앙: 보스 바 / 층 정보 · 우상단: 타이머 + 설정
-//  좌하단: 내 캐릭터 카드 3장 · 하단 중앙: 궁극기 게이지 · 우하단: 펫 카드 3장
+//  좌하단: 내 캐릭터 카드 3장 (카드마다 일반스킬 쿨 마름모) · 하단 중앙: 궁극기 게이지 · 우하단: 펫 카드 3장
 //  중앙: 배너(층 시작/클리어/광폭화), 필드 비었을 때 안내, 관전 안내
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
@@ -8,7 +8,7 @@ import { ROLE_LABEL, getBoss, getCharacter, getMonster, getPet } from '../data';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
 import { dragShapeIcon, petIcon, portrait } from './preset';
-import { type SkillIcon, type SkillRowKind, secs, skillIcon, skillRows } from './skillinfo';
+import { type SkillRowKind, cdText, normalCooldownTotal, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
 
@@ -32,17 +32,6 @@ const TIP_ID = 'skillSheet';
 const TIP_MS = 9000;
 /** A bench card's cooldown dropping this much faster than time passes = a cooldown cut (크로노 …): "-N초" pop. */
 const CUT_MIN = 0.4;
-
-/** Small inline icons for the normal-skill badge (by footprint family). */
-const SKILL_ICON_SVG: Record<SkillIcon, string> = {
-  spin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-3-6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><path d="M14 2.5l3.6 3.3-3.9 2.7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  line: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12h15.5M13 6.2l6 5.8-6 5.8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  hit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.8l2.3 6.4 6.8-.9-4.9 4.8 3.3 6-6.3-2.6L12 22l-1.2-6.5-6.3 2.6 3.3-6-4.9-4.8 6.8.9z" fill="currentColor"/></svg>',
-  ring: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.3" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>',
-  cross: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5v19M2.5 12h19" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>',
-  blast: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5" fill="currentColor"/><path d="M12 1.5v3.5M12 19v3.5M1.5 12H5M19 12h3.5M4.6 4.6l2.4 2.4M17 17l2.4 2.4M4.6 19.4L7 17M17 7l2.4-2.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
-  aura: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5V6M6.5 11.5L12 6l5.5 5.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
-};
 
 interface SheetRow {
   kind: SkillRowKind;
@@ -89,17 +78,9 @@ interface CharCard {
   /** Drag-skill badge (shape icon) + its re-appear cooldown bar. */
   drag: HTMLElement;
   dragBar: HTMLElement;
-}
-
-/** The field character's auto normal skill, right of the card row: cooldown ring + seconds, name, period. */
-interface NormWidget {
-  el: HTMLElement;
-  ico: HTMLElement;
-  t: HTMLElement;
-  name: HTMLElement;
-  every: HTMLElement;
-  /** party index shown (null = field empty). */
-  idx: number | null;
+  /** Normal (auto) skill cooldown: small diamond at the portrait's lower-left (목업의 마름모 + '0.99') + its seconds. */
+  norm: HTMLElement;
+  normT: HTMLElement;
 }
 
 interface PetCard {
@@ -238,10 +219,6 @@ export class Hud {
   private lastDom = -1e9;
   private prevDead: boolean[] = [];
   private draggingKey = '';
-  /** Normal-skill cooldown per card as last started (rewards can shorten it; seeded from the data). */
-  private readonly normTotal: number[] = [];
-  private readonly prevNormRem: number[] = [];
-  private readonly norm: NormWidget;
   // skill sheet (tap the active card / long-press any card)
   private readonly sheet: HTMLElement;
   private sheetIdx = -1;
@@ -352,31 +329,17 @@ export class Hud {
       const hpFill = h('div', 'bar-fill', hp);
       const hpShield = h('div', 'bar-shield', hp);
       const state = h('div', 'cc-state', frame);
+      // "i" on the field character's card: a tap there opens the skill sheet (CSS shows it on .is-active only)
+      h('span', 'cc-info', frame, 'i');
+      // the auto (normal) skill fires by itself, so its timer is the only way to know when: a small diamond at the
+      // portrait's lower-left, over the card's edge (outside the clipped frame). Lit = ready; dark + sweep + seconds = cooling.
+      const norm = h('div', 'cc-norm', el);
+      h('div', 'cc-norm-gem', norm);
+      const normT = h('span', 'cc-norm-t', norm);
+      norm.title = `일반스킬 ${def.normal.name} · 자동`;
       el.addEventListener('pointerdown', ev => this.onCardPointerDown(i, ev, el));
-      this.normTotal[i] = def.normal.cooldown ?? 6;
-      this.prevNormRem[i] = m.normalCooldownRemaining;
-      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, drag, dragBar });
+      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, drag, dragBar, norm, normT });
     });
-    // the field character's auto skill (it fires by itself, so the timer is the only way to know when)
-    {
-      const el = h('div', 'nskill hud-block is-empty', bl);
-      el.setAttribute('role', 'button');
-      el.setAttribute('aria-label', '자동 일반스킬');
-      h('div', 'ns-cap', el, '자동 스킬');
-      // "i": this widget (like a card held down) opens the skill sheet
-      h('span', 'ns-info', el, 'i');
-      const ring = h('div', 'ns-ring', el);
-      const ico = h('div', 'ns-ico', ring);
-      const t = h('div', 'ns-t', ring);
-      const name = h('div', 'ns-name', el);
-      const every = h('div', 'ns-every', el);
-      // tap → the sheet of whoever is on the field
-      el.addEventListener('pointerdown', ev => {
-        ev.preventDefault();
-        if (this.norm.idx != null) this.toggleSheet(this.norm.idx);
-      });
-      this.norm = { el, ico, t, name, every, idx: null };
-    }
 
     // ── bottom-center: ult gauge ──
     const bc = h('div', 'hud-bc', this.root);
@@ -549,7 +512,7 @@ export class Hud {
     h('span', 'ss-role', head, ROLE_LABEL[def.role]);
     h('span', 'ss-hint', head, '평타·일반스킬은 자동 · 드래그스킬은 교체할 때');
     const dragCd = m.swapCooldownTotal > 0 ? m.swapCooldownTotal : def.swapCooldown * Math.max(0, this.game.tunables.swapCooldownMult);
-    const rows = skillRows(def, { normal: this.normTotal[i], drag: dragCd, ult: this.game.tunables.ultChargeTime });
+    const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ult: this.game.tunables.ultChargeTime });
     // two lines per skill: type · name · trigger · live, then the whole effect line (wraps, never cut off)
     this.sheetRows = rows.map(r => {
       const row = h('div', `ss-row ss-${r.kind}`, this.sheet);
@@ -587,8 +550,9 @@ export class Hud {
       let txt = '';
       let ready = false;
       if (r.kind === 'normal') {
-        if (!active) txt = '필드에서만';
-        else if (m.normalCooldownRemaining > 0) txt = `${secs(m.normalCooldownRemaining)}초`;
+        // a benched card's timer runs too (same as its diamond); it only goes off on the field
+        if (!active) txt = !m.dead && m.normalCooldownRemaining > 0 ? `${cdText(m.normalCooldownRemaining)}초` : '필드에서만';
+        else if (m.normalCooldownRemaining > 0) txt = `${cdText(m.normalCooldownRemaining)}초`;
         else if (!this.normalInReach(getCharacter(m.defId), m.entityId)) txt = '대기';
         else {
           txt = '준비';
@@ -609,7 +573,7 @@ export class Hud {
       } else if (r.kind === 'passive') txt = active ? '적용 중' : '';
       setText(r.live, txt);
       setClass(r.live, 'is-ready', ready);
-      if (r.kind === 'normal') setText(r.trigger, `${secs(this.normTotal[i])}초마다 자동`);
+      if (r.kind === 'normal') setText(r.trigger, `${secs(this.normalTotal(i))}초마다 자동`);
     }
   }
 
@@ -701,11 +665,11 @@ export class Hud {
           this.banner('보스 광폭화!', '공격력 · 공격 속도 · 소환량 증가', 'enrage');
           break;
         case 'skillCast':
-          if (e.player === this.localPlayer && (e.slot === 'normal' || e.slot === 'drag')) {
-            const me = s.players[this.localPlayer];
-            const idx = me?.activeIndex;
-            const card = idx != null ? this.charCards[idx] : undefined;
-            if (card && me.party[idx!]?.entityId === e.sourceId) replayClass(e.slot === 'normal' ? this.norm.el : card.drag, 'is-fired');
+          if (e.player === this.localPlayer && (e.slot === 'normal' || e.slot === 'drag') && e.sourceId != null) {
+            // the caster's card (by entity: the event may arrive after a swap)
+            const idx = s.players[this.localPlayer]?.party.findIndex(m => m.entityId === e.sourceId) ?? -1;
+            const card = this.charCards[idx];
+            if (card) replayClass(e.slot === 'normal' ? card.norm : card.drag, 'is-fired');
           }
           if (e.sourceId !== null && e.sourceId === s.bossId && e.name) {
             // telegraphed patterns stay up until they land; instant ones (소환) for a moment
@@ -884,14 +848,13 @@ export class Hud {
       setStyle(c.dragBar, 'transform', sx(1 - dragLeft));
       setClass(c.drag, 'is-ready', ready);
       setClass(c.drag, 'is-cool', !ready && !active);
-      this.trackNormal(m, i);
+      this.updateNormal(c, m, i, me.out);
       const hf = m.dead ? 0 : frac(m.hp, m.maxHp);
       setStyle(c.hpFill, 'transform', sx(hf));
       hpClass(c.hpFill, hf);
       setStyle(c.hpShield, 'transform', sx(m.dead ? 0 : frac(m.shield, m.maxHp)));
       updatePips(c.pips, m.dead ? [] : m.statuses);
     });
-    this.updateNormal(me);
   }
 
   /** "-3초" floating off a card whose re-appear cooldown was just cut, plus a flash of its drag badge. */
@@ -901,46 +864,27 @@ export class Hud {
     setTimeout(() => pop.remove(), 1300);
   }
 
-  /** A cast resets the timer to its full (reward-reduced) length: remember that as the period. */
-  private trackNormal(m: PlayerState['party'][number], i: number): void {
-    const rem = Math.max(0, m.normalCooldownRemaining);
-    if (rem > this.prevNormRem[i] + 0.05) this.normTotal[i] = rem;
-    this.prevNormRem[i] = rem;
+  /** Full normal-skill cooldown of card i now (the sim's formula: data × reward cuts; 0 with instant cooldowns). */
+  private normalTotal(i: number): number {
+    const me = this.game.state.players[this.localPlayer];
+    const c = this.charCards[i];
+    return me && c ? normalCooldownTotal(c.def, me, i, this.game.tunables) : 0;
   }
 
-  /** Auto-skill widget: conic sweep of the cooldown, seconds left ("자동" when ready), name, "N초마다". */
-  private updateNormal(me: PlayerState): void {
-    const w = this.norm;
-    const idx = me.out ? null : me.activeIndex;
-    const m = idx != null ? me.party[idx] : undefined;
-    const c = idx != null ? this.charCards[idx] : undefined;
-    if (idx !== w.idx) {
-      w.idx = idx ?? null;
-      setClass(w.el, 'is-empty', !c);
-      if (c) {
-        w.el.style.setProperty('--c', c.def.color);
-        w.ico.innerHTML = SKILL_ICON_SVG[skillIcon(c.def.normal)];
-        setText(w.name, c.def.normal.name);
-        setAttr(w.el, 'title', `${c.def.name} · 일반스킬 ${c.def.normal.name} (자동)`);
-        replayClass(w.el, 'is-new');
-      } else {
-        w.ico.innerHTML = '';
-        setText(w.name, me.out ? '—' : '필드 비었음');
-        setText(w.t, '');
-        setText(w.every, '');
-      }
-    }
-    if (!c || !m || idx == null) return;
-    const rem = Math.max(0, m.normalCooldownRemaining);
-    const total = Math.max(0.1, this.normTotal[idx]);
-    const cooling = rem > 0;
-    setClass(w.el, 'is-ready', !cooling);
-    setStyle(w.el, '--p', `${Math.round(frac(rem, total) * 360)}deg`);
-    // ready: it goes off by itself the moment a target is in reach ("준비"), else it waits for one ("대기")
-    const waiting = !cooling && !this.normalInReach(c.def, m.entityId);
-    setClass(w.el, 'is-waiting', waiting);
-    setText(w.t, cooling ? secs(rem) : waiting ? '대기' : '준비');
-    setText(w.every, `${secs(total)}초마다`);
+  /**
+   * Card diamond: lit = ready (goes off by itself once something is in reach), cooling = dark with the colour sweeping
+   * back in clockwise (--p = part elapsed) and the seconds left ("5.4"). Bench timers run too (the sim ticks them).
+   * Dead / spectating: dimmed, no number (the revive countdown is the card's big number).
+   */
+  private updateNormal(c: CharCard, m: PlayerState['party'][number], i: number, out: boolean): void {
+    const rem = out || m.dead ? 0 : Math.max(0, m.normalCooldownRemaining);
+    const cooling = rem > 0.001;
+    // never shorter than what is left (a reward picked mid-cooldown, a tunables change)
+    const total = Math.max(rem, this.normalTotal(i), 0.01);
+    setClass(c.norm, 'is-cool', cooling);
+    setClass(c.norm, 'is-ready', !cooling && !m.dead && !out);
+    setStyle(c.norm, '--p', `${cooling ? Math.round((1 - rem / total) * 180) * 2 : 360}deg`);
+    setText(c.normT, cooling ? cdText(rem) : '');
   }
 
   /** Would the field character's normal skill fire now (same reach rule as the sim: target within castRange)? */

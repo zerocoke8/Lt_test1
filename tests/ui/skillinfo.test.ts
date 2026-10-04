@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS, getCharacter } from '../../src/data';
 import type { SkillDef } from '../../src/types';
-import { areaLabel, pct, secs, skillIcon, skillRows, skillSummary } from '../../src/ui/skillinfo';
+import { normalCooldownFor } from '../../src/sim/cooldowns';
+import { areaLabel, cdText, normalCooldownTotal, pct, secs, skillIcon, skillRows, skillSummary } from '../../src/ui/skillinfo';
+import { advance, makeGame } from '../sim/helpers';
 
 describe('skill sheet rows', () => {
   it('every character gets its 5 skills with a type, a trigger and a one-line summary', () => {
@@ -63,5 +65,51 @@ describe('skill sheet rows', () => {
     expect(skillIcon(getCharacter('guardian').normal)).toBe('hit');
     expect(skillIcon(getCharacter('warden').normal)).toBe('ring');
     expect(skillIcon(getCharacter('cleric').normal)).toBe('aura');
+  });
+});
+
+describe('card diamond (일반스킬 쿨)', () => {
+  it('seconds: one decimal under 10 s, rounded up (never "0.0" while cooling), whole seconds above', () => {
+    expect(cdText(5.42)).toBe('5.5');
+    expect(cdText(5.4)).toBe('5.4');
+    expect(cdText(0.91)).toBe('1.0');
+    expect(cdText(0.9)).toBe('0.9');
+    expect(cdText(0.01)).toBe('0.1');
+    expect(cdText(9.9)).toBe('9.9');
+    expect(cdText(9.93)).toBe('10');
+    expect(cdText(12.4)).toBe('13');
+  });
+
+  it('full cooldown = the sim\'s normalCooldownFor (data × reward cuts, capped; 0 with instant cooldowns)', () => {
+    const tg = makeGame();
+    const p = tg.w.state.players[0];
+    const check = () =>
+      p.party.forEach((m, i) => expect(normalCooldownTotal(getCharacter(m.defId), p, i, tg.w.tunables), `${m.defId} #${i}`).toBeCloseTo(normalCooldownFor(tg.w, p, i), 9));
+    check();
+    p.rewards.push({ rewardId: 'normcd_rare', partyIndex: 1 });
+    check();
+    expect(normalCooldownTotal(getCharacter(p.party[1].defId), p, 1, tg.w.tunables)).toBeLessThan(getCharacter(p.party[1].defId).normal.cooldown ?? 6);
+    for (let k = 0; k < 4; k++) p.rewards.push({ rewardId: 'normcd_epic', partyIndex: 1 });
+    check(); // capped reduction
+    tg.w.tunables.instantCooldowns = true;
+    check();
+    expect(normalCooldownTotal(getCharacter(p.party[0].defId), p, 0, tg.w.tunables)).toBe(0);
+  });
+
+  it('right after the field character\'s auto skill fires, its timer starts at that full cooldown', () => {
+    const tg = makeGame();
+    const p = tg.w.state.players[0];
+    p.rewards.push({ rewardId: 'normcd_common', partyIndex: 0 });
+    const idx = p.activeIndex!;
+    const total = normalCooldownTotal(getCharacter(p.party[idx].defId), p, idx, tg.w.tunables);
+    let seen = -1;
+    for (let t = 0; t < 60 * 30 && seen < 0; t++) {
+      const before = p.party[idx].normalCooldownRemaining;
+      advance(tg, 1 / 30);
+      if (p.party[idx].normalCooldownRemaining > before + 0.5) seen = p.party[idx].normalCooldownRemaining;
+    }
+    expect(seen, 'the auto skill fired').toBeGreaterThan(0);
+    expect(seen).toBeLessThanOrEqual(total + 1e-9);
+    expect(seen).toBeGreaterThan(total - 1 / 30 - 1e-9);
   });
 });

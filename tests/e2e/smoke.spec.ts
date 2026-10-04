@@ -209,12 +209,46 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   expect(afterSwap.cd).toBeGreaterThan(5);
   await expect(page.locator('.ccard[data-idx="1"]')).toHaveClass(/is-active/);
 
-  // ── 쿨타임이 보임: the field character's auto skill + its period, drag (= re-appear) cooldowns on the cards ──
-  await expect(page.locator('.nskill')).not.toHaveClass(/is-empty/);
-  const autoSkill = await page.locator('.nskill').getAttribute('title');
-  expect(autoSkill).toContain(`일반스킬 ${await page.locator('.nskill .ns-name').textContent()} (자동)`);
-  await expect(page.locator('.nskill .ns-every')).toHaveText(/^\d+(\.\d)?초마다$/);
-  await expect(page.locator('.nskill .ns-t')).toHaveText(/^(\d+(\.\d)?|준비|대기)$/);
+  // ── 쿨타임이 보임: each card's auto-skill diamond (목업의 마름모: lit = ready, else small seconds), no separate widget;
+  //    drag (= re-appear) cooldowns on the cards ──
+  await expect(page.locator('.nskill')).toHaveCount(0);
+  await expect(page.locator('.ccard .cc-norm')).toHaveCount(3);
+  await inGame(page, g => {
+    const p = g.state.players[0].party;
+    p[0].normalCooldownRemaining = 0; // benched: stays ready
+    p[2].normalCooldownRemaining = 7.25; // benched: counts down (bench timers run)
+  });
+  await expect(page.locator('.ccard[data-idx="0"] .cc-norm')).toHaveClass(/is-ready/);
+  await expect(page.locator('.ccard[data-idx="0"] .cc-norm-t')).toHaveText('');
+  await expect(page.locator('.ccard[data-idx="2"] .cc-norm')).toHaveClass(/is-cool/);
+  await expect(page.locator('.ccard[data-idx="2"] .cc-norm-t')).toHaveText(/^[4-7]\.\d$/);
+  const normName = getCharacter(await inGame(page, g => g.state.players[0].party[1].defId)).normal.name;
+  expect(await page.locator('.ccard[data-idx="1"] .cc-norm').getAttribute('title')).toBe(`일반스킬 ${normName} · 자동`);
+  // the "i" (tap → skill sheet) only on the field character's card
+  await expect(page.locator('.ccard[data-idx="1"] .cc-info')).toBeVisible();
+  await expect(page.locator('.ccard[data-idx="0"] .cc-info')).toBeHidden();
+  // small, and clear of the drag badge, the card number, name, HP bar and label (diamond = |dx| + |dy| ≤ r)
+  const clash = await page.evaluate(() =>
+    [...document.querySelectorAll('.ccard')].flatMap(card => {
+      const d = card.querySelector('.cc-norm')!.getBoundingClientRect();
+      const cx = d.left + d.width / 2;
+      const cy = d.top + d.height / 2;
+      const r = d.width / 2;
+      const stage = document.querySelector('.stage')!.getBoundingClientRect();
+      const out: string[] = [];
+      if (d.width / (stage.width / 1280) > 40) out.push(`${(card as HTMLElement).dataset.idx}: diamond ${d.width.toFixed(1)} px is not small`);
+      for (const sel of ['.cc-drag', '.cc-slot', '.cc-name', '.cc-hp', '.cc-state', '.cc-info']) {
+        const el = card.querySelector(sel) as HTMLElement | null;
+        if (!el || el.offsetParent === null) continue;
+        const b = el.getBoundingClientRect();
+        const dx = Math.max(b.left - cx, 0, cx - b.right);
+        const dy = Math.max(b.top - cy, 0, cy - b.bottom);
+        if (dx + dy < r - 0.5) out.push(`${(card as HTMLElement).dataset.idx}: diamond overlaps ${sel}`);
+      }
+      return out;
+    }),
+  );
+  expect(clash).toEqual([]);
   for (let i = 0; i < 3; i++) {
     const st = await inGame(page, (g, idx) => {
       const me = g.state.players[0];
@@ -239,6 +273,7 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
     skillSummary(sheetDef.ult),
   ]);
   await expect(page.locator('.skill-sheet .ss-drag .ss-trigger')).toHaveText(`등장 시 · 쿨 ${secs(sheetDef.swapCooldown)}초`);
+  await expect(page.locator('.skill-sheet .ss-normal .ss-trigger')).toHaveText(`${secs(sheetDef.normal.cooldown ?? 6)}초마다 자동`);
   const sheetBox = (await page.locator('.skill-sheet').boundingBox())!;
   const stageBox = (await page.locator('.stage').boundingBox())!;
   expect(sheetBox.x).toBeGreaterThanOrEqual(stageBox.x - 1);
