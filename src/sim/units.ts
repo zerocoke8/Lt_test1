@@ -37,7 +37,8 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
   e.invulnTime = dec(e.invulnTime, dt);
   rt.sinceAppear += dt;
   if (e.targetId != null) e.targetHeldFor += dt;
-  rt.attackCd = dec(rt.attackCd, dt);
+  // 기획 4차: 기절 중에는 공격 대기시간이 멈춤 (풀리자마자 바로 때리지 못함).
+  if (!hasStatus(e, 'stun')) rt.attackCd = dec(rt.attackCd, dt);
   for (let i = 0; i < rt.skillCds.length; i++) rt.skillCds[i] = dec(rt.skillCds[i], dt);
   rt.skillGap = dec(rt.skillGap, dt);
   rt.lockTime = dec(rt.lockTime, dt);
