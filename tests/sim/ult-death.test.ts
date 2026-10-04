@@ -114,7 +114,7 @@ describe('R11 player out and wipe', () => {
     expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '관전 중' });
     const charge = s.players[0].ult.charge;
     advance(tg, 31);
-    // out is permanent: no revive, no ult charge
+    // out for the rest of this floor: no revive, no ult charge (기획 5차: back at the next floor if someone clears)
     expect(s.players[0].party.every(m => m.dead)).toBe(true);
     expect(s.players[0].ult.charge).toBe(charge);
     killAllOf(tg, 1);

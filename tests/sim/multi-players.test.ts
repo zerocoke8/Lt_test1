@@ -58,7 +58,7 @@ describe('R33 per-player rewards', () => {
     expect(s.phase).toBe('combat');
   });
 
-  it('out players get nothing; player 0 out still lets the other human choose', () => {
+  it('기획 5차: a player who was out is revived at the clear and chooses a reward like everyone else', () => {
     const tg = makeGame({ players: [HUMAN, HUMAN2] });
     quietFloor(tg);
     const s = tg.game.state;
@@ -71,10 +71,12 @@ describe('R33 per-player rewards', () => {
     expect(p0.out).toBe(true);
     tg.game.dispatch(skip);
     expect(s.phase).toBe('reward');
-    expect(s.rewardOffersByPlayer[0]).toBeNull();
-    expect(s.rewardOffers).toBeNull();
+    expect(p0.out).toBe(false);
+    expect(s.rewardOffersByPlayer[0]).toHaveLength(3);
     expect(s.rewardOffersByPlayer[1]).toHaveLength(3);
     tg.game.dispatch({ type: 'chooseReward', player: 1, offerIndex: 0 });
+    expect(s.phase).toBe('reward'); // still waiting for the revived player 0
+    tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
     expect(s.phase).toBe('combat');
     expect(s.floor).toBe(2);
   });

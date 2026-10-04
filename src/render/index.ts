@@ -32,6 +32,7 @@ import {
   drawGroundRing,
   drawHpBar,
   drawLocalMarker,
+  drawNameTag,
   drawShadow,
   drawStatusPips,
   drawStunStars,
@@ -634,6 +635,11 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (e.statuses.length > 0) y -= drawStatusPips(c, pose.fx, y, e.statuses);
     const stunned = e.anim === 'stunned' || hasStatus(e, 'stun');
     if (stunned) drawStunStars(c, pose.fx, top + 2, w, time + m.phase);
+    // 기획 5차: who is who — name tag over every player character ("나" = mine)
+    if (e.kind === 'character' && e.ownerPlayer != null) {
+      const owner = state.players[e.ownerPlayer];
+      if (owner) y -= drawNameTag(c, pose.fx, y - 1, isLocal ? '나' : owner.name, playerColor(state, e.ownerPlayer), isLocal);
+    }
     if (isLocal) drawLocalMarker(c, pose.fx, y - 2, playerColor(state, local), time);
   }
 

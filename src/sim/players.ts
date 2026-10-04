@@ -253,7 +253,7 @@ export function tickPlayers(w: World, dt: number): void {
   }
 }
 
-function revive(w: World, p: SimPlayer, idx: number): void {
+export function revive(w: World, p: SimPlayer, idx: number): void {
   const m = p.party[idx];
   const frac = hasRelic(p, 'phoenix_feather') ? relicParam('phoenix_feather', 'hpFrac') : w.tunables.reviveHpFrac;
   m.dead = false;

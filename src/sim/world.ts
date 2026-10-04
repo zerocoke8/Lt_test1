@@ -73,6 +73,8 @@ export interface BotBrain {
 }
 export interface PlayerRt {
   bot: BotBrain;
+  /** 기획 5차: came back from 'out' at a floor clear → put party slot 0 on the field when the next floor starts. */
+  rejoinNextFloor?: boolean;
 }
 export interface SimPlayer extends PlayerState {
   party: SimMember[];

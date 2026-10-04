@@ -856,6 +856,33 @@ export function drawStatusPips(ctx: CanvasRenderingContext2D, cx: number, y: num
   return size + 3;
 }
 
+/**
+ * 기획 5차 "누가 누군지": a small name tag over every player character — "나" for mine (bigger), the player's name
+ * (nickname / BOT 1) for others — on a dark pill edged in that player's colour. Returns the height used.
+ */
+export function drawNameTag(ctx: CanvasRenderingContext2D, cx: number, bottomY: number, text: string, color: string, isLocal: boolean): number {
+  const px = isLocal ? 14 : 12;
+  const h = isLocal ? 19 : 16;
+  ctx.font = boldFont(px);
+  const label = text.length > 8 ? text.slice(0, 7) + '…' : text;
+  const w = Math.ceil(ctx.measureText(label).width) + (isLocal ? 14 : 11);
+  const x = cx - w / 2;
+  const y = bottomY - h;
+  pathRoundRect(ctx, x, y, w, h, h / 2);
+  ctx.globalAlpha = isLocal ? 0.92 : 0.8;
+  ctx.fillStyle = '#0b0d14';
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = isLocal ? 2 : 1.5;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = isLocal ? '#ffffff' : color;
+  ctx.fillText(label, cx, y + h / 2 + 0.5);
+  return h + 2;
+}
+
 export function drawLocalMarker(ctx: CanvasRenderingContext2D, cx: number, bottomY: number, color: string, time: number): void {
   const bob = Math.sin(time * 4.5) * 3;
   const y = bottomY - 6 + bob;

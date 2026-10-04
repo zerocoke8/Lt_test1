@@ -659,7 +659,7 @@ export class Vfx implements FxHost {
     // different kinds stack (a drag callout stays while the normal skill fires right after the landing)
     const ls = this.labels;
     if (follow >= 0) for (let i = ls.count - 1; i >= 0; i--) if (ls.items[i].follow === follow && ls.items[i].size === size) ls.kill(i);
-    const z = src && ev.slot !== 'pet' ? (bodyTop(src.look, src.tier, bodyHeight(src.look, src.radius), bodyWidth(src.radius)) + (local ? 44 : 22)) / PX_PER_UNIT_Z : 1.6;
+    const z = src && ev.slot !== 'pet' ? (bodyTop(src.look, src.tier, bodyHeight(src.look, src.radius), bodyWidth(src.radius)) + (local ? 66 : 42)) / PX_PER_UNIT_Z : 1.6; // above the name tag (+ my ▼)
     const l = this.label(follow >= 0 && src ? src.x : ev.center.x, follow >= 0 && src ? src.y : ev.center.y, z, text, fill, size, dur);
     l.follow = follow;
     l.stroke = mix(color, '#000000', 0.72);
