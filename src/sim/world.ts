@@ -11,6 +11,7 @@ import type {
   GameEvent,
   GameState,
   MonsterDef,
+  MonsterSkill,
   PartyMember,
   PlayerState,
   Projectile,
@@ -41,6 +42,8 @@ export interface EntityRt {
   /** Removed from play (dead, swapped out, expired, retreated). */
   gone: boolean;
   attackCd: number;
+  /** Monster skill rotation: def.skills + skills added by boss phases (기획 8차). skillCds is parallel to it. */
+  skills: MonsterSkill[];
   skillCds: number[];
   skillGap: number;
   /** Cannot act (cast / appear) while > 0. */
@@ -51,8 +54,13 @@ export interface EntityRt {
   stationary: boolean;
   /** Ally turret: shoots with owner pet power. */
   petPowered: boolean;
-  /** Monster skill being wound up (telegraphed, not landed yet): a stun breaks it (status.ts, skills.ts tickPending). */
-  windup: PendingHit | null;
+  /** Monster skill parts being wound up (telegraphed, not landed yet): a stun breaks them (status.ts, skills.ts tickPending). */
+  windup: PendingHit[];
+  /** Boss phases entered so far (BossDef.phases, 기획 8차). */
+  phase: number;
+  /** Product of the entered phases' atkSpeedMult / cooldownMult. */
+  phaseAtkSpeedMult: number;
+  phaseCdMult: number;
 }
 export interface SimEntity extends Entity {
   rt: EntityRt;
@@ -147,6 +155,8 @@ export interface PendingHit {
   telegraphId: number | null;
   /** Wind-up broken by a stun before it landed: dropped with its telegraph on the next tickPending. */
   cancelled?: boolean;
+  /** SkillAction.charge (기획 8차): where the caster ends its rush when the hit lands (fixed at cast time = telegraph). */
+  chargeTo?: Vec2;
 }
 export interface PendingEcho {
   kind: 'echo';
@@ -173,6 +183,11 @@ export interface SpawnerState {
   pending: PendingSpawn[];
   kills: number;
   midTriggered: boolean;
+  /**
+   * 기획 8차 onDeath splits that did not fit under maxAliveMonsters: they come out (oldest first) as soon as there is
+   * room, and the floor does not clear while any wait.
+   */
+  deferred: { monsterId: string; pos: Vec2 }[];
 }
 
 export interface SimState extends GameState {
@@ -277,6 +292,11 @@ export function compactEntities(w: World): void {
     else w.byId.delete(e.id);
   }
   ents.length = j;
+}
+
+/** Enemies queued to appear (spawn markers + onDeath splits waiting for room) — they count against the alive cap. */
+export function queuedEnemies(w: World): number {
+  return w.spawner.pending.length + w.spawner.deferred.length;
 }
 
 /** Enemies alive (monsters + enemy summons, boss excluded). */

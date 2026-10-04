@@ -1089,6 +1089,71 @@
 .boss-name {
   font-size: 21px;
   font-weight: 900;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.boss-name.is-long {
+  font-size: 18px;
+}
+
+/* 기획 8차 boss phases: ◆◆◇ next to the HP %, ticks on the bar at each threshold */
+.boss-phase {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  flex: none;
+}
+
+.boss-phase .bp-mark {
+  width: 10px;
+  height: 10px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  border: 1.5px solid rgba(255, 143, 171, 0.8);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.boss-phase .bp-mark.is-on {
+  background: #ff4d6d;
+  border-color: #ffd6de;
+  box-shadow: 0 0 6px rgba(255, 77, 109, 0.8);
+}
+
+.boss-phase:not(.is-hidden) + .boss-pct {
+  margin-left: 6px;
+}
+
+.boss-bar {
+  position: relative;
+}
+
+.boss-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  z-index: 2;
+}
+
+.boss-tick.is-past {
+  opacity: 0.35;
+}
+
+.boss.is-phase {
+  animation: bossPhase 0.7s ease;
+}
+
+@keyframes bossPhase {
+  0% { box-shadow: 0 0 0 0 rgba(255, 77, 109, 0.9); border-color: #ffffff; }
+  40% { box-shadow: 0 0 34px 6px rgba(255, 77, 109, 0.7); }
+  100% { box-shadow: none; }
 }
 
 .boss-enrage {
@@ -1191,6 +1256,15 @@
   font-size: 30px;
   font-weight: 900;
   line-height: 1.1;
+}
+
+/* 기획 8차: zone name next to the floor number ("7층 · 사무실층") */
+.fi-zone {
+  margin-left: -4px;
+  font-size: 17px;
+  font-weight: 800;
+  color: #b8c2d6;
+  white-space: nowrap;
 }
 
 .fi-chip {
@@ -2113,6 +2187,7 @@
 .banner-clear .banner-big { color: var(--green-soft); }
 .banner-enrage .banner-big { color: #ff4d5e; }
 .banner-boss .banner-big { color: var(--gold); }
+.banner-phase .banner-big { color: #ff4d6d; }
 
 @keyframes bannerIn {
   0% { opacity: 0; transform: scale(1.35); }

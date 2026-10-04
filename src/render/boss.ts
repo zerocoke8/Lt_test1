@@ -1,8 +1,11 @@
-// The floor boss: a giant procedural creature looming above the arena's back edge (eyes + tentacles).
+// The floor bosses: giant procedural set pieces looming above the arena's back edge. 심연의 감시자 (eye + tentacles,
+// the 20층 rooftop boss) lives here; the 기획 8차 bosses are in bosses.ts. drawBossArt routes by boss id.
 
 import { Camera, PX_PER_UNIT } from './camera';
 import { darken, lighten, mix } from './look';
 import { TAU, hash01 } from './shapes';
+import { drawElevatorKeeper, drawOvertimeLord, drawSurgeonDirector } from './bosses';
+import { getBoss } from '../data';
 
 export interface BossDrawOpts {
   color: string;
@@ -19,6 +22,41 @@ export interface BossDrawOpts {
   charge: number;
   /** 0..1 enrage-moment shake strength. */
   shake: number;
+  /** 기획 8차: current phase (1 = start; each crossed HP threshold +1). */
+  phase: number;
+  /** 0..1 flash right after a phase change. */
+  phaseFlash: number;
+}
+
+/** Phase from HP vs the boss's thresholds (robust to joining mid-fight; the 'bossPhase' event only adds the flash). */
+export function bossPhaseOf(defId: string, hp: number, maxHp: number): number {
+  let phases: { hpBelow: number }[] | undefined;
+  try {
+    phases = getBoss(defId).phases;
+  } catch {
+    return 1;
+  }
+  if (!phases || maxHp <= 0) return 1;
+  let n = 1;
+  for (const ph of phases) if (hp < ph.hpBelow * maxHp - 1e-9) n++;
+  return n;
+}
+
+/** Draws the boss set piece for `defId` (unknown ids get the watcher). */
+export function drawBossArt(ctx: CanvasRenderingContext2D, cam: Camera, defId: string, x: number, y: number, radius: number, o: BossDrawOpts): void {
+  switch (defId) {
+    case 'elevator_keeper':
+      drawElevatorKeeper(ctx, cam, x, y, radius, o);
+      return;
+    case 'overtime_lord':
+      drawOvertimeLord(ctx, cam, x, y, radius, o);
+      return;
+    case 'surgeon_director':
+      drawSurgeonDirector(ctx, cam, x, y, radius, o);
+      return;
+    default:
+      drawBoss(ctx, cam, x, y, radius, o);
+  }
 }
 
 const TENTACLE_ANGLES = [0.12, 0.27, 0.4, 0.6, 0.73, 0.88];
@@ -51,12 +89,26 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
   const rx = radius * PX_PER_UNIT * 0.95;
   const ry = radius * PX_PER_UNIT * 0.55;
   const alpha = 1 - o.retreat;
-  const base = o.enraged ? mix(o.color, '#ff0033', 0.35) : o.color;
+  let base = o.color;
+  if (o.phase > 1) base = mix(base, '#c4106a', 0.16 * (o.phase - 1));
+  if (o.enraged) base = mix(base, '#ff0033', 0.35);
   const dark = darken(base, 0.45);
   const darker = darken(base, 0.7);
   const light = lighten(base, 0.3);
-  const speed = o.enraged ? 2.6 : 1.5;
+  const speed = o.enraged ? 2.6 : o.phase >= 3 ? 2.2 : o.phase === 2 ? 1.8 : 1.5;
   ctx.globalAlpha = alpha;
+
+  // the rift halo behind it (rooftop sky tears open wider each phase)
+  {
+    const p = 0.5 + 0.5 * Math.sin(t * 1.7);
+    const hr = 1.25 + 0.12 * (o.phase - 1) + 0.04 * p;
+    ctx.globalAlpha = alpha * (0.1 + 0.05 * o.phase);
+    ctx.fillStyle = o.phase >= 3 ? '#ff4fa3' : '#9d4edd';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - ry * 0.1, rx * hr, ry * (hr + 0.25), 0, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = alpha;
+  }
 
   // aura
   if (o.enraged) {
@@ -105,9 +157,32 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
         ctx.arc((px + nx) / 2, (py + ny) / 2, Math.max(1.5, 4 * (1 - u)), 0, TAU);
         ctx.fill();
       }
+      if (o.phase >= 2 && k === 4 && i % 2 === 0) {
+        // phase 2+: eyes open along the tentacles
+        const open = eyeOpen(t, i + 7);
+        ctx.fillStyle = '#120818';
+        ctx.beginPath();
+        ctx.ellipse(nx, ny, 9, 7, 0, 0, TAU);
+        ctx.fill();
+        if (open > 0.3) {
+          ctx.fillStyle = '#f6f0d8';
+          ctx.beginPath();
+          ctx.ellipse(nx, ny, 7, 5 * open, 0, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = o.phase >= 3 ? '#ff1a1a' : '#ff5d5d';
+          ctx.beginPath();
+          ctx.arc(nx, ny, 3, 0, TAU);
+          ctx.fill();
+        }
+      }
       px = nx;
       py = ny;
     }
+    // sucker tip curling at the end
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.arc(px, py, 3.5, 0, TAU);
+    ctx.fill();
   }
   ctx.lineCap = 'butt';
 
@@ -148,6 +223,21 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
   ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
   ctx.stroke();
 
+  // phase 3: the body cracks open with abyss light
+  if (o.phase >= 3) {
+    ctx.globalAlpha = alpha * (0.6 + 0.3 * Math.sin(t * 5));
+    ctx.strokeStyle = '#ff7ad9';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU + 0.6;
+      ctx.moveTo(cx + Math.cos(a) * rx * 0.4, cy + Math.sin(a) * ry * 0.45);
+      ctx.lineTo(cx + Math.cos(a + 0.2) * rx * 0.62, cy + Math.sin(a + 0.2) * ry * 0.62);
+      ctx.lineTo(cx + Math.cos(a - 0.1) * rx * 0.9, cy + Math.sin(a - 0.1) * ry * 0.88);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = alpha;
+  }
   // veins when enraged
   if (o.enraged) {
     ctx.globalAlpha = alpha * (0.5 + 0.4 * Math.sin(t * 8));
@@ -205,8 +295,8 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
     ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
     ctx.fill();
   }
-  if (o.flash > 0) {
-    ctx.globalAlpha = alpha * 0.4 * o.flash;
+  if (o.flash > 0 || o.phaseFlash > 0) {
+    ctx.globalAlpha = alpha * Math.max(0.4 * o.flash, 0.75 * o.phaseFlash);
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);

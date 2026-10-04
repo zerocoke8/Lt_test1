@@ -10,7 +10,7 @@ import { clampUnit } from './entities';
 import { castSkill, startAction } from './skills';
 import { effStats } from './stats';
 import { hasStatus, tickStatusTimers } from './status';
-import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type SimEntity, type SimStatus, type World } from './world';
+import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type PendingHit, type SimEntity, type SimStatus, type World } from './world';
 
 export function tickUnits(w: World, dt: number): void {
   const ents = w.state.entities;
@@ -206,23 +206,38 @@ function tryNormalSkill(w: World, e: SimEntity, t: SimEntity | null): void {
   }
 }
 
+/** Cooldown multiplier of a monster's skills right now: enrage (bosses) × entered boss phases (기획 8차). */
+export function monsterCdMult(e: SimEntity): number {
+  const def = e.rt.monDef;
+  const en = e.enraged && def?.tier === 'boss' ? (def as BossDef).enrage.cooldownMult : 1;
+  return en * e.rt.phaseCdMult;
+}
+
 function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
   const def = e.rt.monDef;
-  const skills = def?.skills;
-  if (!def || !skills || !t || e.rt.skillGap > 0) return;
+  const skills = e.rt.skills;
+  if (!def || skills.length === 0 || !t || e.rt.skillGap > 0) return;
   for (let i = 0; i < skills.length; i++) {
     const sk = skills[i];
     if (e.rt.skillCds[i] > 0) continue;
     if (sk.castRange != null && edgeDist(e, t) > sk.castRange) continue;
-    const cdMult = e.enraged && def.tier === 'boss' ? (def as BossDef).enrage.cooldownMult : 1;
-    e.rt.skillCds[i] = sk.cooldown * cdMult;
+    e.rt.skillCds[i] = sk.cooldown * monsterCdMult(e);
     e.rt.skillGap = MONSTER_SKILL_GAP;
-    // a telegraphed skill is wound up until it lands: a stun in between breaks it (status.ts)
-    e.rt.windup = startAction(w, unitCtx(w, e, sk.id, sk.name), sk.action);
-    const delay = sk.action.delay ?? 0;
+    // a telegraphed skill is wound up until it lands: a stun in between breaks every part of it (status.ts)
+    const ctx = unitCtx(w, e, sk.id, sk.name);
+    const windup: PendingHit[] = [];
+    let delay = 0;
+    for (const a of sk.extra ? [sk.action, ...sk.extra] : [sk.action]) {
+      const p = startAction(w, ctx, a);
+      if (p) windup.push(p);
+      delay = Math.max(delay, a.delay ?? 0);
+    }
+    e.rt.windup = windup;
+    // the caster stands still until its main part lands (a charge moves it then); later parts of a sequence don't hold it
+    const hold = sk.action.delay ?? 0;
     e.anim = 'cast';
-    e.animTime = Math.max(0.4, delay);
-    if (!e.rt.stationary && delay > 0) e.rt.lockTime = delay;
+    e.animTime = Math.max(0.4, Math.min(delay, hold > 0 ? hold : delay));
+    if (!e.rt.stationary && hold > 0) e.rt.lockTime = hold;
     return;
   }
 }

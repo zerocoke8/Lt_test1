@@ -44,6 +44,7 @@ function radiusOf(a: AreaShape): number {
     case 'ring':
       return a.outer;
     case 'cone':
+    case 'fan':
       return a.radius;
     case 'cross':
       return a.length;

@@ -120,3 +120,13 @@ describe('debug tunables', () => {
     expect(sanitizeOverrides(null)).toEqual({});
   });
 });
+
+describe('기획 8차 zone label', () => {
+  it('names the zone from the plan theme, else from the floor number', async () => {
+    const { zoneName } = await import('../../src/ui/hud');
+    expect(zoneName('office', 7)).toBe('사무실층');
+    expect(zoneName(undefined, 3)).toBe('로비·상가층');
+    expect(zoneName(undefined, 12)).toBe('폐병동층');
+    expect(zoneName('rooftop', 20)).toBe('옥상·이계');
+  });
+});

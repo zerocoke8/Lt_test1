@@ -44,6 +44,7 @@ export function createUnit(
       base,
       gone: false,
       attackCd: w.rng.range(0.2, 0.8),
+      skills: (def.skills ?? []).slice(),
       skillCds: (def.skills ?? []).map(s => s.initialDelay ?? s.cooldown),
       skillGap: 0,
       lockTime: 0,
@@ -52,7 +53,10 @@ export function createUnit(
       pulseTimer: 0,
       stationary: !!def.stationary,
       petPowered: team === 'ally' && def.tier === 'summon' && def.stats.atk === 0,
-      windup: null,
+      windup: [],
+      phase: 0,
+      phaseAtkSpeedMult: 1,
+      phaseCdMult: 1,
     },
   };
   addEntity(w, e);
@@ -91,6 +95,7 @@ export function createCharacterEntity(w: World, p: SimPlayer, idx: number, pos: 
       base: { ...def.stats },
       gone: false,
       attackCd: 0,
+      skills: [],
       skillCds: [],
       skillGap: 0,
       lockTime: 0,
@@ -99,7 +104,10 @@ export function createCharacterEntity(w: World, p: SimPlayer, idx: number, pos: 
       pulseTimer: 0,
       stationary: false,
       petPowered: false,
-      windup: null,
+      windup: [],
+      phase: 0,
+      phaseAtkSpeedMult: 1,
+      phaseCdMult: 1,
     },
   };
   addEntity(w, e);

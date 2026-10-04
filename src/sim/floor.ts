@@ -1,9 +1,9 @@
 // Floors (R15–R21): plan, start, spawner, clear/timeout/enrage/retreat, reward phase.
 
 import type { BossDef, CommandResult, FloorPlan, RewardOffer, Tunables, Vec2, WavePlan } from '../types';
-import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, BOSS_POS, MONSTER_UNLOCK_FLOOR } from '../config';
-import { BOSSES, getBoss, getMonster, MID_BOSS_IDS, NORMAL_MONSTER_IDS } from '../data';
-import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_SIZE, WAVES } from './constants';
+import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, BOSS_POS, floorStatMult, ZONES, zoneOf } from '../config';
+import { getBoss, getMonster } from '../data';
+import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVES } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
 import { revive, syncMembers } from './players';
@@ -20,6 +20,7 @@ import {
   endRun,
   getEntity,
   isAlive,
+  queuedEnemies,
   type PendingSpawn,
   type World,
 } from './world';
@@ -28,28 +29,33 @@ import {
 
 export function planFloor(floor: number, rng: Rng, tunables: Tunables): FloorPlan {
   const f = Math.max(1, Math.floor(floor));
-  const statMult = 1 + tunables.floorStatGrowth * (f - 1);
+  const statMult = floorStatMult(f, tunables.floorStatGrowth);
+  // 기획 8차: 4 zones (1–5 로비·상가, 6–10 사무실, 11–15 폐병동, 16–20 옥상·이계) — pools, mid bosses, boss, background.
+  const zone = zoneOf(f);
+  const theme = zone.theme;
   if (f % 5 === 0) {
-    const boss = BOSSES[(f / 5 - 1) % BOSSES.length];
-    return { floor: f, kind: 'boss', timeLimit: tunables.bossFloorTime, arena: { ...ARENA_BOSS }, statMult, waves: [], bossId: boss.id };
+    // boss of the zone that ends here; past the last zone (debug maxFloor > 20) the bosses cycle
+    const bossId = f <= ZONES[ZONES.length - 1].to ? zone.boss : ZONES[(f / 5 - 1) % ZONES.length].boss;
+    return { floor: f, kind: 'boss', timeLimit: tunables.bossFloorTime, arena: { ...ARENA_BOSS }, statMult, waves: [], bossId, theme };
   }
-  /** 1-based index among normal floors (floor 6 is the 5th normal floor) — only used to alternate mid bosses. */
-  const normalIndex = f - Math.floor(f / 5);
   // 기획서 9-1 (가정): 1층 first웨이브, 층마다 +perFloor (counted by floor number), capped so every wave fits the time limit.
   const waveCount = Math.max(1, Math.min(WAVES.max, WAVES.first + (f - 1) * WAVES.perFloor));
-  const pool = NORMAL_MONSTER_IDS.filter(id => (MONSTER_UNLOCK_FLOOR[id] ?? 1) <= f);
+  const pool = zone.pool.filter(e => (e.from ?? zone.from) <= f);
+  const size = zone.waveSize;
   const waves: WavePlan[] = [];
   for (let i = 0; i < waveCount; i++) {
-    const n = rng.int(WAVE_SIZE.min, WAVE_SIZE.max);
+    const n = rng.int(size.min, size.max);
     const counts = new Map<string, number>();
     for (let k = 0; k < n; k++) {
-      const id = rng.pick(pool);
+      const id = rng.weighted(pool, e => e.weight).id;
       counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     waves.push({ at: 1 + i * tunables.waveInterval, spawns: [...counts].map(([monsterId, count]) => ({ monsterId, count })) });
   }
-  const midBossId = MID_BOSS_IDS[(normalIndex - 1) % MID_BOSS_IDS.length];
-  return { floor: f, kind: 'normal', timeLimit: tunables.normalFloorTime, arena: { ...ARENA_NORMAL }, statMult, waves, midBossId };
+  // the zone's mid bosses in order over its normal floors (floor 1 거대 마네킹, 2 검은 조문객, …)
+  const normalIndex = Math.max(0, f - zone.from - Math.floor((f - zone.from) / 5));
+  const midBossId = zone.mids[normalIndex % zone.mids.length];
+  return { floor: f, kind: 'normal', timeLimit: tunables.normalFloorTime, arena: { ...ARENA_NORMAL }, statMult, waves, midBossId, theme };
 }
 
 // ─────────────────────────── Start ───────────────────────────
@@ -110,7 +116,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   w.bossRetreat = false;
   w.enragedEmptyTime = 0;
   s.phase = 'combat';
-  w.spawner = { points: s.plan.kind === 'normal' ? makeSpawnPoints(w) : [], nextWave: 0, pending: [], kills: 0, midTriggered: false };
+  w.spawner = { points: s.plan.kind === 'normal' ? makeSpawnPoints(w) : [], nextWave: 0, pending: [], kills: 0, midTriggered: false, deferred: [] };
 
   for (const p of s.players) {
     if (p.rt.rejoinNextFloor) {
@@ -176,10 +182,19 @@ function scatter(w: World, p: Vec2): Vec2 {
   return clampToArena(w, { x: p.x + w.rng.range(-SPAWN_SCATTER, SPAWN_SCATTER), y: p.y + w.rng.range(-SPAWN_SCATTER, SPAWN_SCATTER) });
 }
 
+/** onDeath splits that waited for room (ondeath.ts) come out behind a short marker, oldest first, as room frees up. */
+function releaseDeferred(w: World): void {
+  const sp = w.spawner;
+  while (sp.deferred.length > 0 && countEnemies(w) + sp.pending.length < w.tunables.maxAliveMonsters) {
+    const d = sp.deferred.shift()!;
+    sp.pending.push({ remaining: SPAWN_WARNING_TIME, monsterId: d.monsterId, pos: d.pos, mid: false, wave: -1 });
+    emit(w, { type: 'spawnWarning', pos: copy(d.pos), delay: SPAWN_WARNING_TIME });
+  }
+}
+
 export function tickSpawner(w: World, dt: number): void {
   const s = w.state;
   const plan = s.plan;
-  if (plan.kind !== 'normal') return;
   const sp = w.spawner;
   for (let i = 0; i < sp.pending.length; ) {
     const ps = sp.pending[i];
@@ -189,12 +204,14 @@ export function tickSpawner(w: World, dt: number): void {
       spawnPending(w, ps);
     } else i++;
   }
+  releaseDeferred(w);
+  if (plan.kind !== 'normal') return;
   // R15: waves on schedule; postpone (never drop) when the alive cap would be exceeded.
   while (sp.nextWave < plan.waves.length) {
     const wave = plan.waves[sp.nextWave];
     if (s.floorTime < wave.at - SPAWN_WARNING_TIME - 1e-9) break;
     const size = wave.spawns.reduce((a, g) => a + g.count, 0);
-    const alive = countEnemies(w) + sp.pending.length;
+    const alive = countEnemies(w) + queuedEnemies(w);
     if (alive > 0 && alive + size > w.tunables.maxAliveMonsters) break;
     for (const g of wave.spawns) {
       const pt = w.rng.pick(sp.points);
@@ -208,7 +225,7 @@ export function tickSpawner(w: World, dt: number): void {
   }
   // The mid boss obeys the same alive cap as waves (9-1 동시 최대 maxAliveMonsters): postponed, never dropped.
   const midDue = sp.kills >= w.tunables.midBossKillTrigger || s.floorTime >= w.tunables.midBossTimeTrigger;
-  const aliveNow = countEnemies(w) + sp.pending.length;
+  const aliveNow = countEnemies(w) + queuedEnemies(w);
   const midRoom = aliveNow === 0 || aliveNow + 1 <= w.tunables.maxAliveMonsters;
   if (plan.midBossId && !sp.midTriggered && midDue && midRoom) {
     sp.midTriggered = true;
@@ -217,7 +234,7 @@ export function tickSpawner(w: World, dt: number): void {
     emit(w, { type: 'spawnWarning', pos: copy(pos), delay: SPAWN_WARNING_TIME });
   }
   const pendingWaves = new Set<number>();
-  for (const ps of sp.pending) if (!ps.mid) pendingWaves.add(ps.wave);
+  for (const ps of sp.pending) if (!ps.mid && ps.wave >= 0) pendingWaves.add(ps.wave);
   s.wavesRemaining = plan.waves.length - sp.nextWave + pendingWaves.size;
 }
 
@@ -243,7 +260,8 @@ export function tickFloorState(w: World, dt = 0): void {
   }
   if (s.plan.kind === 'normal') {
     const sp = w.spawner;
-    const allSpawned = sp.nextWave >= s.plan.waves.length && sp.pending.length === 0 && (!s.plan.midBossId || s.midBossSpawned);
+    const allSpawned =
+      sp.nextWave >= s.plan.waves.length && sp.pending.length === 0 && sp.deferred.length === 0 && (!s.plan.midBossId || s.midBossSpawned);
     if (allSpawned && s.monstersAlive === 0) {
       floorClear(w);
       return;
@@ -291,6 +309,7 @@ export function floorClear(w: World): void {
   w.pending = [];
   w.bossRetreat = false;
   w.spawner.pending = [];
+  w.spawner.deferred = [];
   const zones = s.zones.filter(z => z.team !== 'enemy');
   s.zones.length = 0;
   s.zones.push(...zones);

@@ -7,7 +7,7 @@ import type { AreaShape, DragPreview, PreviewPart, Vec2 } from '../types';
 import { DIR_VEC, areaCentroid, dashEnd, rectFrame } from '../sim/geometry';
 import { Camera } from './camera';
 import { boldFont } from './look';
-import { TAU, addAreaPath, drawGroundArrow, drawGroundChevrons, groundEllipse, pathArea } from './shapes';
+import { TAU, addAreaPath, drawGroundArrow, drawGroundChevrons, fanFrame, groundEllipse, pathArea } from './shapes';
 
 /** Buff/heal areas that only touch allies get this tint + dashed outline (enemy-hitting parts use the card colour). */
 export const ALLY_TINT = '#7dffb3';
@@ -92,6 +92,49 @@ export function drawAreaDirection(ctx: CanvasRenderingContext2D, cam: Camera, ce
     drawGroundArrow(ctx, cam, center.x + u.x * R * 0.45, center.y + u.y * R * 0.45, center.x + u.x * R * 0.96, center.y + u.y * R * 0.96, color, strong ? 5 : 3, strong ? 22 : 14, 1, alpha);
   }
 }
+
+/**
+ * Direction cue for an auto-aimed monster area (기획 8차): chevrons from the caster toward its target along a 'line'
+ * (charges, beams) or down the middle of a 'fan' (sprays), so a red shape says which way it is coming.
+ */
+export function drawAimedDirection(ctx: CanvasRenderingContext2D, cam: Camera, center: Vec2, origin: Vec2, area: AreaShape, color: string, alpha: number, time: number): void {
+  let reach = 0;
+  if (area.shape === 'line') reach = area.length;
+  else if (area.shape === 'fan') reach = area.radius;
+  else return;
+  const f = fanFrame(center, origin, AIM_TMP);
+  const ux = Math.cos(f.a);
+  const uy = Math.sin(f.a);
+  // one batched stroke (monster crowds can show several of these at once): chevrons flowing from the caster
+  const x0 = cam.sx(f.x);
+  const y0 = cam.sy(f.y);
+  const x1 = cam.sx(f.x + ux * reach * 0.92);
+  const y1 = cam.sy(f.y + uy * reach * 0.92);
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (len < 40) return;
+  const dx = (x1 - x0) / len;
+  const dy = (y1 - y0) / len;
+  const size = 9;
+  const spacing = 30;
+  const off = ((time * 2.2) % 1) * spacing;
+  ctx.globalAlpha = alpha * 0.7;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let d = 24 + off; d < len - size; d += spacing) {
+    const cx = x0 + dx * d;
+    const cy = y0 + dy * d;
+    ctx.moveTo(cx - dx * size - dy * size * 0.75, cy - dy * size + dx * size * 0.75);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx - dx * size + dy * size * 0.75, cy - dy * size - dx * size * 0.75);
+  }
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.globalAlpha = 1;
+}
+const AIM_TMP = { x: 0, y: 0, a: 0 };
 
 /** Order badges sit on the camera-side rim of circles (the drop ghost covers the center). */
 function badgeAt(p: DrawPart): Vec2 {

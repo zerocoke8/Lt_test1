@@ -2,16 +2,17 @@
 
 import { LOGICAL_H, LOGICAL_W, type AreaShape, type DamageSource, type GameEvent, type GameState, type SkillAction, type Team, type Telegraph } from '../types';
 import { PLAYER_COLORS } from '../config';
-import { getCharacter, getPet } from '../data';
-import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from './camera';
+import { getCharacter, getMonster, getPet } from '../data';
+import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, boldFont, lighten, mix, petColor, type UnitLook, unitLook } from './look';
 import { Pool } from './pool';
-import { DIR_VEC, aimSamples, hitsArea } from '../sim/geometry';
-import { TAU, areaRadius, pathArea, pathRoundRect } from './shapes';
+import { DIR_VEC, aimSamples, areaSize, hitsArea } from '../sim/geometry';
+import { TAU, areaRadius, fanFrame, pathArea, pathRoundRect } from './shapes';
 import { type UnitMemo, bodyHeight, bodyTop, bodyWidth, drawBody } from './units';
 import { DASH_LAND } from './dashtime';
 import { Fx, type FxHost, Impact, SkillFx } from './skillfx';
 import { type CastInfo, castFx, swingFx } from './castfx';
+import { Juice, impactStrength, landingKick, partKick } from './juice';
 
 // ─────────────────────────── effect records (pooled) ───────────────────────────
 
@@ -161,6 +162,34 @@ interface DashFx {
 export { DASH_LAND };
 const DASH_TRAIL_FADE = 0.5;
 
+/** A character dropping in (swap): touchdown visuals at `land`; my drag landing also kicks (hit-stop + shake) at `impact`. */
+interface Landing {
+  entityId: number;
+  player: number;
+  x: number;
+  y: number;
+  age: number;
+  land: number;
+  impact: number;
+  landed: boolean;
+  color: string;
+  local: boolean;
+  /** A drag skill of mine came with it (otherwise it is a floor-start reappear or another player's: no hit-stop). */
+  armed: boolean;
+  /** Immediate footprints of the drag skill (enemies inside them at impact = how hard it hits). */
+  parts: { x: number; y: number; area: AreaShape }[];
+  /** Drag skill name (its damage events wait for the impact). */
+  skill: string;
+}
+
+/** A delayed part of my drag skill (meteor, chained blast): kicks when it lands. */
+interface PartHit {
+  t: number;
+  x: number;
+  y: number;
+  area: AreaShape;
+}
+
 interface HealAcc {
   amount: number;
   age: number;
@@ -172,6 +201,8 @@ export interface VfxContext {
   state: GameState;
   memos: Map<number, UnitMemo>;
   localPlayer: number;
+  /** Camera x (world x at the screen center) of the last frame: on-screen checks. */
+  camX?: number;
 }
 
 /** Top HUD row ends around logical y ≈ 105; world labels never float above this line. */
@@ -237,8 +268,14 @@ export class Vfx implements FxHost {
   private readonly myNames = new Map<string, number>();
   private clock = 0;
   private memosRef: Map<number, UnitMemo> = new Map();
-  /** Camera shake amplitude (px), decays fast. Only my own heavy skills shake. */
-  shakeAmp = 0;
+  /** Hit-stop + camera shake (기획 8차). Only my own skills shake hard; other players' landings barely. */
+  readonly juice = new Juice();
+  private readonly landings: Landing[] = [];
+  /** Impact lines (my drag landings). */
+  private readonly streaks: { x: number; y: number; r: number; n: number; age: number; seed: number }[] = [];
+  /** Blink trails (from → to), fading. */
+  private readonly blinks: { fx: number; fy: number; tx: number; ty: number; age: number }[] = [];
+  private readonly partHits: PartHit[] = [];
   /** Persistent skill fields that should not wear the generic tint (블리자드 is ice, not fire): centre → colour. */
   private readonly zoneTints: { x: number; y: number; color: string; until: number }[] = [];
   /** Ult screen pulse. */
@@ -261,6 +298,8 @@ export class Vfx implements FxHost {
   clearT = 99;
   fadeT = 99;
   bossFlash = 0;
+  /** 기획 8차: 1 → 0 right after a boss phase change (boss art flashes, the screen pulses). */
+  phaseFlash = 0;
   bossRetreatT = -1;
   banner = { active: false, age: 0, dur: 1.5, title: '', sub: '', color: '#fff', glyph: '' };
 
@@ -281,12 +320,17 @@ export class Vfx implements FxHost {
     this.lastSpawn.clear();
     this.sfx.clear();
     this.zoneTints.length = 0;
-    this.shakeAmp = 0;
+    this.juice.reset();
+    this.landings.length = 0;
+    this.partHits.length = 0;
+    this.blinks.length = 0;
+    this.streaks.length = 0;
     this.pulseT = 99;
     this.lastDamage.clear();
     this.heals.clear();
     this.teles.clear();
     this.bossFlash = 0;
+    this.phaseFlash = 0;
     this.bossRetreatT = -1;
     this.enrageT = 99;
     this.banner.active = false;
@@ -301,6 +345,11 @@ export class Vfx implements FxHost {
         break;
       case 'heal': {
         if (ev.amount <= 0) break;
+        if (c.memos.get(ev.targetId)?.team === 'enemy') {
+          // 기획 8차: a monster patched up by a 링거 환자 / 수간호사 — green motes, no number (keeps my numbers readable)
+          this.healMotes(ev.pos.x, ev.pos.y, c.memos.get(ev.targetId)!);
+          break;
+        }
         const acc = this.heals.get(ev.targetId);
         if (acc) {
           acc.amount += ev.amount;
@@ -340,19 +389,34 @@ export class Vfx implements FxHost {
         d.look = ent ? unitLook(ent.kind, ent.defId) : unitLook('monster', '?');
         d.color = ent && ent.kind === 'character' && ent.ownerPlayer !== null && ent.partyIndex !== null
           ? characterColor(c.state, ent.ownerPlayer, ent.partyIndex) ?? d.look.color
-          : d.look.color;
+          : ent && ent.team === 'enemy'
+            ? mix(d.look.color, '#ff3b4d', 0.6) // a monster's charge (질주 휠체어, 환자 이송) reads as a threat
+            : d.look.color;
         d.radius = ent ? ent.radius : 0.5;
         d.tier = ent ? ent.tier : 'character';
         d.s = ev.to.x >= ev.from.x ? 1 : -1;
         break;
       }
       case 'appear': {
-        // landing burst in the character's own colour (matches the drag preview), not the player ring colour
+        // the character drops in (index.ts pose: falls for DASH_LAND); its landing burst waits for the touchdown
         const color = characterColor(c.state, ev.player, ev.partyIndex) ?? playerColor(c.state, ev.player);
-        this.ring(ev.pos.x, ev.pos.y, 0.3, 2.2, 0.45, color, 4, 0.25);
-        this.ring(ev.pos.x, ev.pos.y, 0.2, 1.4, 0.3, '#ffffff', 2, 0);
-        this.burst(ev.pos.x, ev.pos.y, 0.2, 14, color, 3.5, 2.5, 0.5);
-        this.burst(ev.pos.x, ev.pos.y, 0.05, 10, '#cfc6b8', 2.2, 0.6, 0.45);
+        for (let i = this.landings.length - 1; i >= 0; i--) if (this.landings[i].entityId === ev.entityId) this.landings.splice(i, 1);
+        if (this.landings.length > 12) this.landings.shift();
+        this.landings.push({
+          entityId: ev.entityId,
+          player: ev.player,
+          x: ev.pos.x,
+          y: ev.pos.y,
+          age: 0,
+          land: DASH_LAND,
+          impact: DASH_LAND,
+          landed: false,
+          color,
+          local: ev.player === c.localPlayer,
+          armed: false,
+          parts: [],
+          skill: '',
+        });
         break;
       }
       case 'leave': {
@@ -372,6 +436,13 @@ export class Vfx implements FxHost {
         const m = c.memos.get(ev.entityId);
         if (ev.tier === 'boss') {
           if (this.bossRetreatT < 0) this.bossRetreatT = 0;
+          break;
+        }
+        if (m && m.look.shape === 'copy') {
+          // 복사 인간 splits: it tears like paper — shreds + a cyan/magenta misprint flash; the copies pop out (spawn)
+          this.ring(ev.pos.x, ev.pos.y, 0.2, 1.8, 0.35, '#00e5ff', 3, 0);
+          this.ring(ev.pos.x + 0.12, ev.pos.y, 0.2, 1.6, 0.35, '#ff2bd6', 3, 0);
+          this.shreds(ev.pos.x, ev.pos.y, 14);
           break;
         }
         if (m) this.ghost(m, 0, ev.tier === 'mid' ? 0.8 : 0.5);
@@ -409,6 +480,12 @@ export class Vfx implements FxHost {
         break;
       }
       case 'spawn': {
+        if (c.memos.get(ev.entityId)?.look.shape === 'copy_mini') {
+          // a copy slides out of the split: white print flash, no spawn marker ring
+          this.ring(ev.pos.x, ev.pos.y, 0.1, 0.9, 0.28, '#ffffff', 3, 0.35);
+          this.burst(ev.pos.x, ev.pos.y, 0.5, 5, '#e9edf2', 1.6, 2, 0.35);
+          break;
+        }
         // the marker's job is done once the unit is there (sim speed may differ from our real-time timer)
         const ws = this.warns;
         for (let i = ws.count - 1; i >= 0; i--) {
@@ -419,6 +496,29 @@ export class Vfx implements FxHost {
         this.ring(ev.pos.x, ev.pos.y, 0.2, mid ? 3 : 1.3, mid ? 0.7 : 0.4, mid ? '#ff4d6d' : '#d8c7ff', mid ? 5 : 2, 0.2);
         this.burst(ev.pos.x, ev.pos.y, 0.05, mid ? 22 : 8, '#b8a99a', mid ? 3.5 : 2, 0.8, 0.5);
         if (mid) this.label(ev.pos.x, ev.pos.y, 2.6, '중형보스 등장!', '#ff6b6b', 20, 1.8);
+        break;
+      }
+      case 'blink': {
+        // 기획 8차: vanish in a puff of shadow, reappear next to the target with a ring (a thin trail says where it went)
+        const m = c.memos.get(ev.entityId);
+        if (m) this.ghost(m, 1, 0.3, ev.from.x, ev.from.y);
+        this.burst(ev.from.x, ev.from.y, 0.5, 12, '#2a1f3d', 2.2, 2, 0.45, -1);
+        this.burst(ev.from.x, ev.from.y, 0.5, 6, '#c77dff', 1.6, 1.5, 0.35, -1);
+        this.ring(ev.to.x, ev.to.y, 0.2, 1.3, 0.3, '#c77dff', 3, 0.2);
+        this.burst(ev.to.x, ev.to.y, 0.4, 10, '#e0c3ff', 2.4, 2, 0.4);
+        if (this.blinks.length > 8) this.blinks.shift();
+        this.blinks.push({ fx: ev.from.x, fy: ev.from.y, tx: ev.to.x, ty: ev.to.y, age: 0 });
+        break;
+      }
+      case 'bossPhase': {
+        this.phaseFlash = 1;
+        this.juice.shake(9, 0.4);
+        const m = c.memos.get(ev.entityId);
+        const x = m ? m.x : 12;
+        const y = m ? m.y : -1;
+        this.ring(x, y + 2.5, 0.5, 9, 0.8, '#ff4d6d', 6, 0.12);
+        this.ring(x, y + 2.5, 0.3, 6, 0.6, '#ffffff', 3, 0);
+        this.burst(x, y + 2, 1.2, 30, '#ff8fab', 6, 4, 0.9);
         break;
       }
       case 'enrage':
@@ -443,6 +543,19 @@ export class Vfx implements FxHost {
 
   /** `swing` = the melee attacker's position when this hit waited for the swing's wind-up (null = immediate). */
   private onDamage(ev: Extract<GameEvent, { type: 'damage' }>, c: VfxContext, swing: { ax: number; ay: number } | null): void {
+    if (!swing && ev.source === 'drag' && ev.skillName) {
+      // a drag skill hits as its caster touches down (기획 8차): its numbers, flashes and jolts wait for the landing,
+      // so the hit-stop's frozen frame is the hit
+      const l = this.airborne(ev.skillName);
+      if (l) {
+        const d = this.deferred.spawn();
+        d.ev = ev;
+        d.t = l.impact - l.age;
+        d.ax = l.x;
+        d.ay = l.y;
+        return;
+      }
+    }
     if (!swing && (ev.source === undefined || ev.source === 'basic')) {
       const sw = this.pendingSwing.get(ev.targetId);
       if (sw) {
@@ -542,6 +655,19 @@ export class Vfx implements FxHost {
 
     if (!ally) {
       const tier = src ? src.tier : null;
+      const mAction = src ? monsterAction(src.defId, ev.skillId, idx) : null;
+      if (mAction && mAction.affects === 'allies') {
+        // 기획 8차 monster support (수액 공급, 회진): a green pulse from the healer, no red flash
+        if (tier === 'mid' && idx === 0) {
+          const z = bodyTop(src!.look, src!.tier, bodyHeight(src!.look, src!.radius), bodyWidth(src!.radius)) / PX_PER_UNIT_Z + 1.5;
+          this.label(ox, oy, z, ev.name, '#9dffbf', 16, 1.4);
+        }
+        const r = Math.min(8, areaRadius(ev.area));
+        this.ring(ev.center.x, ev.center.y, 0.3, Math.max(1.2, r), 0.6, '#52d273', 4, 0.14);
+        this.ring(ev.center.x, ev.center.y, 0.2, Math.max(0.8, r * 0.6), 0.45, '#b8ffd0', 2, 0);
+        this.burst(ox, oy, 0.9, 10, '#7dffb3', 1.2, 2.5, 0.8, -1.5);
+        return;
+      }
       // boss pattern names are shown by the HUD as a cast pill under the boss bar (a world label sat on the eye)
       if (tier === 'mid' && idx === 0) {
         const m = src!;
@@ -549,7 +675,10 @@ export class Vfx implements FxHost {
         this.label(ox, oy, z, ev.name, '#ff8a8a', 16, 1.4);
       }
       if (src && tier !== 'boss') this.ring(ox, oy, 0.3, 1.4, 0.35, '#ff4d4d', 3, 0.15);
-      if (!delayed) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, 0.35, '#ff4d4d', 0.6);
+      if (!delayed) {
+        this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, 0.35, '#ff4d4d', 0.6);
+        if (ev.area.shape === 'fan') this.fanSpray(ox, oy, ev.center.x, ev.center.y, ev.area.radius, ev.area.angle, 18);
+      }
       return;
     }
 
@@ -567,6 +696,7 @@ export class Vfx implements FxHost {
     }
     if (idx === 0) this.callout(ev, c, src, local, color);
     if (local && ev.slot === 'drag' && action) this.buffText(ev, c, action, src);
+    if (ev.slot === 'drag') this.armLanding(ev, local, selfOnlyAction(action));
 
     const selfOnly = action?.affects === 'self';
     if (!delayed && !selfOnly) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, strong ? 0.55 : 0.4, color, (strong ? 0.8 : 0.5) * k);
@@ -620,6 +750,199 @@ export class Vfx implements FxHost {
         this.showBanner(ev, c, color);
         this.pulse(color);
       }
+    }
+  }
+
+  /**
+   * 기획 8차 hit-stop: my drag skill's immediate parts ride on its landing (counted at the touchdown, or at the end of
+   * a dash); its delayed parts (meteors, chained blasts) kick on their own when they land. Others' casts only mark
+   * their landing for a tiny shake.
+   */
+  private armLanding(ev: Extract<GameEvent, { type: 'skillCast' }>, local: boolean, selfOnly: boolean): void {
+    const delay = ev.delay ?? 0;
+    if (local && delay > 0) {
+      if (!selfOnly && this.partHits.length < 16) this.partHits.push({ t: delay, x: ev.center.x, y: ev.center.y, area: ev.area });
+      return;
+    }
+    let l: Landing | null = null;
+    for (let i = this.landings.length - 1; i >= 0; i--) if (this.landings[i].entityId === ev.sourceId) l = this.landings[i];
+    if (!l) return;
+    l.armed = true;
+    l.skill = ev.name;
+    const travel = this.dashTravel(ev.sourceId);
+    // a dash skill hits along its path: the kick comes when the streak arrives, not at the touchdown
+    if (travel > 0) l.impact = Math.max(l.impact, DASH_LAND + travel);
+    if (!selfOnly && l.parts.length < 6) l.parts.push({ x: ev.center.x, y: ev.center.y, area: ev.area });
+  }
+
+  /** A landing of this drag skill still in the air (its damage waits), or null. */
+  private airborne(skill: string): Landing | null {
+    for (let i = this.landings.length - 1; i >= 0; i--) {
+      const l = this.landings[i];
+      if (l.armed && l.skill === skill && l.age < l.impact) return l;
+    }
+    return null;
+  }
+
+  /** Enemies (memo positions) touching `area` at (x, y); the boss counts double (it is a big hit). */
+  private enemiesIn(area: AreaShape, x: number, y: number, memos: Map<number, UnitMemo>): number {
+    TMP_C.x = x;
+    TMP_C.y = y;
+    let n = 0;
+    for (const m of memos.values()) {
+      if (m.team !== 'enemy' || m.kind === 'character') continue;
+      TMP_O.x = m.x;
+      TMP_O.y = m.y;
+      if (hitsArea(area, TMP_C, TMP_C, TMP_O, m.radius)) n += m.tier === 'boss' ? 2 : 1;
+    }
+    return n;
+  }
+
+  private updateLandings(dt: number, c: VfxContext): void {
+    const ls = this.landings;
+    for (let i = ls.length - 1; i >= 0; i--) {
+      const l = ls[i];
+      l.age += dt;
+      if (!l.landed && l.age >= l.land) {
+        l.landed = true;
+        // touchdown: a dust skirt + a ring in the character's colour (my drag landing also slams a white shock ring)
+        this.ring(l.x, l.y, 0.3, 2.2, 0.45, l.color, 4, 0.25);
+        this.ring(l.x, l.y, 0.2, 1.4, 0.3, '#ffffff', 2, 0);
+        this.burst(l.x, l.y, 0.2, 14, l.color, 3.5, 2.5, 0.5);
+        this.burst(l.x, l.y, 0.05, 10, '#cfc6b8', 2.2, 0.6, 0.45);
+        if (l.local && l.armed) {
+          this.ring(l.x, l.y, 0.5, 2.8, 0.32, '#ffffff', 6, 0.18);
+          this.dust(l.x, l.y, 16);
+        }
+      }
+      if (l.landed && l.age >= l.impact) {
+        if (l.local && l.armed) {
+          let n = 0;
+          let size = 0;
+          for (const p of l.parts) {
+            n += this.enemiesIn(p.area, p.x, p.y, c.memos);
+            size += areaSize(p.area) || 0;
+          }
+          const str = impactStrength(n, size);
+          const kick = landingKick(this.juice.settings, str, n);
+          this.juice.hitStop(kick.stop);
+          this.juice.shake(kick.shake);
+          const at = c.memos.get(l.entityId);
+          this.streak(at ? at.x : l.x, at ? at.y : l.y, 1.4 + 1.2 * str, n > 0 ? 12 : 8);
+        } else if (l.armed && c.camX !== undefined && Math.abs(l.x - c.camX) < VIEW_WIDTH_UNITS / 2 + 1) {
+          // another player's drag landing in view: a tiny nudge, no freeze (my own fight stays steady)
+          this.juice.shake(1.5, 0.15);
+        }
+        ls.splice(i, 1);
+      } else if (l.age > 3) ls.splice(i, 1);
+    }
+    const ps = this.partHits;
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const p = ps[i];
+      p.t -= dt;
+      if (p.t > 0) continue;
+      const n = this.enemiesIn(p.area, p.x, p.y, c.memos);
+      const kick = partKick(this.juice.settings, impactStrength(n, areaSize(p.area) || 0), n);
+      this.juice.hitStop(kick.stop);
+      this.juice.shake(kick.shake, 0.2);
+      if (n > 0) this.streak(p.x, p.y, 1.2, 8);
+      ps.splice(i, 1);
+    }
+  }
+
+  /** Manga impact lines radiating from a hit point (drawn over the units, held by the hit-stop). */
+  private streak(x: number, y: number, r: number, n: number): void {
+    if (this.streaks.length > 6) this.streaks.shift();
+    this.streaks.push({ x, y, r, n, age: 0, seed: Math.random() * 10 });
+  }
+
+  /** Low ground dust thrown sideways (landings). */
+  private dust(x: number, y: number, n: number): void {
+    for (let i = 0; i < n; i++) {
+      const p = this.particles.spawn();
+      const a = (i / n) * TAU + Math.random() * 0.3;
+      const sp = 3.5 + Math.random() * 2.5;
+      p.x = x + Math.cos(a) * 0.35;
+      p.y = y + Math.sin(a) * 0.25;
+      p.z = 0.05;
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp * 0.7;
+      p.vz = 0.8 + Math.random() * 0.8;
+      p.g = 6;
+      p.age = 0;
+      p.dur = 0.35 + Math.random() * 0.2;
+      p.color = i % 3 === 0 ? '#ffffff' : '#d9d0c1';
+      p.size = 3 + Math.random() * 3;
+    }
+  }
+
+  /** Green motes rising off a healed monster (+ a tiny cross sparkle). */
+  private healMotes(x: number, y: number, m: UnitMemo): void {
+    const z = bodyHeight(m.look, m.radius) / PX_PER_UNIT_Z;
+    for (let i = 0; i < 5; i++) {
+      const p = this.particles.spawn();
+      p.x = x + (Math.random() - 0.5) * m.radius * 2;
+      p.y = y + (Math.random() - 0.5) * m.radius;
+      p.z = z * (0.2 + Math.random() * 0.6);
+      p.vx = (Math.random() - 0.5) * 0.4;
+      p.vy = 0;
+      p.vz = 1.2 + Math.random() * 1.2;
+      p.g = -0.6;
+      p.age = 0;
+      p.dur = 0.7 + Math.random() * 0.3;
+      p.color = i % 2 ? '#7dffb3' : '#52d273';
+      p.size = 3 + Math.random() * 2.5;
+    }
+    const f = this.sfx.add(Fx.Star, x, y, 0.35, '#52d273', 0.8);
+    f.z = z * 0.9;
+    f.r = 12;
+    f.n = 4;
+  }
+
+  /** Paper shreds (복사 인간 tearing apart). */
+  private shreds(x: number, y: number, n: number): void {
+    for (let i = 0; i < n; i++) {
+      const p = this.particles.spawn();
+      const a = Math.random() * TAU;
+      const sp = 1.5 + Math.random() * 3;
+      p.x = x;
+      p.y = y;
+      p.z = 0.6 + Math.random() * 0.5;
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp * 0.6;
+      p.vz = 1.5 + Math.random() * 2.5;
+      p.g = 5;
+      p.age = 0;
+      p.dur = 0.6 + Math.random() * 0.4;
+      p.color = i % 4 === 0 ? '#00e5ff' : i % 4 === 1 ? '#ff2bd6' : '#f3f1ea';
+      p.size = 4 + Math.random() * 3;
+    }
+  }
+
+  /** Particles thrown along a fan (apex at the caster, opening toward the target). */
+  private fanSpray(ox: number, oy: number, cx: number, cy: number, radius: number, angle: number, n: number): void {
+    TMP_C.x = cx;
+    TMP_C.y = cy;
+    TMP_O.x = ox;
+    TMP_O.y = oy;
+    const f = fanFrame(TMP_C, TMP_O, FAN_TMP);
+    const half = (angle * Math.PI) / 360;
+    for (let i = 0; i < n; i++) {
+      const p = this.particles.spawn();
+      const a = f.a + (Math.random() * 2 - 1) * half;
+      const sp = radius * (1.2 + Math.random() * 1.4);
+      const d = 0.4 + Math.random() * 0.6;
+      p.x = f.x + Math.cos(a) * d;
+      p.y = f.y + Math.sin(a) * d;
+      p.z = 0.5;
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp;
+      p.vz = 0.5 + Math.random();
+      p.g = 2;
+      p.age = 0;
+      p.dur = 0.35 + Math.random() * 0.25;
+      p.color = i % 3 === 0 ? '#ffffff' : '#ff7b54';
+      p.size = 3 + Math.random() * 3;
     }
   }
 
@@ -738,8 +1061,9 @@ export class Vfx implements FxHost {
 
   // ─────────────────────────── FxHost ───────────────────────────
 
+  /** Short kick for a skill's own flavour (berserker crack, meteor impact …): the 0 = off setting applies too. */
   shake(amount: number): void {
-    this.shakeAmp = Math.max(this.shakeAmp, amount);
+    this.juice.shake(amount * 0.8, 0.16);
   }
 
   /** Brief coloured glow from the screen edges (my ult). */
@@ -774,8 +1098,9 @@ export class Vfx implements FxHost {
       let y = d.fy;
       let z = 0;
       if (d.age < d.land) {
-        const k = 1 - d.age / d.land;
-        z = k * k * 1.6;
+        // drop-in before the dash: same accelerating fall as a plain landing (index.ts appear pose)
+        const k = d.age / d.land;
+        z = 3 * (1 - k * k);
       } else {
         const k = easeOut(Math.min(1, (d.age - d.land) / d.travel));
         x = d.fx + (d.tx - d.fx) * k;
@@ -947,13 +1272,13 @@ export class Vfx implements FxHost {
     }
   }
 
-  private ghost(m: UnitMemo, mode: 0 | 1, dur: number): void {
+  private ghost(m: UnitMemo, mode: 0 | 1, dur: number, x = m.x, y = m.y): void {
     const g = this.ghosts.spawn();
     g.look = m.look;
     g.tier = m.tier;
     g.radius = m.radius;
-    g.x = m.x;
-    g.y = m.y;
+    g.x = x;
+    g.y = y;
     g.s = Math.cos(m.facing) >= 0 ? 1 : -1;
     g.phase = m.phase;
     g.age = 0;
@@ -1013,6 +1338,8 @@ export class Vfx implements FxHost {
       if (s.area.shape === 'circle' || s.area.shape === 'single') {
         this.ring(s.cx, s.cy, r * 0.3, r * 1.08, 0.4, enemy ? '#ffb199' : '#ffffff', 4, 0);
         this.burst(s.cx, s.cy, 0.1, Math.min(30, 8 + Math.round(r * 4)), enemy ? '#ff7b54' : '#bde0fe', r * 1.4, 3, 0.55);
+      } else if (s.area.shape === 'fan') {
+        this.fanSpray(s.ox, s.oy, s.cx, s.cy, s.area.radius, s.area.angle, 26);
       } else if (s.area.shape !== 'line') {
         this.burstArea(s.cx, s.cy, s.area, 22, enemy ? '#ff7b54' : '#bde0fe');
       } else {
@@ -1043,7 +1370,7 @@ export class Vfx implements FxHost {
       this.onDamage(ev, c, TMP_SW);
     }
     this.sfx.update(dt, this, c.memos);
-    this.shakeAmp = this.shakeAmp > 0.2 ? this.shakeAmp * Math.exp(-dt * 14) : 0;
+    this.updateLandings(dt, c);
     this.pulseT += dt;
     if (this.myNames.size > 24) for (const [n, t] of this.myNames) if (t < this.clock) this.myNames.delete(n);
     // flush accumulated heals: big heals become numbers, trickles (aura/regen ticks) only sparkle
@@ -1124,6 +1451,15 @@ export class Vfx implements FxHost {
     this.clearT += dt;
     this.fadeT += dt;
     this.bossFlash = Math.max(0, this.bossFlash - dt * 8);
+    this.phaseFlash = Math.max(0, this.phaseFlash - dt * 1.4);
+    for (let i = this.streaks.length - 1; i >= 0; i--) {
+      this.streaks[i].age += dt;
+      if (this.streaks[i].age > 0.22) this.streaks.splice(i, 1);
+    }
+    for (let i = this.blinks.length - 1; i >= 0; i--) {
+      this.blinks[i].age += dt;
+      if (this.blinks[i].age > 0.35) this.blinks.splice(i, 1);
+    }
     if (this.bossRetreatT >= 0) this.bossRetreatT += dt;
     if (this.banner.active) {
       this.banner.age += dt;
@@ -1192,6 +1528,19 @@ export class Vfx implements FxHost {
     ctx.globalAlpha = 1;
     this.sfx.drawGround(ctx, cam, this.memosRef, time);
     this.drawDashStreaks(ctx, cam);
+    for (const b of this.blinks) {
+      const k = 1 - b.age / 0.35;
+      ctx.globalAlpha = 0.7 * k;
+      ctx.strokeStyle = '#c77dff';
+      ctx.lineWidth = 3;
+      ctx.setLineDash(BLINK_DASH);
+      ctx.beginPath();
+      ctx.moveTo(cam.sx(b.fx), cam.sy(b.fy));
+      ctx.lineTo(cam.sx(b.tx), cam.sy(b.ty));
+      ctx.stroke();
+      ctx.setLineDash(NO_DASH_V);
+    }
+    ctx.globalAlpha = 1;
     // rings
     const rs = this.rings;
     for (let i = 0; i < rs.count; i++) {
@@ -1334,6 +1683,27 @@ export class Vfx implements FxHost {
     }
     ctx.globalAlpha = 1;
     this.sfx.drawAir(ctx, cam, this.memosRef, time);
+    // impact lines: thin white wedges radiating from the hit, pushed out as they fade
+    for (const st of this.streaks) {
+      const k = st.age / 0.22;
+      const sx = cam.sx(st.x);
+      const sy = cam.sy(st.y) - 0.5 * PX_PER_UNIT_Z;
+      ctx.globalAlpha = 0.9 * (1 - k);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      for (let i = 0; i < st.n; i++) {
+        const a = (i / st.n) * TAU + st.seed + (hashN(st.seed, i) - 0.5) * 0.4;
+        const r0 = st.r * (0.45 + 0.35 * k) * PX_PER_UNIT;
+        const r1 = st.r * (0.9 + 0.5 * k + 0.35 * hashN(st.seed, i + 20)) * PX_PER_UNIT;
+        const w = 0.06;
+        ctx.moveTo(sx + Math.cos(a - w) * r0, sy + Math.sin(a - w) * r0 * 0.62);
+        ctx.lineTo(sx + Math.cos(a) * r1, sy + Math.sin(a) * r1 * 0.62);
+        ctx.lineTo(sx + Math.cos(a + w) * r0, sy + Math.sin(a + w) * r0 * 0.62);
+        ctx.closePath();
+      }
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** Floating numbers + world labels (topmost world layer). */
@@ -1446,6 +1816,17 @@ export class Vfx implements FxHost {
       ctx.globalAlpha = 0.5 + 0.3 * Math.sin(time * 3);
       ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    }
+    if (this.phaseFlash > 0) {
+      // boss phase change: a white-red flash from the edges
+      const k = this.phaseFlash;
+      ctx.globalAlpha = 0.35 * k * k;
+      ctx.fillStyle = '#ffd6de';
+      ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+      ctx.globalAlpha = 0.5 * k;
+      ctx.strokeStyle = '#ff2050';
+      ctx.lineWidth = 60;
+      ctx.strokeRect(0, 0, LOGICAL_W, LOGICAL_H);
     }
     if (this.clearT < 0.8) {
       const p = this.clearT / 0.8;
@@ -1636,6 +2017,40 @@ export function characterColor(state: GameState, player: number, partyIndex: num
   } catch {
     return null;
   }
+}
+
+const BLINK_DASH = [6, 6];
+function hashN(seed: number, i: number): number {
+  const v = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453;
+  return v - Math.floor(v);
+}
+const NO_DASH_V: number[] = [];
+const FAN_TMP = { x: 0, y: 0, a: 0 };
+const monsterActionCache = new Map<string, readonly SkillAction[] | null>();
+
+/** The data action of a monster skill cast (idx = part of a multi-part skill: action, then extra …), or null. */
+export function monsterAction(defId: string, skillId: string, idx: number): SkillAction | null {
+  const key = defId + '|' + skillId;
+  let list = monsterActionCache.get(key);
+  if (list === undefined) {
+    list = null;
+    try {
+      const d = getMonster(defId);
+      const all = [...(d.skills ?? [])];
+      const phases = (d as { phases?: { skills?: typeof all }[] }).phases;
+      if (phases) for (const ph of phases) all.push(...(ph.skills ?? []));
+      const sk = all.find(k => k.id === skillId);
+      if (sk) list = [sk.action, ...((sk as { extra?: SkillAction[] }).extra ?? [])];
+    } catch {
+      list = null;
+    }
+    monsterActionCache.set(key, list);
+  }
+  return list ? list[Math.min(idx, list.length - 1)] ?? null : null;
+}
+
+function selfOnlyAction(a: SkillAction | null): boolean {
+  return !!a && a.affects === 'self';
 }
 
 function findEntity(state: GameState, id: number) {

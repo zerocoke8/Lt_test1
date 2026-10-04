@@ -5,6 +5,7 @@ import { DEBUFFS, type Entity, type EntityKind, type MonsterTier, type StatusIns
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from './camera';
 import { COLORS, boldFont, type UnitLook, unitLook } from './look';
 import { TAU, addStar, pathCapsule, pathRoundRect } from './shapes';
+import { type CreatureShape, creatureTop, drawCreature } from './creatures';
 
 /** Render-side bookkeeping per entity id (updated every frame from GameState, read for death/leave ghosts). */
 export interface UnitMemo {
@@ -38,6 +39,8 @@ export interface UnitMemo {
   ultT: number;
   /** Seconds since its last skill cast (normal/drag): cast pose ring. */
   skillT: number;
+  /** Render-clock seconds since its current 'appear' began (drop-in pose; stands still during a hit-stop). */
+  appearAge: number;
 }
 
 /**
@@ -73,6 +76,7 @@ export function newMemo(e: Entity, stamp: number): UnitMemo {
     joltY: 0,
     ultT: 99,
     skillT: 99,
+    appearAge: e.anim === 'appear' ? 0 : 99,
   };
 }
 
@@ -92,9 +96,10 @@ export function syncMemo(m: UnitMemo, e: Entity, stamp: number, dt: number): voi
   m.y = e.pos.y;
   m.facing = e.facing;
   if (e.anim !== m.anim || e.animTime > m.lastAnimTime + 1e-3) {
+    if (e.anim === 'appear') m.appearAge = 0;
     m.anim = e.anim;
     m.animTotal = Math.max(0.05, e.animTime);
-  }
+  } else m.appearAge += dt;
   m.lastAnimTime = e.animTime;
   m.flash = Math.max(0, m.flash - dt);
   m.joltT = Math.max(0, m.joltT - dt);
@@ -752,7 +757,7 @@ export function drawBody(
       ctx.fill();
       break;
     }
-    default: {
+    case 'blob': {
       ctx.beginPath();
       ctx.ellipse(fx, fy - h * 0.5, w / 2, h / 2, 0, 0, TAU);
       ctx.fillStyle = fill;
@@ -761,16 +766,29 @@ export function drawBody(
       ctx.strokeStyle = look.outline;
       ctx.stroke();
       eyes(ctx, fx + s * w * 0.08, fy - h * 0.6, w * 0.15, Math.max(2, w * 0.09), s, '#ffffff', '#1b1b1b');
+      break;
     }
+    default:
+      drawCreature(ctx, look.shape as CreatureShape, look.color, flash, fx, fy, w, h, s, time, phase);
   }
-  if (tier === 'mid') crown(ctx, fx, fy - h - (look.shape === 'ogre' ? h * 0.02 : 0), w);
+  if (tier === 'mid') crown(ctx, fx, fy - topOf(look, h, w), w);
+}
+
+function isLegacy(shape: UnitLook['shape']): boolean {
+  return shape === 'hero' || shape === 'slime' || shape === 'goblin' || shape === 'skeleton' || shape === 'bomb' || shape === 'golem' || shape === 'ogre' || shape === 'lich' || shape === 'turret' || shape === 'blob';
+}
+
+/** Drawn top of a body (px above the foot) without the mid-boss crown. */
+function topOf(look: UnitLook, h: number, w: number): number {
+  if (!isLegacy(look.shape)) return creatureTop(look.shape as CreatureShape, h, w);
+  if (look.shape === 'lich') return h * 1.05;
+  if (look.shape === 'ogre') return h * 1.08;
+  return h;
 }
 
 /** Height of the drawn body top above the foot point (px), including the mid-boss crown. */
 export function bodyTop(look: UnitLook, tier: MonsterTier | 'character', h: number, w: number): number {
-  let top = h;
-  if (look.shape === 'lich') top = h * 1.05;
-  if (look.shape === 'ogre') top = h * 1.08;
+  let top = topOf(look, h, w);
   if (tier === 'mid') top += w * 0.3;
   return top;
 }

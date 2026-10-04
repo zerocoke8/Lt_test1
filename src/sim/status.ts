@@ -47,13 +47,10 @@ export function applyStatus(
       target.rt.lockTime = 0;
       target.animTime = 0;
     }
-    // … and breaks a monster's telegraphed wind-up (오우거 내려찍기, 리치 저주 장판): it never lands — skills.ts
+    // … and breaks a monster's telegraphed wind-up (오우거 내려찍기, 리치 저주 장판, 돌진, 순간이동 뒤 찌르기 — every part): it never lands — skills.ts
     // tickPending drops it with its red area. The skill's cooldown stays spent. (Characters' casts are never wound up.)
-    const wu = target.rt.windup;
-    if (wu) {
-      if (!wu.started) wu.cancelled = true;
-      target.rt.windup = null;
-    }
+    for (const wu of target.rt.windup) if (!wu.started) wu.cancelled = true;
+    target.rt.windup = [];
   }
   return true;
 }

@@ -6,6 +6,14 @@ import { DEFAULT_TUNABLES } from '../config';
 import { button, h } from './dom';
 import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tunables';
 import type { ToastKind } from './toast';
+import { HIT_STOP_RANGE, JUICE, JUICE_DEFAULTS, SHAKE_RANGE, type JuiceSettings } from '../render/juice';
+import { loadJuice, saveJuice } from './storage';
+
+/** Render-only sliders (this device only, never sent to the server): 기획 8차 drag-landing feel. */
+const JUICE_SLIDERS: { key: keyof JuiceSettings; label: string; min: number; max: number; step: number; fmt: (v: number) => string }[] = [
+  { key: 'hitStopMs', label: '타격 멈춤 길이', ...HIT_STOP_RANGE, fmt: v => (v <= 0 ? '끔' : `${Math.round(v)}ms`) },
+  { key: 'shake', label: '화면 흔들림 세기', ...SHAKE_RANGE, fmt: v => (v <= 0 ? '끔' : `${v.toFixed(1)}×`) },
+];
 
 export interface DebugDeps {
   game(): Game | null;
@@ -29,6 +37,7 @@ export class DebugPanel {
   private readonly toggles: { key: (typeof TOGGLES)[number]['key']; input: HTMLInputElement }[] = [];
   private readonly speedBtns: { v: number; b: HTMLButtonElement }[] = [];
   private readonly floorInput: HTMLElement;
+  private readonly juiceRows: { key: keyof JuiceSettings; input: HTMLInputElement; value: HTMLElement; row: HTMLElement; fmt: (v: number) => string }[] = [];
   private jumpTo = 2;
   private collapsed = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -67,6 +76,33 @@ export class DebugPanel {
     this.floorInput = h('span', 'dbg-floor', jump, '2층');
     button('dbg-btn dbg-step', '+', jump, () => this.bumpFloor(1));
     button('dbg-btn dbg-go', '층 이동', jump, () => this.run({ kind: 'jumpFloor', floor: this.jumpTo }, `${this.jumpTo}층 이동`));
+
+    // render-only feel (this device): applied right away, saved locally — works in solo and multiplayer
+    Object.assign(JUICE, loadJuice());
+    const fx = this.section('연출 (이 기기만)');
+    for (const js of JUICE_SLIDERS) {
+      const row = h('div', 'dbg-slider', fx);
+      const top = h('div', 'dbg-slider-top', row);
+      h('span', 'dbg-slider-label', top, js.label);
+      const value = h('span', 'dbg-slider-value', top);
+      const input = h('input', '', row);
+      input.type = 'range';
+      input.min = String(js.min);
+      input.max = String(js.max);
+      input.step = String(js.step);
+      input.addEventListener('input', () => {
+        JUICE[js.key] = Number(input.value);
+        saveJuice(JUICE);
+        this.syncJuice();
+      });
+      this.juiceRows.push({ key: js.key, input, value, row, fmt: js.fmt });
+    }
+    button('dbg-btn', '연출 기본값', h('div', 'dbg-btnrow', fx), () => {
+      Object.assign(JUICE, JUICE_DEFAULTS);
+      saveJuice(JUICE);
+      this.syncJuice();
+    });
+    this.syncJuice();
 
     // toggles
     const tg = this.section('토글');
@@ -176,8 +212,18 @@ export class DebugPanel {
     }, 250);
   }
 
+  private syncJuice(): void {
+    for (const r of this.juiceRows) {
+      const v = JUICE[r.key];
+      if (typeof document === 'undefined' || document.activeElement !== r.input) r.input.value = String(v);
+      r.value.textContent = r.fmt(v);
+      r.row.classList.toggle('is-changed', v !== JUICE_DEFAULTS[r.key]);
+    }
+  }
+
   /** Reflect game.tunables in the controls. */
   sync(): void {
+    this.syncJuice();
     const g = this.deps.game();
     if (!g) return;
     const t = g.tunables;

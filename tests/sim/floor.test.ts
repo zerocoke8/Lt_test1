@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS_POS, DEFAULT_TUNABLES, FLOOR_WAVES, MONSTER_UNLOCK_FLOOR } from '../../src/config';
-import { MID_BOSS_IDS } from '../../src/data';
+import { BOSS_POS, DEFAULT_TUNABLES, FLOOR_WAVES, MONSTER_UNLOCK_FLOOR, ZONES, zoneOf } from '../../src/config';
+import { BOSS_IDS, getBoss, getMonster, MID_BOSS_IDS } from '../../src/data';
 import { planFloor } from '../../src/sim';
 import { applyDamage } from '../../src/sim/combat';
 import { effStats } from '../../src/sim/stats';
@@ -8,7 +8,7 @@ import { Rng } from '../../src/sim/rng';
 import { active, advance, BOT1, BOT2, clearEvents, eventsOf, HUMAN, killActive, makeGame } from './helpers';
 
 describe('planFloor', () => {
-  it('boss every 5 floors, wave count first + 1 per floor number (capped), unlocks, mid boss alternates', () => {
+  it('boss every 5 floors, wave count first + 1 per floor number (capped), zone pools, one mid boss per normal floor', () => {
     const t = DEFAULT_TUNABLES;
     const rng = new Rng(5);
     const plans = Array.from({ length: 20 }, (_, i) => planFloor(i + 1, rng, t));
@@ -16,28 +16,98 @@ describe('planFloor', () => {
     const normals = plans.filter(p => p.kind === 'normal');
     // 기획서 9-1 (가정) "1층 N웨이브, 층마다 +1": counted by floor number, so a boss floor in between does not shift it
     for (const p of normals) expect(p.waves.length).toBe(Math.min(FLOOR_WAVES.max, FLOOR_WAVES.first + (p.floor - 1) * FLOOR_WAVES.perFloor));
-    expect(normals.slice(0, 5).map(p => p.waves.length)).toEqual([5, 6, 7, 8, 10]); // floors 1–4, 6
+    expect(normals.slice(0, 5).map(p => p.waves.length)).toEqual([5, 6, 7, 8, 8]); // floors 1–4, 6
     expect(Math.max(...normals.map(p => p.waves.length))).toBe(FLOOR_WAVES.max);
     // the cap keeps the last wave well inside the time limit
     expect(1 + (FLOOR_WAVES.max - 1) * t.waveInterval).toBeLessThan(t.normalFloorTime * 0.65);
     for (const p of normals) {
+      const zone = zoneOf(p.floor);
+      expect(p.theme).toBe(zone.theme);
       expect(p.timeLimit).toBe(t.normalFloorTime);
       expect(p.arena).toEqual({ width: 36, height: 12 });
       expect(MID_BOSS_IDS).toContain(p.midBossId);
+      expect(zone.mids).toContain(p.midBossId);
       p.waves.forEach((wv, i) => {
         expect(wv.at).toBeCloseTo(1 + i * t.waveInterval);
         const n = wv.spawns.reduce((a, g) => a + g.count, 0);
-        expect(n).toBeGreaterThanOrEqual(4);
-        expect(n).toBeLessThanOrEqual(6);
-        for (const g of wv.spawns) expect(MONSTER_UNLOCK_FLOOR[g.monsterId]).toBeLessThanOrEqual(p.floor);
+        expect(n).toBeGreaterThanOrEqual(zone.waveSize.min);
+        expect(n).toBeLessThanOrEqual(zone.waveSize.max);
+        for (const g of wv.spawns) {
+          expect(MONSTER_UNLOCK_FLOOR[g.monsterId]).toBeLessThanOrEqual(p.floor);
+          expect(zone.pool.map(e => e.id)).toContain(g.monsterId);
+        }
       });
     }
-    expect(normals[0].midBossId).not.toBe(normals[1].midBossId);
+    // consecutive normal floors never repeat the mid boss
+    for (let i = 1; i < normals.length; i++) expect(normals[i].midBossId, `floor ${normals[i].floor}`).not.toBe(normals[i - 1].midBossId);
     const boss = plans[4];
-    expect(boss.bossId).toBe('abyss_watcher');
+    expect(boss.bossId).toBe('elevator_keeper');
     expect(boss.timeLimit).toBe(t.bossFloorTime);
     expect(boss.arena).toEqual({ width: 24, height: 12 });
     expect(plans[3].statMult).toBeCloseTo(1 + 3 * t.floorStatGrowth);
+  });
+
+  it('기획 8차 zones: themes 1–5 lobby · 6–10 office · 11–15 ward · 16–20 rooftop, bosses 5/10/15/20, the floor table', () => {
+    const t = DEFAULT_TUNABLES;
+    const plans = Array.from({ length: 20 }, (_, i) => planFloor(i + 1, new Rng(100 + i), t));
+    expect(plans.map(p => p.theme)).toEqual([
+      ...Array(5).fill('lobby'),
+      ...Array(5).fill('office'),
+      ...Array(5).fill('ward'),
+      ...Array(5).fill('rooftop'),
+    ]);
+    expect(plans.filter(p => p.kind === 'boss').map(p => p.bossId)).toEqual(['elevator_keeper', 'overtime_lord', 'surgeon_director', 'abyss_watcher']);
+    for (const id of BOSS_IDS) expect(getBoss(id).phases?.length ?? 0).toBeGreaterThan(0);
+    // the mid boss table (docs/content-20f.md)
+    expect(plans.map(p => p.midBossId ?? '-')).toEqual([
+      'ogre', 'lich', 'elevator_girl', 'ogre', '-',
+      'copier_beast', 'lich', 'copier_beast', 'elevator_girl', '-',
+      'head_nurse', 'copier_beast', 'signal_man', 'head_nurse', '-',
+      'signal_man', 'copier_beast', 'signal_man', 'head_nurse', '-',
+    ]);
+    // floors 1–4 keep the round-7 pool and unlock floors (the tuned early game)
+    expect(MONSTER_UNLOCK_FLOOR).toMatchObject({ slime: 1, goblin: 1, skeleton_archer: 2, bomb_bug: 3, golem: 4 });
+    // each zone brings its own monsters: over many seeds, a zone's waves are mostly its new monsters
+    const own: Record<string, string[]> = {
+      office: ['overtime_ghost', 'copy_man'],
+      ward: ['iv_zombie', 'wheelchair_rush', 'nurse_doll'],
+      rooftop: ['eye_stalk', 'red_mask'],
+    };
+    for (const [theme, ids] of Object.entries(own)) {
+      let mine = 0;
+      let all = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        for (let f = 1; f <= 19; f++) {
+          const p = planFloor(f, new Rng(seed * 31 + f), t);
+          if (p.theme !== theme || p.kind !== 'normal' || f === zoneOf(f).from) continue; // the zone's later floors (everything unlocked)
+          for (const wv of p.waves) for (const g of wv.spawns) (all += g.count, ids.includes(g.monsterId) && (mine += g.count));
+        }
+      }
+      expect(mine / all, theme).toBeGreaterThan(0.4);
+    }
+    // every id in the zone tables exists with the right tier; copy_mini never comes in waves
+    for (const z of ZONES) {
+      for (const e of z.pool) expect(getMonster(e.id).tier).toBe('normal');
+      for (const m of z.mids) expect(getMonster(m).tier).toBe('mid');
+      expect(getBoss(z.boss).tier).toBe('boss');
+      expect(z.pool.map(e => e.id)).not.toContain('copy_mini');
+    }
+    // past floor 20 (debug maxFloor) the last zone repeats and the bosses cycle
+    expect(planFloor(23, new Rng(1), t).theme).toBe('rooftop');
+    expect(planFloor(25, new Rng(1), t).bossId).toBe('elevator_keeper');
+  });
+
+  it('time limits and the alive cap stay sane up to floor 20: the last wave lands by 57 s, waves fit under the cap', () => {
+    const t = DEFAULT_TUNABLES;
+    for (let f = 1; f <= 20; f++) {
+      const p = planFloor(f, new Rng(f), t);
+      if (p.kind === 'boss') {
+        expect(p.timeLimit).toBe(t.bossFloorTime);
+        continue;
+      }
+      expect(p.waves.at(-1)!.at).toBeLessThanOrEqual(57.01);
+      for (const wv of p.waves) expect(wv.spawns.reduce((a, g) => a + g.count, 0)).toBeLessThanOrEqual(t.maxAliveMonsters / 3);
+    }
   });
 });
 

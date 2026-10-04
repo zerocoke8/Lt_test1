@@ -1,16 +1,18 @@
-// Headless balance sweep over the real sim (no rendering). Run: npx vite-node tests/playtest/balance.ts [runs=20] [floors=6]
+// Headless balance sweep over the real sim (no rendering). Run: npx vite-node tests/playtest/balance.ts [runs=20] [floors=6] [policy]
+// 기획 8차 (20층): `npx vite-node tests/playtest/balance.ts 40 20` → per floor + `<policy>_runs` (victories, where runs end).
 // Player 0 policies:
 //   idle   — never swaps/pets/ults (AFK lower bound)
 //   bot    — player 0 driven by the same bot AI as the 2 bots (swaps every 20–30 s)
 //   active — human-like: swap every ~4 s to the best drag-skill spot, pets on clusters, ult 0.5 s after full
 // Reports per floor: clear time, timeouts, my character deaths, player outs, boss enrage/retreat timing.
 
-import { BOT_PRESETS, DEFAULT_TUNABLES, TICK_RATE } from '../../src/config';
+import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE } from '../../src/config';
 import { BOSSES, MONSTERS, getPet } from '../../src/data';
 import { bestDropPoint } from '../../src/sim/bot';
 import { WAVE_SIZE, WAVES } from '../../src/sim/constants';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { canSwap, canUsePet } from '../../src/sim/players';
+import { applyOffer, rollOffers } from '../../src/sim/rewards';
 import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import type { PlayerSetup, SimPhase, Tunables, Vec2 } from '../../src/types';
 
@@ -45,6 +47,24 @@ if (CONSTS.wavesPerFloor) W.perFloor = CONSTS.wavesPerFloor;
 if (CONSTS.wavesMax) W.max = CONSTS.wavesMax;
 if (CONSTS.waveMin) WS.min = CONSTS.waveMin;
 if (CONSTS.waveMax) WS.max = CONSTS.waveMax;
+if (CONSTS.lateFactor != null) LATE_STAT_GROWTH.factor = CONSTS.lateFactor;
+if (CONSTS.lateFrom != null) LATE_STAT_GROWTH.from = CONSTS.lateFrom;
+/** Simulated per-monster edits: {"<id>": {"hp": mult, "atk": mult}} (argv[8]). */
+const PER: Record<string, { hp?: number; atk?: number }> = argv[8] ? JSON.parse(argv[8]) : {};
+for (const m of [...MONSTERS, ...BOSSES]) {
+  const e = PER[m.id];
+  if (!e) continue;
+  m.stats.maxHp *= e.hp ?? 1;
+  m.stats.atk *= e.atk ?? 1;
+}
+/**
+ * START=n (env): every run starts at floor n with the rewards it would have picked on floors 1..n−1 already applied
+ * (human: first offer, bots: random — like a real run; relics on boss floors). Tunes a late zone with full samples.
+ */
+const START = Math.max(1, Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.START ?? 1));
+const LAST = START + FLOORS - 1;
+/** SEED0=n (env): first seed (default 1000), run k uses SEED0 + k × 7919. */
+const SEED0 = Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SEED0 ?? 1000);
 const runTele: { drag: number; ult: number; pet: number; basic: number; normal: number; myShare: number; spm: number }[] = [];
 
 const HUMAN: PlayerSetup = { name: '나', isBot: false, characters: ['blade', 'mage', 'cleric'], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] };
@@ -157,8 +177,15 @@ function runInner(seed: number, policy: Policy, floors: number): { recs: FloorRe
     { ...HUMAN, isBot: policy === 'bot' },
     ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] })),
   ];
-  const { game, world: w } = createGameWithWorld({ seed, players, tunables });
+  const { game, world: w } = createGameWithWorld({ seed, players, tunables, startFloor: START });
   const s = w.state;
+  for (let f = 1; f < START; f++) {
+    for (const p of s.players) {
+      const offers = rollOffers(w, p, f % 5 === 0);
+      if (offers.length) applyOffer(w, p, p.isBot ? offers[w.rng.int(0, offers.length - 1)] : offers[0]);
+    }
+  }
+  game.drainEvents();
   const recs: FloorRec[] = [];
   const st = { lastSwap: -99, ultAt: null as number | null, react: null as number | null };
   let thinkIn = 0;
@@ -167,7 +194,7 @@ function runInner(seed: number, policy: Policy, floors: number): { recs: FloorRe
     myEmptySec: 0, idleSec: 0, mySwaps: s.players[0].stats.swaps, maxAlive: 0, midSpawnAt: null, midKilledAt: null, lastWaveAt: null,
   });
   let rec = newRec();
-  const maxTicks = TICK_RATE * 60 * 40;
+  const maxTicks = TICK_RATE * 60 * 60;
   for (let t = 0; t < maxTicks; t++) {
     if (s.phase === 'reward') {
       // human picks the first offer (deterministic)
@@ -254,12 +281,12 @@ function pctl(xs: number[], q: number): number {
 const r1 = (x: number) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : x);
 
 const policies: Policy[] = ONLY ? [ONLY] : ['idle', 'bot', 'active'];
-const out: Record<string, unknown> = { runs: RUNS, overrides: OVERRIDES, data: DATA, consts: CONSTS };
+const out: Record<string, unknown> = { runs: RUNS, start: START, seed0: SEED0, overrides: OVERRIDES, data: DATA, consts: CONSTS };
 for (const pol of policies) {
   const all: FloorRec[][] = [];
-  for (let k = 0; k < RUNS; k++) all.push(runOnce(1000 + k * 7919, pol, FLOORS));
+  for (let k = 0; k < RUNS; k++) all.push(runOnce(SEED0 + k * 7919, pol, FLOORS));
   const summary: unknown[] = [];
-  for (let f = 1; f <= FLOORS; f++) {
+  for (let f = START; f <= LAST; f++) {
     const recs = all.map(r => r.find(x => x.floor === f)).filter((x): x is FloorRec => !!x);
     if (!recs.length) continue;
     const clears = recs.filter(r => r.outcome === 'clear');
@@ -288,6 +315,20 @@ for (const pol of policies) {
     });
   }
   out[pol] = summary;
+  // run-level: how far runs get, where and how they end (기획 8차: 20-floor curve)
+  const ends: Record<string, number> = {};
+  let victories = 0;
+  for (const r of all) {
+    const last = r[r.length - 1];
+    if (!last) continue;
+    if (last.outcome === 'clear' && last.floor >= LAST) victories++;
+    else ends[`${last.floor}:${last.outcome}`] = (ends[`${last.floor}:${last.outcome}`] ?? 0) + 1;
+  }
+  out[`${pol}_runs`] = {
+    victories,
+    reachedFloorMed: pctl(all.map(r => r[r.length - 1]?.floor ?? 0), 0.5),
+    ends: Object.fromEntries(Object.entries(ends).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))),
+  };
   const avg = (k: keyof (typeof runTele)[number]) => r1((runTele.reduce((a, t) => a + t[k], 0) / Math.max(1, runTele.length)) * (k === 'spm' ? 1 : 100));
   out[`${pol}_tele`] = { dragPct: avg('drag'), ultPct: avg('ult'), petPct: avg('pet'), basicPct: avg('basic'), normalPct: avg('normal'), myTeamSharePct: avg('myShare'), swapsPerMin: avg('spm') };
   runTele.length = 0;

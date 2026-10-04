@@ -4,6 +4,8 @@ import type { DamageSource, StatusId, Team, Vec2 } from '../types';
 import { PROJECTILE_MAX_LIFE } from './constants';
 import { unitCtx } from './ctx';
 import { hasRelic, relicParam } from './modifiers';
+import { onMonsterDeath } from './ondeath';
+import { checkPhases } from './phases';
 import { benchMaxHp, effStats } from './stats';
 import { applyStatus, statusValue } from './status';
 import {
@@ -104,6 +106,8 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     } else {
       killEntity(w, target, src);
     }
+  } else if (target.rt.monDef) {
+    checkPhases(w, target);
   }
   return dmg;
 }
@@ -132,7 +136,10 @@ export function reduceBenchSwapCd(p: SimPlayer, seconds: number): void {
   });
 }
 
-export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null): void {
+/**
+ * opts.noOnDeath: remove without the monster's onDeath (debug "적 전멸" clears the field; splits would refill it).
+ */
+export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null, opts?: { noOnDeath?: boolean }): void {
   if (e.rt.gone) return;
   e.hp = 0;
   e.rt.gone = true;
@@ -141,6 +148,7 @@ export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null): void 
     characterDied(w, e);
     return;
   }
+  if (!opts?.noOnDeath) onMonsterDeath(w, e);
   if (e.team === 'enemy') {
     if (e.tier !== 'mid' && e.tier !== 'boss') w.spawner.kills++;
     const kp = killer?.player != null ? w.state.players[killer.player] : undefined;

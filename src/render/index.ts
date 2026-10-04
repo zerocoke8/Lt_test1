@@ -13,14 +13,14 @@ import {
   type RenderUiState,
   type Vec2,
 } from '../types';
-import { type BossDrawOpts, drawBoss, drawBossShadow } from './boss';
+import { type BossDrawOpts, bossPhaseOf, drawBossArt, drawBossShadow } from './boss';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { Backdrop } from './ground';
 import { COLORS, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
 import { CHARACTERS } from '../data';
-import { areaCentroid, areaExtent } from '../sim/geometry';
-import { drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
-import { TAU, pathArea, pathCapsule } from './shapes';
+import { areaCentroid } from '../sim/geometry';
+import { drawAimedDirection, drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
+import { TAU, areaReach, pathArea, pathCapsule } from './shapes';
 import {
   HERO_POSE,
   type UnitMemo,
@@ -41,10 +41,14 @@ import {
   type TagBox,
 } from './units';
 import { Vfx, type VfxContext, playerColor } from './vfx';
+import { DASH_LAND } from './dashtime';
+import { CREATURE_POSE, midAura } from './creatures';
 
 export { Camera } from './camera';
 
 const MAX_DT = 0.1;
+/** Drop-in height (world units) of a character appearing (swap / floor start). */
+const APPEAR_DROP = 3;
 const PROJECTILE_Z = 0.75;
 const ZONE_DASH = [8, 6];
 const NO_DASH: number[] = [];
@@ -71,8 +75,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   let arenaH = 0;
   let snapPending = true;
   let vignette: CanvasGradient | null = null;
-  const lastBoss = { x: 0, y: 0, radius: 3, color: '#3a0ca3' };
-  const bossOpts: BossDrawOpts = { color: '', time: 0, enraged: false, flash: 0, retreat: 0, lookX: null, lookY: null, charge: 0, shake: 0 };
+  const lastBoss = { x: 0, y: 0, radius: 3, color: '#3a0ca3', defId: '', phase: 1 };
+  const bossOpts: BossDrawOpts = { color: '', time: 0, enraged: false, flash: 0, retreat: 0, lookX: null, lookY: null, charge: 0, shake: 0, phase: 1, phaseFlash: 0 };
   const pruneMemo = (m: UnitMemo, id: number) => {
     if (m.stamp !== stamp) memos.delete(id);
   };
@@ -141,7 +145,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function drawZones(state: GameState): void {
     const c = ctx!;
     for (const z of state.zones) {
-      if (!cam.visibleX(z.center.x, (z.area ? areaExtent(z.area) : z.radius) + 1)) continue;
+      if (!cam.visibleX(z.center.x, (z.area ? areaReach(z.area) : z.radius) + 1)) continue;
       const color =
         vfx.zoneTint(z.center.x, z.center.y) ??
         (z.kind === 'heal'
@@ -272,6 +276,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         c.stroke();
       }
       if (area.shape === 'rect' || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
+      else if (enemy && (area.shape === 'fan' || area.shape === 'line')) drawAimedDirection(c, cam, t.center, t.origin, area, '#ffe2e2', 0.85, time);
     }
     c.globalAlpha = 1;
   }
@@ -418,11 +423,23 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         }
         break;
       }
-      case 'appear':
-        z = (1 - p) * (1 - p) * 3.2;
-        hMul = p > 0.85 ? 1 - 0.18 * Math.sin(((p - 0.85) / 0.15) * Math.PI) : 1.08;
-        wMul = p > 0.85 ? 1 + 0.14 * Math.sin(((p - 0.85) / 0.15) * Math.PI) : 0.95;
+      case 'appear': {
+        // 기획 8차: a fast drop (accelerating, DASH_LAND s) → touchdown squash → spring back. The hit-stop lands on the
+        // touchdown frame (vfx landings), so the frozen picture is the squash with the skill's shockwave around it.
+        const t = m.appearAge;
+        if (t < DASH_LAND) {
+          const k = t / DASH_LAND;
+          z = APPEAR_DROP * (1 - k * k);
+          hMul = 1.14;
+          wMul = 0.88;
+        } else {
+          const u = Math.min(1, (t - DASH_LAND) / 0.26);
+          const q = 1 - u;
+          hMul = 1 - 0.26 * q * q + 0.06 * Math.sin(u * Math.PI);
+          wMul = 1 + 0.22 * q * q - 0.03 * Math.sin(u * Math.PI);
+        }
         break;
+      }
       case 'move': {
         const b = Math.abs(Math.sin(time * 10 + m.phase));
         z = b * 0.13;
@@ -485,7 +502,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function drawUnitGround(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     const c = ctx!;
-    let lift = e.anim === 'appear' ? (1 - animProgress(e, m)) : 0;
+    let lift = e.anim === 'appear' && m.appearAge < DASH_LAND ? 1 - (m.appearAge / DASH_LAND) ** 2 : 0;
     let gx = e.pos.x;
     let gy = e.pos.y;
     if (vfx.dashPose(e.id, dashOff)) {
@@ -496,6 +513,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     drawShadow(c, cam, gx, gy, e.radius * (m.look.shape === 'hero' ? 0.9 : 1), 1 - lift * 0.6, 1 - lift * 0.5);
     const sx0 = cam.sx(gx);
     const sy0 = cam.sy(gy);
+    if (e.tier === 'mid' && e.team === 'enemy') midAura(c, sx0, sy0, e.radius * PX_PER_UNIT, e.radius * PX_PER_UNIT_Y, time, m.phase);
     if (e.kind === 'character' && e.ownerPlayer != null && e.ownerPlayer !== local) {
       // another player's character: a ring in that player's colour (their name tag colour) — two 가디언 on the
       // field no longer look the same; mine has the bright outline + marker instead
@@ -595,9 +613,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.globalAlpha = alpha;
     HERO_POSE.swing = pose.swing;
     HERO_POSE.recoil = pose.recoil;
+    if (e.kind !== 'character') {
+      // 괴담 bodies open mouths / raise arms through their attack or cast, and roll / hop while moving
+      CREATURE_POSE.act = e.anim === 'attack' || e.anim === 'cast' ? Math.sin(animProgress(e, m) * Math.PI) : 0;
+      CREATURE_POSE.moving = e.anim === 'move';
+    }
     drawBody(c, look, e.tier, fx, fy, w, h, s, time, m.phase, m.flash > 0);
     HERO_POSE.swing = 0;
     HERO_POSE.recoil = 0;
+    CREATURE_POSE.act = 0;
+    CREATURE_POSE.moving = false;
     if (e.kind === 'character' && hasStatus(e, 'slow')) {
       c.globalAlpha = 0.22;
       pathCapsule(c, fx, fy, w * 0.95, h);
@@ -838,7 +863,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
           o.lookY = null;
           o.charge = 0;
           o.shake = 0;
-          drawBoss(c, cam, lastBoss.x, lastBoss.y, lastBoss.radius, o);
+          o.phase = lastBoss.phase;
+          o.phaseFlash = 0;
+          drawBossArt(c, cam, lastBoss.defId, lastBoss.x, lastBoss.y, lastBoss.radius, o);
         }
       }
       return;
@@ -862,11 +889,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       o.lookY = tgt ? tgt.y : null;
       o.charge = charge;
       o.shake = shake;
-      drawBoss(c, cam, e.pos.x, e.pos.y, e.radius, o);
+      o.phase = bossPhaseOf(e.defId, e.hp, e.maxHp);
+      o.phaseFlash = vfx.phaseFlash;
+      drawBossArt(c, cam, e.defId, e.pos.x, e.pos.y, e.radius, o);
       lastBoss.x = e.pos.x;
       lastBoss.y = e.pos.y;
       lastBoss.radius = e.radius;
       lastBoss.color = m.look.color;
+      lastBoss.defId = e.defId;
+      lastBoss.phase = o.phase;
       hasLastBoss = true;
     }
   }
@@ -875,10 +906,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function render(state: GameState, events: GameEvent[], realDt: number, ui: RenderUiState): void {
     const c = ctx!;
-    const dt = Math.max(0, Math.min(MAX_DT, Number.isFinite(realDt) ? realDt : 0));
+    const realStep = Math.max(0, Math.min(MAX_DT, Number.isFinite(realDt) ? realDt : 0));
+    // 기획 8차 hit-stop: while frozen the world clock stands still (render only — the sim and the DOM HUD keep going);
+    // a drag in progress always sees the live field
+    const juice = vfx.juice;
+    juice.update(realStep);
+    if (ui.dragPreview) juice.cancelFreeze();
+    const dt = juice.frozen && freezeOk ? 0 : realStep;
     time += dt;
     stamp++;
-    ensureBackingStore(dt);
+    ensureBackingStore(realStep);
 
     // A new run (다시 하기 / 프리셋 → 출발) reuses entity ids from 1: drop every memo and effect of the old run.
     if (state.seed !== runSeed || state.tick < lastTick) {
@@ -903,13 +940,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       snapPending = true;
       hasLastBoss = false;
     }
-    backdrop.ensure(arena.width, arena.height, boss, state.floor, dpr);
+    backdrop.ensure(arena.width, arena.height, boss, state.floor, dpr, state.plan.theme, state.plan.bossId);
 
     // events first: death/leave ghosts need last frame's memos. Units that appeared this frame get theirs now, so a
     // drag skill cast by a character that just landed can follow it (callout, cast pose).
     for (const e of state.entities) if (!memos.has(e.id)) memos.set(e.id, newMemo(e, stamp));
     vc.state = state;
     vc.localPlayer = ui.localPlayer;
+    vc.camX = cam.x;
     for (const ev of events) {
       vfx.handle(ev, vc);
       if (ev.type === 'floorStart') {
@@ -932,6 +970,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     memos.forEach(pruneMemo);
 
+    if (juice.frozen && freezeOk && freezeCanvas) {
+      drawFrozen(state);
+      return;
+    }
+    freezeOk = false;
+
     vfx.trackTelegraphs(state.telegraphs);
     vfx.update(dt, vc);
 
@@ -952,8 +996,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // ── draw ──
     c.globalAlpha = 1;
     c.lineJoin = 'round';
-    // camera shake (my own heavy skills only): the world layer jitters, the screen overlays below do not
-    if (vfx.shakeAmp > 0.2) c.translate((Math.random() * 2 - 1) * vfx.shakeAmp, (Math.random() * 2 - 1) * vfx.shakeAmp * 0.6);
+    // camera shake: the world layer moves, the screen overlays below do not. A freeze that starts this frame captures
+    // this frame unshaken (the frozen frames then shake it).
+    const startsFreeze = juice.frozen && !ui.dragPreview;
+    const sh = startsFreeze ? ZERO_OFF : juice.offset(shakeOff);
+    if (sh.x !== 0 || sh.y !== 0) {
+      c.fillStyle = '#05060a';
+      c.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+      c.translate(sh.x, sh.y);
+    }
     backdrop.draw(c, cam, time, ui.dragPreview !== null);
     drawBosses(state, true);
     c.save();
@@ -994,6 +1045,52 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     vfx.drawOverlay(c, cam);
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (startsFreeze) {
+      // hold this picture for the hit-stop (no DOM → no freeze: tests, workers)
+      freezeOk = captureFreeze();
+      if (!freezeOk) juice.cancelFreeze();
+    }
+    drawOffscreenEnemies(state);
+    vfx.drawScreen(c, state.bossEnraged && state.bossId !== null, time, getVignette());
+    c.globalAlpha = 1;
+  }
+
+  /** Copy of the world layer of the frame where a hit-stop began (backing-store pixels). */
+  let freezeCanvas: HTMLCanvasElement | null = null;
+  let freezeOk = false;
+  function captureFreeze(): boolean {
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return false;
+    try {
+      if (!freezeCanvas) freezeCanvas = document.createElement('canvas');
+      if (freezeCanvas.width !== canvas.width) freezeCanvas.width = canvas.width;
+      if (freezeCanvas.height !== canvas.height) freezeCanvas.height = canvas.height;
+      const g = freezeCanvas.getContext('2d');
+      if (!g) return false;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.drawImage(canvas, 0, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** A hit-stop frame: the held world picture, shaken, under live screen overlays (offscreen arrows, enrage tint). */
+  function drawFrozen(state: GameState): void {
+    const c = ctx!;
+    const fc = freezeCanvas!;
+    if (fc.width !== canvas.width || fc.height !== canvas.height) {
+      vfx.juice.cancelFreeze();
+      freezeOk = false;
+      return;
+    }
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.globalAlpha = 1;
+    const o = vfx.juice.offset(shakeOff);
+    if (o.x !== 0 || o.y !== 0) {
+      c.fillStyle = '#05060a';
+      c.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    }
+    c.drawImage(fc, 0, 0, fc.width, fc.height, o.x, o.y, LOGICAL_W, LOGICAL_H);
     drawOffscreenEnemies(state);
     vfx.drawScreen(c, state.bossEnraged && state.bossId !== null, time, getVignette());
     c.globalAlpha = 1;
@@ -1015,6 +1112,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 }
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };
+const shakeOff = { x: 0, y: 0 };
+const ZERO_OFF = { x: 0, y: 0 } as const;
 const dashOff = { ox: 0, oy: 0, z: 0 };
 const offSide = { ln: 0, rn: 0, ly: 0, ry: 0, lmid: false, rmid: false };
 const CAST_DASH = [10, 7];

@@ -6,7 +6,7 @@ import { getMonster } from '../data';
 import { ARENA_MARGIN, SUMMON_SPREAD } from './constants';
 import { addShield, heal, hitDamage, reduceBenchSwapCd } from './combat';
 import { clampUnit, createUnit } from './entities';
-import { DASH_DEFAULT_DURATION, DIR_VEC, areaExtent, dashEnd, hitsArea, scaleArea, scaleDash } from './geometry';
+import { DASH_DEFAULT_DURATION, DIR_VEC, aimDir, areaExtent, chargeEnd, dashEnd, hitsArea, scaleArea, scaleDash } from './geometry';
 import { applyStatus, cleanse } from './status';
 import {
   arena,
@@ -19,6 +19,7 @@ import {
   isAlive,
   newId,
   otherTeam,
+  queuedEnemies,
   type CastCtx,
   type PendingHit,
   type SimEntity,
@@ -101,11 +102,51 @@ function facingOf(d: Dir): number {
   return Math.atan2(u.y, u.x);
 }
 
+/** Auto-aimed shapes start at the caster and point at the resolved center (geometry.ts). */
+function isAimed(a: AreaShape): boolean {
+  return a.shape === 'line' || a.shape === 'fan';
+}
+
+/** Default rush animation length for SkillAction.charge (render only; the sim moves the caster at once). */
+export const CHARGE_DEFAULT_DURATION = 0.3;
+
+/**
+ * 기획 8차 blink: the caster vanishes and reappears next to its current target (on the side it came from), `offset`
+ * units of gap between the two bodies. Happens at cast time, so the telegraph that follows is drawn at the new spot.
+ */
+function doBlink(w: World, ctx: CastCtx, blink: NonNullable<SkillAction['blink']>): void {
+  const c = getEntity(w, ctx.casterId);
+  const t = getEntity(w, ctx.targetId);
+  if (!c || !t || c.rt.stationary) return;
+  const from = copy(c.pos);
+  const u = aimDir(t.pos, c.pos, { x: -1, y: 0 });
+  const gap = t.radius + c.radius + Math.max(0, blink.offset);
+  c.pos.x = t.pos.x + u.x * gap;
+  c.pos.y = t.pos.y + u.y * gap;
+  clampUnit(w, c);
+  c.facing = Math.atan2(t.pos.y - c.pos.y, t.pos.x - c.pos.x);
+  emit(w, { type: 'blink', entityId: c.id, from, to: copy(c.pos) });
+}
+
 /** Starts one action; returns its pending hit when it is delayed (telegraphed), else null. */
 export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: CastOpts): PendingHit | null {
-  const center = actionCenter(w, ctx, action);
-  const origin = action.area.shape === 'line' ? originOf(w, ctx) : center;
-  const area = scaleArea(action.area, ctx.radiusMult);
+  if (action.blink) doBlink(w, ctx, action.blink);
+  let center = actionCenter(w, ctx, action);
+  const origin = isAimed(action.area) ? originOf(w, ctx) : center;
+  let area = scaleArea(action.area, ctx.radiusMult);
+  let chargeTo: Vec2 | undefined;
+  if (action.charge) {
+    // 기획 8차 charge: the path is fixed now (the telegraph shows exactly it); the rush happens when the hit lands.
+    const caster = getEntity(w, ctx.casterId);
+    const mg = caster ? Math.max(ARENA_MARGIN, Math.min(caster.radius, 1)) : ARENA_MARGIN;
+    const fb = caster ? { x: Math.cos(caster.facing), y: Math.sin(caster.facing) } : undefined;
+    chargeTo = chargeEnd(origin, center, action.charge.distance * ctx.radiusMult, arena(w), mg, fb);
+    const len = Math.hypot(chargeTo.x - origin.x, chargeTo.y - origin.y);
+    if (len > 1e-6) center = copy(chargeTo);
+    else if (fb) center = { x: origin.x + fb.x * 0.01, y: origin.y + fb.y * 0.01 };
+    // the hit band runs along the path actually travelled (plus the body at the end)
+    if (area.shape === 'line') area = { shape: 'line', length: len + (caster?.radius ?? 0), width: area.width };
+  }
   if (action.dash && !opts?.noDash) doDash(w, ctx, center, action.dash);
   emit(w, {
     type: 'skillCast',
@@ -132,6 +173,7 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
     hitsLeft: Math.max(1, action.hits ?? 1),
     started: false,
     telegraphId: null,
+    ...(chargeTo ? { chargeTo } : null),
   };
   if (delay > 0) {
     p.telegraphId = addTelegraph(w, ctx.team, center, origin, area, delay).id;
@@ -143,8 +185,27 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
   return null;
 }
 
+/** 기획 8차 charge lands: the caster rushes along its telegraphed path (a dead caster never lands it). */
+function doCharge(w: World, p: PendingHit): boolean {
+  const caster = getEntity(w, p.ctx.casterId);
+  if (!caster || !p.chargeTo) return false;
+  const from = copy(caster.pos);
+  caster.pos.x = p.chargeTo.x;
+  caster.pos.y = p.chargeTo.y;
+  clampUnit(w, caster);
+  const dx = p.chargeTo.x - p.origin.x;
+  const dy = p.chargeTo.y - p.origin.y;
+  if (Math.hypot(dx, dy) > 1e-6) caster.facing = Math.atan2(dy, dx);
+  emit(w, { type: 'dash', entityId: caster.id, from, to: copy(caster.pos), duration: p.action.charge?.duration ?? CHARGE_DEFAULT_DURATION });
+  return true;
+}
+
 function fireHit(w: World, p: PendingHit): void {
   const a = p.action;
+  if (!p.started && a.charge && !doCharge(w, p)) {
+    p.hitsLeft = 0;
+    return;
+  }
   if (!p.started) {
     p.started = true;
     if (a.summon) spawnSummons(w, p.ctx, a.summon, p.center);
@@ -161,7 +222,7 @@ function fireHit(w: World, p: PendingHit): void {
       if (nt) p.ctx = { ...p.ctx, targetId: nt.id, targetPos: copy(nt.pos) };
     }
     p.center = actionCenter(w, p.ctx, a);
-    if (p.area.shape === 'line') p.origin = originOf(w, p.ctx);
+    if (isAimed(p.area)) p.origin = originOf(w, p.ctx);
   }
   applyEffects(w, p.ctx, a, p.center, p.origin, p.area);
   p.hitsLeft--;
@@ -235,7 +296,7 @@ export function collectTargets(
     return best && bd <= 1 ? [best] : [];
   }
   let fallback: Vec2 | undefined;
-  if (area.shape === 'line') {
+  if (isAimed(area)) {
     const c = getEntity(w, ctx.casterId);
     const f = c ? c.facing : 0;
     fallback = { x: Math.cos(f), y: Math.sin(f) };
@@ -264,6 +325,9 @@ function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: 
       hitDamage(w, ctx, t, eff.amount);
       break;
     case 'heal':
+      // (가정, 기획 8차) monster heals (링거 환자, 수간호사) never reach a boss: bosses only lose HP, and characters
+      // locked on a boss could not switch to the healers anyway (R6).
+      if (ctx.team === 'enemy' && t.tier === 'boss' && t.id !== ctx.casterId) break;
       heal(w, ctx.player, t, eff.amount * t.maxHp * ctx.healMult);
       break;
     case 'shield':
@@ -323,9 +387,10 @@ function zoneKind(action: SkillAction): SimZone['kind'] {
   return debuff ? 'debuff' : 'buff';
 }
 
-/** Footprint a zone re-applies its effects on ('single' / 'line' have no fixed footprint → small circle). */
+/** Footprint a zone re-applies its effects on ('single' / 'line' / 'fan' have no fixed footprint → circle). */
 function zoneArea(area: AreaShape): AreaShape {
   if (area.shape === 'single' || area.shape === 'line') return { shape: 'circle', radius: 1 };
+  if (area.shape === 'fan') return { shape: 'circle', radius: Math.max(1, area.radius / 2) };
   return area;
 }
 
@@ -378,7 +443,7 @@ function spawnSummons(w: World, ctx: CastCtx, summon: NonNullable<SkillAction['s
   const s = w.state;
   if (enemy) {
     // 기획서 9-1 동시 최대 maxAliveMonsters: enemy adds only fill the room that is left (boss excluded).
-    const room = w.tunables.maxAliveMonsters - countEnemies(w) - w.spawner.pending.length;
+    const room = w.tunables.maxAliveMonsters - countEnemies(w) - queuedEnemies(w);
     count = Math.min(count, Math.max(0, Math.floor(room)));
   }
   for (let i = 0; i < count; i++) {

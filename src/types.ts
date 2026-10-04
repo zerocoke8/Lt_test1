@@ -83,7 +83,9 @@ export type AreaShape =
   /** Donut around center: inner < distance ≤ outer. */
   | { shape: 'ring'; inner: number; outer: number }
   /** Two bars through center: '+' (or 'X' when diagonal), each arm `length` from center, bar thickness `width`. */
-  | { shape: 'cross'; length: number; width: number; diagonal?: boolean };
+  | { shape: 'cross'; length: number; width: number; diagonal?: boolean }
+  /** Auto-aimed cone (기획 8차, monsters): fan from the caster toward center, total opening `angle` degrees. */
+  | { shape: 'fan'; radius: number; angle: number };
 
 /** Who an action touches, relative to the caster's team. 'allies' = every ally character/summon on field (all players). */
 export type Affects = 'enemies' | 'allies' | 'self';
@@ -131,6 +133,13 @@ export interface SkillAction {
    * The caster ends at the clamped end point; effects hit along the path (pair with area {shape:'rect', dir, length: distance}).
    */
   dash?: { dir: Dir; distance: number; duration?: number };
+  /**
+   * 기획 8차 (monsters): the caster rushes from where it stands toward the resolved center by up to `distance`
+   * (after `delay`), hitting along the path (pair with area {shape:'line'}). Emits 'dash'.
+   */
+  charge?: { distance: number; duration?: number };
+  /** 기획 8차 (monsters): the caster teleports next to its current target before the action resolves. Emits 'blink'. */
+  blink?: { offset: number };
 }
 
 export interface SkillDef {
@@ -208,6 +217,11 @@ export interface MonsterSkill {
   /** Cast when current target within this edge distance (omit = any distance). */
   castRange?: number;
   action: SkillAction;
+  /**
+   * 기획 8차: more parts cast together with `action` (each with its own offset/delay) — sweeps, volleys, countdowns.
+   * Each part emits its own skillCast + telegraph; a stun breaks every part that has not landed yet.
+   */
+  extra?: SkillAction[];
 }
 
 export interface MonsterDef {
@@ -222,6 +236,10 @@ export interface MonsterDef {
   skills?: MonsterSkill[];
   /** Boss/static units never move. */
   stationary?: boolean;
+  /** 기획 8차: what happens when it dies (e.g. 복사 인간 splits into copies, a phone explodes). */
+  onDeath?: { summon?: { unitId: string; count: number }; action?: SkillAction };
+  /** 기획 8차: render theme hint (괴담 / urban anomaly look). */
+  look?: string;
 }
 
 export interface BossDef extends MonsterDef {
@@ -230,6 +248,11 @@ export interface BossDef extends MonsterDef {
   skills: MonsterSkill[];
   /** Applied when floor time runs out. */
   enrage: { atkMult: number; atkSpeedMult: number; cooldownMult: number; summonCountMult: number };
+  /**
+   * 기획 8차: HP thresholds (fraction of max, descending). Crossing one emits 'bossPhase' once, adds its skills to the
+   * rotation and applies its multipliers (stacking with enrage).
+   */
+  phases?: { hpBelow: number; name?: string; skills?: MonsterSkill[]; atkSpeedMult?: number; cooldownMult?: number }[];
 }
 
 /** Summoned ally units (pets, skills) use MonsterDef shape with tier 'summon'. */
@@ -287,7 +310,11 @@ export interface FloorPlan {
   /** Normal floors: exactly one mid boss. */
   midBossId?: string;
   bossId?: string;
+  /** 기획 8차: floor zone (1–5 로비·상가, 6–10 사무실, 11–15 폐병동, 16–20 옥상·이계) — drives pools and the background. */
+  theme?: FloorTheme;
 }
+
+export type FloorTheme = 'lobby' | 'office' | 'ward' | 'rooftop';
 
 // ─────────────────────────── Runtime state (read model) ───────────────────────────
 
@@ -540,6 +567,10 @@ export type GameEvent =
   | { type: 'appear'; player: number; partyIndex: number; entityId: number; pos: Vec2 }
   /** Caster moved along a dash (render a streak; entity pos is already at `to`). */
   | { type: 'dash'; entityId: number; from: Vec2; to: Vec2; duration: number }
+  /** 기획 8차: a monster teleported (render a vanish/appear). */
+  | { type: 'blink'; entityId: number; from: Vec2; to: Vec2 }
+  /** 기획 8차: a boss crossed an HP threshold. */
+  | { type: 'bossPhase'; entityId: number; phase: number; name: string }
   | { type: 'leave'; player: number; partyIndex: number; pos: Vec2 }
   | { type: 'death'; entityId: number; pos: Vec2; kind: EntityKind; tier: MonsterTier | 'character' }
   | { type: 'spawnWarning'; pos: Vec2; delay: number }
