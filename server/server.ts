@@ -27,7 +27,7 @@ export const DEFAULT_OPTIONS: ServerOptions = {
   maxCommandAgeMs: MAX_COMMAND_AGE_MS,
   maxConnections: 300,
   maxConnectionsPerIp: 16,
-  // ≈3% of a core per running game (docs/multiplayer.md 6장); small instances lower it (render.yaml MAX_GAMES)
+  // ≈3% of a core per running game (docs/multiplayer.md 측정 장); small instances lower it (render.yaml MAX_GAMES)
   maxPlayingRooms: 20,
   trustProxy: false,
   maxMessageBytes: 16 * 1024,
@@ -38,8 +38,13 @@ export const DEFAULT_OPTIONS: ServerOptions = {
   log: (msg: string) => console.log(`${new Date().toISOString()} ${msg}`),
 };
 
-/** Client address for the per-IP limit: the socket peer, or the first X-Forwarded-For hop behind a trusted proxy. */
-export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+/** Client address for the per-IP limit: the socket peer, or what a trusted proxy reports (Fly-Client-IP / first X-Forwarded-For hop). */
+export function clientIp(req: IncomingMessage, trustProxy: boolean | 'fly'): string {
+  if (trustProxy === 'fly') {
+    const fly = req.headers['fly-client-ip'];
+    const ip = (Array.isArray(fly) ? fly[0] : fly)?.trim();
+    if (ip) return ip.slice(0, 64);
+  }
   if (trustProxy) {
     const xff = req.headers['x-forwarded-for'];
     const first = (Array.isArray(xff) ? xff[0] : xff)?.split(',')[0]?.trim();

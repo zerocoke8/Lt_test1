@@ -17,7 +17,7 @@
   - 서버는 명령의 `player`를 **보낸 사람의 자리 번호로 덮어씀**. 남의 캐릭터를 조작할 수 없음.
 - 서버는 30Hz로 sim을 돌리고 **초당 15번 스냅샷**(게임 상태 전체 + 그 사이 연출 이벤트)을 보냄.
   - 스냅샷은 sim 내부 값을 빼고 소수점 2자리로 줄인 JSON. 화면에 안 쓰는 값은 줄임 (웨이브 구성은 개수만, 튜닝값은 바뀔 때 + 1초마다, 튜닝 로그는 런이 끝난 뒤에만).
-  - 크기: 원본 JSON 평균 6~7KB (몹 30마리면 16KB, 최대 25KB). WebSocket 압축(permessage-deflate) 뒤 실제 전송량은 클라이언트당 **초당 5~13KB** (6장 측정).
+  - 크기: 원본 JSON 평균 6~7KB (몹 30마리면 16KB, 최대 25KB). WebSocket 압축(permessage-deflate) 뒤 실제 전송량은 클라이언트당 **초당 5~13KB** (7장 측정).
 - 브라우저는 캐릭터·투사체 위치를 **서버 시각 기준으로 조금 늦게, 스냅샷 사이를 이어서** 그림.
   - 늦추는 시간 = 스냅샷 간격 + 그때그때 잰 도착 흔들림 (보통 약 0.08초, 흔들리는 모바일 망에서는 자동으로 늘어남, 최대 0.35초).
   - 그래서 스냅샷 하나가 늦게 와도 유닛이 멈추지 않음. 그보다 더 늦으면 마지막 속도로 잠깐(0.08초) 이어 감.
@@ -91,7 +91,71 @@ npm start            # http://localhost:8080
   - 서버 전체 제한: `MAX_GAMES` (동시에 돌아가는 게임 수, 기본 20 → 넘으면 방장에게 "서버가 붐벼요 · 잠시 뒤에 다시 시작해 주세요"), `MAX_CONNECTIONS` (소켓 수, 기본 300), `MAX_CONNECTIONS_PER_IP` (주소당 소켓, 기본 16). 넘는 접속은 연결 단계에서 503 → 브라우저가 점점 길게 기다리며 다시 시도.
   - `TRUST_PROXY=1`: 프록시 뒤(Render)에서 주소당 제한이 `X-Forwarded-For`의 첫 주소를 씀.
 
-## 4. Render에 올리기 (무료)
+## 4. Fly.io에 올리기 (추천)
+
+- 이미 있는 `Dockerfile`과 `fly.toml`을 그대로 씀. 서버 지역은 **도쿄(nrt)** → 한국에서 핑이 낮음.
+- 아무도 없으면 머신이 멈추고(요금 절약), 다음 접속 때 **몇 초 만에** 다시 켜짐 (Render 무료처럼 1분 기다리지 않음).
+- **요금**: 새 계정은 무료 사용량이 없음. 체험판(머신 2시간 또는 7일) 뒤에는 카드를 등록하고 쓴 만큼 냄. 가장 작은 머신(shared-cpu-1x, 256MB)이라 켜져 있는 시간만큼만 소액. 정확한 금액은 https://fly.io/docs/about/pricing/ 확인.
+- **머신은 꼭 1대**: 방 정보가 서버 메모리에 있어서 2대가 되면 방 목록이 갈라짐. 그래서 배포할 때 항상 `--ha=false`.
+- **배포·재시작하면 열려 있던 방은 모두 사라짐.**
+
+### 준비 (공통)
+
+1. https://fly.io 가입 → 카드 등록 (체험판이 끝나면 필요).
+2. `fly.toml` 맨 위의 `app = "swap-tower-proto"`를 **나만의 이름**으로 바꾸기 (영어 소문자·숫자·하이픈, 전 세계에서 하나뿐이어야 함). 게임 주소가 `https://<이름>.fly.dev`가 됨.
+   - GitHub 웹에서 `fly.toml`을 열고 연필 아이콘으로 고쳐도 됨.
+
+### 방법 A: 내 컴퓨터에서 명령어로
+
+```bash
+# 1) flyctl 설치
+#    macOS:   brew install flyctl
+#    Windows: PowerShell에서  iwr https://fly.io/install.ps1 -useb | iex
+#    Linux:   curl -L https://fly.io/install.sh | sh
+fly auth login                       # 브라우저로 로그인
+
+# 2) 저장소 받기 (처음 한 번)
+git clone https://github.com/zerocoke8/Lt_test1.git
+cd Lt_test1
+git checkout claude/design-notes-v0  # main에 합친 뒤라면 main
+
+# 3) 앱 만들기 (처음 한 번) — 이름은 fly.toml의 app 값과 같게
+fly apps create <앱이름>
+
+# 4) 배포 (빌드는 Fly 서버에서 함, 내 컴퓨터에 Docker 필요 없음)
+fly deploy --ha=false
+```
+
+- 끝나면 `https://<앱이름>.fly.dev`를 열어서 확인 → 친구들에게 공유.
+- 혹시 머신이 2대가 됐다면: `fly scale count 1`.
+- 도쿄 리전이 없다는 오류가 나면: `fly platform regions`로 목록을 보고 `fly.toml`의 `primary_region`을 가까운 곳(예: `hkg`, `sin`)으로 바꾸기.
+- 로그 보기: `fly logs` · 상태: `fly status`.
+
+### 방법 B: 컴퓨터 없이 GitHub에서 (Actions)
+
+`.github/workflows/fly-deploy.yml`이 Fly에 배포해 줌. 버튼을 눌렀을 때만 돎 (푸시마다 돌지 않음).
+
+1. Fly 토큰 만들기: Fly 대시보드의 **Tokens** 메뉴에서 조직(Org) 토큰 생성, 또는 컴퓨터에서 `fly tokens create org`. 화면 이름은 바뀔 수 있음.
+   - 앱을 이미 만들었다면 그 앱 전용 배포 토큰(`fly tokens create deploy`)도 됨.
+2. GitHub 저장소 → **Settings → Secrets and variables → Actions → New repository secret** → 이름 `FLY_API_TOKEN`, 값 = 토큰.
+3. GitHub 저장소 → **Actions** 탭 → 왼쪽 **Fly 배포** → **Run workflow**.
+   - 앱이 없으면 `fly.toml`의 이름으로 만들고, 머신 1대로 배포함.
+   - 끝나면 실행 결과 요약에 게임 주소가 나옴.
+4. 코드를 바꾼 뒤 다시 배포하려면 3번만 다시.
+
+### Fly 설정 요약 (`fly.toml`)
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| `primary_region` | `nrt` (도쿄) | 한국에서 가까움 |
+| `internal_port` | 8080 | 서버 기본 포트 |
+| `auto_stop_machines` / `min_machines_running` | `stop` / 0 | 아무도 없으면 멈춤 → 요금 절약. 접속하면 자동으로 켜짐 |
+| `TRUST_PROXY` | `fly` | 접속 수 제한에 Fly가 넣는 `Fly-Client-IP`를 씀 (위조 불가) |
+| `MAX_GAMES` | 3 | 게임 1판 ≈ 코어의 3% → 작은 머신에서 동시 3판까지 |
+| `[[vm]]` | shared-cpu-1x, 256MB | 측정: 대기 72MB, 게임 3판 74MB |
+| 헬스 체크 | `/healthz` | |
+
+## 5. Render에 올리기 (무료, 다른 방법)
 
 준비: 이 저장소가 GitHub에 있어야 함. 브랜치는 `claude/design-notes-v0` (main에 합친 뒤라면 `main`).
 
@@ -133,7 +197,7 @@ docker build -t swap-tower .
 docker run -p 8080:8080 swap-tower
 ```
 
-## 5. 자동 테스트
+## 6. 자동 테스트
 
 | 명령 | 내용 |
 |---|---|
@@ -156,7 +220,7 @@ docker run -p 8080:8080 swap-tower
 - `npx vitest run tests/net`: 위 서버 테스트 + 연결(`connection.test.ts`: 4001에서 멈춤, 조용한 소켓 교체, 정적 호스트 1번만 확인, 응답 없는 서버는 계속 확인) + 서버 제한(`server-limits.test.ts`: 늦은 명령 거절, 소켓·주소·동시 게임 제한, 파티 안 중복 캐릭터 거절, 5초 핑).
 - 모든 페이지 콘솔 에러 0, HTTP 4xx/5xx 0.
 
-## 6. 측정 (2026-10-04, 이 PC: 4코어, 헤드리스 Chromium 3개 + 서버가 같은 기계)
+## 7. 측정 (2026-10-04, 이 PC: 4코어, 헤드리스 Chromium 3개 + 서버가 같은 기계)
 
 폰 화면(844×390@3x) 브라우저 3개가 한 방에서 플레이 (각자 교체·펫·궁극기). 서버 앞에 바이트 세는 프록시를 두고 실제 전송량을 잼.
 
@@ -169,7 +233,7 @@ docker run -p 8080:8080 swap-tower
 - 스냅샷 줄이기 전/후 (같은 시드, 서버 없이 sim만): 일반 평균 8.4 → 7.2KB, 스트레스 최대 26.3 → 24.5KB. 압축 뒤 크기는 거의 같음 (압축이 원래 잘 되던 부분).
 - 원본이 30KB를 넘지 않아서 더 줄이지 않음 (필요하면: 기본값 필드 생략, 엔티티 배열을 짧은 키로).
 
-## 7. 한계 (프로토)
+## 8. 한계 (프로토)
 
 - **서버 1대, 메모리 보관**: 서버가 재시작·재배포되면 방과 진행 중인 게임이 사라짐. 저장·랭킹·계정 없음.
 - **지연 보정 없음**: 카드를 놓으면 서버 왕복(핑) 뒤에 결과가 보임. 국내↔싱가포르 기준 대략 0.1초 안팎. 교체 손맛 검증은 혼자 하기가 더 정확함.

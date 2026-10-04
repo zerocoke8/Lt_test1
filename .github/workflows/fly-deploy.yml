@@ -1,0 +1,44 @@
+# Fly.io 배포 (수동 실행). GitHub → Actions → "Fly 배포" → Run workflow.
+# 준비: 저장소 Settings → Secrets and variables → Actions 에 FLY_API_TOKEN 추가 (docs/multiplayer.md 4장).
+# 앱 이름은 fly.toml 의 app 값을 씀. 앱이 아직 없으면 만들고 배포함 (머신 1대 고정).
+name: Fly 배포
+
+on:
+  workflow_dispatch:
+
+concurrency: fly-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: 토큰 확인
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::FLY_API_TOKEN 시크릿이 없어요. docs/multiplayer.md 4장을 보고 추가해 주세요."
+            exit 1
+          fi
+
+      - name: 앱 이름 읽기
+        id: app
+        run: echo "name=$(sed -nE 's/^app *= *"([^"]+)".*/\1/p' fly.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: 앱이 없으면 만들기
+        run: |
+          if flyctl status --app "${{ steps.app.outputs.name }}" >/dev/null 2>&1; then
+            echo "앱 ${{ steps.app.outputs.name }} 있음"
+          else
+            flyctl apps create "${{ steps.app.outputs.name }}" --org personal
+          fi
+
+      - name: 배포 (머신 1대)
+        run: flyctl deploy --remote-only --ha=false --app "${{ steps.app.outputs.name }}"
+
+      - name: 주소
+        run: echo "게임 주소 → https://${{ steps.app.outputs.name }}.fly.dev" >> "$GITHUB_STEP_SUMMARY"

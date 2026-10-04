@@ -1,8 +1,8 @@
 // Entry point (bundled to dist-server/index.js): `PORT=8080 node dist-server/index.js`.
 // Env: PORT (default 8080), HOST (0.0.0.0), STATIC_DIR (default: ../dist next to this file),
 //      DEBUG_NET=1 (log snapshot sizes), REWARD_TIMEOUT_SEC, END_LINGER_MS (tests),
-//      MAX_GAMES (games running at once), MAX_CONNECTIONS, MAX_CONNECTIONS_PER_IP, TRUST_PROXY=1 (behind Render's proxy:
-//      the per-IP limit reads X-Forwarded-For).
+//      MAX_GAMES (games running at once), MAX_CONNECTIONS, MAX_CONNECTIONS_PER_IP,
+//      TRUST_PROXY=1 (behind Render's proxy: the per-IP limit reads X-Forwarded-For) or TRUST_PROXY=fly (Fly.io: Fly-Client-IP).
 
 import { fileURLToPath } from 'node:url';
 import { startServer } from './server';
@@ -22,7 +22,7 @@ startServer({
   ...(num(env.MAX_GAMES) != null ? { maxPlayingRooms: num(env.MAX_GAMES)! } : {}),
   ...(num(env.MAX_CONNECTIONS) != null ? { maxConnections: num(env.MAX_CONNECTIONS)! } : {}),
   ...(num(env.MAX_CONNECTIONS_PER_IP) != null ? { maxConnectionsPerIp: num(env.MAX_CONNECTIONS_PER_IP)! } : {}),
-  trustProxy: env.TRUST_PROXY === '1',
+  trustProxy: env.TRUST_PROXY === 'fly' ? 'fly' : env.TRUST_PROXY === '1',
 })
   .then(server => {
     console.log(`스왑 타워 게임 서버 · http://localhost:${server.port} (ws /ws, static ${staticDir})`);

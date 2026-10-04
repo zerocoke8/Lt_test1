@@ -138,6 +138,16 @@ describe('server-wide limits', () => {
     const plain = { headers: {}, socket: { remoteAddress: '::1' } } as unknown as IncomingMessage;
     expect(clientIp(plain, true)).toBe('::1');
   });
+
+  it('client address on Fly.io: Fly-Client-IP wins over a forged X-Forwarded-For; falls back when absent', () => {
+    const req = {
+      headers: { 'fly-client-ip': '198.51.100.9', 'x-forwarded-for': '1.2.3.4, 198.51.100.9' },
+      socket: { remoteAddress: '172.16.0.2' },
+    } as unknown as IncomingMessage;
+    expect(clientIp(req, 'fly')).toBe('198.51.100.9');
+    const noHeader = { headers: { 'x-forwarded-for': '203.0.113.7' }, socket: { remoteAddress: '172.16.0.2' } } as unknown as IncomingMessage;
+    expect(clientIp(noHeader, 'fly')).toBe('203.0.113.7');
+  });
 });
 
 describe('heartbeat', () => {

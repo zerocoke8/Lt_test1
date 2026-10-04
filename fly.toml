@@ -1,0 +1,42 @@
+# Fly.io 배포 설정 (docs/multiplayer.md "4. Fly.io에 올리기").
+# 방 정보가 서버 메모리에 있어서 머신은 반드시 1대: 배포는 `fly deploy --ha=false`.
+
+# 전 세계에서 하나뿐인 이름이어야 함 → 본인만의 이름으로 바꾸기 (주소가 https://<이름>.fly.dev 가 됨)
+app = "swap-tower-proto"
+# 도쿄. `fly platform regions`로 목록 확인, 없으면 가까운 리전(hkg, sin 등)으로
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  # Fly 프록시가 넣어 주는 Fly-Client-IP로 접속 수 제한 (위조 불가)
+  TRUST_PROXY = "fly"
+  # 게임 1판 ≈ 코어의 3%. shared-cpu-1x 기준 동시 3판까지 ("서버가 붐벼요" 이후). 머신을 키우면 올리기
+  MAX_GAMES = "3"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # 아무도 접속하지 않으면 머신을 멈춤 (요금 절약) → 다음 접속 때 몇 초 만에 다시 켜짐
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  # 서버 메모리 측정: 대기 72MB, 게임 3판 74MB → 256MB로 충분
+  size = "shared-cpu-1x"
+  memory = "256mb"

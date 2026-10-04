@@ -33,8 +33,11 @@ export interface ServerOptions {
   maxConnections: number;
   maxConnectionsPerIp: number;
   maxPlayingRooms: number;
-  /** Behind a reverse proxy (Render): the client address is the first X-Forwarded-For entry. */
-  trustProxy: boolean;
+  /**
+   * Behind a reverse proxy: true (Render) = first X-Forwarded-For entry;
+   * 'fly' (Fly.io) = the Fly-Client-IP header, which Fly's proxy sets itself (clients can't forge it).
+   */
+  trustProxy: boolean | 'fly';
   /** Hard cap per incoming frame (ws maxPayload). */
   maxMessageBytes: number;
   /** Token bucket per connection. */

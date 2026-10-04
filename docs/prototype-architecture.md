@@ -128,7 +128,7 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 | 범위 보상: 고리 | 안쪽·바깥 둘 다 커짐 | 바깥만 커짐 (빈 원 크기 유지) | `src/sim/geometry.ts` `scaleArea` |
 | 범위 보상: 십자 | 팔 길이만 | 팔 길이 + 두께 (띠·직선과 같음) | 같은 곳 |
 | 서버 핑 간격 | 15초 | 5초 | `server/server.ts` `heartbeatMs` |
-| 서버 전체 제한 | 없음 | 소켓 300, 주소당 16, 동시 게임 20 (Render 무료 `MAX_GAMES=3`) | `server/server.ts`, `render.yaml` |
+| 서버 전체 제한 | 없음 | 소켓 300, 주소당 16, 동시 게임 20 (Fly·Render 설정은 `MAX_GAMES=3`) | `server/server.ts`, `fly.toml`, `render.yaml` |
 | 늦은 교체·펫 명령 | 그대로 적용 | 기준 스냅샷이 2초보다 오래되면 거절 | `src/net/protocol.ts` `MAX_COMMAND_AGE_MS` |
 
 화면: 관전 중에는 카드·펫의 멈춘 숫자 대신 "사망"/"—", 관전 안내는 바닥 아래 얇은 띠 + 보조 버튼, 보상 화면은 "관전 중 · 보상 없음". 전투 카드 왼쪽 위에 드래그스킬 모양 배지. 다른 플레이어의 스킬 연출·장판은 0.55 세기 (`render/look.ts` `OTHER_PLAYER_FX`). 드래그 미리보기 테두리에 흰 점선(적 예고와 구분), 들고 있는 카드는 반투명. 바닥 맨 아래쪽을 조준해 손가락이 카드 줄 위에 있어도 착지 지점이 바닥이면 놓을 수 있음.
