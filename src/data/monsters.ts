@@ -2,39 +2,41 @@ import type { BossDef, MonsterDef } from '../types';
 
 // 일반몹 5종, 중형보스 2종, 보스 1종 (기획서 확정 수량) + 소환체.
 // 수치는 1층 기준. 층마다 FloorPlan.statMult(기본 +12%/층)가 HP·공격력에 곱해짐.
+// 플레이테스트 반영 (2026-10-04): 1층이 28초·무위협이라 교체 안 해도 똑같이 깨져서 일반몹 HP·공격력 ×2.5,
+// 중형보스 HP ×2.5·공격력 ×1.5 (보스는 그대로). tests/playtest/balance.ts로 30시드 확인.
 
 export const MONSTERS: MonsterDef[] = [
   // ── 일반몹 ──
   {
     id: 'slime', name: '슬라임', tier: 'normal', color: '#74c69d', radius: 0.4,
-    stats: { maxHp: 60, atk: 6, def: 0, atkSpeed: 0.8, range: 0.4, moveSpeed: 2.0, critChance: 0, critMult: 1.5 },
+    stats: { maxHp: 150, atk: 15, def: 0, atkSpeed: 0.8, range: 0.4, moveSpeed: 2.0, critChance: 0, critMult: 1.5 },
     basic: { kind: 'melee' },
   },
   {
     id: 'goblin', name: '고블린', tier: 'normal', color: '#a7c957', radius: 0.35,
-    stats: { maxHp: 45, atk: 7, def: 0, atkSpeed: 1.2, range: 0.4, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
+    stats: { maxHp: 112, atk: 17.5, def: 0, atkSpeed: 1.2, range: 0.4, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
     basic: { kind: 'melee' },
   },
   {
     id: 'skeleton_archer', name: '해골 궁수', tier: 'normal', color: '#e9ecef', radius: 0.35,
-    stats: { maxHp: 40, atk: 8, def: 0, atkSpeed: 0.7, range: 5, moveSpeed: 2.4, critChance: 0, critMult: 1.5 },
+    stats: { maxHp: 100, atk: 20, def: 0, atkSpeed: 0.7, range: 5, moveSpeed: 2.4, critChance: 0, critMult: 1.5 },
     basic: { kind: 'projectile', speed: 10 },
   },
   {
     id: 'bomb_bug', name: '자폭벌레', tier: 'normal', color: '#ffb703', radius: 0.3,
-    stats: { maxHp: 25, atk: 10, def: 0, atkSpeed: 1, range: 0.2, moveSpeed: 4.2, critChance: 0, critMult: 1 },
+    stats: { maxHp: 62, atk: 25, def: 0, atkSpeed: 1, range: 0.2, moveSpeed: 4.2, critChance: 0, critMult: 1 },
     basic: { kind: 'explode', radius: 1.6, amount: 3 },
   },
   {
     id: 'golem', name: '바위 골렘', tier: 'normal', color: '#8d99ae', radius: 0.6,
-    stats: { maxHp: 200, atk: 14, def: 0.2, atkSpeed: 0.5, range: 0.5, moveSpeed: 1.6, critChance: 0, critMult: 1.5 },
+    stats: { maxHp: 500, atk: 35, def: 0.2, atkSpeed: 0.5, range: 0.5, moveSpeed: 1.6, critChance: 0, critMult: 1.5 },
     basic: { kind: 'melee', splashRadius: 1 },
   },
 
   // ── 중형보스 ──
   {
     id: 'ogre', name: '오우거 족장', tier: 'mid', color: '#bc4749', radius: 0.9,
-    stats: { maxHp: 900, atk: 22, def: 0.15, atkSpeed: 0.6, range: 0.8, moveSpeed: 2.2, critChance: 0, critMult: 1.5 },
+    stats: { maxHp: 2250, atk: 33, def: 0.15, atkSpeed: 0.6, range: 0.8, moveSpeed: 2.2, critChance: 0, critMult: 1.5 },
     basic: { kind: 'melee', splashRadius: 1.5 },
     skills: [
       {
@@ -45,7 +47,7 @@ export const MONSTERS: MonsterDef[] = [
   },
   {
     id: 'lich', name: '리치', tier: 'mid', color: '#7b2cbf', radius: 0.8,
-    stats: { maxHp: 700, atk: 18, def: 0.1, atkSpeed: 0.6, range: 6, moveSpeed: 1.8, critChance: 0, critMult: 1.5 },
+    stats: { maxHp: 1750, atk: 27, def: 0.1, atkSpeed: 0.6, range: 6, moveSpeed: 1.8, critChance: 0, critMult: 1.5 },
     basic: { kind: 'projectile', speed: 9, splashRadius: 1 },
     skills: [
       {
@@ -80,7 +82,7 @@ export const BOSSES: BossDef[] = [
       },
       {
         id: 'boss_summon', name: '권속 소환', cooldown: 15, initialDelay: 6,
-        action: { center: 'self', area: { shape: 'circle', radius: 3 }, affects: 'enemies', effects: [], summon: { unitId: 'goblin', count: 4, duration: 0 } },
+        action: { center: 'self', area: { shape: 'circle', radius: 3 }, affects: 'enemies', effects: [], summon: { unitId: 'goblin', count: 4, countMax: 6, duration: 0 } },
       },
       {
         id: 'boss_rift', name: '대지 균열', cooldown: 14, initialDelay: 10,

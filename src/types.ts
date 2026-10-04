@@ -108,8 +108,8 @@ export interface SkillAction {
   hitInterval?: number;
   /** Leave a persistent circle that re-applies effects every tickInterval for duration. */
   zone?: { duration: number; tickInterval: number };
-  /** Spawn units at center. */
-  summon?: { unitId: string; count: number; duration: number };
+  /** Spawn units at center. countMax (optional): roll count..countMax (inclusive) per cast. */
+  summon?: { unitId: string; count: number; duration: number; countMax?: number };
 }
 
 export interface SkillDef {

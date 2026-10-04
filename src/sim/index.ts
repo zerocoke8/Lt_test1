@@ -1,6 +1,4 @@
-import type { Game, GameSetup } from '../types';
-
-// STUB — replaced by the sim implementation.
-export function createGame(_setup: GameSetup): Game {
-  throw new Error('sim not implemented');
-}
+// Public sim API. Everything else in src/sim is internal.
+export { createGame } from './game';
+export { planFloor } from './floor';
+export { Rng } from './rng';
