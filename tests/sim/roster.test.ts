@@ -102,9 +102,10 @@ describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
     expect(getCharacter('gunner').drag.actions[0].effects).toContainEqual({ kind: 'knockback', distance: 2, dir: 'left' });
     expect(first('bard')).toEqual({ shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 });
     expect(first('chrono')).toEqual({ shape: 'cross', diagonal: true, length: 3.5, width: 1.3 });
-    expect(getCharacter('chrono').drag.actions.some(a => a.effects.some(e => e.kind === 'swapCooldownReduce' && e.seconds === 2))).toBe(true);
+    expect(getCharacter('chrono').drag.actions.some(a => a.effects.some(e => e.kind === 'swapCooldownReduce' && e.seconds > 0))).toBe(true);
+    // cooldowns after the drag-skill balance pass (docs/balance.md: stronger per cast → longer cooldown)
     const cds = Object.fromEntries(CHARACTERS.map(c => [c.id, c.swapCooldown]));
-    expect(cds).toEqual({ guardian: 12, paladin: 12, warden: 11, blade: 10, berserker: 11, shadow: 9, ranger: 10, mage: 12, gunner: 10, cleric: 8, bard: 9, chrono: 10 });
+    expect(cds).toEqual({ guardian: 10, paladin: 11, warden: 10, blade: 10, berserker: 11, shadow: 9, ranger: 10, mage: 12, gunner: 10, cleric: 9, bard: 9, chrono: 9 });
   });
 
   it('directional drag descriptions name their direction', () => {

@@ -322,14 +322,17 @@ describe('executor: shapes in play', () => {
     expect(tg.game.state.telegraphs).toHaveLength(0);
   });
 
-  it('chrono cuts the bench swap cooldowns by 2 s; bard buffs allies inside its vertical band', () => {
+  it('chrono cuts the bench swap cooldowns by its data seconds; bard buffs allies inside its vertical band', () => {
+    const cut = getCharacter('chrono').drag.actions.flatMap(a => a.effects).find(e => e.kind === 'swapCooldownReduce');
+    const sec = cut?.kind === 'swapCooldownReduce' ? cut.seconds : 0;
+    expect(sec).toBeGreaterThan(0);
     const tg = makeGame({ players: [{ ...HUMAN, characters: ['guardian', 'chrono', 'bard'] }] });
     quietFloor(tg);
     const p = tg.game.state.players[0];
     p.party[2].swapCooldownRemaining = 5;
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 15, y: 6 } });
-    expect(p.party[2].swapCooldownRemaining).toBeCloseTo(3);
-    expect(p.party[0].swapCooldownRemaining).toBeLessThanOrEqual(12 - 2 + 1e-6);
+    expect(p.party[2].swapCooldownRemaining).toBeCloseTo(5 - sec);
+    expect(p.party[0].swapCooldownRemaining).toBeLessThanOrEqual(getCharacter('guardian').swapCooldown - sec + 1e-6);
 
     const tb = makeGame({
       players: [

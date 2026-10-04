@@ -506,10 +506,37 @@ export interface CommandResult {
 }
 
 export type GameEvent =
-  | { type: 'damage'; targetId: number; amount: number; crit: boolean; pos: Vec2; targetTeam: Team; absorbed: number }
+  | {
+      type: 'damage';
+      targetId: number;
+      amount: number;
+      crit: boolean;
+      pos: Vec2;
+      targetTeam: Team;
+      absorbed: number;
+      /** What dealt it (render: skill numbers look different from basic attacks). Optional for old snapshots/tests. */
+      source?: DamageSource;
+      /** Skill name for normal/drag/ult hits (render: tiny label under the number). */
+      skillName?: string;
+    }
   | { type: 'heal'; targetId: number; amount: number; pos: Vec2 }
   | { type: 'attack'; sourceId: number; targetId: number; ranged: boolean }
-  | { type: 'skillCast'; sourceId: number | null; player: number | null; slot: SkillSlot | 'pet' | 'monster'; skillId: string; name: string; center: Vec2; area: AreaShape; team: Team }
+  | {
+      type: 'skillCast';
+      sourceId: number | null;
+      player: number | null;
+      slot: SkillSlot | 'pet' | 'monster';
+      skillId: string;
+      name: string;
+      center: Vec2;
+      area: AreaShape;
+      team: Team;
+      /** Seconds until this part lands (telegraphed multi-part skills, e.g. meteors). Absent = instant. */
+      delay?: number;
+      /** Repeated hits (ult flurries): count and spacing. Absent = one hit. */
+      hits?: number;
+      hitInterval?: number;
+    }
   | { type: 'appear'; player: number; partyIndex: number; entityId: number; pos: Vec2 }
   /** Caster moved along a dash (render a streak; entity pos is already at `to`). */
   | { type: 'dash'; entityId: number; from: Vec2; to: Vec2; duration: number }

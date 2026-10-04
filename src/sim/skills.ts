@@ -116,6 +116,8 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
     center: copy(center),
     area,
     team: ctx.team,
+    ...(action.delay && action.delay > 0 ? { delay: action.delay } : null),
+    ...(action.hits && action.hits > 1 ? { hits: action.hits, hitInterval: action.hitInterval ?? 0.2 } : null),
   });
   const delay = action.delay ?? 0;
   const p: PendingHit = {

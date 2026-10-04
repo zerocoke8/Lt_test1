@@ -354,7 +354,7 @@ export function startApp(root: HTMLElement): void {
 
   function newHud(g: Game): Hud {
     hud?.destroy();
-    const hd = new Hud(stage.hudLayer, g, hudCallbacks, { localPlayer, multi: mode === 'multi' });
+    const hd = new Hud(stage.hudLayer, g, hudCallbacks, { localPlayer, multi: mode === 'multi', locate: w => renderer.worldToScreen(w) });
     hd.setDebugAllowed(canDebug());
     hd.setSpectateAction(mode === 'solo' ? '결과 보기' : remote?.isHost ? null : '나가기');
     return hd;

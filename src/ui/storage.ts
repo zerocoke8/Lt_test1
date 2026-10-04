@@ -101,3 +101,19 @@ export function loadNickname(): string {
 export function saveNickname(name: string): void {
   write(NICK_KEY, Array.from(name.trim()).slice(0, NICKNAME_MAX).join(''));
 }
+
+// ─────────────── one-time tips (스킬 정보 안내 …) ───────────────
+
+const TIPS_KEY = 'swapTower.tipsSeen.v1';
+
+/** Has this device already seen tip `id`? (storage blocked → treat as unseen; the tip is harmless) */
+export function tipSeen(id: string): boolean {
+  const v = read(TIPS_KEY);
+  return Array.isArray(v) && v.includes(id);
+}
+
+export function markTipSeen(id: string): void {
+  const v = read(TIPS_KEY);
+  const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  if (!list.includes(id)) write(TIPS_KEY, [...list, id].slice(-20));
+}

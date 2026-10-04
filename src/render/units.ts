@@ -30,7 +30,21 @@ export interface UnitMemo {
   stamp: number;
   phase: number;
   look: UnitLook;
+  /** Hit reaction: seconds of jolt left and its screen direction (unit vector). */
+  joltT: number;
+  joltX: number;
+  joltY: number;
+  /** Seconds since this unit's last ult (strong pose for a moment); large = none. */
+  ultT: number;
+  /** Seconds since its last skill cast (normal/drag): cast pose ring. */
+  skillT: number;
 }
+
+/**
+ * Weapon pose for the next drawBody call (set by the renderer around the call, reset to 0 after):
+ * swing = radians the held weapon is rotated (wind-up negative, strike positive), recoil = px pushed back.
+ */
+export const HERO_POSE = { swing: 0, recoil: 0 };
 
 export function newMemo(e: Entity, stamp: number): UnitMemo {
   return {
@@ -54,6 +68,11 @@ export function newMemo(e: Entity, stamp: number): UnitMemo {
     stamp,
     phase: (e.id * 1.618) % TAU,
     look: unitLook(e.kind, e.defId),
+    joltT: 0,
+    joltX: 0,
+    joltY: 0,
+    ultT: 99,
+    skillT: 99,
   };
 }
 
@@ -78,6 +97,9 @@ export function syncMemo(m: UnitMemo, e: Entity, stamp: number, dt: number): voi
   }
   m.lastAnimTime = e.animTime;
   m.flash = Math.max(0, m.flash - dt);
+  m.joltT = Math.max(0, m.joltT - dt);
+  m.ultT += dt;
+  m.skillT += dt;
   const frac = e.maxHp > 0 ? Math.max(0, Math.min(1, e.hp / e.maxHp)) : 0;
   if (frac >= m.hpLag) m.hpLag = frac;
   else m.hpLag = Math.max(frac, m.hpLag - dt * 0.6);
@@ -221,6 +243,24 @@ function crown(ctx: CanvasRenderingContext2D, cx: number, top: number, w: number
 }
 
 function heroAccessory(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number, fy: number, w: number, h: number, s: number, flash: boolean): void {
+  const swing = HERO_POSE.swing;
+  const recoil = HERO_POSE.recoil;
+  if (swing !== 0 || recoil !== 0) {
+    // melee: the held weapon rotates about the hand; ranged: the whole prop is pushed back by the recoil
+    ctx.save();
+    const px = fx + s * w * 0.42;
+    const py = fy - h * 0.3;
+    ctx.translate(px - s * recoil, py);
+    ctx.rotate(s * swing);
+    ctx.translate(-px, -py);
+    heroAccessoryAt(ctx, look, fx, fy, w, h, s, flash);
+    ctx.restore();
+    return;
+  }
+  heroAccessoryAt(ctx, look, fx, fy, w, h, s, flash);
+}
+
+function heroAccessoryAt(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number, fy: number, w: number, h: number, s: number, flash: boolean): void {
   const hx = fx + s * w * 0.5;
   const hy = fy - h * 0.42;
   switch (look.accessory) {

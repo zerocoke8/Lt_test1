@@ -1,14 +1,17 @@
 // Event-driven visual effects. Owns only render-side state (pools + timers); never touches GameState.
 
-import { LOGICAL_H, LOGICAL_W, type AreaShape, type GameEvent, type GameState, type Team, type Telegraph } from '../types';
+import { LOGICAL_H, LOGICAL_W, type AreaShape, type DamageSource, type GameEvent, type GameState, type SkillAction, type Team, type Telegraph } from '../types';
 import { PLAYER_COLORS } from '../config';
-import { getCharacter } from '../data';
+import { getCharacter, getPet } from '../data';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from './camera';
-import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, boldFont, petColor, type UnitLook, unitLook } from './look';
+import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, boldFont, lighten, mix, petColor, type UnitLook, unitLook } from './look';
 import { Pool } from './pool';
-import { DIR_VEC, aimSamples } from '../sim/geometry';
-import { TAU, areaRadius, pathArea } from './shapes';
+import { DIR_VEC, aimSamples, hitsArea } from '../sim/geometry';
+import { TAU, areaRadius, pathArea, pathRoundRect } from './shapes';
 import { type UnitMemo, bodyHeight, bodyTop, bodyWidth, drawBody } from './units';
+import { DASH_LAND } from './dashtime';
+import { Fx, type FxHost, Impact, SkillFx } from './skillfx';
+import { type CastInfo, castFx, swingFx } from './castfx';
 
 // ─────────────────────────── effect records (pooled) ───────────────────────────
 
@@ -23,10 +26,20 @@ interface Floater {
   color: string;
   size: number;
   targetId: number;
-  kind: 0 | 1 | 2 | 3; // 0 dmg, 1 crit, 2 heal, 3 absorbed
+  /** 0 basic dmg, 1 basic crit, 2 heal, 3 absorbed, 4 skill hit, 5 damage over time */
+  kind: FloaterKind;
   amount: number;
   pop: number;
+  /** Tiny skill name under a skill number ('' = none). */
+  label: string;
+  /** Outline colour. */
+  stroke: string;
+  alpha: number;
+  /** Numbers only merge with the same key (skill hits of one skill). */
+  key: string;
 }
+
+type FloaterKind = 0 | 1 | 2 | 3 | 4 | 5;
 
 interface Ring {
   x: number;
@@ -87,17 +100,6 @@ interface Warn {
   dur: number;
 }
 
-interface Slash {
-  x: number;
-  y: number;
-  z: number;
-  ang: number;
-  age: number;
-  dur: number;
-  color: string;
-  r: number;
-}
-
 interface Label {
   x: number;
   y: number;
@@ -107,6 +109,23 @@ interface Label {
   text: string;
   color: string;
   size: number;
+  /** Entity whose head it floats over (−1 = fixed world point). */
+  follow: number;
+  stroke: string;
+  alpha: number;
+  /** Screen y after stacking (per frame). */
+  sy: number;
+  sx: number;
+  w: number;
+  /** Skill callout: drawn on a dark pill with a border in this colour ('' = plain text). */
+  pill: string;
+}
+
+interface Deferred {
+  ev: Extract<GameEvent, { type: 'damage' }>;
+  t: number;
+  ax: number;
+  ay: number;
 }
 
 interface TeleSnap {
@@ -139,9 +158,8 @@ interface DashFx {
   s: number;
 }
 
-/** Visual landing time before a drag-skill dash starts (the character drops in at the drop point first). */
-export const DASH_LAND = 0.12;
-const DASH_TRAIL_FADE = 0.35;
+export { DASH_LAND };
+const DASH_TRAIL_FADE = 0.5;
 
 interface HealAcc {
   amount: number;
@@ -158,6 +176,10 @@ export interface VfxContext {
 
 /** Top HUD row ends around logical y ≈ 105; world labels never float above this line. */
 const LABEL_MIN_Y = 132;
+/** Callout pill box around the text baseline (× size): top above it, bottom below it; and the space kept between pills. */
+const PILL_TOP = 0.98;
+const PILL_BOTTOM = 0.32;
+const PILL_GAP = 2;
 const LABEL_MARGIN_X = 110;
 const MERGE_WINDOW = 0.25;
 const HEAL_WINDOW = 0.4;
@@ -170,11 +192,22 @@ const SINGLE_AREA: AreaShape = { shape: 'single' };
 const TMP_C = { x: 0, y: 0 };
 const TMP_O = { x: 0, y: 0 };
 
-export class Vfx {
+/** Wind-up before a melee basic attack connects (the number, flash and jolt wait for the swing). */
+const SWING_WINDUP = 0.07;
+/** Two numbers on one target this close together are stacked (the later one sits above), not drawn on each other. */
+const STACK_WINDOW = 0.2;
+/** My drag skill's ally buffs / self shield: a one-time text on whoever got them ("공속 +40%", "보호막"). */
+const BUFF_TEXT_COLOR = '#7ff0e0';
+const SKILL_NUM_COLOR: Partial<Record<DamageSource, string>> = { normal: '#6fe7ff', drag: '#a6ff6b', ult: '#ffd23f', pet: '#ff9ad5' };
+const SKILL_NUM_SIZE: Partial<Record<DamageSource, number>> = { normal: 20, drag: 24, ult: 24, pet: 21 };
+
+export class Vfx implements FxHost {
   readonly floaters = new Pool<Floater>(
-    () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0 }),
-    90,
+    () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0, label: '', stroke: '#0a0a0a', alpha: 1, key: '' }),
+    110,
   );
+  /** Per-skill flavour effects (slashes, arrows, meteors, clocks …). */
+  readonly sfx = new SkillFx();
   readonly rings = new Pool<Ring>(() => ({ x: 0, y: 0, r0: 0, r1: 1, age: 0, dur: 1, color: '#fff', width: 2, fill: 0 }), 80);
   readonly flashes = new Pool<AreaFlash>(
     () => ({ cx: 0, cy: 0, ox: 0, oy: 0, hasOrigin: false, area: SINGLE_AREA, age: 0, dur: 1, color: '#fff', strength: 1 }),
@@ -189,16 +222,36 @@ export class Vfx {
     48,
   );
   readonly warns = new Pool<Warn>(() => ({ x: 0, y: 0, age: 0, dur: 1 }), 40);
-  readonly slashes = new Pool<Slash>(() => ({ x: 0, y: 0, z: 0, ang: 0, age: 0, dur: 0.2, color: '#fff', r: 10 }), 48);
-  readonly labels = new Pool<Label>(() => ({ x: 0, y: 0, z: 0, age: 0, dur: 1, text: '', color: '#fff', size: 14 }), 16);
+  readonly labels = new Pool<Label>(
+    () => ({ x: 0, y: 0, z: 0, age: 0, dur: 1, text: '', color: '#fff', size: 14, follow: -1, stroke: '#120508', alpha: 1, sy: 0, sx: 0, w: 0, pill: '' }),
+    20,
+  );
   /** skillCast keys seen since the last update (twin-cast dedupe). */
   private readonly castKeys = new Set<string>();
+  /** Per source+skill: how many skillCast events this frame (= which data action each one is). */
+  private readonly castSeq = new Map<string, number>();
+  /** Melee swings started this frame: their basic damage waits for the wind-up. */
+  private readonly pendingSwing = new Map<number, { ax: number; ay: number }>();
+  private readonly deferred = new Pool<Deferred>(() => ({ ev: null as unknown as Deferred['ev'], t: 0, ax: 0, ay: 0 }), 64);
+  /** Skill names I cast recently (my skill numbers are drawn full size, others' smaller). Value = expiry (vfx clock). */
+  private readonly myNames = new Map<string, number>();
+  private clock = 0;
+  private memosRef: Map<number, UnitMemo> = new Map();
+  /** Camera shake amplitude (px), decays fast. Only my own heavy skills shake. */
+  shakeAmp = 0;
+  /** Persistent skill fields that should not wear the generic tint (블리자드 is ice, not fire): centre → colour. */
+  private readonly zoneTints: { x: number; y: number; color: string; until: number }[] = [];
+  /** Ult screen pulse. */
+  pulseT = 99;
+  private pulseColor = '#ffffff';
   readonly dashes = new Pool<DashFx>(
     () => ({ entityId: -1, fx: 0, fy: 0, tx: 0, ty: 0, age: 0, land: DASH_LAND, travel: 0.18, color: '#fff', look: unitLook('monster', '?'), radius: 0.5, tier: 'character', s: 1 }),
     8,
   );
 
   private lastDamage = new Map<number, Floater>();
+  /** Last number spawned per target (any kind): a near-simultaneous one is stacked above it. */
+  private lastSpawn = new Map<number, Floater>();
   private heals = new Map<number, HealAcc>();
   private teles = new Map<number, TeleSnap>();
   private teleStamp = 0;
@@ -218,10 +271,18 @@ export class Vfx {
     this.particles.clear();
     this.ghosts.clear();
     this.warns.clear();
-    this.slashes.clear();
     this.labels.clear();
     this.dashes.clear();
     this.castKeys.clear();
+    this.castSeq.clear();
+    this.pendingSwing.clear();
+    this.deferred.clear();
+    this.myNames.clear();
+    this.lastSpawn.clear();
+    this.sfx.clear();
+    this.zoneTints.length = 0;
+    this.shakeAmp = 0;
+    this.pulseT = 99;
     this.lastDamage.clear();
     this.heals.clear();
     this.teles.clear();
@@ -235,19 +296,9 @@ export class Vfx {
 
   handle(ev: GameEvent, c: VfxContext): void {
     switch (ev.type) {
-      case 'damage': {
-        const m = c.memos.get(ev.targetId);
-        if (m) m.flash = 0.12;
-        if (m && m.tier === 'boss') this.bossFlash = 1;
-        if (ev.amount >= 0.5) {
-          const kind: 0 | 1 = ev.crit ? 1 : 0;
-          const color = ev.targetTeam === 'ally' ? COLORS.dmgAlly : ev.crit ? COLORS.dmgCrit : COLORS.dmgEnemy;
-          this.addNumber(ev.targetId, kind, ev.amount, ev.pos.x, ev.pos.y, color, m, '');
-        } else if (ev.absorbed >= 0.5) {
-          this.addNumber(ev.targetId, 3, ev.absorbed, ev.pos.x, ev.pos.y, COLORS.absorbed, m, '');
-        }
+      case 'damage':
+        this.onDamage(ev, c, null);
         break;
-      }
       case 'heal': {
         if (ev.amount <= 0) break;
         const acc = this.heals.get(ev.targetId);
@@ -260,29 +311,19 @@ export class Vfx {
         }
         break;
       }
-      case 'attack': {
-        if (ev.ranged) break;
-        const t = c.memos.get(ev.targetId);
-        const src = c.memos.get(ev.sourceId);
-        if (!t || t.tier === 'boss') break;
-        const s = this.slashes.spawn();
-        const top = bodyHeight(t.look, t.radius);
-        s.x = t.x;
-        s.y = t.y;
-        s.z = (top * 0.5) / PX_PER_UNIT_Z;
-        s.ang = src ? Math.atan2((t.y - src.y) * 0.55, t.x - src.x) : 0;
-        s.age = 0;
-        s.dur = 0.18;
-        s.color = src && src.team === 'enemy' ? '#ffb3b3' : '#ffffff';
-        s.r = Math.max(14, t.radius * PX_PER_UNIT * 0.9);
+      case 'attack':
+        this.onAttack(ev, c);
         break;
-      }
       case 'skillCast': {
+        // which data action this is: a skill's actions arrive in order, in the same frame
+        const seqKey = `${ev.sourceId}|${ev.player}|${ev.skillId}`;
+        const idx = this.castSeq.get(seqKey) ?? 0;
+        this.castSeq.set(seqKey, idx + 1);
         // one skill = one flash: actions that share a footprint (bard's band hits allies AND enemies) arrive as twin casts
         const key = `${ev.sourceId}|${ev.skillId}|${ev.center.x},${ev.center.y}|${JSON.stringify(ev.area)}`;
         if (this.castKeys.has(key)) break;
         this.castKeys.add(key);
-        this.onSkillCast(ev, c);
+        this.onSkillCast(ev, c, idx);
         break;
       }
       case 'dash': {
@@ -380,24 +421,111 @@ export class Vfx {
     }
   }
 
-  private onSkillCast(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext): void {
+  // ─────────────────────────── damage / attacks ───────────────────────────
+
+  /** `swing` = the melee attacker's position when this hit waited for the swing's wind-up (null = immediate). */
+  private onDamage(ev: Extract<GameEvent, { type: 'damage' }>, c: VfxContext, swing: { ax: number; ay: number } | null): void {
+    if (!swing && (ev.source === undefined || ev.source === 'basic')) {
+      const sw = this.pendingSwing.get(ev.targetId);
+      if (sw) {
+        const d = this.deferred.spawn();
+        d.ev = ev;
+        d.t = SWING_WINDUP;
+        d.ax = sw.ax;
+        d.ay = sw.ay;
+        return;
+      }
+    }
+    const m = c.memos.get(ev.targetId);
+    if (m) {
+      m.flash = 0.12;
+      if (m.tier !== 'boss' && ev.amount >= 0.5) {
+        // jolt away from the attacker (melee), otherwise a small knock back-and-up
+        m.joltT = 0.14;
+        if (swing) {
+          const dx = (m.x - swing.ax) * PX_PER_UNIT;
+          const dy = (m.y - swing.ay) * PX_PER_UNIT_Y;
+          const d = Math.hypot(dx, dy) || 1;
+          m.joltX = dx / d;
+          m.joltY = dy / d;
+        } else {
+          m.joltX = Math.cos(m.facing + Math.PI) * 0.8;
+          m.joltY = -0.4;
+        }
+      }
+    }
+    if (m && m.tier === 'boss') this.bossFlash = 1;
+    if (ev.amount >= 0.5) {
+      const src = ev.source;
+      if (ev.targetTeam === 'ally') {
+        this.addNumber(ev.targetId, ev.crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, COLORS.dmgAlly, m, '', ev.crit ? 22 : 16, '', 1, 'ally');
+      } else if (ev.skillName && src && SKILL_NUM_COLOR[src]) {
+        // skill hit: bigger, coloured by its slot; mine full size, other players' smaller and dimmer. No name under the
+        // number (it was 12 px — unreadable on a phone): the callout over the caster already names the skill.
+        const mine = (this.myNames.get(ev.skillName) ?? -1) >= this.clock;
+        const base = (SKILL_NUM_SIZE[src] ?? 20) * (ev.crit ? 1.2 : 1);
+        this.addNumber(ev.targetId, 4, ev.amount, ev.pos.x, ev.pos.y, SKILL_NUM_COLOR[src]!, m, '', mine ? base : base * 0.74, '', mine ? 1 : 0.7, `${src}:${ev.skillName}`, ev.crit ? '!' : '');
+      } else if (src && src !== 'basic' && src !== 'summon' && src !== 'pet') {
+        // burns, auras, leftover zones: small and warm, never mistaken for a hit
+        this.addNumber(ev.targetId, 5, ev.amount, ev.pos.x, ev.pos.y, '#ffb36b', m, '', 13, '', 0.9, 'dot');
+      } else {
+        const crit = ev.crit;
+        this.addNumber(ev.targetId, crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, crit ? COLORS.dmgCrit : COLORS.dmgEnemy, m, '', crit ? 24 : 15, '', 1, 'basic', crit ? '!' : '');
+      }
+    } else if (ev.absorbed >= 0.5) {
+      this.addNumber(ev.targetId, 3, ev.absorbed, ev.pos.x, ev.pos.y, COLORS.absorbed, m, '', 13, '', 1, 'abs');
+    }
+  }
+
+  private onAttack(ev: Extract<GameEvent, { type: 'attack' }>, c: VfxContext): void {
+    const src = c.memos.get(ev.sourceId);
+    if (!src) return;
+    const t = c.memos.get(ev.targetId);
+    const hero = src.kind === 'character';
+    const k = hero ? (src.ownerPlayer === c.localPlayer ? 1 : 0.8) : 0.65;
+    if (ev.ranged) {
+      // muzzle / bow-string / casting flash at the weapon, toward the target
+      const dx = t ? t.x - src.x : Math.cos(src.facing);
+      const dy = t ? t.y - src.y : Math.sin(src.facing);
+      const d = Math.hypot(dx, dy) || 1;
+      const color = hero ? (src.look.accessory === 'gun' ? '#ffd166' : src.look.light) : '#ffb3b3';
+      const f = this.sfx.add(Fx.Muzzle, src.x + (dx / d) * src.radius * 1.1, src.y + (dy / d) * src.radius * 1.1, 0.09, color, k);
+      f.z = bodyHeight(src.look, src.radius) * 0.5 / PX_PER_UNIT_Z;
+      f.r = src.look.accessory === 'gun' ? 13 : hero ? 9 : 7;
+      f.ang = Math.atan2(dy * PX_PER_UNIT_Y, dx * PX_PER_UNIT);
+      return;
+    }
+    if (!t) return;
+    this.pendingSwing.set(ev.targetId, { ax: src.x, ay: src.y });
+    if (t.tier === 'boss') return;
+    // crescents for heroes' swings and for whatever hits MY character; a crowd of monsters trading blows with bots
+    // only gets the hit flash + jolt (keeps 30-monster fights cheap and readable)
+    if (!hero && !(t.kind === 'character' && t.ownerPlayer === c.localPlayer)) return;
+    const color = hero ? src.look.light : '#ffb3b3';
+    const tz = (bodyHeight(t.look, t.radius) * 0.5) / PX_PER_UNIT_Z;
+    swingFx(this.sfx, src.x, src.y, t.x, t.y, tz, color, k, SWING_WINDUP * 0.6, hero && (src.look.accessory === 'axe' || src.look.accessory === 'hammer'));
+  }
+
+  // ─────────────────────────── skills ───────────────────────────
+
+  private onSkillCast(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, idx: number): void {
     const ally = ev.team === 'ally';
     const pColor = ev.player !== null ? playerColor(c.state, ev.player) : '#7fd1ff';
     const src = ev.sourceId !== null ? c.memos.get(ev.sourceId) ?? null : null;
     const srcEnt = ev.sourceId !== null ? findEntity(c.state, ev.sourceId) : null;
-    // drag skill: the caster's character colour, same as the drag preview / landing burst
-    const dragColor = ev.slot === 'drag' && srcEnt && srcEnt.kind === 'character' && srcEnt.ownerPlayer !== null && srcEnt.partyIndex !== null
+    // a character's skills use its own colour (same as the drag preview / landing burst / card)
+    const charColor = srcEnt && srcEnt.kind === 'character' && srcEnt.ownerPlayer !== null && srcEnt.partyIndex !== null
       ? characterColor(c.state, srcEnt.ownerPlayer, srcEnt.partyIndex)
-      : null;
-    const color = ev.slot === 'pet' ? (petColor(ev.skillId) ?? pColor) : dragColor ?? (ally ? pColor : '#ff4d4d');
+      : src && src.kind === 'character' ? src.look.color : null;
+    const color = ev.slot === 'pet' ? (petColor(ev.skillId) ?? pColor) : charColor ?? (ally ? pColor : '#ff4d4d');
     const ox = srcEnt ? srcEnt.pos.x : src ? src.x : ev.center.x;
     const oy = srcEnt ? srcEnt.pos.y : src ? src.y : ev.center.y;
-    const delayed = hasTelegraphAt(c.state.telegraphs, ev.team, ev.center.x, ev.center.y);
+    const delayed = (ev.delay ?? 0) > 0 || hasTelegraphAt(c.state.telegraphs, ev.team, ev.center.x, ev.center.y);
 
     if (!ally) {
       const tier = src ? src.tier : null;
       // boss pattern names are shown by the HUD as a cast pill under the boss bar (a world label sat on the eye)
-      if (tier === 'mid') {
+      if (tier === 'mid' && idx === 0) {
         const m = src!;
         const z = bodyTop(m.look, m.tier, bodyHeight(m.look, m.radius), bodyWidth(m.radius)) / PX_PER_UNIT_Z + 1.5;
         this.label(ox, oy, z, ev.name, '#ff8a8a', 16, 1.4);
@@ -407,12 +535,41 @@ export class Vfx {
       return;
     }
 
+    const local = ev.player === c.localPlayer;
     const strong = ev.slot === 'ult' || ev.slot === 'drag' || ev.slot === 'pet';
     // another player's cast: same shape and direction, drawn softer (fewer particles, fainter fill) so it never buries
     // my own preview or fight; mine stay at full strength
-    const k = ev.player !== null && ev.player !== c.localPlayer ? OTHER_PLAYER_FX : 1;
-    if (!delayed) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, strong ? 0.55 : 0.35, color, (strong ? 1 : 0.7) * k);
-    if ((ev.slot === 'drag' || ev.slot === 'pet') && !delayed) {
+    const k = ev.player !== null && !local ? OTHER_PLAYER_FX : 1;
+    const action = actionFor(ev.skillId, ev.slot, idx);
+    if (local && ev.name) this.myNames.set(ev.name, this.clock + 1.5 + (ev.delay ?? 0) + (ev.hits ?? 1) * (ev.hitInterval ?? 0.2) + (action?.zone?.duration ?? 0));
+    // cast pose on the caster (index.ts reads these timers)
+    if (src && idx === 0) {
+      if (ev.slot === 'ult') src.ultT = 0;
+      else if (ev.slot === 'normal' || ev.slot === 'drag') src.skillT = 0;
+    }
+    if (idx === 0) this.callout(ev, c, src, local, color);
+    if (local && ev.slot === 'drag' && action) this.buffText(ev, c, action, src);
+
+    const selfOnly = action?.affects === 'self';
+    if (!delayed && !selfOnly) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, strong ? 0.55 : 0.4, color, (strong ? 0.8 : 0.5) * k);
+    const info: CastInfo = {
+      ev,
+      action,
+      ox,
+      oy,
+      src: ev.sourceId ?? -1,
+      face: src ? (Math.cos(src.facing) >= 0 ? 1 : -1) : 1,
+      color,
+      k,
+      local,
+      dashTravel: this.dashTravel(ev.sourceId),
+    };
+    castFx(this.sfx, this, info);
+    if (action?.zone && ZONE_TINT[ev.skillId]) {
+      if (this.zoneTints.length > 8) this.zoneTints.shift();
+      this.zoneTints.push({ x: ev.center.x, y: ev.center.y, color: ZONE_TINT[ev.skillId], until: this.clock + action.zone.duration + 1 });
+    }
+    if ((ev.slot === 'drag' || ev.slot === 'pet') && !delayed && !selfOnly) {
       const a = ev.area;
       if (a.shape === 'circle' || a.shape === 'single') {
         const r = Math.min(8, areaRadius(a));
@@ -420,16 +577,157 @@ export class Vfx {
         this.ring(ev.center.x, ev.center.y, 0.1, Math.max(0.8, r * 0.6), 0.3, '#ffffff', 2, 0);
         this.burst(ev.center.x, ev.center.y, 0.3, Math.round((ev.slot === 'pet' ? 18 : 22) * k), color, Math.max(2, r * 1.6), 2.5, 0.6);
       } else {
-        // shaped skills: a second bright flash + dust spread over the footprint (and swept along its direction)
-        this.flash(ev.center.x, ev.center.y, ev.center.x, ev.center.y, a, 0.28, '#ffffff', 0.55 * k);
+        // shaped skills: dust spread over the footprint (and swept along its direction)
         this.burstArea(ev.center.x, ev.center.y, a, Math.round(24 * k), color);
       }
     }
-    if (ev.slot === 'ult') {
-      this.ring(ox, oy, 0.4, 4, 0.7, color, 6, 0.12 * k);
-      this.burst(ox, oy, 0.5, Math.round(26 * k), color, 5, 4, 0.8);
-      if (ev.player === c.localPlayer) this.showBanner(ev, c, color);
+    if (ev.slot === 'pet' && delayed) {
+      // frog bomb & co: something visibly falls onto the spot while the telegraph counts down
+      const f = this.sfx.add(Fx.Meteor, ev.center.x, ev.center.y, Math.min(0.4, ev.delay ?? 0.4), color, k);
+      f.x2 = ev.center.x;
+      f.y2 = ev.center.y;
+      f.r = Math.min(4, areaRadius(ev.area));
+      f.wait = Math.max(0, (ev.delay ?? 0.4) - 0.4);
+      f.impact = Impact.Fire;
     }
+    if (ev.slot === 'ult' && idx === 0) {
+      this.ring(ox, oy, 0.4, 4, 0.7, color, 6, 0.12 * k);
+      this.ring(ox, oy, 0.6, 11, 0.8, lighten(color, 0.4), 8 * k, 0);
+      this.burst(ox, oy, 0.5, Math.round(26 * k), color, 5, 4, 0.8);
+      const pl = this.sfx.add(Fx.Pillar, ox, oy, 0.7, color, k);
+      pl.r = 0.8;
+      pl.z = 5.5;
+      pl.follow = ev.sourceId ?? -1;
+      if (local) {
+        this.showBanner(ev, c, color);
+        this.pulse(color);
+      }
+    }
+  }
+
+  /** Seconds the dash of `id` (started this frame) takes, 0 when it isn't dashing. */
+  private dashTravel(id: number | null): number {
+    if (id == null) return 0;
+    const ds = this.dashes;
+    for (let i = ds.count - 1; i >= 0; i--) if (ds.items[i].entityId === id) return ds.items[i].travel;
+    return 0;
+  }
+
+  /**
+   * Skill name over the caster: mine bigger (drag ones biggest, with "!"), other players' small and dim; another
+   * player's ult says whose it is. Follows the caster; one callout per caster (a new one replaces the old).
+   */
+  private callout(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, src: UnitMemo | null, local: boolean, color: string): void {
+    if (!ev.name) return;
+    let text = ev.name;
+    let size = 15;
+    let dur = 1.1;
+    let fill = '#ffffff';
+    let alpha = 1;
+    // other players: only their drag skills and ults get a name, with whose it is and a border in their player colour
+    // (their normal skills and pets stay silent — those tiny names were read as mine)
+    const who = !local && ev.player != null ? c.state.players[ev.player]?.name : null;
+    switch (ev.slot) {
+      case 'normal':
+        if (!local) return;
+        size = 18;
+        break;
+      case 'drag':
+        text = who ? `${who} · ${ev.name}` : `${ev.name}!`;
+        size = local ? 27 : 16;
+        dur = 1.4;
+        fill = local ? lighten(color, 0.45) : '#e6ebf5';
+        alpha = local ? 1 : 0.8;
+        break;
+      case 'ult':
+        if (who) text = `${who} · ${ev.name}`;
+        size = local ? 24 : 17;
+        dur = 1.6;
+        fill = '#ffe08a';
+        alpha = local ? 1 : 0.8;
+        break;
+      case 'pet':
+        if (!local) return;
+        size = 18;
+        fill = lighten(color, 0.5);
+        break;
+      default:
+        return;
+    }
+    const follow = ev.slot !== 'pet' && src ? src.id : -1;
+    // the same caster's previous callout of the same kind gives way (a fresh normal skill replaces the last one);
+    // different kinds stack (a drag callout stays while the normal skill fires right after the landing)
+    const ls = this.labels;
+    if (follow >= 0) for (let i = ls.count - 1; i >= 0; i--) if (ls.items[i].follow === follow && ls.items[i].size === size) ls.kill(i);
+    const z = src && ev.slot !== 'pet' ? (bodyTop(src.look, src.tier, bodyHeight(src.look, src.radius), bodyWidth(src.radius)) + (local ? 44 : 22)) / PX_PER_UNIT_Z : 1.6;
+    const l = this.label(follow >= 0 && src ? src.x : ev.center.x, follow >= 0 && src ? src.y : ev.center.y, z, text, fill, size, dur);
+    l.follow = follow;
+    l.stroke = mix(color, '#000000', 0.72);
+    l.alpha = alpha;
+    l.pill = local || ev.player == null ? color : playerColor(c.state, ev.player);
+  }
+
+  /**
+   * My drag skill's non-damage part, said once: "아군 3명 공속 +40% · 공격력 +30%" (바드), "아군 2명 방어 +25%"
+   * (팔라딘), "보호막 30%" over the caster (가디언 / 워든). Heals already show as "+N".
+   */
+  private buffText(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, action: SkillAction, src: UnitMemo | null): void {
+    const bits: string[] = [];
+    for (const e of action.effects) {
+      if (e.kind === 'shield') bits.push(`보호막 ${Math.round(e.amount * 100)}%`);
+      else if (e.kind === 'status' && e.status === 'haste') bits.push(`공속 +${Math.round(e.value * 100)}%`);
+      else if (e.kind === 'status' && e.status === 'atkUp') bits.push(`공격력 +${Math.round(e.value * 100)}%`);
+      else if (e.kind === 'status' && e.status === 'defUp') bits.push(`방어 +${Math.round(e.value * 100)}%`);
+    }
+    if (!bits.length) return;
+    const text = bits.join(' · ');
+    if (action.affects === 'self') {
+      if (!src) return;
+      const z = (bodyTop(src.look, src.tier, bodyHeight(src.look, src.radius), bodyWidth(src.radius)) + 10) / PX_PER_UNIT_Z;
+      const l = this.label(src.x, src.y, z, text, BUFF_TEXT_COLOR, 16, 1.4);
+      l.follow = src.id;
+      l.stroke = '#05221f';
+      l.pill = BUFF_TEXT_COLOR;
+      return;
+    }
+    if (action.affects !== 'allies') return;
+    // one line, not one per ally (four identical pills piled up): over my caster when it got it too, with how many did
+    let n = 0;
+    let first: UnitMemo | null = null;
+    for (const m of c.memos.values()) {
+      if (m.kind !== 'character' || m.team !== 'ally') continue;
+      if (!hitsArea(ev.area, ev.center, ev.center, { x: m.x, y: m.y }, m.radius)) continue;
+      n++;
+      if (!first || m === src) first = m;
+    }
+    if (!first) return;
+    const z = (bodyTop(first.look, first.tier, bodyHeight(first.look, first.radius), bodyWidth(first.radius)) + 10) / PX_PER_UNIT_Z;
+    const l = this.label(first.x, first.y, z, n > 1 ? `아군 ${n}명 ${text}` : text, BUFF_TEXT_COLOR, 16, 1.4);
+    l.follow = first.id;
+    l.stroke = '#05221f';
+    l.pill = BUFF_TEXT_COLOR;
+  }
+
+  /** Colour for a persistent zone at (x, y) when a skill gave it its own look (null = the generic kind tint). */
+  zoneTint(x: number, y: number): string | null {
+    for (let i = this.zoneTints.length - 1; i >= 0; i--) {
+      const t = this.zoneTints[i];
+      if (t.until < this.clock) continue;
+      if (Math.abs(t.x - x) < 0.05 && Math.abs(t.y - y) < 0.05) return t.color;
+    }
+    return null;
+  }
+
+  // ─────────────────────────── FxHost ───────────────────────────
+
+  shake(amount: number): void {
+    this.shakeAmp = Math.max(this.shakeAmp, amount);
+  }
+
+  /** Brief coloured glow from the screen edges (my ult). */
+  private pulse(color: string): void {
+    this.pulseT = 0;
+    this.pulseColor = color;
   }
 
   private showBanner(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, color: string): void {
@@ -479,13 +777,41 @@ export class Vfx {
 
   // ─────────────────────────── spawners ───────────────────────────
 
-  private addNumber(targetId: number, kind: 0 | 1 | 2 | 3, amount: number, x: number, y: number, color: string, m: UnitMemo | undefined, prefix: string): void {
-    if (kind === 0 || kind === 2 || kind === 3) {
+  private addNumber(
+    targetId: number,
+    kind: FloaterKind,
+    amount: number,
+    x: number,
+    y: number,
+    color: string,
+    m: UnitMemo | undefined,
+    prefix: string,
+    size: number,
+    label: string,
+    alpha: number,
+    key: string,
+    suffix = '',
+  ): void {
+    {
+      // hits on one target within the window add up into one number: same skill, or basic hits (a crit among them
+      // turns the whole number into a crit) — a pile of "182! 13 113!" became one readable number
       const last = this.lastDamage.get(targetId);
-      if (last && last.targetId === targetId && last.kind === kind && last.age < (kind === 2 ? HEAL_WINDOW : MERGE_WINDOW) && last.age < last.dur) {
+      const win = kind === 2 ? HEAL_WINDOW : kind === 4 ? MERGE_WINDOW * 1.3 : MERGE_WINDOW;
+      const basicLike = (k: FloaterKind) => k === 0 || k === 1;
+      const same = last && (last.kind === kind || (basicLike(kind) && basicLike(last.kind)));
+      if (last && same && last.targetId === targetId && last.key === key && last.age < win && last.age < last.dur) {
         last.amount += amount;
-        last.text = prefix + Math.round(last.amount);
+        const crit = suffix === '!' || last.text.endsWith('!');
+        if (kind === 1 && last.kind === 0) {
+          last.kind = 1;
+          last.color = color;
+          last.size = Math.max(last.size, size);
+          last.stroke = '#4a2500';
+          last.dur = 1.05;
+        }
+        last.text = prefix + Math.round(last.amount) + (crit ? '!' : suffix);
         last.pop = 0;
+        if (label && !last.label) last.label = label;
         return;
       }
     }
@@ -494,29 +820,45 @@ export class Vfx {
     f.targetId = targetId;
     f.kind = kind;
     f.amount = amount;
-    f.text = prefix + Math.round(amount);
+    f.text = prefix + Math.round(amount) + suffix;
     f.color = color;
-    f.size = kind === 1 ? 26 : kind === 3 ? 13 : boss ? 18 : 16;
+    f.size = boss && kind === 0 ? Math.max(size, 17) : size;
     f.age = 0;
-    f.dur = kind === 1 ? 1.0 : 0.85;
+    f.dur = kind === 1 || kind === 4 ? 1.05 : kind === 5 ? 0.7 : 0.85;
     f.pop = 0;
+    f.label = label;
+    f.alpha = alpha;
+    f.key = key;
+    f.stroke = kind === 1 ? '#4a2500' : kind === 4 ? mix(color, '#000000', 0.8) : '#0a0a0a';
     if (boss && m) {
-      // numbers on the boss pop on its flanks, beside (not over) the big eye and below the top HUD
+      // numbers on the boss pop on its flanks, beside (not over) the big eye and low enough that they rise and fade
+      // before the line under the top HUD (they used to pile up on that line), spread a little in height
       const sideX = Math.random() < 0.5 ? -1 : 1;
       f.x = x + sideX * m.radius * (0.78 + Math.random() * 0.3);
-      f.y = y + 2.2;
-      f.z = Math.random() * 0.5;
+      f.y = y + 3.2;
+      f.z = Math.random() * 0.8;
     } else {
-      f.x = x + (Math.random() - 0.5) * 0.5;
+      // skill numbers sit a little higher than basic ones so the two don't pile into one blob
+      f.x = x + (Math.random() - 0.5) * (kind === 4 ? 0.9 : 0.5);
       f.y = y;
       const h = m ? bodyTop(m.look, m.tier, bodyHeight(m.look, m.radius), bodyWidth(m.radius)) : 50;
-      f.z = h / PX_PER_UNIT_Z + 0.45;
+      f.z = h / PX_PER_UNIT_Z + (kind === 4 ? 0.75 : kind === 5 ? 0.15 : 0.45);
     }
-    f.dx = (Math.random() - 0.5) * 18;
-    if (kind !== 1) this.lastDamage.set(targetId, f);
+    f.dx = (Math.random() - 0.5) * (kind === 4 ? 26 : 18);
+    // another number on this target a moment ago (a different skill, a burn tick …): start above it, not on it — at
+    // most two levels up (a pile climbing into the top HUD was worse). The boss spreads its numbers over its flanks.
+    const prev = this.lastSpawn.get(targetId);
+    if (!boss && prev && prev !== f && prev.targetId === targetId && prev.age < STACK_WINDOW && prev.age < prev.dur) {
+      const step = (prev.size * 0.95) / PX_PER_UNIT_Z;
+      f.z = Math.min(Math.max(f.z, prev.z + step), f.z + 2 * step);
+      f.x = prev.x;
+      f.dx = prev.dx;
+    }
+    this.lastSpawn.set(targetId, f);
+    this.lastDamage.set(targetId, f);
   }
 
-  private ring(x: number, y: number, r0: number, r1: number, dur: number, color: string, width: number, fill: number): void {
+  ring(x: number, y: number, r0: number, r1: number, dur: number, color: string, width: number, fill: number): void {
     const r = this.rings.spawn();
     r.x = x;
     r.y = y;
@@ -529,7 +871,7 @@ export class Vfx {
     r.fill = fill;
   }
 
-  private flash(cx: number, cy: number, ox: number, oy: number, area: AreaShape, dur: number, color: string, strength: number): void {
+  flash(cx: number, cy: number, ox: number, oy: number, area: AreaShape, dur: number, color: string, strength: number): void {
     const f = this.flashes.spawn();
     f.cx = cx;
     f.cy = cy;
@@ -544,7 +886,7 @@ export class Vfx {
   }
 
   /** Radial particle burst. speed in units/s, up = initial upward speed. g < 0 → floats up. */
-  private burst(x: number, y: number, z: number, n: number, color: string, speed: number, up: number, dur: number, g = 9): void {
+  burst(x: number, y: number, z: number, n: number, color: string, speed: number, up: number, dur: number, g = 9): void {
     for (let i = 0; i < n; i++) {
       const p = this.particles.spawn();
       const a = Math.random() * TAU;
@@ -601,7 +943,7 @@ export class Vfx {
     g.mode = mode;
   }
 
-  private label(x: number, y: number, z: number, text: string, color: string, size: number, dur: number): void {
+  private label(x: number, y: number, z: number, text: string, color: string, size: number, dur: number): Label {
     const l = this.labels.spawn();
     l.x = x;
     l.y = y;
@@ -611,6 +953,12 @@ export class Vfx {
     l.size = size;
     l.age = 0;
     l.dur = dur;
+    l.follow = -1;
+    l.stroke = '#120508';
+    l.alpha = 1;
+    l.pill = '';
+    l.w = 0;
+    return l;
   }
 
   // ─────────────────────────── per-frame update ───────────────────────────
@@ -639,7 +987,7 @@ export class Vfx {
   /** Map.forEach callback (bound once): fires the impact flash for telegraphs that vanished this frame. */
   private readonly resolveTele = (s: TeleSnap, id: number): void => {
     if (s.stamp === this.teleStamp) return;
-    if (s.remaining <= 0.25) {
+    if (s.remaining <= 0.25 && s.team === 'enemy') {
       const enemy = s.team === 'enemy';
       const color = enemy ? '#ff4d4d' : '#7fd1ff';
       this.flash(s.cx, s.cy, s.ox, s.oy, s.area, 0.45, color, 1);
@@ -660,6 +1008,26 @@ export class Vfx {
 
   update(dt: number, c: VfxContext): void {
     this.castKeys.clear();
+    this.castSeq.clear();
+    this.pendingSwing.clear();
+    this.clock += dt;
+    this.memosRef = c.memos;
+    // melee hits that waited for the swing's wind-up
+    const dq = this.deferred;
+    for (let i = dq.count - 1; i >= 0; i--) {
+      const d = dq.items[i];
+      d.t -= dt;
+      if (d.t > 0) continue;
+      const ev = d.ev;
+      TMP_SW.ax = d.ax;
+      TMP_SW.ay = d.ay;
+      dq.kill(i);
+      this.onDamage(ev, c, TMP_SW);
+    }
+    this.sfx.update(dt, this, c.memos);
+    this.shakeAmp = this.shakeAmp > 0.2 ? this.shakeAmp * Math.exp(-dt * 14) : 0;
+    this.pulseT += dt;
+    if (this.myNames.size > 24) for (const [n, t] of this.myNames) if (t < this.clock) this.myNames.delete(n);
     // flush accumulated heals: big heals become numbers, trickles (aura/regen ticks) only sparkle
     for (const [id, h] of this.heals) {
       h.age += dt;
@@ -667,7 +1035,7 @@ export class Vfx {
       const m = c.memos.get(id);
       const threshold = m && m.maxHp > 0 ? m.maxHp * HEAL_SHOW_FRAC : HEAL_SHOW_ABS;
       if (h.amount >= threshold) {
-        this.addNumber(id, 2, h.amount, h.x, h.y, COLORS.heal, m, '+');
+        this.addNumber(id, 2, h.amount, h.x, h.y, COLORS.heal, m, '+', 16, '', 1, 'heal');
         this.heals.delete(id);
       } else if (h.age >= HEAL_TRICKLE_WINDOW) {
         if (m && h.amount > 0) this.burst(h.x, h.y, 0.6, 2, COLORS.heal, 0.4, 1.2, 0.7, -1);
@@ -688,8 +1056,17 @@ export class Vfx {
     ageAll(this.flashes, dt);
     ageAll(this.ghosts, dt);
     ageAll(this.warns, dt);
-    ageAll(this.slashes, dt);
     ageAll(this.labels, dt);
+    const ls = this.labels;
+    for (let i = 0; i < ls.count; i++) {
+      const l = ls.items[i];
+      if (l.follow < 0) continue;
+      const m = c.memos.get(l.follow);
+      if (m) {
+        l.x = m.x;
+        l.y = m.y;
+      }
+    }
     const ds = this.dashes;
     for (let i = ds.count - 1; i >= 0; i--) {
       const d = ds.items[i];
@@ -795,6 +1172,7 @@ export class Vfx {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    this.sfx.drawGround(ctx, cam, this.memosRef, time);
     this.drawDashStreaks(ctx, cam);
     // rings
     const rs = this.rings;
@@ -841,11 +1219,11 @@ export class Vfx {
       const len = Math.hypot(x1 - x0, y1 - y0);
       if (len < 2) continue;
       const ang = Math.atan2(y1 - y0, x1 - x0);
-      const w = d.radius * PX_PER_UNIT * 1.5;
+      const w = d.radius * PX_PER_UNIT * 1.9;
       ctx.save();
       ctx.translate(x0, y0);
       ctx.rotate(ang);
-      ctx.globalAlpha = 0.5 * fade;
+      ctx.globalAlpha = 0.65 * fade;
       ctx.fillStyle = d.color;
       ctx.beginPath();
       ctx.moveTo(0, 0);
@@ -925,8 +1303,8 @@ export class Vfx {
     }
   }
 
-  /** Airborne effects over units: particles + melee slashes. */
-  drawAir(ctx: CanvasRenderingContext2D, cam: Camera): void {
+  /** Airborne effects over units: particles + skill flavour (slashes, arrows, meteors …). */
+  drawAir(ctx: CanvasRenderingContext2D, cam: Camera, time = 0): void {
     const ps = this.particles;
     for (let i = 0; i < ps.count; i++) {
       const p = ps.items[i];
@@ -937,24 +1315,7 @@ export class Vfx {
       ctx.fillRect(cam.sx(p.x) - s / 2, cam.sy(p.y) - p.z * PX_PER_UNIT_Z - s / 2, s, s);
     }
     ctx.globalAlpha = 1;
-    const ss = this.slashes;
-    ctx.lineCap = 'round';
-    for (let i = 0; i < ss.count; i++) {
-      const s = ss.items[i];
-      const p = s.age / s.dur;
-      const cx = cam.sx(s.x);
-      const cy = cam.sy(s.y) - s.z * PX_PER_UNIT_Z;
-      const sweep = 1.6;
-      const a0 = s.ang - sweep / 2 + p * 0.5;
-      ctx.globalAlpha = 1 - p;
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = 4 * (1 - p) + 1;
-      ctx.beginPath();
-      ctx.arc(cx, cy, s.r * (0.8 + p * 0.4), a0, a0 + sweep * Math.min(1, p * 3 + 0.3));
-      ctx.stroke();
-    }
-    ctx.lineCap = 'butt';
-    ctx.globalAlpha = 1;
+    this.sfx.drawAir(ctx, cam, this.memosRef, time);
   }
 
   /** Floating numbers + world labels (topmost world layer). */
@@ -963,36 +1324,93 @@ export class Vfx {
     ctx.textBaseline = 'alphabetic';
     ctx.lineJoin = 'round';
     const ls = this.labels;
+    // layout pass: clamp into the field area, then lift any callout that would sit on an earlier one
     for (let i = 0; i < ls.count; i++) {
       const l = ls.items[i];
       const p = l.age / l.dur;
+      if (l.w <= 0) {
+        ctx.font = boldFont(l.size);
+        const mt = ctx.measureText(l.text) as TextMetrics | undefined;
+        l.w = (mt && Number.isFinite(mt.width) ? mt.width : l.text.length * l.size * 0.9) + 10;
+      }
       // keep world labels (e.g. "중형보스 등장!" at a top-edge spawn) clear of the top HUD row and the screen edges
-      const x = Math.min(LOGICAL_W - LABEL_MARGIN_X, Math.max(LABEL_MARGIN_X, cam.sx(l.x)));
-      const y = Math.max(LABEL_MIN_Y, cam.sy(l.y) - l.z * PX_PER_UNIT_Z) - easeOut(Math.min(1, p * 4)) * 10;
-      ctx.globalAlpha = p > 0.75 ? (1 - p) / 0.25 : 1;
-      ctx.font = boldFont(l.size);
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#120508';
-      ctx.strokeText(l.text, x, y);
-      ctx.fillStyle = l.color;
-      ctx.fillText(l.text, x, y);
+      l.sx = Math.min(LOGICAL_W - LABEL_MARGIN_X, Math.max(LABEL_MARGIN_X, cam.sx(l.x)));
+      l.sy = Math.max(LABEL_MIN_Y, cam.sy(l.y) - l.z * PX_PER_UNIT_Z) - easeOut(Math.min(1, p * 4)) * 10;
+      // callout pills are ~1.3 × size tall: keep their boxes apart; at the top edge (units by the wall, labels clamped
+      // to LABEL_MIN_Y) there is no room above, so the later one goes below instead of under the HUD row
+      // (moves only up, or once out of room only down, so it settles)
+      let down = false;
+      for (let guard = 0; guard < 12; guard++) {
+        let hit: Label | null = null;
+        for (let j = 0; j < i && !hit; j++) {
+          const o = ls.items[j];
+          if (
+            Math.abs(o.sx - l.sx) < (o.w + l.w) / 2 + 8 &&
+            l.sy - l.size * PILL_TOP < o.sy + o.size * PILL_BOTTOM + PILL_GAP - 0.01 &&
+            o.sy - o.size * PILL_TOP < l.sy + l.size * PILL_BOTTOM + PILL_GAP - 0.01
+          )
+            hit = o;
+        }
+        if (!hit) break;
+        const up = hit.sy - hit.size * PILL_TOP - PILL_GAP - l.size * PILL_BOTTOM;
+        if (!down && up >= LABEL_MIN_Y) l.sy = up;
+        else {
+          down = true;
+          l.sy = hit.sy + hit.size * PILL_BOTTOM + PILL_GAP + l.size * PILL_TOP;
+        }
+      }
     }
     const fl = this.floaters;
     for (let i = 0; i < fl.count; i++) {
       const f = fl.items[i];
       const p = f.age / f.dur;
-      const rise = easeOut(p) * (f.kind === 1 ? 46 : 38);
+      const rise = easeOut(p) * (f.kind === 1 || f.kind === 4 ? 46 : f.kind === 5 ? 22 : 36);
       const x = cam.sx(f.x) + f.dx * p;
-      const y = cam.sy(f.y) - f.z * PX_PER_UNIT_Z - rise;
+      // like the callouts: never up into the top HUD row (boss / mid-boss bar, DBG, timer)
+      const y = Math.max(LABEL_MIN_Y, cam.sy(f.y) - f.z * PX_PER_UNIT_Z - rise);
       if (x < -60 || x > LOGICAL_W + 60) continue;
-      const pop = f.pop < 0.12 ? 1 + (f.kind === 1 ? 0.6 : 0.35) * (1 - f.pop / 0.12) : 1;
-      ctx.globalAlpha = p > 0.65 ? Math.max(0, (1 - p) / 0.35) : 1;
+      const strong = f.kind === 1 || f.kind === 4;
+      const pop = f.pop < 0.12 ? 1 + (strong ? 0.6 : 0.35) * (1 - f.pop / 0.12) : 1;
+      ctx.globalAlpha = (p > 0.65 ? Math.max(0, (1 - p) / 0.35) : 1) * f.alpha;
       ctx.font = boldFont(f.size * pop);
-      ctx.lineWidth = f.kind === 1 ? 5 : 3.5;
-      ctx.strokeStyle = f.kind === 1 ? '#4a2500' : '#0a0a0a';
+      ctx.lineWidth = strong ? 5 : 3.5;
+      ctx.strokeStyle = f.stroke;
       ctx.strokeText(f.text, x, y);
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, x, y);
+      if (f.label) {
+        ctx.font = boldFont(12);
+        ctx.lineWidth = 3;
+        ctx.strokeText(f.label, x, y + 14);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(f.label, x, y + 14);
+      }
+    }
+    // skill callouts last: on top of the numbers, on a dark pill so they read over a crowd
+    for (let i = 0; i < ls.count; i++) {
+      const l = ls.items[i];
+      const p = l.age / l.dur;
+      const pop = l.age < 0.12 ? 1 + 0.35 * (1 - l.age / 0.12) : 1;
+      const a = (p > 0.75 ? (1 - p) / 0.25 : 1) * l.alpha;
+      if (l.pill) {
+        const w = l.w * pop + 8;
+        const hh = l.size * (PILL_TOP + PILL_BOTTOM) * pop;
+        pathRoundRect(ctx, l.sx - w / 2, l.sy - l.size * PILL_TOP * pop, w, hh, hh / 2);
+        ctx.globalAlpha = a * 0.8;
+        ctx.fillStyle = '#080a12';
+        ctx.fill();
+        ctx.globalAlpha = a;
+        ctx.lineWidth = l.size >= 20 ? 2.5 : 1.5;
+        ctx.strokeStyle = l.pill;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = a;
+      ctx.font = boldFont(l.size * pop);
+      ctx.lineWidth = l.pill ? 3 : l.size >= 20 ? 6 : 4;
+      ctx.strokeStyle = l.stroke;
+      ctx.strokeText(l.text, l.sx, l.sy);
+      ctx.fillStyle = l.color;
+      ctx.fillText(l.text, l.sx, l.sy);
     }
     ctx.globalAlpha = 1;
   }
@@ -1021,6 +1439,18 @@ export class Vfx {
       ctx.globalAlpha = 1 - this.fadeT / 0.5;
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    }
+    if (this.pulseT < 0.6) {
+      // my ult: a coloured glow from the screen edges (two wide border strokes: cheap, the field stays readable)
+      const p = this.pulseT / 0.6;
+      const a = (1 - p) * (p < 0.08 ? p / 0.08 : 1);
+      ctx.strokeStyle = this.pulseColor;
+      ctx.globalAlpha = 0.28 * a;
+      ctx.lineWidth = 150;
+      ctx.strokeRect(0, 0, LOGICAL_W, LOGICAL_H);
+      ctx.globalAlpha = 0.45 * a;
+      ctx.lineWidth = 50;
+      ctx.strokeRect(0, 0, LOGICAL_W, LOGICAL_H);
     }
     ctx.globalAlpha = 1;
     if (this.banner.active) this.drawBanner(ctx);
@@ -1140,6 +1570,33 @@ function easeOut(t: number): number {
 
 function easeIn(t: number): number {
   return t * t;
+}
+
+const TMP_SW = { ax: 0, ay: 0 };
+/** Skills whose field has its own colour. */
+const ZONE_TINT: Record<string, string> = { mage_u: '#7fdcff' };
+
+const SLOT_KEY = { n: 'normal', d: 'drag', u: 'ult' } as const;
+const actionCache = new Map<string, readonly SkillAction[] | null>();
+
+/** The data action a skillCast event stands for: skill id `<character>_<n|d|u>` or a pet id, idx = order in the cast. */
+export function actionFor(skillId: string, slot: string, idx: number): SkillAction | null {
+  let list = actionCache.get(skillId);
+  if (list === undefined) {
+    list = null;
+    try {
+      if (slot === 'pet') list = [getPet(skillId).action];
+      else {
+        const cut = skillId.lastIndexOf('_');
+        const key = SLOT_KEY[skillId.slice(cut + 1) as keyof typeof SLOT_KEY];
+        if (key) list = getCharacter(skillId.slice(0, cut))[key].actions;
+      }
+    } catch {
+      list = null;
+    }
+    actionCache.set(skillId, list);
+  }
+  return list ? list[Math.min(idx, list.length - 1)] ?? null : null;
 }
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };

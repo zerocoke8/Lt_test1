@@ -4,6 +4,9 @@
 import { LOGICAL_H, LOGICAL_W, type Vec2 } from '../types';
 import { h } from './dom';
 
+/** Below this stage scale (≈ 844×390 phones: 0.54) the HUD's small text is enlarged (.stage.is-small). */
+export const SMALL_STAGE_SCALE = 0.75;
+
 export interface Insets {
   top: number;
   right: number;
@@ -101,6 +104,8 @@ export class Stage {
     fit.top += r.top;
     this.fit = fit;
     this.el.style.transform = `translate(${(fit.left - r.left).toFixed(2)}px, ${(fit.top - r.top).toFixed(2)}px) scale(${fit.scale.toFixed(5)})`;
+    // phones in landscape draw the 1280×720 stage at ~0.54: small HUD text gets a bigger size there (styles.css)
+    this.el.classList.toggle('is-small', fit.scale < SMALL_STAGE_SCALE);
     for (const fn of this.listeners) fn();
   }
 

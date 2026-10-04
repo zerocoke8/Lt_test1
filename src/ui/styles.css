@@ -1433,6 +1433,7 @@
   font-weight: 900;
   color: var(--dim);
   line-height: 1.05;
+  white-space: nowrap;
 }
 
 .ccard.is-active .cc-state {
@@ -1448,22 +1449,80 @@
   color: #ff6b6b;
 }
 
-/* drag-skill footprint badge: above the portrait's corner (the glyph/countdown stays clear in the middle) */
-.cc-shape {
+/* drag-skill footprint badge: above the portrait's corner (the glyph/countdown stays clear in the middle).
+   The bar under the shape = how much of the re-appear (= drag-skill) cooldown has passed; green ring = ready. */
+.cc-drag {
   position: absolute;
   z-index: 2;
   top: 4px;
   left: 3px;
-  width: 40px;
-  height: 22px;
-  border-radius: 6px;
-  background: rgba(6, 8, 14, 0.82);
+  width: 42px;
+  height: 27px;
+  border-radius: 7px;
+  background: rgba(6, 8, 14, 0.86);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
   pointer-events: none;
+  overflow: hidden;
 }
 
-.ccard.is-dead .cc-shape {
+.cc-shape {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 40px;
+  height: 22px;
+}
+
+.cc-drag-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  transform-origin: 0 50%;
+  background: color-mix(in srgb, var(--c) 80%, white);
+  transition: transform 0.12s linear;
+}
+
+.cc-drag.is-cool .cc-shape {
   opacity: 0.4;
+}
+
+.cc-drag.is-cool .cc-drag-bar {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.cc-drag.is-ready {
+  box-shadow: 0 0 0 2px var(--green), 0 0 12px rgba(61, 220, 132, 0.75);
+}
+
+.cc-drag.is-ready .cc-drag-bar {
+  background: var(--green);
+}
+
+.cc-drag.is-fired {
+  animation: badgeFired 0.55s ease-out;
+}
+
+.ccard.is-dead .cc-drag {
+  opacity: 0.4;
+}
+
+.cc-state.is-cd {
+  color: #d6e6ff;
+  font-size: 15px;
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes badgeFired {
+  0% { transform: scale(1.45); filter: brightness(2.2); box-shadow: 0 0 0 4px #fff, 0 0 26px 8px var(--c); }
+  100% { transform: none; filter: none; }
+}
+
+@keyframes introIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.9); }
+  to { opacity: 1; transform: none; }
 }
 
 .cc-slot {
@@ -1483,6 +1542,350 @@
 
 .ccard.is-dragging {
   opacity: 0.4;
+}
+
+/* the field character's auto (normal) skill, right of the cards: ring = cooldown sweep (colour = time passed),
+   centre = seconds left or "자동", then the skill name and its period. Tap → skill sheet. */
+.nskill {
+  --c: #888;
+  --p: 0deg;
+  position: relative;
+  width: 150px;
+  height: 136px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 18%, rgba(18, 21, 33, 0.82)), rgba(12, 14, 22, 0.8) 75%);
+  border: 2px solid color-mix(in srgb, var(--c) 55%, rgba(255, 255, 255, 0.1));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 6px 7px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.nskill.is-empty {
+  opacity: 0.45;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.ns-cap {
+  font-size: 13px;
+  font-weight: 900;
+  color: color-mix(in srgb, var(--c) 45%, #c9d2e3);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.ns-ring {
+  position: relative;
+  margin-top: 4px;
+  width: 62px;
+  height: 62px;
+  flex: none;
+  border-radius: 50%;
+  background: conic-gradient(color-mix(in srgb, var(--c) 85%, white) calc(360deg - var(--p)), rgba(255, 255, 255, 0.12) 0);
+  box-shadow: 0 0 0 2px #05060a;
+}
+
+.nskill.is-empty .ns-ring {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ns-ring::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #232a40, #0c0f18 75%);
+}
+
+.ns-ico {
+  position: absolute;
+  inset: 14px;
+  color: color-mix(in srgb, var(--c) 70%, white);
+  opacity: 0.3;
+}
+
+.ns-ico svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ns-t {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 23px;
+  font-weight: 900;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, 0.9);
+}
+
+.nskill.is-ready .ns-ico {
+  inset: 10px 14px 20px;
+  opacity: 1;
+}
+
+.nskill.is-ready .ns-t {
+  place-items: end center;
+  padding-bottom: 7px;
+  font-size: 14px;
+  color: var(--green-soft);
+}
+
+.nskill.is-ready .ns-ring {
+  animation: normReady 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes normReady {
+  from { box-shadow: 0 0 0 2px #05060a; }
+  to { box-shadow: 0 0 0 2px #05060a, 0 0 16px 4px color-mix(in srgb, var(--c) 75%, transparent); }
+}
+
+.ns-name {
+  margin-top: 5px;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-every {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #cdd6e6;
+  white-space: nowrap;
+}
+
+.nskill.is-fired .ns-ring {
+  animation: badgeFired 0.6s ease-out;
+}
+
+/* ready but nothing in reach yet: it waits (no pulse) */
+.nskill.is-ready.is-waiting .ns-ring {
+  animation: none;
+}
+
+.nskill.is-ready.is-waiting .ns-t {
+  color: #cdd6e6;
+}
+
+/* "i" = tap for the skill sheet */
+.ns-info {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: italic 900 14px/1 Georgia, 'Times New Roman', serif;
+  color: #0b0d14;
+  background: rgba(220, 230, 245, 0.85);
+}
+
+.nskill.is-empty .ns-info {
+  display: none;
+}
+
+/* one-time tip (start of floor 1, until the sheet was opened once): right above the card row */
+.sheet-tip {
+  position: absolute;
+  left: 12px;
+  bottom: 196px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #eaf2ff;
+  background: rgba(10, 14, 26, 0.88);
+  border: 2px solid rgba(76, 201, 240, 0.75);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.sheet-tip.is-new {
+  animation: introIn 0.3s ease-out;
+}
+
+.hud.is-drag .sheet-tip,
+.hud.is-covered .sheet-tip {
+  display: none;
+}
+
+/* a cooldown cut on a bench card (크로노 …): "-3초" floats up off the card, the drag badge flashes */
+.cc-cut {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: -34px;
+  transform: translateX(-50%);
+  font-size: 26px;
+  font-weight: 900;
+  color: #b8c0ff;
+  text-shadow: 0 2px 0 #000, 0 0 8px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: cutPop 1.2s ease-out forwards;
+}
+
+@keyframes cutPop {
+  0% { opacity: 0; transform: translate(-50%, 8px) scale(0.7); }
+  15% { opacity: 1; transform: translate(-50%, 0) scale(1.25); }
+  70% { opacity: 1; transform: translate(-50%, -26px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -40px) scale(1); }
+}
+
+.cc-drag.is-cut {
+  animation: badgeFired 0.7s ease-out;
+}
+
+.nskill.is-new {
+  animation: introIn 0.3s ease-out;
+}
+
+/* skill sheet (tap the active card / long-press any card): five skills, never blocks the field (no pointer events).
+   On the half of the screen away from my character (.is-right when I stand on the left), 520 wide (hud.ts SHEET_W). */
+.skill-sheet {
+  --c: #888;
+  position: absolute;
+  left: 12px;
+  bottom: 204px;
+  width: 520px;
+  padding: 8px 12px 10px;
+  border-radius: 16px;
+  background: rgba(8, 10, 18, 0.9);
+  border: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.skill-sheet.is-right {
+  left: auto;
+  right: 12px;
+}
+
+.skill-sheet.is-new {
+  animation: introIn 0.2s ease-out;
+}
+
+.ss-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+
+.ss-glyph {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--c);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.ss-name {
+  font-size: 21px;
+  font-weight: 900;
+}
+
+.ss-role {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--dim);
+}
+
+.ss-hint {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--dim);
+  white-space: normal;
+  text-align: right;
+  line-height: 1.15;
+}
+
+/* two lines per skill: [type] name · trigger · live / the effect line underneath, wrapping (never cut off) */
+.ss-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 1px;
+  padding: 2px 0 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ss-type {
+  justify-self: start;
+  padding: 2px 8px 3px;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 900;
+  color: #0b0d14;
+  background: #8d99ae;
+}
+
+.ss-passive .ss-type { background: #b5838d; }
+.ss-normal .ss-type { background: #4cc9f0; }
+.ss-drag .ss-type { background: #3ddc84; }
+.ss-ult .ss-type { background: #ffd166; }
+
+.ss-trigger {
+  font-size: 15px;
+  font-weight: 800;
+  color: #cdd6e6;
+  white-space: nowrap;
+}
+
+.ss-skill {
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ss-sum {
+  grid-column: 2 / 5;
+  font-size: 15px;
+  line-height: 1.25;
+  color: #b8c2d6;
+}
+
+.ss-live {
+  justify-self: end;
+  white-space: nowrap;
+  min-width: 56px;
+  text-align: right;
+  font-size: 16px;
+  font-weight: 900;
+  color: #e9eef7;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-live.is-ready {
+  color: var(--green-soft);
 }
 
 /* bottom-center: ult gauge */
@@ -3383,4 +3786,120 @@
 
 .toasts-lobby {
   bottom: 36px;
+}
+
+
+/* ─────────── phones (stage drawn at < 0.75, e.g. 844×390 → 0.54): the small HUD text gets bigger ───────────
+   (playtest: 13–15 px logical came out at 7–8 CSS px). Countdowns ≥ ~20 px logical ≈ 11 CSS px. */
+.stage.is-small .ns-cap {
+  font-size: 16px;
+}
+
+/* smaller ring so the bigger name / period lines fit the 136 px widget */
+.stage.is-small .ns-ring {
+  margin-top: 3px;
+  width: 50px;
+  height: 50px;
+}
+
+.stage.is-small .ns-ico {
+  inset: 11px;
+}
+
+.stage.is-small .ns-t {
+  font-size: 21px;
+}
+
+.stage.is-small .ns-every {
+  margin-top: 0;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.stage.is-small .ns-name {
+  margin-top: 3px;
+  font-size: 20px;
+}
+
+/* ready: the word sits in the middle of the ring over a faint icon (no room for both on a phone) */
+.stage.is-small .nskill.is-ready .ns-ico {
+  inset: 11px;
+  opacity: 0.25;
+}
+
+.stage.is-small .nskill.is-ready .ns-t {
+  place-items: center;
+  padding-bottom: 0;
+  font-size: 17px;
+}
+
+.stage.is-small .ns-info {
+  width: 24px;
+  height: 24px;
+  font-size: 17px;
+}
+
+.stage.is-small .ult-sub {
+  font-size: 21px;
+}
+
+.stage.is-small .ult-name {
+  font-size: 20px;
+  height: 25px;
+}
+
+.stage.is-small .pc-name {
+  font-size: 18px;
+}
+
+.stage.is-small .pc-state {
+  font-size: 19px;
+}
+
+.stage.is-small .cc-state.is-cd {
+  font-size: 18px;
+}
+
+.stage.is-small .pip {
+  width: 23px;
+  height: 23px;
+  font-size: 16px;
+}
+
+.stage.is-small .skill-sheet {
+  width: 560px;
+}
+
+.stage.is-small .ss-name {
+  font-size: 24px;
+}
+
+.stage.is-small .ss-role,
+.stage.is-small .ss-hint {
+  font-size: 17px;
+}
+
+.stage.is-small .ss-type {
+  font-size: 17px;
+}
+
+.stage.is-small .ss-row {
+  grid-template-columns: 70px minmax(0, 1fr) auto auto;
+}
+
+.stage.is-small .ss-skill {
+  font-size: 20px;
+}
+
+.stage.is-small .ss-trigger,
+.stage.is-small .ss-live {
+  font-size: 19px;
+}
+
+.stage.is-small .ss-sum {
+  font-size: 19px;
+}
+
+.stage.is-small .sheet-tip {
+  font-size: 21px;
 }

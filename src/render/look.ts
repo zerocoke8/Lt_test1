@@ -8,6 +8,8 @@ export const FONT_STACK =
 
 /** Other players' skill flashes and fields are drawn at this strength (mine at 1): my own fight stays readable. */
 export const OTHER_PLAYER_FX = 0.55;
+/** Other players' persistent fields (their pets, their cleric spring …): dashed outline only, at this opacity. */
+export const OTHER_ZONE_ALPHA = 0.32;
 
 export const COLORS = {
   ally: '#4ade80',

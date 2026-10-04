@@ -16,11 +16,13 @@ import {
 import { type BossDrawOpts, drawBoss, drawBossShadow } from './boss';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { Backdrop } from './ground';
-import { COLORS, OTHER_PLAYER_FX, boldFont } from './look';
+import { COLORS, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
+import { CHARACTERS } from '../data';
 import { areaCentroid, areaExtent } from '../sim/geometry';
 import { drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
 import { TAU, pathArea, pathCapsule } from './shapes';
 import {
+  HERO_POSE,
   type UnitMemo,
   animProgress,
   barStyleFor,
@@ -139,7 +141,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     for (const z of state.zones) {
       if (!cam.visibleX(z.center.x, (z.area ? areaExtent(z.area) : z.radius) + 1)) continue;
       const color =
-        z.kind === 'heal'
+        vfx.zoneTint(z.center.x, z.center.y) ??
+        (z.kind === 'heal'
           ? COLORS.zoneHeal
           : z.kind === 'buff'
             ? COLORS.zoneBuff
@@ -147,11 +150,21 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
               ? COLORS.zoneDebuff
               : z.team === 'enemy'
                 ? COLORS.zoneDamageEnemy
-                : COLORS.zoneDamageAlly;
+                : COLORS.zoneDamageAlly);
       const fadeIn = z.total > 0 ? Math.min(1, (z.total - z.remaining) / 0.25) : 1;
-      // other players' fields (paladin/cleric circles …) are drawn softer so they don't bury my own preview/fight
-      const others = z.ownerPlayer != null && z.ownerPlayer !== vc.localPlayer ? OTHER_PLAYER_FX : 1;
-      const fade = Math.min(1, z.remaining / 0.4, fadeIn) * others;
+      const fade = Math.min(1, z.remaining / 0.4, fadeIn);
+      // other players' fields (a bot's pet circle, their cleric spring …): a thin outline in the field colour only —
+      // filled, they read as part of my own skill (playtest) and the big translucent fills cost frame time
+      if (z.ownerPlayer != null && z.ownerPlayer !== vc.localPlayer && z.team === 'ally') {
+        pathArea(c, cam, z.center, null, z.area ?? { shape: 'circle', radius: z.radius }, 1);
+        c.globalAlpha = OTHER_ZONE_ALPHA * fade;
+        c.lineWidth = 2;
+        c.strokeStyle = color;
+        c.setLineDash(ZONE_DASH);
+        c.stroke();
+        c.setLineDash(NO_DASH);
+        continue;
+      }
       if (z.area && z.area.shape !== 'circle') {
         drawShapedZone(z, z.area, color, fade);
         continue;
@@ -344,46 +357,128 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   // ─────────────────────────── units ───────────────────────────
 
-  /** Per-entity pose for this frame: foot screen point + lift (px). Written into tmp fields to avoid allocation. */
-  const pose = { fx: 0, fy: 0, z: 0, hMul: 1 };
+  /**
+   * Per-entity pose for this frame (written into tmp fields to avoid allocation): foot screen point, lift (px),
+   * height/width multipliers, lean (body skew toward the facing side), tilt (stun wobble) and the weapon pose.
+   * Motions read as anticipation → action → recovery: melee winds up, swings and settles; ranged kicks back on the shot.
+   */
+  const pose = { fx: 0, fy: 0, z: 0, hMul: 1, wMul: 1, lean: 0, tilt: 0, swing: 0, recoil: 0 };
   function computePose(e: Entity, m: UnitMemo): void {
     let ox = 0;
     let oy = 0;
     let z = 0;
     let hMul = 1;
+    let wMul = 1;
+    let lean = 0;
+    let tilt = 0;
+    let swing = 0;
+    let recoil = 0;
     const p = animProgress(e, m);
+    const cf = Math.cos(e.facing);
+    const sf = Math.sin(e.facing);
     switch (e.anim) {
       case 'attack': {
-        const k = Math.sin(p * Math.PI);
-        const L = (m.look.ranged ? 0.08 : 0.32) * k;
-        ox = Math.cos(e.facing) * L;
-        oy = Math.sin(e.facing) * L;
-        hMul = 1 - 0.06 * k;
+        if (m.look.ranged) {
+          // kick back at the shot, ease forward again
+          const back = p < 0.12 ? p / 0.12 : Math.max(0, 1 - (p - 0.12) / 0.6);
+          ox = -cf * 0.13 * back;
+          oy = -sf * 0.13 * back;
+          recoil = 7 * back;
+          lean = -0.12 * back;
+          hMul = 1 - 0.05 * back;
+          wMul = 1 + 0.04 * back;
+        } else {
+          // wind-up (lean back, weapon raised) → strike (lunge, weapon sweeps through) → recovery
+          let L: number;
+          if (p < 0.3) {
+            const k = p / 0.3;
+            L = -0.08 * k;
+            lean = -0.16 * k;
+            swing = -1.15 * k;
+            hMul = 1 - 0.06 * k;
+            wMul = 1 + 0.05 * k;
+          } else if (p < 0.55) {
+            const k = easeOutQ((p - 0.3) / 0.25);
+            L = -0.08 + 0.56 * k;
+            lean = -0.16 + 0.4 * k;
+            swing = -1.15 + 2.45 * k;
+            hMul = 1 + 0.05 * k;
+            wMul = 1 - 0.03 * k;
+          } else {
+            const k = (p - 0.55) / 0.45;
+            L = 0.48 * (1 - k);
+            lean = 0.24 * (1 - k);
+            swing = 1.3 * (1 - k);
+            hMul = 1 + 0.05 * (1 - k);
+          }
+          ox = cf * L;
+          oy = sf * L;
+        }
         break;
       }
       case 'appear':
         z = (1 - p) * (1 - p) * 3.2;
         hMul = p > 0.85 ? 1 - 0.18 * Math.sin(((p - 0.85) / 0.15) * Math.PI) : 1.08;
+        wMul = p > 0.85 ? 1 + 0.14 * Math.sin(((p - 0.85) / 0.15) * Math.PI) : 0.95;
         break;
-      case 'move':
-        z = Math.abs(Math.sin(time * 9 + m.phase)) * 0.07;
+      case 'move': {
+        const b = Math.abs(Math.sin(time * 10 + m.phase));
+        z = b * 0.13;
+        // heroes lean into the run; monsters just bounce (no per-unit transform for a crowd)
+        if (e.kind === 'character') lean = 0.1;
+        // squash on each footfall
+        hMul = 1 - 0.07 * (1 - b) * (1 - b);
+        wMul = 1 + 0.05 * (1 - b) * (1 - b);
         break;
+      }
       case 'cast':
-        hMul = 1 + 0.05 * Math.sin(time * 18);
+        // charging the skill: grow a little and raise the weapon
+        hMul = 1.09 + 0.03 * Math.sin(time * 22);
+        wMul = 1.06;
+        swing = -0.9;
+        z = 0.06;
+        break;
+      case 'stunned':
+        tilt = Math.sin(time * 7 + m.phase) * 0.14;
+        hMul = 0.96;
         break;
       default:
         hMul = 1 + 0.025 * Math.sin(time * 2.6 + m.phase);
+        z = 0.025 * (1 + Math.sin(time * 2.6 + m.phase));
+    }
+    // ult: a strong pose for a moment (bigger, weapon high)
+    if (m.ultT < 0.75) {
+      const k = Math.sin((m.ultT / 0.75) * Math.PI);
+      hMul *= 1 + 0.22 * k;
+      wMul *= 1 + 0.14 * k;
+      swing = -1.5 * k + swing * (1 - k);
+      z += 0.25 * k;
     }
     if (vfx.dashPose(e.id, dashOff)) {
       // drag-skill dash: drawn at the replayed streak position; it lands fast at the drop point, then dashes
       ox += dashOff.ox;
       oy += dashOff.oy;
       if (e.anim === 'appear') z = dashOff.z;
+      lean = 0.3;
+      swing = 1.2;
     }
     pose.fx = cam.sx(e.pos.x + ox);
     pose.fy = cam.sy(e.pos.y + oy);
+    if (m.joltT > 0) {
+      // hit reaction: knocked a few px away, squashed, then springs back
+      const k = m.joltT / 0.14;
+      pose.fx += m.joltX * 6 * k;
+      pose.fy += m.joltY * 3 * k;
+      hMul *= 1 - 0.07 * k;
+      wMul *= 1 + 0.05 * k;
+    }
     pose.z = z * PX_PER_UNIT_Z;
     pose.hMul = hMul;
+    pose.wMul = wMul;
+    pose.lean = lean;
+    pose.tilt = tilt;
+    pose.swing = swing;
+    pose.recoil = recoil;
   }
 
   function drawUnitGround(e: Entity, m: UnitMemo, local: number, state: GameState): void {
@@ -397,22 +492,72 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       lift = Math.min(1, dashOff.z / 1.6);
     }
     drawShadow(c, cam, gx, gy, e.radius * (m.look.shape === 'hero' ? 0.9 : 1), 1 - lift * 0.6, 1 - lift * 0.5);
-    if (e.anim === 'cast') {
-      const k = 0.5 + 0.5 * Math.sin(time * 14);
-      c.globalAlpha = 0.25 + 0.25 * k;
-      c.fillStyle = m.look.light;
+    const sx0 = cam.sx(gx);
+    const sy0 = cam.sy(gy);
+    if (e.kind === 'character' && e.ownerPlayer != null && e.ownerPlayer !== local) {
+      // another player's character: a ring in that player's colour (their name tag colour) — two 가디언 on the
+      // field no longer look the same; mine has the bright outline + marker instead
+      const r = e.radius * 1.25;
+      c.globalAlpha = 0.9 * (1 - lift);
+      c.lineWidth = 3;
+      c.strokeStyle = playerColor(state, e.ownerPlayer);
       c.beginPath();
-      c.ellipse(cam.sx(gx), cam.sy(gy), e.radius * PX_PER_UNIT * (1.5 + 0.2 * k), e.radius * PX_PER_UNIT_Y * (1.5 + 0.2 * k), 0, 0, TAU);
-      c.fill();
+      c.ellipse(sx0, sy0, r * PX_PER_UNIT, r * PX_PER_UNIT_Y, 0, 0, TAU);
+      c.stroke();
       c.globalAlpha = 1;
     }
-    if (e.team === 'ally') {
-      const owner = e.ownerPlayer;
-      const color = owner !== null ? playerColor(state, owner) : '#7fd1ff';
-      const mode = e.kind === 'character' ? (owner === local ? 'local' : 'ally') : 'summon';
-      drawGroundRing(c, cam, gx, gy, e.radius, color, mode, time);
-    } else {
-      drawGroundRing(c, cam, gx, gy, e.radius, COLORS.enemyRing, 'enemy', time);
+    const casting = e.anim === 'cast' || m.skillT < 0.45;
+    if (casting || m.ultT < 0.9) {
+      // cast circle under the feet: a glow plus a dashed ring spinning in the character colour
+      const ult = m.ultT < 0.9;
+      const k = ult ? 1 - m.ultT / 0.9 : e.anim === 'cast' ? 1 : 1 - m.skillT / 0.45;
+      const r = e.radius * (ult ? 2.3 : 1.7) + (ult ? 0.6 : 0.25) * (1 - k);
+      c.globalAlpha = (ult ? 0.4 : 0.3) * k;
+      c.fillStyle = m.look.light;
+      c.beginPath();
+      c.ellipse(sx0, sy0, r * PX_PER_UNIT, r * PX_PER_UNIT_Y, 0, 0, TAU);
+      c.fill();
+      c.globalAlpha = 0.95 * k;
+      c.lineWidth = ult ? 4 : 3;
+      c.strokeStyle = m.look.light;
+      c.setLineDash(CAST_DASH);
+      c.lineDashOffset = -time * 60;
+      c.stroke();
+      c.setLineDash(NO_DASH);
+      c.lineDashOffset = 0;
+      if (ult) {
+        c.globalAlpha = 0.7 * k;
+        c.lineWidth = 2;
+        c.strokeStyle = '#ffffff';
+        c.beginPath();
+        c.ellipse(sx0, sy0, r * 0.7 * PX_PER_UNIT, r * 0.7 * PX_PER_UNIT_Y, 0, 0, TAU);
+        c.stroke();
+      }
+      c.globalAlpha = 1;
+    }
+    if (hasStatus(e, 'slow')) {
+      // frost on the ground: a pale-blue ring with ice shards (one stroke + one fill)
+      const r = e.radius * 1.15;
+      c.globalAlpha = 0.85;
+      c.lineWidth = 3;
+      c.strokeStyle = '#9ad8ff';
+      c.beginPath();
+      c.ellipse(sx0, sy0, r * PX_PER_UNIT, r * PX_PER_UNIT_Y, 0, 0, TAU);
+      c.stroke();
+      c.fillStyle = '#e6f7ff';
+      c.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = m.phase + (i * TAU) / 4;
+        const px = sx0 + Math.cos(a) * r * PX_PER_UNIT * 0.9;
+        const py = sy0 + Math.sin(a) * r * PX_PER_UNIT_Y * 0.9;
+        c.moveTo(px, py - 8);
+        c.lineTo(px + 3.5, py);
+        c.lineTo(px, py + 2);
+        c.lineTo(px - 3.5, py);
+        c.closePath();
+      }
+      c.fill();
+      c.globalAlpha = 1;
     }
   }
 
@@ -420,25 +565,48 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const c = ctx!;
     computePose(e, m);
     const look = m.look;
-    const w = bodyWidth(e.radius);
-    const h = w * look.heightMul * pose.hMul;
+    const w = bodyWidth(e.radius) * pose.wMul;
+    const h = (w / pose.wMul) * look.heightMul * pose.hMul;
     const s = Math.cos(e.facing) >= 0 ? 1 : -1;
+    const fx = pose.fx;
     const fy = pose.fy - pose.z;
     let alpha = 1;
     if (e.expiresIn !== null && e.expiresIn < 2 && e.kind === 'summon') alpha = Math.sin(time * 20) > 0 ? 1 : 0.45;
-    if (e.anim === 'cast') {
+    if (e.anim === 'cast' || m.ultT < 0.6) {
       const k = 0.5 + 0.5 * Math.sin(time * 14);
-      c.globalAlpha = 0.25 + 0.2 * k;
+      const ult = m.ultT < 0.6;
+      c.globalAlpha = (ult ? 0.45 : 0.25) + 0.2 * k;
       c.fillStyle = look.light;
       c.beginPath();
-      c.ellipse(pose.fx, fy - h * 0.5, w * 0.8, h * 0.68, 0, 0, TAU);
+      c.ellipse(fx, fy - h * 0.5, w * (ult ? 1.05 : 0.8), h * (ult ? 0.85 : 0.68), 0, 0, TAU);
       c.fill();
     }
+    const skew = pose.lean * s;
+    const transformed = skew !== 0 || pose.tilt !== 0;
+    if (transformed) {
+      c.save();
+      c.translate(fx, fy);
+      if (pose.tilt !== 0) c.rotate(pose.tilt);
+      if (skew !== 0) c.transform(1, 0, -skew, 1, 0, 0);
+      c.translate(-fx, -fy);
+    }
     c.globalAlpha = alpha;
-    drawBody(c, look, e.tier, pose.fx, fy, w, h, s, time, m.phase, m.flash > 0);
+    HERO_POSE.swing = pose.swing;
+    HERO_POSE.recoil = pose.recoil;
+    drawBody(c, look, e.tier, fx, fy, w, h, s, time, m.phase, m.flash > 0);
+    HERO_POSE.swing = 0;
+    HERO_POSE.recoil = 0;
+    if (e.kind === 'character' && hasStatus(e, 'slow')) {
+      c.globalAlpha = 0.22;
+      pathCapsule(c, fx, fy, w * 0.95, h);
+      c.fillStyle = '#7fd4ff';
+      c.fill();
+    }
+    if (hasStatus(e, 'burn')) drawFlames(c, fx, fy, w, h, time + m.phase);
+    if (transformed) c.restore();
     if (e.invulnTime > 0 && e.anim !== 'appear') {
       c.globalAlpha = 0.5 + 0.4 * Math.sin(time * 25);
-      pathCapsule(c, pose.fx, fy + 3, w + 8, h + 8);
+      pathCapsule(c, fx, fy + 3, w + 8, h + 8);
       c.lineWidth = 2;
       c.strokeStyle = '#ffffff';
       c.stroke();
@@ -451,7 +619,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     computePose(e, m);
     const look = m.look;
     const w = bodyWidth(e.radius);
-    const h = w * look.heightMul * pose.hMul;
+    const h = w * look.heightMul * Math.min(1.12, pose.hMul);
     const top = pose.fy - pose.z - bodyTop(look, e.tier, h, w);
     const isLocal = e.kind === 'character' && e.ownerPlayer === local;
     const ally = e.team === 'ally';
@@ -464,7 +632,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       y -= 3;
     }
     if (e.statuses.length > 0) y -= drawStatusPips(c, pose.fx, y, e.statuses);
-    const stunned = e.anim === 'stunned' || hasStun(e);
+    const stunned = e.anim === 'stunned' || hasStatus(e, 'stun');
     if (stunned) drawStunStars(c, pose.fx, top + 2, w, time + m.phase);
     if (isLocal) drawLocalMarker(c, pose.fx, y - 2, playerColor(state, local), time);
   }
@@ -472,9 +640,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function drawLocalOutline(e: Entity, m: UnitMemo, color: string): void {
     const c = ctx!;
     computePose(e, m);
-    const w = bodyWidth(e.radius);
-    const h = w * m.look.heightMul * pose.hMul;
+    const w = bodyWidth(e.radius) * pose.wMul;
+    const h = bodyWidth(e.radius) * m.look.heightMul * pose.hMul;
     const fy = pose.fy - pose.z;
+    const skew = pose.lean * (Math.cos(e.facing) >= 0 ? 1 : -1);
+    if (skew !== 0) {
+      c.save();
+      c.translate(pose.fx, fy);
+      c.transform(1, 0, -skew, 1, 0, 0);
+      c.translate(-pose.fx, -fy);
+    }
     pathCapsule(c, pose.fx, fy + 2, w + 7, h + 6);
     c.globalAlpha = 0.95;
     c.lineWidth = 4.5;
@@ -483,6 +658,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.lineWidth = 2.5;
     c.strokeStyle = color;
     c.stroke();
+    if (skew !== 0) c.restore();
     c.globalAlpha = 1;
   }
 
@@ -546,6 +722,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.globalAlpha = 1;
   }
 
+  /** Projectiles, styled per shooter: arrows (ranger), tracers (gunner), fireballs (mage), holy orbs (cleric), notes (bard), clock shards (chrono). */
   function drawProjectiles(state: GameState): void {
     const c = ctx!;
     const zp = PROJECTILE_Z * PX_PER_UNIT_Z;
@@ -570,19 +747,26 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         dx = 1;
         dy = 0;
       }
-      const trail = Math.min(1.2, 0.25 + p.speed * 0.05);
       const hx = cam.sx(p.pos.x);
       const hy = cam.sy(p.pos.y) - zp;
-      const tx1 = cam.sx(p.pos.x - dx * trail);
-      const ty1 = cam.sy(p.pos.y - dy * trail) - zp;
-      const tx2 = cam.sx(p.pos.x - dx * trail * 0.5);
-      const ty2 = cam.sy(p.pos.y - dy * trail * 0.5) - zp;
       // ground shadow
       c.globalAlpha = 0.25;
       c.fillStyle = '#000000';
       c.beginPath();
       c.ellipse(hx, cam.sy(p.pos.y), 5, 2.5, 0, 0, TAU);
       c.fill();
+      const style = p.team === 'ally' ? PROJ_STYLE.get(p.color.toLowerCase()) : undefined;
+      const ang = Math.atan2(dy * PX_PER_UNIT_Y, dx * PX_PER_UNIT);
+      if (style) {
+        drawStyledProjectile(c, style, p.color, hx, hy, ang, time + p.id * 0.37);
+        if (style === 'mage' && Math.random() < 0.6) vfx.burst(p.pos.x - dx * 0.2, p.pos.y - dy * 0.2, PROJECTILE_Z, 1, Math.random() < 0.5 ? '#ff9e3d' : '#ffd166', 0.4, 0.6, 0.3, -1);
+        continue;
+      }
+      const trail = Math.min(1.2, 0.25 + p.speed * 0.05);
+      const tx1 = cam.sx(p.pos.x - dx * trail);
+      const ty1 = cam.sy(p.pos.y - dy * trail) - zp;
+      const tx2 = cam.sx(p.pos.x - dx * trail * 0.5);
+      const ty2 = cam.sy(p.pos.y - dy * trail * 0.5) - zp;
       c.lineCap = 'round';
       c.globalAlpha = 0.25;
       c.strokeStyle = p.color;
@@ -702,7 +886,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     backdrop.ensure(arena.width, arena.height, boss, state.floor, dpr);
 
-    // events first: death/leave ghosts need last frame's memos
+    // events first: death/leave ghosts need last frame's memos. Units that appeared this frame get theirs now, so a
+    // drag skill cast by a character that just landed can follow it (callout, cast pose).
+    for (const e of state.entities) if (!memos.has(e.id)) memos.set(e.id, newMemo(e, stamp));
     vc.state = state;
     vc.localPlayer = ui.localPlayer;
     for (const ev of events) {
@@ -747,6 +933,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // ── draw ──
     c.globalAlpha = 1;
     c.lineJoin = 'round';
+    // camera shake (my own heavy skills only): the world layer jitters, the screen overlays below do not
+    if (vfx.shakeAmp > 0.2) c.translate((Math.random() * 2 - 1) * vfx.shakeAmp, (Math.random() * 2 - 1) * vfx.shakeAmp * 0.6);
     backdrop.draw(c, cam, time, ui.dragPreview !== null);
     drawBosses(state, true);
     c.save();
@@ -780,11 +968,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       drawLocalOutline(mine, memos.get(mine.id)!, playerColor(state, ui.localPlayer));
     }
     drawProjectiles(state);
-    vfx.drawAir(c, cam);
+    vfx.drawAir(c, cam, time);
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     vfx.drawOverlay(c, cam);
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawOffscreenEnemies(state);
     vfx.drawScreen(c, state.bossEnraged && state.bossId !== null, time, getVignette());
     c.globalAlpha = 1;
@@ -808,9 +997,179 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };
 const dashOff = { ox: 0, oy: 0, z: 0 };
 const offSide = { ln: 0, rn: 0, ly: 0, ry: 0, lmid: false, rmid: false };
+const CAST_DASH = [10, 7];
 
-function hasStun(e: Entity): boolean {
+function hasStatus(e: Entity, id: Entity['statuses'][number]['id']): boolean {
   const st = e.statuses;
-  for (let i = 0; i < st.length; i++) if (st[i].id === 'stun') return true;
+  for (let i = 0; i < st.length; i++) if (st[i].id === id) return true;
   return false;
+}
+
+function easeOutQ(t: number): number {
+  const k = Math.max(0, Math.min(1, t));
+  return 1 - (1 - k) * (1 - k);
+}
+
+/** Ally projectile look by the shooter's character colour (projectiles carry only a colour). */
+type ProjStyle = 'ranger' | 'gunner' | 'mage' | 'cleric' | 'bard' | 'chrono';
+const PROJ_STYLE = new Map<string, ProjStyle>();
+for (const ch of CHARACTERS) {
+  if (ch.id === 'ranger' || ch.id === 'gunner' || ch.id === 'mage' || ch.id === 'cleric' || ch.id === 'bard' || ch.id === 'chrono') PROJ_STYLE.set(ch.color.toLowerCase(), ch.id);
+}
+
+function drawStyledProjectile(c: CanvasRenderingContext2D, style: ProjStyle, color: string, x: number, y: number, ang: number, t: number): void {
+  c.save();
+  c.translate(x, y);
+  c.rotate(ang);
+  c.lineCap = 'round';
+  switch (style) {
+    case 'ranger': {
+      c.globalAlpha = 0.35;
+      c.strokeStyle = color;
+      c.lineWidth = 4;
+      c.beginPath();
+      c.moveTo(-46, 0);
+      c.lineTo(-14, 0);
+      c.stroke();
+      c.globalAlpha = 1;
+      c.strokeStyle = '#6b4a2b';
+      c.lineWidth = 2.5;
+      c.beginPath();
+      c.moveTo(-20, 0);
+      c.lineTo(0, 0);
+      c.stroke();
+      c.fillStyle = '#eef3f8';
+      c.beginPath();
+      c.moveTo(6, 0);
+      c.lineTo(-4, -4.5);
+      c.lineTo(-4, 4.5);
+      c.closePath();
+      c.fill();
+      c.fillStyle = color;
+      c.beginPath();
+      c.moveTo(-20, 0);
+      c.lineTo(-25, -4.5);
+      c.lineTo(-16, 0);
+      c.lineTo(-25, 4.5);
+      c.closePath();
+      c.fill();
+      break;
+    }
+    case 'gunner': {
+      c.globalAlpha = 0.45;
+      c.strokeStyle = '#ff9e3d';
+      c.lineWidth = 5;
+      c.beginPath();
+      c.moveTo(-34, 0);
+      c.lineTo(0, 0);
+      c.stroke();
+      c.globalAlpha = 1;
+      c.strokeStyle = '#fff3b0';
+      c.lineWidth = 2.2;
+      c.beginPath();
+      c.moveTo(-22, 0);
+      c.lineTo(2, 0);
+      c.stroke();
+      break;
+    }
+    case 'mage': {
+      const fl = 1 + 0.12 * Math.sin(t * 40);
+      c.globalAlpha = 0.35;
+      c.fillStyle = '#ff7b00';
+      c.beginPath();
+      c.ellipse(-8, 0, 16 * fl, 8 * fl, 0, 0, TAU);
+      c.fill();
+      c.globalAlpha = 0.85;
+      c.fillStyle = '#ff9e3d';
+      c.beginPath();
+      c.arc(0, 0, 8 * fl, 0, TAU);
+      c.fill();
+      c.globalAlpha = 1;
+      c.fillStyle = '#fff3b0';
+      c.beginPath();
+      c.arc(1, 0, 4, 0, TAU);
+      c.fill();
+      break;
+    }
+    case 'cleric': {
+      c.rotate(-ang);
+      c.globalAlpha = 0.4;
+      c.fillStyle = '#ffd166';
+      c.beginPath();
+      c.arc(0, 0, 10, 0, TAU);
+      c.fill();
+      c.globalAlpha = 1;
+      c.fillStyle = '#ffffff';
+      c.beginPath();
+      c.arc(0, 0, 4.5, 0, TAU);
+      c.fill();
+      c.strokeStyle = '#fff3b0';
+      c.lineWidth = 2;
+      const r = 11 + Math.sin(t * 18) * 2;
+      c.beginPath();
+      c.moveTo(-r, 0);
+      c.lineTo(r, 0);
+      c.moveTo(0, -r);
+      c.lineTo(0, r);
+      c.stroke();
+      break;
+    }
+    case 'bard': {
+      c.rotate(-ang);
+      const bob = Math.sin(t * 16) * 3;
+      c.translate(0, bob);
+      c.lineWidth = 5;
+      c.strokeStyle = '#2a0a33';
+      c.fillStyle = color;
+      // eighth note
+      c.beginPath();
+      c.ellipse(-3, 4, 5.5, 4, -0.4, 0, TAU);
+      c.stroke();
+      c.fill();
+      c.beginPath();
+      c.moveTo(2, 4);
+      c.lineTo(2, -12);
+      c.quadraticCurveTo(10, -8, 8, -2);
+      c.lineWidth = 5;
+      c.stroke();
+      c.lineWidth = 2.5;
+      c.strokeStyle = '#ffd6ff';
+      c.stroke();
+      break;
+    }
+    case 'chrono': {
+      c.rotate(t * 9);
+      c.fillStyle = lighten(color, 0.4);
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(9, 0);
+      c.lineTo(0, -5);
+      c.lineTo(-9, 0);
+      c.lineTo(0, 5);
+      c.closePath();
+      c.fill();
+      c.stroke();
+      break;
+    }
+  }
+  c.restore();
+}
+
+/** Small flickering flames on a burning body (one path, one fill). */
+function drawFlames(c: CanvasRenderingContext2D, fx: number, fy: number, w: number, h: number, t: number): void {
+  c.globalAlpha = 0.85;
+  c.fillStyle = '#ff7a1a';
+  c.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const ph = (t * 2.5 + i / 3) % 1;
+    const x = fx + (i - 1) * w * 0.3 + Math.sin(t * 11 + i) * 2;
+    const y = fy - h * (0.15 + 0.55 * ph);
+    const s = 7 * (1 - ph) + 1;
+    c.moveTo(x - s * 0.6, y);
+    c.quadraticCurveTo(x, y - s * 2.2, x + s * 0.6, y);
+    c.closePath();
+  }
+  c.fill();
+  c.globalAlpha = 1;
 }

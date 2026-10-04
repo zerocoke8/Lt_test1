@@ -5,6 +5,8 @@
 import { expect, test, type BrowserContext, type CDPSession, type Page, type TestInfo } from '@playwright/test';
 import type { DebugAction, Vec2 } from '../../src/types';
 import type { AppPhase } from '../../src/ui/app';
+import { getCharacter } from '../../src/data';
+import { basicSummary, secs, skillSummary } from '../../src/ui/skillinfo';
 
 const SHOT_DIR = 'docs/screenshots';
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -206,6 +208,69 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   expect(afterSwap.swaps).toBe(1);
   expect(afterSwap.cd).toBeGreaterThan(5);
   await expect(page.locator('.ccard[data-idx="1"]')).toHaveClass(/is-active/);
+
+  // ── 쿨타임이 보임: the field character's auto skill + its period, drag (= re-appear) cooldowns on the cards ──
+  await expect(page.locator('.nskill')).not.toHaveClass(/is-empty/);
+  const autoSkill = await page.locator('.nskill').getAttribute('title');
+  expect(autoSkill).toContain(`일반스킬 ${await page.locator('.nskill .ns-name').textContent()} (자동)`);
+  await expect(page.locator('.nskill .ns-every')).toHaveText(/^\d+(\.\d)?초마다$/);
+  await expect(page.locator('.nskill .ns-t')).toHaveText(/^(\d+(\.\d)?|준비|대기)$/);
+  for (let i = 0; i < 3; i++) {
+    const st = await inGame(page, (g, idx) => {
+      const me = g.state.players[0];
+      const m = me.party[idx as number];
+      return { active: me.activeIndex === idx, cd: m.swapCooldownRemaining, dead: m.dead };
+    }, i);
+    if (!st.active && !st.dead && st.cd > 0.3) await expect(page.locator(`.ccard[data-idx="${i}"] .cc-state`)).toHaveText(/^드래그 \d+(\.\d)?초$/);
+  }
+  await expect(page.locator('.ult-sub')).toHaveText(/(\d+초 후|궁극기 준비)$/);
+  // tap the field character's card → compact skill sheet over the field (never blocks it), tap again → closed
+  await input.tap(await center(page, '.ccard[data-idx="1"]'));
+  await expect(page.locator('.skill-sheet')).toBeVisible();
+  await expect(page.locator('.skill-sheet .ss-row')).toHaveCount(5);
+  await expect(page.locator('.skill-sheet .ss-type')).toHaveText(['평타', '패시브', '일반', '드래그', '궁극기']);
+  // the sheet quotes the (retuned) data, not a copy of it: effect lines = skillSummary(data), drag cooldown = swapCooldown
+  const sheetDef = getCharacter(await inGame(page, g => g.state.players[0].party[1].defId));
+  await expect(page.locator('.skill-sheet .ss-sum')).toHaveText([
+    basicSummary(sheetDef.basic),
+    sheetDef.passive.description,
+    skillSummary(sheetDef.normal),
+    skillSummary(sheetDef.drag),
+    skillSummary(sheetDef.ult),
+  ]);
+  await expect(page.locator('.skill-sheet .ss-drag .ss-trigger')).toHaveText(`등장 시 · 쿨 ${secs(sheetDef.swapCooldown)}초`);
+  const sheetBox = (await page.locator('.skill-sheet').boundingBox())!;
+  const stageBox = (await page.locator('.stage').boundingBox())!;
+  expect(sheetBox.x).toBeGreaterThanOrEqual(stageBox.x - 1);
+  expect(sheetBox.x + sheetBox.width).toBeLessThanOrEqual(stageBox.x + stageBox.width + 1);
+  expect(await page.locator('.skill-sheet').evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+  await sleep(250);
+  await shot('skills');
+  await input.tap(await center(page, '.ccard[data-idx="1"]'));
+  await expect(page.locator('.skill-sheet')).toBeHidden();
+  // long-press a card that is re-appearing (cooldown): the sheet opens, no "재등장 대기" refusal / shake on the press;
+  // a plain tap on it still says why it can't be used
+  await inGame(page, g => {
+    const m = g.state.players[0].party[2];
+    m.swapCooldownTotal = 9;
+    m.swapCooldownRemaining = 8;
+  });
+  await sleep(100);
+  const c2 = await center(page, '.ccard[data-idx="2"]');
+  const holdRelease = await input.dragHold(c2, c2);
+  await sleep(650);
+  await expect(page.locator('.skill-sheet')).toBeVisible();
+  const refusal = page.locator('.toasts-hud .toast-warn', { hasText: '재등장 대기' });
+  await expect(refusal).toHaveCount(0);
+  await holdRelease();
+  await sleep(150);
+  await expect(refusal).toHaveCount(0);
+  await expect(page.locator('.ccard[data-idx="2"]')).not.toHaveClass(/shake/);
+  await input.tap(c2);
+  await expect(refusal).toHaveCount(1);
+  await input.tap(await center(page, '.ccard[data-idx="1"]'));
+  await input.tap(await center(page, '.ccard[data-idx="1"]'));
+  await expect(page.locator('.skill-sheet')).toBeHidden();
 
   // ── 펫: real drag of pet card 1 onto the field (not a swap) ──
   await sleep(200);

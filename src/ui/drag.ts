@@ -90,7 +90,7 @@ export class DragController {
     ev.preventDefault();
     const r = this.can(kind, index);
     if (!r.ok) {
-      this.deps.hud()?.refuse(kind, index, r);
+      this.refuseLater(kind, index, ev, el);
       return;
     }
     const finger = this.deps.stage.toLogical(ev.clientX, ev.clientY);
@@ -104,6 +104,51 @@ export class DragController {
     el.addEventListener('pointerup', this.onUp);
     el.addEventListener('pointercancel', this.onCancel);
     el.addEventListener('lostpointercapture', this.onLost);
+  }
+
+  /**
+   * A card that can't be used right now: say why only once the finger tries to drag it, or on a plain tap. A long
+   * press (the skill sheet) on a cooling card is not a failed drag, so it gets no toast and no shake.
+   */
+  private refuseLater(kind: DragKind, index: number, ev: PointerEvent, el: HTMLElement): void {
+    const id = ev.pointerId;
+    const start = this.deps.stage.toLogical(ev.clientX, ev.clientY);
+    try {
+      el.setPointerCapture(id);
+    } catch {
+      /* synthetic events may not be capturable */
+    }
+    const done = (refuse: boolean) => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', cancel);
+      el.removeEventListener('lostpointercapture', cancel);
+      try {
+        if (el.hasPointerCapture(id)) el.releasePointerCapture(id);
+      } catch {
+        /* ignore */
+      }
+      if (!refuse) return;
+      // the reason as of now (the cooldown may have run out meanwhile: then there is nothing to refuse)
+      const r = this.can(kind, index);
+      if (!r.ok) this.deps.hud()?.refuse(kind, index, r);
+    };
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      const f = this.deps.stage.toLogical(e.clientX, e.clientY);
+      if (Math.hypot(f.x - start.x, f.y - start.y) >= DRAG_THRESHOLD) done(true);
+    };
+    const up = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      done(!this.deps.hud()?.takeLongPress());
+    };
+    const cancel = (e: PointerEvent) => {
+      if (e.pointerId === id) done(false);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', cancel);
+    el.addEventListener('lostpointercapture', cancel);
   }
 
   private onMove = (ev: PointerEvent): void => {
@@ -122,7 +167,9 @@ export class DragController {
     p.client = { x: ev.clientX, y: ev.clientY };
     if (!p.dragging) {
       this.end();
-      this.deps.hud()?.toast(p.kind === 'swap' ? '카드를 필드로 드래그하세요' : '펫 카드를 필드로 드래그하세요');
+      // a long press opened the skill sheet: that was the point of the press, no "drag it" tip
+      if (this.deps.hud()?.takeLongPress()) return;
+      this.deps.hud()?.toast(p.kind === 'swap' ? '카드를 필드로 드래그하세요 · 길게 누르면 스킬 정보' : '펫 카드를 필드로 드래그하세요');
       return;
     }
     this.refresh();

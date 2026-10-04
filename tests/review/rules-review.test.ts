@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { FLOOR_WAVES, TICK_RATE } from '../../src/config';
-import { getMonster } from '../../src/data';
+import { getCharacter, getMonster } from '../../src/data';
 import { applyDamage, killEntity } from '../../src/sim/combat';
 import { createUnit } from '../../src/sim/entities';
 import { tick } from '../../src/sim/game';
@@ -600,14 +600,18 @@ describe('documented interpretations (behaviour as implemented; confirm with the
     bug.rt.base.moveSpeed = 0;
     bug.hp = bug.maxHp = bug.rt.base.maxHp = 25;
     clearEvents(tg);
-    // blade: drag = 2.4 × 32 atk = 76.8 (crit possible → ≥ 76.8)
+    // blade: drag = drag % × 32 atk (2.6 × 32 = 83.2 after the balance pass; crit possible → ≥ that)
+    const blade = getCharacter('blade');
+    const dragPct = blade.drag.actions[0].effects.find(e => e.kind === 'damage')!;
+    const fullHit = (dragPct.kind === 'damage' ? dragPct.amount : 0) * blade.stats.atk;
+    expect(fullHit).toBeGreaterThan(25);
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } }).ok).toBe(true);
     expect(bug.hp).toBeLessThanOrEqual(0);
     const st = tg.w.state.players[0].stats;
     expect(st.damageBySource.drag).toBeCloseTo(25, 9);
     expect(st.damageDealt).toBeCloseTo(25, 9);
     // the floating number still shows the full hit
-    expect(eventsOf(tg, 'damage').find(e => e.targetId === bug.id)!.amount).toBeGreaterThanOrEqual(2.4 * 32 - 1e-9);
+    expect(eventsOf(tg, 'damage').find(e => e.targetId === bug.id)!.amount).toBeGreaterThanOrEqual(fullHit - 1e-9);
   });
 
   it('shield-absorbed damage counts, overkill past HP does not (damage taken too)', () => {

@@ -3,6 +3,9 @@ import type { CharacterDef } from '../types';
 // 캐릭터 12종 (기획 3차 1: 역할별 3명 — 탱커 / 근접딜러 / 원거리딜러 / 서포터). 스킬 내용은 임시 (2차 Q5).
 // 드래그스킬은 놓은 지점(point)이 기준점. 방향이 있는 형태는 데이터에 방향이 고정됨 (3차 2: 오른쪽 돌진은 항상 오른쪽).
 // swapCooldown(8~12초) = 드래그스킬 쿨, 강할수록 김. 목록 순서 = 프리셋 화면 순서 (역할별로 묶음).
+// 드래그스킬 수치는 밸런스 패스(2026-10-04, docs/balance.md): 쿨 1초당 가치(피해 + 군중제어 + 지원)를 12종이 같게,
+// 피해 말고 기능이 없거나 범위가 좁을수록 피해 %가 높음. 측정은 tests/playtest/drag-bench.ts. 설명의 숫자는 데이터와 같아야 함
+// (tests/sim/roster-descriptions.test.ts).
 
 export const CHARACTERS: CharacterDef[] = [
   // ─────────────────────────── 탱커 ───────────────────────────
@@ -12,7 +15,7 @@ export const CHARACTERS: CharacterDef[] = [
     role: 'tank',
     color: '#5b8def',
     stats: { maxHp: 900, atk: 18, def: 0.3, atkSpeed: 0.9, range: 0.6, moveSpeed: 3.2, critChance: 0.05, critMult: 1.5 },
-    swapCooldown: 12,
+    swapCooldown: 10,
     basic: { kind: 'melee' },
     passive: {
       id: 'guardian_p',
@@ -35,17 +38,17 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'guardian_d',
       name: '방패 파동',
       slot: 'drag',
-      description: '착지 지점을 가운데로 좌우로 긴 가로 띠(길이 7, 폭 2): 공격력 120% 피해 + 0.6초 기절. 자신에게 보호막(최대 HP 25%, 5초).',
+      description: '착지 지점을 가운데로 좌우로 긴 가로 띠(길이 7, 폭 2): 공격력 175% 피해 + 1초 기절. 자신에게 보호막(최대 HP 30%, 5초).',
       actions: [
-        { center: 'point', area: { shape: 'rect', dir: 'right', anchor: 'center', length: 7, width: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }] },
-        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'shield', amount: 0.25, duration: 5 }] },
+        { center: 'point', area: { shape: 'rect', dir: 'right', anchor: 'center', length: 7, width: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.75 }, { kind: 'status', status: 'stun', duration: 1, value: 0 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'shield', amount: 0.3, duration: 5 }] },
       ],
     },
     ult: {
       id: 'guardian_u',
       name: '불굴의 성벽',
       slot: 'ult',
-      description: '주변 반경 4의 적을 끌어당기고 250% 피해. 반경 6 아군에게 보호막(최대 HP 30%, 6초).',
+      description: '주변 반경 4의 적을 3칸 끌어당기고 250% 피해. 반경 6 아군에게 보호막(최대 HP 30%, 6초).',
       castTime: 0.4,
       actions: [
         { center: 'self', area: { shape: 'circle', radius: 4 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 3 }, { kind: 'damage', amount: 2.5 }] },
@@ -59,7 +62,7 @@ export const CHARACTERS: CharacterDef[] = [
     role: 'tank',
     color: '#48bfe3',
     stats: { maxHp: 850, atk: 20, def: 0.25, atkSpeed: 0.9, range: 0.6, moveSpeed: 3.2, critChance: 0.05, critMult: 1.5 },
-    swapCooldown: 12,
+    swapCooldown: 11,
     basic: { kind: 'melee' },
     passive: {
       id: 'paladin_p',
@@ -85,10 +88,10 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'paladin_d',
       name: '심판의 십자',
       slot: 'drag',
-      description: '착지 지점에 십자(+) 낙인(상하좌우 3.5칸, 폭 1.3): 공격력 160% 피해 + 0.8초 기절. 반경 3 아군 5초간 방어 +20%.',
+      description: '착지 지점에 십자(+) 낙인(상하좌우 3.5칸, 폭 1.3): 공격력 210% 피해 + 1초 기절. 반경 3 아군 5초간 방어 +25%.',
       actions: [
-        { center: 'point', area: { shape: 'cross', length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.6 }, { kind: 'status', status: 'stun', duration: 0.8, value: 0 }] },
-        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'status', status: 'defUp', duration: 5, value: 0.2 }] },
+        { center: 'point', area: { shape: 'cross', length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.1 }, { kind: 'status', status: 'stun', duration: 1, value: 0 }] },
+        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'status', status: 'defUp', duration: 5, value: 0.25 }] },
       ],
     },
     ult: {
@@ -109,7 +112,7 @@ export const CHARACTERS: CharacterDef[] = [
     role: 'tank',
     color: '#80b918',
     stats: { maxHp: 950, atk: 16, def: 0.3, atkSpeed: 0.85, range: 0.7, moveSpeed: 3.0, critChance: 0.05, critMult: 1.5 },
-    swapCooldown: 11,
+    swapCooldown: 10,
     basic: { kind: 'melee' },
     passive: {
       id: 'warden_p',
@@ -132,11 +135,11 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'warden_d',
       name: '속박의 고리',
       slot: 'drag',
-      description: '착지 지점 둘레 고리(안쪽 0.6 ~ 바깥 4) 안의 적을 가운데로 2.5칸 끌어당기고 공격력 100% 피해 + 3초간 40% 둔화. 자신에게 보호막(최대 HP 20%, 5초).',
+      description: '착지 지점 둘레 고리(안쪽 0.6 ~ 바깥 4) 안의 적을 가운데로 2.5칸 끌어당기고 공격력 160% 피해 + 3초간 40% 둔화. 자신에게 보호막(최대 HP 20%, 5초).',
       actions: [
         // hole 1.2 → 0.6 (playtest 3차): dropping on the pack itself hit only the edge of it; a small hole keeps the ring
         // look and the pull, and only a unit dead center is spared
-        { center: 'point', area: { shape: 'ring', inner: 0.6, outer: 4 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 2.5 }, { kind: 'damage', amount: 1.0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] },
+        { center: 'point', area: { shape: 'ring', inner: 0.6, outer: 4 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 2.5 }, { kind: 'damage', amount: 1.6 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] },
         { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'shield', amount: 0.2, duration: 5 }] },
       ],
     },
@@ -182,13 +185,13 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'blade_d',
       name: '질풍 돌파',
       slot: 'drag',
-      description: '착지 지점에서 오른쪽으로 6칸 돌진하며 지나간 길(폭 1.4)의 적에게 공격력 240% 피해 + 0.4초 기절.',
+      description: '착지 지점에서 오른쪽으로 6칸 돌진하며 지나간 길(폭 1.4)의 적에게 공격력 270% 피해 + 0.4초 기절.',
       actions: [
         {
           center: 'point',
           area: { shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.4 },
           affects: 'enemies',
-          effects: [{ kind: 'damage', amount: 2.4 }, { kind: 'status', status: 'stun', duration: 0.4, value: 0 }],
+          effects: [{ kind: 'damage', amount: 2.7 }, { kind: 'status', status: 'stun', duration: 0.4, value: 0 }],
           dash: { dir: 'right', distance: 6 },
         },
       ],
@@ -230,8 +233,8 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'berserker_d',
       name: '대지 가르기',
       slot: 'drag',
-      description: '착지 지점에서 오른쪽으로 펼쳐지는 부채꼴(반경 4.5, 100°)의 땅을 갈라 공격력 300% 피해 + 3초간 40% 둔화.',
-      actions: [{ center: 'point', area: { shape: 'cone', dir: 'right', radius: 4.5, angle: 100 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 3.0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] }],
+      description: '착지 지점에서 오른쪽으로 펼쳐지는 부채꼴(반경 4.5, 100°)의 땅을 갈라 공격력 210% 피해 + 3초간 40% 둔화.',
+      actions: [{ center: 'point', area: { shape: 'cone', dir: 'right', radius: 4.5, angle: 100 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.1 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] }],
     },
     ult: {
       id: 'berserker_u',
@@ -275,11 +278,11 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'shadow_d',
       name: '그림자 연격',
       slot: 'drag',
-      description: '착지 지점부터 오른쪽으로 2.2칸 간격 3연속 폭발(반경 1.4): 각각 공격력 130% 피해, 마지막 폭발은 0.3초 기절.',
+      description: '착지 지점부터 오른쪽으로 2.2칸 간격 3연속 폭발(반경 1.4): 각각 공격력 90% 피해(겹치는 곳은 두 번 맞음), 마지막 폭발은 0.3초 기절.',
       actions: [
-        { center: 'point', area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }] },
-        { center: 'point', offset: { x: 2.2, y: 0 }, delay: 0.12, area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }] },
-        { center: 'point', offset: { x: 4.4, y: 0 }, delay: 0.24, area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }, { kind: 'status', status: 'stun', duration: 0.3, value: 0 }] },
+        { center: 'point', area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.9 }] },
+        { center: 'point', offset: { x: 2.2, y: 0 }, delay: 0.12, area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.9 }] },
+        { center: 'point', offset: { x: 4.4, y: 0 }, delay: 0.24, area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.9 }, { kind: 'status', status: 'stun', duration: 0.3, value: 0 }] },
       ],
     },
     ult: {
@@ -321,8 +324,8 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'ranger_d',
       name: '관통 화살',
       slot: 'drag',
-      description: '착지 지점에서 오른쪽으로 긴 직선(길이 12, 폭 1.2)을 꿰뚫는 화살: 공격력 240% 피해.',
-      actions: [{ center: 'point', area: { shape: 'rect', dir: 'right', anchor: 'start', length: 12, width: 1.2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.4 }] }],
+      description: '착지 지점에서 오른쪽으로 긴 직선(길이 12, 폭 1.2)을 꿰뚫는 화살: 공격력 310% 피해.',
+      actions: [{ center: 'point', area: { shape: 'rect', dir: 'right', anchor: 'start', length: 12, width: 1.2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 3.1 }] }],
     },
     ult: {
       id: 'ranger_u',
@@ -361,7 +364,7 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'mage_d',
       name: '유성우',
       slot: 'drag',
-      description: '착지 지점 가운데와 네 모서리(좌우 2칸, 위아래 1.5칸) 다섯 곳에 0.3초부터 차례로 유성 낙하(반경 1.5): 각각 공격력 160% 피해 + 3초 화상(초당 공격력 40%).',
+      description: '착지 지점 가운데와 네 모서리(좌우 2칸, 위아래 1.5칸) 다섯 곳에 0.3초부터 차례로 유성 낙하(반경 1.5): 각각 공격력 170% 피해 + 3초 화상(초당 공격력 40%).',
       actions: [
         { x: 0, y: 0, delay: 0.3 },
         { x: -2, y: -1.5, delay: 0.45 },
@@ -374,7 +377,7 @@ export const CHARACTERS: CharacterDef[] = [
         delay: m.delay,
         area: { shape: 'circle' as const, radius: 1.5 },
         affects: 'enemies' as const,
-        effects: [{ kind: 'damage' as const, amount: 1.6 }, { kind: 'status' as const, status: 'burn' as const, duration: 3, value: 0.4 }],
+        effects: [{ kind: 'damage' as const, amount: 1.7 }, { kind: 'status' as const, status: 'burn' as const, duration: 3, value: 0.4 }],
       })),
     },
     ult: {
@@ -414,8 +417,8 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'gunner_d',
       name: '산탄 사격',
       slot: 'drag',
-      description: '착지 지점에서 왼쪽으로 펼쳐지는 부채꼴(반경 5, 70°)에 산탄: 공격력 260% 피해 + 왼쪽으로 2칸 넉백.',
-      actions: [{ center: 'point', area: { shape: 'cone', dir: 'left', radius: 5, angle: 70 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.6 }, { kind: 'knockback', distance: 2, dir: 'left' }] }],
+      description: '착지 지점에서 왼쪽으로 펼쳐지는 부채꼴(반경 5, 70°)에 산탄: 공격력 300% 피해 + 왼쪽으로 2칸 넉백.',
+      actions: [{ center: 'point', area: { shape: 'cone', dir: 'left', radius: 5, angle: 70 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 3.0 }, { kind: 'knockback', distance: 2, dir: 'left' }] }],
     },
     ult: {
       id: 'gunner_u',
@@ -434,7 +437,7 @@ export const CHARACTERS: CharacterDef[] = [
     role: 'support',
     color: '#ffd166',
     stats: { maxHp: 520, atk: 16, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
-    swapCooldown: 8,
+    swapCooldown: 9,
     basic: { kind: 'projectile', speed: 14 },
     passive: {
       id: 'cleric_p',
@@ -456,10 +459,10 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'cleric_d',
       name: '치유의 샘',
       slot: 'drag',
-      description: '착지 지점 원형(반경 3) 아군 정화 + HP 10% 회복, 이후 4초간 0.5초마다 HP 3% 회복.',
+      description: '착지 지점 원형(반경 3) 아군 정화 + HP 7% 회복, 이후 4초간 0.5초마다 HP 2% 회복.',
       actions: [
-        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'cleanse' }, { kind: 'heal', amount: 0.1 }] },
-        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.03 }], zone: { duration: 4, tickInterval: 0.5 } },
+        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'cleanse' }, { kind: 'heal', amount: 0.07 }] },
+        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.02 }], zone: { duration: 4, tickInterval: 0.5 } },
       ],
     },
     ult: {
@@ -499,10 +502,10 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'bard_d',
       name: '공명의 파동',
       slot: 'drag',
-      description: '착지 지점을 지나는 위아래 세로 띠(길이 12, 폭 2.6): 아군은 5초간 공격 속도 +30%·공격력 +20%, 적은 공격력 80% 피해 + 2초간 30% 둔화.',
+      description: '착지 지점을 지나는 위아래 세로 띠(길이 12, 폭 2.6): 아군은 6초간 공격 속도 +40%·공격력 +30%, 적은 공격력 130% 피해 + 3초간 40% 둔화.',
       actions: [
-        { center: 'point', area: { shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 }, affects: 'allies', effects: [{ kind: 'status', status: 'haste', duration: 5, value: 0.3 }, { kind: 'status', status: 'atkUp', duration: 5, value: 0.2 }] },
-        { center: 'point', area: { shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.8 }, { kind: 'status', status: 'slow', duration: 2, value: 0.3 }] },
+        { center: 'point', area: { shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 }, affects: 'allies', effects: [{ kind: 'status', status: 'haste', duration: 6, value: 0.4 }, { kind: 'status', status: 'atkUp', duration: 6, value: 0.3 }] },
+        { center: 'point', area: { shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] },
       ],
     },
     ult: {
@@ -520,7 +523,7 @@ export const CHARACTERS: CharacterDef[] = [
     role: 'support',
     color: '#b8c0ff',
     stats: { maxHp: 500, atk: 18, def: 0.08, atkSpeed: 0.9, range: 5.5, moveSpeed: 3.6, critChance: 0.1, critMult: 1.6 },
-    swapCooldown: 10,
+    swapCooldown: 9,
     basic: { kind: 'projectile', speed: 13 },
     passive: {
       id: 'chrono_p',
@@ -542,10 +545,10 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'chrono_d',
       name: '시간 균열',
       slot: 'drag',
-      description: '착지 지점에 X자 균열(대각선 4방향 3.5칸, 폭 1.3): 적에게 공격력 100% 피해 + 0.8초 기절 + 3초간 50% 둔화. 내 대기 캐릭터 재등장 쿨 2초 감소.',
+      description: '착지 지점에 X자 균열(대각선 4방향 3.5칸, 폭 1.3): 적에게 공격력 210% 피해 + 1초 기절 + 3초간 50% 둔화. 내 대기 캐릭터 재등장 쿨 4초 감소.',
       actions: [
-        { center: 'point', area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.0 }, { kind: 'status', status: 'stun', duration: 0.8, value: 0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
-        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 2 }] },
+        { center: 'point', area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.1 }, { kind: 'status', status: 'stun', duration: 1, value: 0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 4 }] },
       ],
     },
     ult: {

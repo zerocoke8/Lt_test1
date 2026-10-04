@@ -28,7 +28,12 @@ export interface DmgSrc {
   player: number | null;
   source: DamageSource;
   isDrag: boolean;
+  /** Skill name (CastCtx carries it); only copied onto the cosmetic damage event. */
+  name?: string;
 }
+
+/** Damage sources whose hits carry the skill name on the damage event (render shows it under the number). */
+const SKILL_NAMED: ReadonlySet<DamageSource> = new Set<DamageSource>(['normal', 'drag', 'ult', 'pet']);
 
 export interface OnHit {
   chance: number;
@@ -66,7 +71,17 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
   target.shield -= absorbed;
   target.hp -= dmg - absorbed;
   // The event shows the full hit; stats / lifesteal count only what the target could actually lose (no overkill).
-  emit(w, { type: 'damage', targetId: target.id, amount: dmg, crit, pos: copy(target.pos), targetTeam: target.team, absorbed });
+  emit(w, {
+    type: 'damage',
+    targetId: target.id,
+    amount: dmg,
+    crit,
+    pos: copy(target.pos),
+    targetTeam: target.team,
+    absorbed,
+    source: src.source,
+    ...(src.name && SKILL_NAMED.has(src.source) ? { skillName: src.name } : null),
+  });
   const dealt = absorbed + Math.min(dmg - absorbed, hpBefore);
   if (sp) {
     sp.stats.damageDealt += dealt;

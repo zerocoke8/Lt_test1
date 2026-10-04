@@ -119,7 +119,13 @@ test('내 캐릭터 3명 전멸 → 관전 → 결과 보기', async ({ page }, 
     if (testInfo.project.name === 'phone') await page.screenshot({ path: 'docs/screenshots/spectate.png' });
     // cards refuse while spectating
     expect(await page.evaluate(() => window.__proto!.ui.dragTo('swap', 0, { x: 18, y: 6 }).reason)).toBe('관전 중');
-    await page.locator('.spectate-box .btn').click();
+    // the bots can fall too while we look (monsters hit ×300): the run then ends as a wipe on its own and the bar goes
+    // away with the spectate screen — only a still-open bar is clicked
+    await page.locator('.spectate-box .btn').click({ timeout: 15_000 }).catch(async (e: unknown) => {
+      const after = await page.evaluate(() => ({ phase: window.__proto!.phase, reason: window.__proto!.game!.state.runResult?.reason }));
+      console.log(`spectate bar gone before the click: ${JSON.stringify(after)}`);
+      if (after.phase !== 'result' || after.reason !== 'wipe') throw e;
+    });
   }
   await waitPhase(page, 'result');
   const r = await page.evaluate(() => window.__proto!.game!.state.runResult);
