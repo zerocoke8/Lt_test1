@@ -865,7 +865,9 @@ export function drawNameTag(ctx: CanvasRenderingContext2D, cx: number, bottomY: 
   const h = isLocal ? 19 : 16;
   ctx.font = boldFont(px);
   const label = text.length > 8 ? text.slice(0, 7) + '…' : text;
-  const w = Math.ceil(ctx.measureText(label).width) + (isLocal ? 14 : 11);
+  const measured = ctx.measureText?.(label)?.width;
+  const tw = Number.isFinite(measured) ? (measured as number) : label.length * px * 0.62;
+  const w = Math.ceil(tw) + (isLocal ? 14 : 11);
   const x = cx - w / 2;
   const y = bottomY - h;
   pathRoundRect(ctx, x, y, w, h, h / 2);
