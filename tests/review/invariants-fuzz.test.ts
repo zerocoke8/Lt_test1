@@ -24,6 +24,8 @@ function check(tg: TestGame, where: string): string[] {
       if (!m.dead && !(m.hp > 0)) bad(`p${p.id} alive member ${i} hp=${m.hp}`);
       if (m.hp > m.maxHp + 1e-6) bad(`p${p.id} member ${i} hp ${m.hp} > max ${m.maxHp}`);
       if (!(m.swapCooldownRemaining >= 0) || !(m.reviveRemaining >= 0)) bad(`p${p.id} member ${i} negative/NaN timers`);
+      // 기획 6차: the cooldown starts when a card leaves the field, so the field card never has one
+      if (i === p.activeIndex && m.swapCooldownRemaining !== 0) bad(`p${p.id} field member ${i} cooling ${m.swapCooldownRemaining}`);
       if (!m.dead && m.reviveRemaining !== 0) bad(`p${p.id} alive member ${i} revive ${m.reviveRemaining}`);
     });
     if (p.out && !p.party.every(m => m.dead)) bad(`p${p.id} out but not all dead`);

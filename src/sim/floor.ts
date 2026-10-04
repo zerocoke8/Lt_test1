@@ -6,7 +6,6 @@ import { BOSSES, getBoss, getMonster, MID_BOSS_IDS, NORMAL_MONSTER_IDS } from '.
 import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_SIZE, WAVES } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
-import { swapCooldownFor } from './cooldowns';
 import { revive, syncMembers } from './players';
 import { applyOffer, rollOffers } from './rewards';
 import type { Rng } from './rng';
@@ -117,11 +116,9 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
     if (p.rt.rejoinNextFloor) {
       p.rt.rejoinNextFloor = false;
       if (!p.out && p.activeIndex == null && !p.party[0].dead) {
-        // like the run start: slot 0 counts as appearing now, so its own re-appear cooldown starts (R4)
+        // like the run start: slot 0 fights, its cooldown starts only when it is swapped out (R4, 기획 6차)
         createCharacterEntity(w, p, 0, startPos(w, p.id));
         p.activeIndex = 0;
-        p.party[0].swapCooldownTotal = swapCooldownFor(w, p, 0);
-        p.party[0].swapCooldownRemaining = p.party[0].swapCooldownTotal;
       }
     }
     const e = activeEntity(w, p);

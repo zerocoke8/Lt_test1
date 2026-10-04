@@ -545,10 +545,12 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'chrono_d',
       name: '시간 균열',
       slot: 'drag',
-      description: '착지 지점에 X자 균열(대각선 4방향 3.5칸, 폭 1.3): 적에게 공격력 210% 피해 + 1초 기절 + 3초간 50% 둔화. 내 대기 캐릭터 재등장 쿨 4초 감소.',
+      description: '착지 지점에 X자 균열(대각선 4방향 3.5칸, 폭 1.3): 적에게 공격력 190% 피해 + 1초 기절 + 3초간 50% 둔화. 내 대기 캐릭터 재등장 쿨 2초 감소.',
       actions: [
-        { center: 'point', area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.1 }, { kind: 'status', status: 'stun', duration: 1, value: 0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
-        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 4 }] },
+        { center: 'point', area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.9 }, { kind: 'status', status: 'stun', duration: 1, value: 0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
+        // 기획 6차 (쿨은 나간 순간부터): the card that just left always carries a fresh full cooldown, so the cut always
+        // lands and swaps are cooldown-bound → 4 → 2 s (docs/balance.md 0-2)
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 2 }] },
       ],
     },
     ult: {

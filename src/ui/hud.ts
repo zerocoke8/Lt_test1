@@ -8,7 +8,7 @@ import { ROLE_LABEL, getBoss, getCharacter, getMonster, getPet } from '../data';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
 import { dragShapeIcon, petIcon, portrait } from './preset';
-import { normalCooldownFor } from '../sim/cooldowns';
+import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
 import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
@@ -513,7 +513,8 @@ export class Hud {
     this.sheetName = h('span', 'ss-name', head, def.name);
     h('span', 'ss-role', head, ROLE_LABEL[def.role]);
     h('span', 'ss-hint', head, '평타·일반스킬은 자동 · 드래그스킬은 교체할 때');
-    const dragCd = m.swapCooldownTotal > 0 ? m.swapCooldownTotal : def.swapCooldown * Math.max(0, this.game.tunables.swapCooldownMult);
+    // what this card gets when it is next swapped out (기획 6차), with its rewards and the multiplier as of now
+    const dragCd = swapCooldownOf(this.game.tunables, me, i);
     const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ult: this.game.tunables.ultChargeTime });
     // two lines per skill: type · name · trigger · live, then the whole effect line (wraps, never cut off)
     this.sheetRows = rows.map(r => {
@@ -562,7 +563,7 @@ export class Hud {
         }
       } else if (r.kind === 'drag') {
         if (m.dead) txt = '쓰러짐';
-        else if (active) txt = m.swapCooldownRemaining > 0 ? `재등장 ${secs(m.swapCooldownRemaining)}초` : '필드';
+        else if (active) txt = '필드'; // 기획 6차: no cooldown while on the field; it starts when this card leaves
         else if (m.swapCooldownRemaining > 0) txt = `${secs(m.swapCooldownRemaining)}초`;
         else {
           txt = '준비';

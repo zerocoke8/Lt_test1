@@ -6,7 +6,6 @@ import { getCharacter, getPet } from '../data';
 import { BOT } from './constants';
 import { tickBots } from './bot';
 import { killEntity, tickProjectiles } from './combat';
-import { swapCooldownFor } from './cooldowns';
 import { createCharacterEntity } from './entities';
 import { chooseReward, clearRewardOffers, enrage, floorClear, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
 import { skillMod } from './modifiers';
@@ -128,14 +127,11 @@ export function createWorld(setup: GameSetup): World {
   });
 
   // R1: character 1 starts on field; 2·3 are immediately swappable (cooldown 0).
-  // R4 "쿨은 등장한 순간부터 돎": character 1 appears at t = 0, so its own re-appear cooldown runs from the start
-  // (no free 1→2→1 drag skill 0.5 s in).
+  // R4 (기획 6차): a character's re-appear cooldown starts when it is swapped out, so character 1 has none while it
+  // fights; swapping 1→2 starts 1's cooldown (no free 1→2→1 drag skill).
   for (const p of state.players) {
     if (p.party.length === 0) continue;
     createCharacterEntity(w, p, 0, { x: 0, y: 0 });
-    const m0 = p.party[0];
-    m0.swapCooldownTotal = swapCooldownFor(w, p, 0);
-    m0.swapCooldownRemaining = m0.swapCooldownTotal;
   }
   startFloor(w, startFloorN, false);
   syncMembers(w);

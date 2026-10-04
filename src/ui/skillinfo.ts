@@ -142,7 +142,7 @@ export interface SkillRow {
   kind: SkillRowKind;
   /** "평타" / "패시브" / "일반" / "드래그" / "궁극기" */
   type: string;
-  /** When it goes off: "자동", "상시", "6초마다 자동", "등장 시 · 쿨 10초", "게이지 30초 · 탭". */
+  /** When it goes off: "자동", "상시", "6초마다 자동", "등장 시 · 나가면 쿨 10초", "게이지 30초 · 탭". */
   trigger: string;
   name: string;
   summary: string;
@@ -187,7 +187,8 @@ export function skillRows(def: CharacterDef, cd: { normal?: number; drag?: numbe
     { kind: 'basic', type: SKILL_TYPE_LABEL.basic, trigger: '자동', name: '기본 공격', summary: basicSummary(def.basic) },
     { kind: 'passive', type: SKILL_TYPE_LABEL.passive, trigger: '필드에서 상시', name: def.passive.name, summary: def.passive.description },
     { kind: 'normal', type: SKILL_TYPE_LABEL.normal, trigger: `${secs(normalCd)}초마다 자동`, name: def.normal.name, summary: skillSummary(def.normal) },
-    { kind: 'drag', type: SKILL_TYPE_LABEL.drag, trigger: `등장 시 · 쿨 ${secs(dragCd)}초`, name: def.drag.name, summary: skillSummary(def.drag) },
+    // 기획 6차: the re-appear (= drag skill) cooldown starts when this character is swapped out
+    { kind: 'drag', type: SKILL_TYPE_LABEL.drag, trigger: `등장 시 · 나가면 쿨 ${secs(dragCd)}초`, name: def.drag.name, summary: skillSummary(def.drag) },
     {
       kind: 'ult',
       type: SKILL_TYPE_LABEL.ult,

@@ -199,7 +199,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       h('div', 'dt-stats', t, `HP ${s.maxHp} · 공격력 ${s.atk} · 사거리 ${s.range}`);
       const list = h('div', 'dt-skills', detail);
       // 드래그스킬 first: it is what the swap game is about (shape + direction diagram)
-      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, def.drag.description, `재등장 쿨 ${def.swapCooldown}초`);
+      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, def.drag.description, `나가면 재등장 쿨 ${def.swapCooldown}초`);
       const body = h('div', 'sk-shape-row', drag);
       const fig = h('div', 'sk-shape', body);
       dragShapeIcon(def, 'sk-shape-cv', 132, 74, fig, true);

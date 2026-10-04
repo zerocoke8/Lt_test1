@@ -160,7 +160,9 @@ describe('R12 bench', () => {
     advance(tg, 3);
     expect(p.party[0].hp).toBe(hp);
     expect(burn.remaining).toBeCloseTo(before - 3, 1);
-    expect(p.party[1].swapCooldownRemaining).toBeCloseTo(10 - 3, 1);
+    // 기획 6차: the bench member's cooldown started when it left the field and keeps running there
+    expect(p.party[0].swapCooldownRemaining).toBeCloseTo(10 - 3, 1);
+    expect(p.party[1].swapCooldownRemaining).toBe(0); // the field character has none
     advance(tg, 8);
     expect(p.party[0].statuses.length).toBe(0);
   });

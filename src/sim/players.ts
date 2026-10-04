@@ -92,6 +92,10 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
     const leavePos = copy(old.pos);
     const leaveCtx = charCtx(w, old, 'passive', { id: 'relay_flag', name: '교대의 깃발' });
     benchActive(w, p);
+    // 기획 6차: the re-appear (= drag skill) cooldown starts when a character is swapped OUT, not when it appears.
+    const lm = p.party[leaveIdx];
+    lm.swapCooldownTotal = swapCooldownFor(w, p, leaveIdx);
+    lm.swapCooldownRemaining = lm.swapCooldownTotal;
     emit(w, { type: 'leave', player: p.id, partyIndex: leaveIdx, pos: leavePos });
     if (hasRelic(p, 'relay_flag')) relayExplosion(w, leaveCtx, leavePos);
   } else {
@@ -113,8 +117,8 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
   const shieldFrac = appearShieldFrac(p, idx);
   if (shieldFrac > 0) addShield(e, shieldFrac * e.maxHp, APPEAR_SHIELD_DURATION);
 
-  m.swapCooldownTotal = swapCooldownFor(w, p, idx);
-  m.swapCooldownRemaining = m.swapCooldownTotal;
+  // the appearing character has no cooldown while on field (기획 6차: it starts when this one is swapped out)
+  m.swapCooldownRemaining = 0;
   p.appearLock = t.appearLockTime;
   p.stats.swaps++;
   emit(w, { type: 'appear', player: p.id, partyIndex: idx, entityId: e.id, pos: copy(at) });

@@ -31,10 +31,14 @@ export const VALUE_WEIGHTS = {
   /** Ally attack / attack-speed buff: realised extra damage of buffed allies (all players) × this. */
   buff: 1.0,
   /**
-   * 1 s of my bench cards' swap cooldown removed (크로노) = this × the roster's mean value per cooldown-second.
-   * 1.0 would mean the player always swaps the instant a card is ready; humans don't → 0.5.
+   * 1 s of my bench cards' swap cooldown removed (크로노, as this bench measures it in a 크로노×3 party) = this × the
+   * roster's mean value per cooldown-second. Calibrated on mixed parties (tests/playtest/cd-cut.ts: extra casts the cut
+   * buys × one cast's worth, midpoint of the 4 s rhythm and "swap as soon as ready").
+   * 2차–5차 (cooldown from appearing): 0 at a 4 s rhythm (cards were back anyway) … 1 when swapping fast → 0.5.
+   * 기획 6차 (cooldown from leaving): every swap is cooldown-bound and the card that just left always carries a fresh
+   * cooldown → the same midpoint is 0.8 (with the 2 s cut; 1.0 with the old 4 s cut). docs/balance.md 0-2.
    */
-  cdSec: 0.5,
+  cdSec: 0.8,
 };
 
 /** Per-cast averages measured by the bench (raw units). */

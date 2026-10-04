@@ -173,10 +173,12 @@ describe('per-player telemetry and debug', () => {
     expect(eventsOf(tg, 'ultReady').map(e => e.player)).toEqual([2]);
     tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt' } });
     expect(s.players[0].ult.charge).toBe(1);
+    // 기획 6차: the card that leaves the field starts cooling (slot 0 for both players here)
+    tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
     tg.game.dispatch({ type: 'swap', player: 1, partyIndex: 1, pos: { x: 12, y: 6 } });
-    expect(s.players[1].party[1].swapCooldownRemaining).toBeGreaterThan(0);
+    expect(s.players[1].party[0].swapCooldownRemaining).toBeGreaterThan(0);
     tg.game.dispatch({ type: 'debug', action: { kind: 'resetCooldowns', player: 1 } });
-    expect(s.players[1].party[1].swapCooldownRemaining).toBe(0);
+    expect(s.players[1].party[0].swapCooldownRemaining).toBe(0);
     expect(s.players[0].party[0].swapCooldownRemaining).toBeGreaterThan(0);
   });
 });

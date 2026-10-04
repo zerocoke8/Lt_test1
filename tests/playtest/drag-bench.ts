@@ -5,8 +5,10 @@
 //        BENCH_OUT=path.json (machine-readable result)  BENCH_QUIET=1 (only the value table)
 //
 // Player 0 = a human-like player whose party is the SAME character 3 times (so every drag effect of player 0 belongs to
-// that character), swapping every 4 s when a card is ready, ult 0.5 s after full, no pets. Players 1–2 = the stock
-// bots. Floor rewards: player 0 always takes the offer that least touches drag skills (pet cd > normal cd > ult >
+// that character), swapping every 4 s when a card is ready, ult 0.5 s after full, no pets. 기획 6차 (a card's cooldown
+// starts when it LEAVES): with 3 cards one is back every ≈ cd/2 s at best, so this rhythm is cooldown-bound (one swap
+// per 4.8–7.2 s, "secPerCast"). The 크로노 cut measured here (크로노×3) is priced via drag-value.ts cdSec, which is
+// calibrated on mixed parties by cd-cut.ts. Players 1–2 = the stock bots. Floor rewards: player 0 always takes the offer that least touches drag skills (pet cd > normal cd > ult >
 // def > hp > …) so every character is measured on its base numbers. Executed aim policies:
 //   best     — bot aim (R29: real footprint, the whole visible screen) = a perfect aimer
 //   designer — cluster centre + the offset a designer reads off the card (start LEFT of the pack for → shapes, etc.)
@@ -286,6 +288,7 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
         // snapshot for the instant parts (pull / knockback / cooldown cut / instant heal)
         const enemyPos = new Map(foes.map(e => [e.id, { x: e.pos.x, y: e.pos.y }]));
         const benchCd = p.party.map(m => m.swapCooldownRemaining);
+        const leaving = p.activeIndex;
         const memberShield = p.party[idx].shield;
         const evBefore = w.events.length;
         const enemiesInFoot = score(parts, cand[policy], foes, 'enemies', false);
@@ -312,10 +315,14 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
               add('dispHp', (d / Math.max(0.5, e.rt.base.moveSpeed)) * threat(w, e));
             }
           }
-          // bench swap cooldown removed (크로노). The appearing card's own cd is set during the swap, skip it.
+          // bench swap cooldown removed (크로노). The appearing card is on field now, skip it. 기획 6차: the LEAVING
+          // card's cooldown starts at this swap (its full total, set before the drag skill cuts it) → that total is its
+          // baseline; earlier rule (cooldown from appearing, appearing card > 0 after the swap): its running cooldown.
+          const leaveStartsCd = p.party[idx].swapCooldownRemaining <= 1e-9;
           p.party.forEach((m, i) => {
             if (i === idx) return;
-            add('cdSec', Math.max(0, benchCd[i] - m.swapCooldownRemaining));
+            const base = i === leaving && leaveStartsCd ? m.swapCooldownTotal : benchCd[i];
+            add('cdSec', Math.max(0, base - m.swapCooldownRemaining));
           });
           // self shield
           const me2 = activeEntity(w, p);
@@ -501,6 +508,7 @@ for (const id of CHARS) {
       aim: pol,
       cd: def.swapCooldown,
       casts: acc.casts,
+      secPerCast: r1(acc.simSec / Math.max(1, acc.casts)),
       hitsPerCast: r1(acc.hitsExec / Math.max(1, acc.casts)),
       alliesPerCast: r1(acc.allyHits / Math.max(1, acc.casts)),
       dragPerCast: r0(acc.comp.dmg / Math.max(1, acc.casts)),

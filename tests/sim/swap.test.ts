@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getCharacter } from '../../src/data';
-import { active, advance, clearEvents, eventsOf, makeGame, quietFloor, spawnAt } from './helpers';
+import { active, advance, clearEvents, eventsOf, killActive, makeGame, quietFloor, spawnAt } from './helpers';
 
 describe('R1 start state', () => {
   it('starts with character 1 on field and 2·3 immediately swappable', () => {
@@ -17,8 +17,8 @@ describe('R1 start state', () => {
     expect(p.party[0].entityId).toBe(e.id);
     expect(p.party[1].swapCooldownRemaining).toBe(0);
     expect(p.party[2].swapCooldownRemaining).toBe(0);
-    // R4 "쿨은 등장한 순간부터": the starting character appeared at t = 0, so its own cooldown is already running
-    expect(p.party[0].swapCooldownRemaining).toBeCloseTo(getCharacter('guardian').swapCooldown);
+    // R4 (기획 6차): the cooldown starts when a character is swapped OUT, so the starting field character has none
+    expect(p.party[0].swapCooldownRemaining).toBe(0);
     expect(tg.game.canSwap(0, 1).ok).toBe(true);
     expect(tg.game.canSwap(0, 2).ok).toBe(true);
     // R3: the field character cannot be dragged again
@@ -79,45 +79,79 @@ describe('R2–R4 swap', () => {
     expect(tg.game.clampToArena({ x: 1000, y: -3 })).toEqual({ x: a.width - 0.5, y: 0.5 });
   });
 
-  it('R4: per-character cooldown starts on appearance, no global cooldown, 0.5 s appear lock', () => {
+  it('R4 (기획 6차): the cooldown starts when a character is swapped out, no global cooldown, 0.5 s appear lock', () => {
     const tg = makeGame();
     quietFloor(tg);
     const p = tg.game.state.players[0];
-    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 12, y: 6 } }).ok).toBe(true);
+    const guardCd = getCharacter('guardian').swapCooldown;
     const bladeCd = getCharacter('blade').swapCooldown;
-    expect(p.party[1].swapCooldownRemaining).toBeCloseTo(bladeCd);
-    expect(p.party[1].swapCooldownTotal).toBeCloseTo(bladeCd);
+    // A→B: A (guardian) leaves → its cooldown starts; B (blade) appears with none
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 12, y: 6 } }).ok).toBe(true);
+    expect(p.party[0].swapCooldownRemaining).toBeCloseTo(guardCd);
+    expect(p.party[0].swapCooldownTotal).toBeCloseTo(guardCd);
+    expect(p.party[1].swapCooldownRemaining).toBe(0);
+    expect(p.party[2].swapCooldownRemaining).toBe(0);
     // appear lock blocks every swap for 0.5 s
     expect(tg.game.canSwap(0, 2)).toEqual({ ok: false, reason: '등장 중' });
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { x: 12, y: 6 } }).ok).toBe(false);
     advance(tg, 0.5);
-    // no shared cooldown: card 3 is free right after the lock
+    // the field character's card never cools while it fights
+    expect(p.party[1].swapCooldownRemaining).toBe(0);
+    // no shared cooldown: B→C right after the lock; now B's cooldown starts (full), C has none
     expect(tg.game.canSwap(0, 2).ok).toBe(true);
-    // cooldown of the on-field character has been running since it appeared
-    expect(p.party[1].swapCooldownRemaining).toBeCloseTo(bladeCd - 0.5, 1);
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { x: 14, y: 6 } }).ok).toBe(true);
+    expect(p.party[1].swapCooldownRemaining).toBeCloseTo(bladeCd);
+    expect(p.party[1].swapCooldownTotal).toBeCloseTo(bladeCd);
+    expect(p.party[2].swapCooldownRemaining).toBe(0);
     advance(tg, 0.6);
     expect(tg.game.canSwap(0, 1)).toEqual({ ok: false, reason: '쿨타임' });
-    // card 1 (guardian) appeared at t = 0: its own cooldown has been running since the start
-    const guardCd = getCharacter('guardian').swapCooldown;
-    expect(p.party[0].swapCooldownTotal).toBeCloseTo(guardCd);
+    // C→A blocked until A's cooldown (counted from when A left at t = 0) ends
     expect(p.party[0].swapCooldownRemaining).toBeCloseTo(guardCd - 1.1, 1);
     expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '쿨타임' });
-    advance(tg, bladeCd - 1.1 + 0.05);
-    expect(tg.game.canSwap(0, 1).ok).toBe(true);
-    advance(tg, guardCd - bladeCd);
+    advance(tg, guardCd - 1.1 - 0.1);
+    expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '쿨타임' });
+    advance(tg, 0.15);
     expect(tg.game.canSwap(0, 0).ok).toBe(true);
+    // B left 0.5 s after A, so it is ready 0.5 s later
+    expect(tg.game.canSwap(0, 1)).toEqual({ ok: false, reason: '쿨타임' });
+    advance(tg, 0.5);
+    expect(tg.game.canSwap(0, 1).ok).toBe(true);
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 0, pos: { x: 12, y: 6 } }).ok).toBe(true);
+    expect(p.party[0].swapCooldownRemaining).toBe(0);
+    expect(p.party[2].swapCooldownRemaining).toBeCloseTo(getCharacter('mage').swapCooldown);
   });
 
-  it('swapCooldownMult scales and swap rewards have a 4 s floor', () => {
+  it('a character that dies on the field starts no swap cooldown (the revive timer covers it); revived it is ready', () => {
+    const tg = makeGame();
+    quietFloor(tg);
+    const p = tg.game.state.players[0];
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 12, y: 6 } }).ok).toBe(true);
+    killActive(tg); // blade dies on the field
+    expect(p.activeIndex).toBeNull();
+    expect(p.party[1].dead).toBe(true);
+    expect(p.party[1].swapCooldownRemaining).toBe(0);
+    expect(tg.game.canSwap(0, 1)).toEqual({ ok: false, reason: '사망' });
+    advance(tg, tg.game.tunables.reviveTime + 0.1);
+    expect(p.party[1].dead).toBe(false);
+    expect(tg.game.canSwap(0, 1).ok).toBe(true);
+  });
+
+  it('swapCooldownMult scales and swap rewards have a 4 s floor (applied to the leaving character)', () => {
     const tg = makeGame({ tunables: { swapCooldownMult: 0.5 } });
     const p = tg.game.state.players[0];
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { x: 12, y: 6 } });
-    expect(p.party[2].swapCooldownRemaining).toBeCloseTo(getCharacter('mage').swapCooldown * 0.5);
-    p.rewards.push({ rewardId: 'swapcd_epic', partyIndex: 1 }, { rewardId: 'swapcd_epic', partyIndex: 1 }, { rewardId: 'swapcd_epic', partyIndex: 1 });
+    expect(p.party[0].swapCooldownRemaining).toBeCloseTo(getCharacter('guardian').swapCooldown * 0.5);
+    expect(p.party[2].swapCooldownRemaining).toBe(0);
     advance(tg, 0.6);
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 12, y: 6 } });
+    expect(p.party[2].swapCooldownRemaining).toBeCloseTo(getCharacter('mage').swapCooldown * 0.5);
+    expect(p.party[2].swapCooldownTotal).toBeCloseTo(getCharacter('mage').swapCooldown * 0.5);
+    // −9 s of rewards on blade: max(4, 10 − 9) × 0.5, set when blade leaves
+    p.rewards.push({ rewardId: 'swapcd_epic', partyIndex: 1 }, { rewardId: 'swapcd_epic', partyIndex: 1 }, { rewardId: 'swapcd_epic', partyIndex: 1 });
+    advance(tg, getCharacter('guardian').swapCooldown * 0.5);
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 0, pos: { x: 12, y: 6 } }).ok).toBe(true);
     expect(p.party[1].swapCooldownRemaining).toBeCloseTo(4 * 0.5);
+    expect(p.party[1].swapCooldownTotal).toBeCloseTo(4 * 0.5);
   });
 
   it('previewArea shows the drag skill area with radius rewards', () => {
@@ -142,14 +176,17 @@ describe('R24 debug actions', () => {
     expect(eventsOf(tg, 'ultReady').length).toBe(1);
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
     tg.game.dispatch({ type: 'pet', player: 0, petIndex: 0, pos: { x: 10, y: 6 } });
-    expect(p.party[1].swapCooldownRemaining).toBeGreaterThan(0);
+    expect(p.party[0].swapCooldownRemaining).toBeGreaterThan(0); // card 1 left the field
     tg.game.dispatch({ type: 'debug', action: { kind: 'resetCooldowns' } });
     expect(p.party.every(m => m.swapCooldownRemaining === 0 && m.normalCooldownRemaining === 0)).toBe(true);
     expect(p.pets[0].cooldownRemaining).toBe(0);
     tg.game.tunables.instantCooldowns = true;
     advance(tg, 0.6);
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { x: 10, y: 6 } });
-    expect(p.party[2].swapCooldownRemaining).toBe(0);
+    expect(p.party[1].swapCooldownRemaining).toBe(0); // the leaving card gets no cooldown with instantCooldowns
+    expect(tg.game.canSwap(0, 0).ok).toBe(false); // still the 0.5 s appear lock
+    advance(tg, 0.6);
+    expect(tg.game.canSwap(0, 1).ok).toBe(true);
     spawnAt(tg, 'golem', { x: 30, y: 6 });
     spawnAt(tg, 'ogre', { x: 32, y: 6 });
     tg.game.dispatch({ type: 'debug', action: { kind: 'killAll' } });

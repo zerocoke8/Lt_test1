@@ -6,11 +6,19 @@ import { hasRelic, petCooldownReduction, relicParam, skillMod, swapCooldownReduc
 import type { PlayerState, Tunables } from '../types';
 import type { SimPlayer, World } from './world';
 
-/** max(4, def.swapCooldown − swapCooldown rewards) × swapCooldownMult. */
+/** max(4, def.swapCooldown − swapCooldown rewards) × swapCooldownMult. Set on a character when it leaves the field (기획 6차). */
 export function swapCooldownFor(w: World, p: SimPlayer, idx: number): number {
-  if (w.tunables.instantCooldowns) return 0;
+  return swapCooldownOf(w.tunables, p, idx);
+}
+
+/**
+ * Same formula, pure (tunables + PlayerState): the cooldown card idx gets the next time it is swapped out. The HUD's
+ * skill sheet ("나가면 쿨 N초") calls it too, also on a multiplayer client's snapshot.
+ */
+export function swapCooldownOf(tunables: Pick<Tunables, 'instantCooldowns' | 'swapCooldownMult'>, p: PlayerState, idx: number): number {
+  if (tunables.instantCooldowns) return 0;
   const def = getCharacter(p.party[idx].defId);
-  return Math.max(MIN_SWAP_COOLDOWN, def.swapCooldown - swapCooldownReduction(p, idx)) * Math.max(0, w.tunables.swapCooldownMult);
+  return Math.max(MIN_SWAP_COOLDOWN, def.swapCooldown - swapCooldownReduction(p, idx)) * Math.max(0, tunables.swapCooldownMult);
 }
 
 /** def.cooldown × petCooldownMult × (1 − Σ petCooldown rewards) × (beast_collar ? 0.7 : 1). */

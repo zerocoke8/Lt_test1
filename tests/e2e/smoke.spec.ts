@@ -202,12 +202,16 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await page.waitForFunction(() => window.__proto!.game!.state.players[0].activeIndex === 1, undefined, { timeout: 3000 });
   const afterSwap = await inGame(page, g => {
     const me = g.state.players[0];
-    return { swaps: me.stats.swaps, cd: me.party[1].swapCooldownRemaining, active: me.activeIndex };
+    return { swaps: me.stats.swaps, leftCd: me.party[0].swapCooldownRemaining, fieldCd: me.party[1].swapCooldownRemaining, active: me.activeIndex };
   });
   expect(afterSwap.active).toBe(1);
   expect(afterSwap.swaps).toBe(1);
-  expect(afterSwap.cd).toBeGreaterThan(5);
+  // 기획 6차: the card that left starts cooling, the one that came in has none
+  expect(afterSwap.leftCd).toBeGreaterThan(5);
+  expect(afterSwap.fieldCd).toBe(0);
   await expect(page.locator('.ccard[data-idx="1"]')).toHaveClass(/is-active/);
+  await expect(page.locator('.ccard[data-idx="0"]')).toHaveClass(/is-cool/);
+  await expect(page.locator('.ccard[data-idx="0"] .cc-state')).toHaveText(/^드래그 \d+(\.\d)?초$/);
 
   // ── 쿨타임이 보임: each card's auto-skill diamond (목업의 마름모: lit = ready, else small seconds), no separate widget;
   //    drag (= re-appear) cooldowns on the cards ──
@@ -284,7 +288,7 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
     skillSummary(sheetDef.drag),
     skillSummary(sheetDef.ult),
   ]);
-  await expect(page.locator('.skill-sheet .ss-drag .ss-trigger')).toHaveText(`등장 시 · 쿨 ${secs(sheetDef.swapCooldown)}초`);
+  await expect(page.locator('.skill-sheet .ss-drag .ss-trigger')).toHaveText(`등장 시 · 나가면 쿨 ${secs(sheetDef.swapCooldown)}초`);
   await expect(page.locator('.skill-sheet .ss-normal .ss-trigger')).toHaveText(`${secs(sheetDef.normal.cooldown ?? 6)}초마다 자동`);
   const sheetBox = (await page.locator('.skill-sheet').boundingBox())!;
   const stageBox = (await page.locator('.stage').boundingBox())!;

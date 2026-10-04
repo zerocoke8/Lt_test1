@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CHARACTERS, getCharacter } from '../../src/data';
 import type { SkillDef } from '../../src/types';
 import { MAX_COOLDOWN_REDUCTION } from '../../src/sim/constants';
-import { normalCooldownFor } from '../../src/sim/cooldowns';
+import { normalCooldownFor, swapCooldownOf } from '../../src/sim/cooldowns';
 import { cleanState } from '../../server/snapshot';
 import { areaLabel, cdText, pct, secs, skillRows, skillSummary } from '../../src/ui/skillinfo';
 import { advance, makeGame } from '../sim/helpers';
@@ -14,7 +14,7 @@ describe('skill sheet rows', () => {
       const rows = skillRows(c, { normal: c.normal.cooldown, drag: c.swapCooldown, ult: 30 });
       expect(rows.map(r => r.type)).toEqual(['평타', '패시브', '일반', '드래그', '궁극기']);
       expect(rows[2].trigger).toBe(`${secs(c.normal.cooldown ?? 6)}초마다 자동`);
-      expect(rows[3].trigger).toBe(`등장 시 · 쿨 ${secs(c.swapCooldown)}초`);
+      expect(rows[3].trigger).toBe(`등장 시 · 나가면 쿨 ${secs(c.swapCooldown)}초`);
       expect(rows[4].trigger).toBe('게이지 30초 · 탭');
       for (const r of rows) {
         expect(r.name.length, `${c.id} ${r.kind}`).toBeGreaterThan(0);
@@ -102,6 +102,21 @@ describe('card diamond (일반스킬 쿨)', () => {
     sameOnWire();
     tg.w.tunables.instantCooldowns = true;
     expect(normalCooldownFor(tg.w.tunables, p, 0)).toBe(0);
+  });
+
+  it('drag "나가면 쿨 N초" (swapCooldownOf, used by the sheet) = what the card gets when it leaves, rewards and multiplier included; same on the wire copy', () => {
+    const tg = makeGame({ tunables: { swapCooldownMult: 0.8 } });
+    const p = tg.w.state.players[0];
+    p.rewards.push({ rewardId: 'swapcd_epic', partyIndex: 0 }); // picked while guardian is on the field
+    const said = swapCooldownOf(tg.w.tunables, p, 0);
+    expect(said).toBeCloseTo((getCharacter('guardian').swapCooldown - 3) * 0.8, 9);
+    expect(swapCooldownOf(tg.w.tunables, cleanState(tg.w.state).players[0], 0)).toBeCloseTo(said, 9);
+    expect(skillRows(getCharacter('guardian'), { drag: said })[3].trigger).toBe(`등장 시 · 나가면 쿨 ${secs(said)}초`);
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } }).ok).toBe(true);
+    expect(p.party[0].swapCooldownTotal).toBeCloseTo(said, 9);
+    expect(p.party[0].swapCooldownRemaining).toBeCloseTo(said, 9);
+    tg.w.tunables.instantCooldowns = true;
+    expect(swapCooldownOf(tg.w.tunables, p, 1)).toBe(0);
   });
 
   it('right after the field character\'s auto skill fires, its timer starts at that full cooldown', () => {

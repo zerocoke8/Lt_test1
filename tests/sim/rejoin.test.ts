@@ -45,11 +45,14 @@ describe('out players come back on the next floor when someone else clears', () 
     expect(s.floor).toBe(2);
     expect(p0.activeIndex).toBe(0);
     expect(active(tg, 0).partyIndex).toBe(0);
-    // slot 0 counts as appearing now (R4): its own cooldown runs, the other two are ready
-    expect(p0.party[0].swapCooldownRemaining).toBeGreaterThan(0);
+    // 기획 6차: like the run start, slot 0 fights with no cooldown (it starts when it is swapped out); all cards reset
+    expect(p0.party.map(m => m.swapCooldownRemaining)).toEqual([0, 0, 0]);
     advance(tg, 0.6); // past the 0.5 s floor-start appear window
     expect(tg.game.canSwap(0, 1).ok).toBe(true);
-    expect(tg.game.canSwap(0, 0).ok).toBe(false);
+    expect(tg.game.canSwap(0, 2).ok).toBe(true);
+    expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '이미 필드에 있음' });
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } }).ok).toBe(true);
+    expect(p0.party[0].swapCooldownRemaining).toBeGreaterThan(0);
   });
 
   it('a player who was not out keeps an empty field and dead members keep their revive timers (R19)', () => {

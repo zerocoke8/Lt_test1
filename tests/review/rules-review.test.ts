@@ -140,20 +140,18 @@ describe('empty field (R9, R10, R14)', () => {
     const tg = makeGame();
     quietFloor(tg);
     const p = tg.w.state.players[0];
-    ticks(tg, T(12)); // the starting card's own cooldown (it appeared at t = 0) has run out
+    // 기획 6차: a card starts cooling when it leaves the field, so 1→2→3 leaves cards 1·2 cooling
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } }).ok).toBe(true);
     ticks(tg, T(0.5));
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { x: 10, y: 6 } }).ok).toBe(true);
     ticks(tg, T(0.5));
-    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 0, pos: { x: 10, y: 6 } }).ok).toBe(true);
-    ticks(tg, T(0.5));
+    expect(p.party[0].swapCooldownRemaining).toBeGreaterThan(0);
     expect(p.party[1].swapCooldownRemaining).toBeGreaterThan(0);
-    expect(p.party[2].swapCooldownRemaining).toBeGreaterThan(0);
     killActive(tg);
     clearEvents(tg);
     expect(p.activeIndex).toBeNull();
     ticks(tg, T(31));
-    expect(p.party[0].dead).toBe(false); // revived as a card
+    expect(p.party[2].dead).toBe(false); // revived as a card
     expect(p.activeIndex).toBeNull();
     expect(eventsOf(tg, 'appear').length).toBe(0);
     expect(tg.w.state.entities.some(e => e.kind === 'character')).toBe(false);
@@ -512,13 +510,18 @@ describe('R22 telemetry', () => {
 // ───────────────────────────── R4 start card ─────────────────────────────
 
 describe('R4 start card', () => {
-  it('character 1 appeared at t = 0, so its cooldown runs from the start: no free 1→2→1 drag skill', () => {
-    // 기획서 4장: "쿨은 등장한 순간부터 돎" — the starting character counts as appearing at the start.
+  it('character 1 has no cooldown while it fights, but swapping it out starts one: no free 1→2→1 drag skill', () => {
+    // 기획 6차: "캐릭터가 스왑되서 나간 순간부터 쿨타임이 돌아야해" — card 1 starts cooling when it leaves.
     const tg = makeGame();
     quietFloor(tg);
+    const p = tg.w.state.players[0];
+    ticks(tg, T(5));
+    expect(p.party[0].swapCooldownRemaining).toBe(0); // on the field from t = 0: nothing ran down
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } }).ok).toBe(true);
     ticks(tg, T(0.5));
     expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '쿨타임' });
+    // full cooldown from the moment it left (5 s on the field did not count)
+    expect(p.party[0].swapCooldownRemaining).toBeCloseTo(getCharacter('guardian').swapCooldown - 0.5, 5);
     expect(tg.game.canSwap(0, 2).ok).toBe(true); // cards 2·3 still start at 0
   });
 });

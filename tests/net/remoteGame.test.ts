@@ -7,7 +7,7 @@ import { RemoteGame } from '../../src/net/remoteGame';
 import { DEFAULT_TUNABLES } from '../../src/config';
 import { cleanState } from '../../server/snapshot';
 import type { Command, Game } from '../../src/types';
-import { HUMAN, HUMAN2, BOT1, makeGame } from '../sim/helpers';
+import { HUMAN, HUMAN2, BOT1, advance, makeGame } from '../sim/helpers';
 
 type Snap = Extract<ServerMsg, { t: 'snap' }>;
 
@@ -93,7 +93,7 @@ describe('RemoteGame', () => {
   it('dispatch: validated locally, sent with my slot, answered optimistically; swaps are locked until the server catches up', () => {
     const { tg, conn, rg } = setup();
     conn.emit(snapOf(tg.game));
-    // character 1 (index 0) is on field and cooling down → refused locally, nothing sent
+    // character 1 (index 0) is on the field → refused locally, nothing sent
     expect(rg.dispatch({ type: 'swap', player: 0, partyIndex: 0, pos: { x: 5, y: 5 } })).toEqual({ ok: false, reason: '이미 필드에 있음' });
     expect(conn.cmds()).toHaveLength(0);
     // a different player's index in the command is replaced by mine
@@ -107,6 +107,24 @@ describe('RemoteGame', () => {
     // offline → refused
     conn.online = false;
     expect(rg.dispatch({ type: 'pet', player: 1, petIndex: 0, pos: { x: 5, y: 5 } })).toEqual({ ok: false, reason: '서버와 연결이 끊겼어요' });
+  });
+
+  it('기획 6차 on the client: once the server applied my swap, the card that left is cooling and the next one is free', () => {
+    const { tg, conn, rg } = setup();
+    conn.emit(snapOf(tg.game));
+    expect(rg.dispatch({ type: 'swap', player: 1, partyIndex: 1, pos: { x: 12, y: 6 } }).ok).toBe(true);
+    const sent = conn.cmds()[0];
+    expect(tg.game.dispatch(sent.cmd).ok).toBe(true); // the server runs it
+    conn.emit({ t: 'cmdResult', seq: sent.seq, ok: true });
+    conn.emit(snapOf(tg.game));
+    expect(rg.state.players[1].party.map(m => m.swapCooldownRemaining > 0)).toEqual([true, false, false]);
+    expect(rg.canSwap(1, 0)).toEqual({ ok: false, reason: '쿨타임' });
+    expect(rg.canSwap(1, 1)).toEqual({ ok: false, reason: '이미 필드에 있음' });
+    expect(rg.canSwap(1, 2)).toEqual(tg.game.canSwap(1, 2)); // still the server's 0.5 s appear lock
+    advance(tg, 0.5);
+    conn.emit(snapOf(tg.game));
+    expect(rg.canSwap(1, 2)).toEqual({ ok: true });
+    for (let i = 0; i < 3; i++) expect(rg.canSwap(1, i)).toEqual(tg.game.canSwap(1, i));
   });
 
   it('a refused command is reported', () => {
