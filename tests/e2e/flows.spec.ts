@@ -73,7 +73,7 @@ test('최고층(maxFloor) 클리어 → 승리', async ({ page }) => {
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('내 캐릭터 3명 전멸 → 관전 → 결과 보기', async ({ page }) => {
+test('내 캐릭터 3명 전멸 → 관전 → 결과 보기', async ({ page }, testInfo) => {
   const errors: string[] = [];
   await boot(page, errors);
   await start(page, { seed: 14, tunables: { monsterDmgMult: 300, monsterHpMult: 30, reviveTime: 999 } });
@@ -103,6 +103,20 @@ test('내 캐릭터 3명 전멸 → 관전 → 결과 보기', async ({ page }) 
   if (ph === 'spectate') {
     await expect(page.locator('.spectate')).toBeVisible();
     await expect(page.locator('.ult')).toHaveClass(/is-disabled/);
+    // no frozen revive / pet countdowns while spectating (the timers stop with the player): the cards just say 사망
+    await expect(page.locator('.ccard .cc-cd:visible')).toHaveCount(0);
+    await expect(page.locator('.pcard .pc-cd:visible')).toHaveCount(0);
+    await expect(page.locator('.ccard .cc-state')).toHaveText(['사망', '사망', '사망']);
+    await expect(page.locator('.ult-sub')).toHaveText('관전 중');
+    // the spectate bar sits under the arena floor (the fight stays visible) and above the card row
+    const bar = (await page.locator('.spectate-box').boundingBox())!;
+    const cards = (await page.locator('.hud-bl').boundingBox())!;
+    expect(bar.y + bar.height).toBeLessThanOrEqual(cards.y + 2);
+    expect(bar.height).toBeLessThan(page.viewportSize()!.height * 0.14);
+    // toasts (e.g. "메이지 쓰러짐") stack above the bar, never on it
+    const toasts = (await page.locator('.toasts-hud').boundingBox())!;
+    expect(toasts.y + toasts.height).toBeLessThanOrEqual(bar.y + 1);
+    if (testInfo.project.name === 'phone') await page.screenshot({ path: 'docs/screenshots/spectate.png' });
     // cards refuse while spectating
     expect(await page.evaluate(() => window.__proto!.ui.dragTo('swap', 0, { x: 18, y: 6 }).reason)).toBe('관전 중');
     await page.locator('.spectate-box .btn').click();
@@ -112,6 +126,59 @@ test('내 캐릭터 3명 전멸 → 관전 → 결과 보기', async ({ page }) 
   if (r?.reason === 'quit') await expect(page.locator('.rs-reason')).toHaveText('내 캐릭터 전멸 후 관전 종료');
   else expect(r?.reason).toBe('wipe'); // the bots died too in the meantime
   await expect(page.locator('.rs-pname .rs-out').first()).toBeVisible();
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('바닥 아래쪽 조준: 손가락이 카드 줄 위여도 착지 지점이 바닥이면 놓을 수 있고, 카드 깊숙이 내리면 취소', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone', 'phone only');
+  const errors: string[] = [];
+  await boot(page, errors);
+  await start(page, { seed: 17, tunables: { invincible: true } });
+  await page.waitForTimeout(700);
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', p?: { x: number; y: number }) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: p ? [{ x: p.x, y: p.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] : [] });
+  // a spot on the lowest floor rows whose finger point (LIFT px below) is on a card of the bottom row (a HUD block)
+  const aim = await page.evaluate(() => {
+    const api = window.__proto!;
+    const s = api.game!.state;
+    for (const y of [s.plan.arena.height - 0.6, s.plan.arena.height - 1]) {
+      for (let x = 1; x < s.plan.arena.width - 1; x += 0.25) {
+        const world = { x, y };
+        const f = api.ui.fingerFor(world);
+        if (f.x < 30 || f.x > window.innerWidth - 30) continue;
+        const el = document.elementFromPoint(f.x, f.y);
+        if (el && el.closest('.ccard, .pcard')) return { world, f };
+      }
+    }
+    return null;
+  });
+  expect(aim, 'no floor spot whose finger lands on the card row').not.toBeNull();
+  const box = (await page.locator('.ccard[data-idx="1"]').boundingBox())!;
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await touch('touchStart', from);
+  for (let i = 1; i <= 12; i++) {
+    await touch('touchMove', { x: from.x + (aim!.f.x - from.x) * (i / 12), y: from.y + (aim!.f.y - from.y) * (i / 12) });
+    await page.waitForTimeout(16);
+  }
+  await page.waitForTimeout(150);
+  const pv = await page.evaluate(() => window.__proto!.ui.dragPreview);
+  expect(pv?.valid).toBe(true);
+  expect(Math.abs(pv!.pos.y - aim!.world.y)).toBeLessThan(0.4);
+  await expect(page.locator('.drag-ghost')).not.toHaveClass(/is-invalid/);
+  // finger all the way down on the card: the drop point leaves the floor → cancel
+  await touch('touchMove', from);
+  await page.waitForTimeout(150);
+  expect((await page.evaluate(() => window.__proto!.ui.dragPreview))?.valid).toBe(false);
+  await touch('touchMove', aim!.f);
+  await page.waitForTimeout(150);
+  await touch('touchEnd');
+  await page.waitForFunction(() => window.__proto!.game!.state.players[0].activeIndex === 1, undefined, { timeout: 3000 });
+  const y = await page.evaluate(() => {
+    const s = window.__proto!.game!.state;
+    return s.entities.find(e => e.id === s.players[0].party[1].entityId)!.pos.y;
+  });
+  expect(y).toBeGreaterThan(aim!.world.y - 1.5);
   expect(errors, errors.join('\n')).toEqual([]);
 });
 

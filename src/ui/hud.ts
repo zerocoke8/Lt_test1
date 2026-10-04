@@ -1,19 +1,32 @@
 // 전투 HUD (기획서 13장 목업 배치). DOM is built once per run; update() diffs cheaply (~30 Hz).
-//  좌상단: 봇 2명 · 상단 중앙: 보스 바 / 층 정보 · 우상단: 타이머 + 설정
+//  좌상단: 다른 플레이어 2명 (사람 이름 또는 BOT) · 상단 중앙: 보스 바 / 층 정보 · 우상단: 타이머 + 설정
 //  좌하단: 내 캐릭터 카드 3장 · 하단 중앙: 궁극기 게이지 · 우하단: 펫 카드 3장
 //  중앙: 배너(층 시작/클리어/광폭화), 필드 비었을 때 안내, 관전 안내
 
 import { DEBUFFS, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance } from '../types';
 import { ROLE_LABEL, getBoss, getCharacter, getMonster, getPet } from '../data';
-import { ICON_GEAR, ROLE_ICON, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
+import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
-import { petIcon, portrait } from './preset';
+import { dragShapeIcon, petIcon, portrait } from './preset';
 import { createToaster, type ToastKind } from './toast';
 
+/** Solo runs: the human is player 0. Multiplayer passes the server slot as HudOptions.localPlayer. */
 export const LOCAL_PLAYER = 0;
 const DOM_INTERVAL_MS = 1000 / 30 - 2;
 const ULT_R = 50;
 const ULT_C = 2 * Math.PI * ULT_R;
+
+export interface HudOptions {
+  /** This client's PlayerState index (solo 0, multi = server slot). */
+  localPlayer?: number;
+  /** Multiplayer run (other players are people; bot tags; no pause). */
+  multi?: boolean;
+}
+
+/** A slot driven by the AI although it is not one of the stock bots (a dropped human, R34). */
+export function showsBotTag(p: PlayerState): boolean {
+  return p.isBot && (!!p.disconnected || !/^BOT\b/.test(p.name));
+}
 
 export interface HudCallbacks {
   onCardDown(kind: 'swap' | 'pet', index: number, ev: PointerEvent, el: HTMLElement): void;
@@ -49,6 +62,8 @@ interface BotPanel {
   el: HTMLElement;
   portrait: HTMLElement;
   glyph: HTMLElement;
+  name: HTMLElement;
+  tag: HTMLElement;
   charName: HTMLElement;
   hpFill: HTMLElement;
   pips: Pip[];
@@ -118,8 +133,14 @@ export class Hud {
   readonly root: HTMLElement;
   readonly charCards: CharCard[] = [];
   readonly petCards: PetCard[] = [];
+  readonly localPlayer: number;
+  readonly multi: boolean;
   private readonly game: Game;
   private readonly cb: HudCallbacks;
+  private readonly dbgBtn: HTMLButtonElement;
+  private readonly netBanner: HTMLElement;
+  private readonly spectateBtn: HTMLButtonElement;
+  private prevBot: boolean[] = [];
   private readonly toaster;
   private readonly bots: BotPanel[] = [];
   // top center
@@ -162,31 +183,37 @@ export class Hud {
   private prevDead: boolean[] = [];
   private draggingKey = '';
 
-  constructor(layer: HTMLElement, game: Game, cb: HudCallbacks) {
+  constructor(layer: HTMLElement, game: Game, cb: HudCallbacks, opts: HudOptions = {}) {
     this.game = game;
     this.cb = cb;
+    this.localPlayer = opts.localPlayer ?? LOCAL_PLAYER;
+    this.multi = !!opts.multi;
     const s = game.state;
-    const me = s.players[LOCAL_PLAYER];
+    const me = s.players[this.localPlayer];
     this.root = h('div', 'hud', layer);
+    setClass(this.root, 'is-multi', this.multi);
 
-    // ── top-left: other players (bots) ──
+    // ── top-left: the other two players (people or bots) ──
     const tl = h('div', 'hud-tl', this.root);
     for (const p of s.players) {
-      if (p.id === LOCAL_PLAYER) continue;
+      if (p.id === this.localPlayer) continue;
       const el = h('div', 'bot hud-block', tl);
       el.style.setProperty('--pc', p.color);
+      el.dataset.player = String(p.id);
       const por = h('div', 'portrait bot-portrait', el);
       const glyph = h('span', 'portrait-glyph', por);
       const info = h('div', 'bot-info', el);
       const nameRow = h('div', 'bot-name-row', info);
-      h('span', 'bot-name', nameRow, p.name);
+      const name = h('span', 'bot-name', nameRow, p.name);
+      const tag = h('span', 'bot-tag is-hidden', nameRow, 'BOT');
       const status = h('span', 'bot-status', nameRow);
       const charName = h('div', 'bot-char', info);
       const hp = h('div', 'bar bot-hp', info);
       const hpFill = h('div', 'bar-fill', hp);
       const pips = makePips(el, 6, 'bot-pips');
-      this.bots.push({ el, portrait: por, glyph, charName, hpFill, pips, status });
+      this.bots.push({ el, portrait: por, glyph, name, tag, charName, hpFill, pips, status });
     }
+    this.prevBot = s.players.map(p => p.isBot);
 
     // ── top-center: boss bar / floor info ──
     const tc = h('div', 'hud-tc', this.root);
@@ -216,6 +243,7 @@ export class Hud {
     const tr = h('div', 'hud-tr', this.root);
     const dbg = button('icon-btn btn-dbg hud-block', 'DBG', tr, () => cb.onDebug());
     dbg.setAttribute('aria-label', '디버그');
+    this.dbgBtn = dbg;
     this.timer = h('div', 'timer hud-block', tr);
     this.timerLabel = h('div', 'timer-label', this.timer, '남은 시간');
     this.timerVal = h('div', 'timer-val', this.timer, '00:00');
@@ -232,9 +260,10 @@ export class Hud {
       el.dataset.idx = String(i);
       const pips = makePips(el, 6, 'cc-pips');
       const frame = h('div', 'cc-frame', el);
-      const role = h('div', 'cc-role', frame);
-      role.innerHTML = ROLE_ICON[def.role];
-      role.title = ROLE_LABEL[def.role];
+      // mini footprint of the drag skill (shape + fixed direction), like the preset screen: three melee cards
+      // no longer look alike before you lift one
+      const shape = dragShapeIcon(def, 'cc-shape', 40, 22, frame);
+      shape.title = `${ROLE_LABEL[def.role]} · ${def.drag.name}`;
       h('div', 'cc-slot', frame, String(i + 1));
       const por = portrait(def, 'cc-portrait', frame);
       const cd = h('div', 'cc-cd is-hidden', por);
@@ -296,11 +325,13 @@ export class Hud {
     this.hint = h('div', 'empty-hint is-hidden', this.root);
     this.hintBig = h('div', 'eh-big', this.hint);
     this.hintSub = h('div', 'eh-sub', this.hint);
+    // spectating: a slim bar under the field (the fight stays visible), the way out as a secondary button
     this.spectate = h('div', 'spectate is-hidden', this.root);
     const sbox = h('div', 'spectate-box hud-block', this.spectate);
     h('div', 'sp-title', sbox, '사망 — 관전 중');
-    h('div', 'sp-sub', sbox, '내 캐릭터 3명이 모두 쓰러졌어요. 다른 플레이어가 계속 싸워요.');
-    button('btn btn-primary', '결과 보기', sbox, () => cb.onShowResult());
+    h('div', 'sp-sub', sbox, '다른 플레이어가 계속 싸워요');
+    this.spectateBtn = button('btn btn-secondary sp-btn', '결과 보기', sbox, () => cb.onShowResult());
+    this.netBanner = h('div', 'net-banner is-hidden', this.root);
 
     this.toaster = createToaster(this.root, 'toasts-hud');
     this.prevDead = me.party.map(m => m.dead);
@@ -308,6 +339,23 @@ export class Hud {
 
   destroy(): void {
     this.root.remove();
+  }
+
+  /** DBG button only for whoever may tune (solo: always; multi: the room host, R35). */
+  setDebugAllowed(on: boolean): void {
+    show(this.dbgBtn, on);
+  }
+
+  /** Spectating: the button under "사망 — 관전 중" (null = no button). */
+  setSpectateAction(label: string | null): void {
+    show(this.spectateBtn, label != null);
+    if (label != null) setText(this.spectateBtn, label);
+  }
+
+  /** Connection trouble banner (multiplayer); null hides it. */
+  setNetStatus(text: string | null): void {
+    show(this.netBanner, text != null);
+    if (text != null) setText(this.netBanner, text);
   }
 
   toast(text: string, kind: ToastKind = 'info'): void {
@@ -321,7 +369,7 @@ export class Hud {
 
   /** Toast with the reason a card can't be used right now. */
   refuse(kind: 'swap' | 'pet', index: number, reason: { ok: boolean; reason?: string }): void {
-    const me = this.game.state.players[LOCAL_PLAYER];
+    const me = this.game.state.players[this.localPlayer];
     const m = kind === 'swap' ? me.party[index] : undefined;
     const pet = kind === 'pet' ? me.pets[index] : undefined;
     this.toast(refusalText(reason, { kind, cooldown: m ? m.swapCooldownRemaining : pet?.cooldownRemaining, revive: m?.reviveRemaining }), 'warn');
@@ -385,11 +433,11 @@ export class Hud {
           this.banner(e.result.outcome === 'victory' ? '승리!' : '런 실패', '', e.result.outcome === 'victory' ? 'clear' : 'enrage');
           break;
         case 'playerOut':
-          if (e.player !== LOCAL_PLAYER) this.toast(`${s.players[e.player]?.name ?? '플레이어'} 사망 · 관전 중`, 'warn');
+          if (e.player !== this.localPlayer) this.toast(`${s.players[e.player]?.name ?? '플레이어'} 사망 · 관전 중`, 'warn');
           break;
         case 'revive':
-          if (e.player === LOCAL_PLAYER) {
-            const m = s.players[LOCAL_PLAYER].party[e.partyIndex];
+          if (e.player === this.localPlayer) {
+            const m = s.players[this.localPlayer].party[e.partyIndex];
             if (m) this.toast(`${getCharacter(m.defId).name} 부활! 카드로 돌아왔어요`, 'good');
           }
           break;
@@ -401,7 +449,16 @@ export class Hud {
 
   update(s: GameState, events: GameEvent[], force = false): void {
     if (events.length) this.onEvents(s, events);
-    const me = s.players[LOCAL_PLAYER];
+    const me = s.players[this.localPlayer];
+    // multiplayer: someone dropped (a bot takes over, R34) or came back
+    if (this.multi) {
+      for (const p of s.players) {
+        const was = this.prevBot[p.id];
+        if (was === false && p.isBot && p.id !== this.localPlayer) this.toast(`${p.name} 자리를 봇이 이어받았어요`, 'warn');
+        else if (was === true && !p.isBot && p.id !== this.localPlayer) this.toast(`${p.name} 다시 연결됨`, 'good');
+        this.prevBot[p.id] = p.isBot;
+      }
+    }
     // death toasts (state diff, so it also covers DoT/explosions)
     me.party.forEach((m, i) => {
       if (m.dead && !this.prevDead[i] && !me.out) {
@@ -425,11 +482,16 @@ export class Hud {
   private updateBots(s: GameState): void {
     let k = 0;
     for (const p of s.players) {
-      if (p.id === LOCAL_PLAYER) continue;
+      if (p.id === this.localPlayer) continue;
       const b = this.bots[k++];
       if (!b) continue;
       const m = p.activeIndex != null ? p.party[p.activeIndex] : null;
       const def = m ? getCharacter(m.defId) : null;
+      setText(b.name, p.name);
+      const tagged = showsBotTag(p);
+      show(b.tag, tagged);
+      setClass(b.el, 'is-bot-driven', tagged);
+      setAttr(b.el, 'title', tagged ? `${p.name} · 봇이 대신 조작 중` : p.name);
       setClass(b.el, 'is-out', p.out);
       setClass(b.el, 'is-empty', !p.out && !m);
       setStyle(b.portrait, '--c', def ? def.color : '#3a4152');
@@ -499,9 +561,10 @@ export class Hud {
       setClass(c.el, 'is-dead', m.dead);
       setClass(c.el, 'is-cool', cooling || locked);
       setClass(c.el, 'is-ready', ready);
-      setText(c.state, active ? '활성화' : ready ? '교체가능' : '교체불가');
-      // big countdown: revive time when dead, else the re-appear cooldown of a benched card
-      const t = m.dead ? m.reviveRemaining : cooling ? m.swapCooldownRemaining : 0;
+      setText(c.state, me.out ? '사망' : active ? '활성화' : ready ? '교체가능' : '교체불가');
+      // big countdown: revive time when dead, else the re-appear cooldown of a benched card.
+      // Out (all three down = spectating, R11): no revive comes, the timers are frozen → no number.
+      const t = me.out ? 0 : m.dead ? m.reviveRemaining : cooling ? m.swapCooldownRemaining : 0;
       const showCd = t > 0;
       show(c.cd, showCd);
       if (showCd) {
@@ -526,8 +589,8 @@ export class Hud {
     setClass(this.ult, 'is-full', usable);
     setClass(this.ult, 'is-charged', full);
     setClass(this.ult, 'is-disabled', !activeDef || me.out);
-    setText(this.ultPct, full ? (usable ? 'TAP' : '100%') : `${Math.floor(charge * 100)}%`);
-    setText(this.ultSub, !activeDef ? '필드 비었음' : full ? '궁극기 준비' : '궁극기');
+    setText(this.ultPct, me.out ? '—' : full ? (usable ? 'TAP' : '100%') : `${Math.floor(charge * 100)}%`);
+    setText(this.ultSub, me.out ? '관전 중' : !activeDef ? '필드 비었음' : full ? '궁극기 준비' : '궁극기');
     setText(this.ultName, activeDef ? activeDef.ult.name : '—');
     setStyle(this.ultName, 'color', activeDef ? activeDef.color : '');
   }
@@ -537,7 +600,8 @@ export class Hud {
     me.pets.forEach((p, i) => {
       const c = this.petCards[i];
       if (!c) return;
-      const cooling = p.cooldownRemaining > 0;
+      // spectating: pet timers stop with the player (no frozen countdown)
+      const cooling = !me.out && p.cooldownRemaining > 0;
       setClass(c.el, 'is-ready', combat && !cooling);
       setClass(c.el, 'is-cool', cooling || !combat);
       show(c.cd, cooling);
@@ -545,12 +609,14 @@ export class Hud {
         setText(c.count, `${countdown(p.cooldownRemaining)}s`);
         setStyle(c.cd, '--p', `${Math.round(frac(p.cooldownRemaining, Math.max(0.01, p.cooldownTotal)) * 360)}deg`);
       }
-      setText(c.state, cooling ? '쿨타임' : combat ? '준비' : '대기');
+      setText(c.state, me.out ? '—' : cooling ? '쿨타임' : combat ? '준비' : '대기');
     });
   }
 
   private updateCenter(s: GameState, me: PlayerState): void {
-    show(this.spectate, me.out && s.phase !== 'runOver');
+    const spectating = me.out && s.phase !== 'runOver';
+    show(this.spectate, spectating);
+    setClass(this.root, 'is-spectating', spectating);
     const empty = !me.out && s.phase === 'combat' && me.activeIndex == null;
     show(this.hint, empty);
     setClass(this.root, 'has-hint', empty);

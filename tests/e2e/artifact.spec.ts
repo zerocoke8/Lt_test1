@@ -1,0 +1,113 @@
+// E2E: the claude.ai Artifact build (solo only, 기획 3차) on a plain static host with no game server.
+// The artifact fragment (scripts/make-artifact.mjs) is wrapped in a document like the Artifact host does; every other
+// path answers 404. Expect: no request besides the page (no /healthz probe, no WebSocket), zero console errors, a neutral
+// "혼자 하기 전용" note, and 출발 → solo run with bots that plays (a swap goes through).
+// For comparison the regular build on the same host: exactly one /healthz probe (404, no retries) → solo only.
+
+import { expect, test, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+const OUT = process.env.E2E_OUT || 'dist';
+let server: Server | null = null;
+let base = '';
+let artifactHtml = '';
+let regularHtml = '';
+let pageMode: 'artifact' | 'regular' = 'artifact';
+const served: string[] = [];
+
+test.beforeAll(async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'swap-tower-artifact-'));
+  execFileSync(process.execPath, ['scripts/make-artifact.mjs', path.join(OUT, 'index.html'), dir], { stdio: 'ignore' });
+  const fragment = readFileSync(path.join(dir, 'index.html'), 'utf8');
+  artifactHtml =
+    '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    // the host sets the tab icon itself (otherwise the browser asks for /favicon.ico — the host's 404, not ours)
+    '<link rel="icon" href="data:,">' +
+    `</head><body>${fragment}</body></html>`;
+  regularHtml = readFileSync(path.join(OUT, 'index.html'), 'utf8');
+  server = createServer((req, res) => {
+    const url = (req.url ?? '/').split('?')[0];
+    served.push(url);
+    if (url === '/') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(pageMode === 'artifact' ? artifactHtml : regularHtml);
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('not found');
+  });
+  await new Promise<void>(r => server!.listen(0, '127.0.0.1', () => r()));
+  base = `http://127.0.0.1:${(server!.address() as { port: number }).port}/`;
+});
+
+test.afterAll(async () => {
+  await new Promise<void>(r => (server ? server.close(() => r()) : r()));
+  server = null;
+});
+
+function watch(page: Page) {
+  const errors: string[] = [];
+  const requests: string[] = [];
+  page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+  page.on('console', m => {
+    if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+  });
+  page.on('request', r => requests.push(new URL(r.url()).pathname + (r.resourceType() === 'websocket' ? ' (ws)' : '')));
+  page.on('websocket', ws => requests.push(`ws ${ws.url()}`));
+  return { errors, requests };
+}
+
+test('artifact build: solo only, no network probe, zero console errors, plays', async ({ page }) => {
+  pageMode = 'artifact';
+  const w = watch(page);
+  await page.goto(base);
+  await page.waitForFunction(() => window.__proto?.phase === 'preset');
+  await page.waitForFunction(() => window.__proto?.net.status === 'offline');
+  const note = page.locator('.ps-net-note');
+  await expect(note).toBeVisible();
+  await expect(note).toHaveClass(/is-solo/);
+  await expect(note).toContainText('혼자 하기 전용');
+
+  // 출발 → straight into a solo run (no 매칭 screen)
+  const box = (await page.locator('.preset .btn-start').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForFunction(() => window.__proto?.phase === 'combat', undefined, { timeout: 10_000 });
+  expect(await page.evaluate(() => [window.__proto!.mode, window.__proto!.localPlayer, window.__proto!.game!.state.players.map(p => p.isBot)])).toEqual([
+    'solo',
+    0,
+    [false, true, true],
+  ]);
+  await page.waitForTimeout(800);
+  const r = await page.evaluate(() => {
+    const s = window.__proto!.game!.state;
+    return window.__proto!.ui.dragTo('swap', 1, { x: s.plan.arena.width / 2, y: s.plan.arena.height / 2 });
+  });
+  expect(r.ok).toBe(true);
+  await page.waitForFunction(() => window.__proto!.game!.state.players[0].activeIndex === 1);
+  await page.waitForTimeout(1500);
+
+  expect(w.errors, w.errors.join('\n')).toEqual([]);
+  expect(w.requests).toEqual(['/']);
+});
+
+test('regular build on a static host: one /healthz probe (404), no retries, solo only', async ({ page }) => {
+  pageMode = 'regular';
+  served.length = 0;
+  const w = watch(page);
+  await page.goto(base);
+  await page.waitForFunction(() => window.__proto?.net.status === 'offline');
+  const note = page.locator('.ps-net-note');
+  await expect(note).toBeVisible();
+  await expect(note).not.toHaveClass(/is-solo/);
+  // the probe would retry after 3 s on a network error; a 404 is definitive
+  await page.waitForTimeout(3800);
+  expect(served).toEqual(['/', '/healthz']);
+  expect(w.requests.filter(u => u.includes('ws'))).toEqual([]);
+  // the browser itself logs the 404 of the probe; nothing else
+  expect(w.errors.filter(e => !/404/.test(e)), w.errors.join('\n')).toEqual([]);
+  expect(w.errors.length).toBeLessThanOrEqual(1);
+});

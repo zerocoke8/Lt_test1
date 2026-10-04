@@ -86,3 +86,18 @@ export function clearTunableOverrides(): void {
     /* ignore */
   }
 }
+
+// ─────────────── multiplayer nickname (매칭 화면) ───────────────
+
+const NICK_KEY = 'swapTower.nickname.v1';
+/** Same limit as the server (1–12 chars); the server sanitises again. */
+export const NICKNAME_MAX = 12;
+
+export function loadNickname(): string {
+  const v = read(NICK_KEY);
+  return typeof v === 'string' ? Array.from(v.trim()).slice(0, NICKNAME_MAX).join('') : '';
+}
+
+export function saveNickname(name: string): void {
+  write(NICK_KEY, Array.from(name.trim()).slice(0, NICKNAME_MAX).join(''));
+}

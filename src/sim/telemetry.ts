@@ -1,6 +1,7 @@
-// Tuning log (R22) for the local player (player 0).
+// Tuning log (R22) per player, and live tuning: validated Tunables patches (debug panel / multiplayer host).
 
-import type { ContributionStats, DamageSource, Telemetry } from '../types';
+import type { CommandResult, ContributionStats, DamageSource, Telemetry, Tunables } from '../types';
+import { DEFAULT_TUNABLES } from '../config';
 import type { World } from './world';
 
 export const DAMAGE_SOURCES: DamageSource[] = ['basic', 'passive', 'normal', 'drag', 'ult', 'pet', 'relic', 'zone', 'summon'];
@@ -23,8 +24,8 @@ export function emptyContribution(): ContributionStats {
   };
 }
 
-export function computeTelemetry(w: World): Telemetry {
-  const p = w.state.players[0];
+export function computeTelemetry(w: World, player = 0): Telemetry {
+  const p = Number.isInteger(player) ? w.state.players[player] : undefined;
   const st = p ? p.stats : emptyContribution();
   const minutes = w.state.time / 60;
   let total = 0;
@@ -37,4 +38,66 @@ export function computeTelemetry(w: World): Telemetry {
     avgUltDelay: st.ultDelayCount > 0 ? st.ultDelayTotal / st.ultDelayCount : 0,
     floorTimes: w.floorTimes.map(f => ({ ...f })),
   };
+}
+
+// ─────────────────────────── Live tunables patch ───────────────────────────
+
+type NumKey = { [K in keyof Tunables]: Tunables[K] extends number ? K : never }[keyof Tunables];
+
+/** Sane bounds for every numeric tunable [min, max, integer?]. Wider than the debug sliders; only guards nonsense. */
+const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
+  gameSpeed: [0, 8],
+  swapCooldownMult: [0, 10],
+  ultChargeTime: [0.5, 600],
+  reviveTime: [0, 600],
+  reviveHpFrac: [0.01, 1],
+  floorHealFrac: [0, 1],
+  appearLockTime: [0, 10],
+  appearInvulnTime: [0, 10],
+  botDamageMult: [0, 10],
+  monsterHpMult: [0.01, 10],
+  monsterDmgMult: [0, 10],
+  floorStatGrowth: [0, 5],
+  normalFloorTime: [5, 3600],
+  bossFloorTime: [5, 3600],
+  waveInterval: [0.5, 120],
+  maxAliveMonsters: [1, 200, true],
+  maxFloor: [1, 200, true],
+  midBossKillTrigger: [0, 1000, true],
+  midBossTimeTrigger: [0, 3600],
+  bossLockReleaseSec: [0, 600],
+  petCooldownMult: [0, 10],
+};
+
+/**
+ * Validate a Tunables patch: unknown keys and wrong types are dropped, numbers clamped to sane bounds.
+ * Returns only the accepted fields (possibly empty).
+ */
+export function sanitizeTunablesPatch(raw: unknown): Partial<Tunables> {
+  const out: Record<string, number | boolean> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out as Partial<Tunables>;
+  const r = raw as Record<string, unknown>;
+  for (const k of Object.keys(DEFAULT_TUNABLES) as (keyof Tunables)[]) {
+    if (!Object.prototype.hasOwnProperty.call(r, k)) continue;
+    const v = r[k];
+    const def = DEFAULT_TUNABLES[k];
+    if (typeof def === 'boolean') {
+      if (typeof v === 'boolean') out[k] = v;
+      continue;
+    }
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const [lo, hi, int] = BOUNDS[k as NumKey] ?? [0, 1e6];
+    const c = Math.min(hi, Math.max(lo, v));
+    out[k] = int ? Math.round(c) : c;
+  }
+  return out as Partial<Tunables>;
+}
+
+/** Command 'tunables': apply a validated patch to the live tunables. Fails when nothing valid was given. */
+export function applyTunablesPatch(t: Tunables, patch: unknown): CommandResult {
+  const clean = sanitizeTunablesPatch(patch);
+  const keys = Object.keys(clean);
+  if (keys.length === 0) return { ok: false, reason: '잘못된 튜닝 값' };
+  Object.assign(t, clean);
+  return { ok: true };
 }

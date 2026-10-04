@@ -1,0 +1,22 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec): one free web service = static client + game server.
+# Dashboard → New → Blueprint → pick this repository/branch. See docs/multiplayer.md.
+services:
+  - type: web
+    name: swap-tower
+    runtime: node
+    plan: free
+    region: singapore
+    # --include=dev: the build needs vite/esbuild even if NODE_ENV=production is set
+    buildCommand: npm ci --include=dev && npm run build:all
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # behind Render's proxy: the per-IP connection limit reads X-Forwarded-For
+      - key: TRUST_PROXY
+        value: "1"
+      # free plan = 0.1 CPU; one running game ≈ 0.03 CPU → at most 3 games at once ("서버가 붐벼요" beyond that)
+      - key: MAX_GAMES
+        value: "3"

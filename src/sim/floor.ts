@@ -1,9 +1,9 @@
 // Floors (R15–R21): plan, start, spawner, clear/timeout/enrage/retreat, reward phase.
 
-import type { BossDef, CommandResult, FloorPlan, Tunables, Vec2, WavePlan } from '../types';
+import type { BossDef, CommandResult, FloorPlan, RewardOffer, Tunables, Vec2, WavePlan } from '../types';
 import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, BOSS_POS, MONSTER_UNLOCK_FLOOR } from '../config';
 import { BOSSES, getBoss, getMonster, MID_BOSS_IDS, NORMAL_MONSTER_IDS } from '../data';
-import { SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_SIZE, WAVES } from './constants';
+import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_SIZE, WAVES } from './constants';
 import { heal } from './combat';
 import { createUnit } from './entities';
 import { syncMembers } from './players';
@@ -106,8 +106,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   s.bossEnraged = false;
   s.midBossSpawned = false;
   s.wavesRemaining = s.plan.waves.length;
-  s.rewardOffers = null;
-  w.humanOffers = null;
+  clearRewardOffers(w);
   w.bossRetreat = false;
   w.enragedEmptyTime = 0;
   s.phase = 'combat';
@@ -315,32 +314,88 @@ export function floorClear(w: World): void {
     return;
   }
 
-  // R20: reward phase (time frozen). Bots pick at random right away; out players get nothing.
+  // R20/R33: reward phase (time frozen). Bots pick at random right away; out players get nothing; every human gets
+  // their own offers and the next floor starts once all of them chose.
   s.phase = 'reward';
   const relicFloor = s.plan.kind === 'boss';
+  const byPlayer: (RewardOffer[] | null)[] = s.players.map(() => null);
   for (const p of s.players) {
     if (p.out) continue;
     const offers = rollOffers(w, p, relicFloor);
     if (offers.length === 0) continue;
-    if (p.isBot || p.id !== 0) {
-      applyOffer(w, p, offers[w.rng.int(0, offers.length - 1)]);
-    } else {
-      w.humanOffers = { player: p.id, offers };
-      s.rewardOffers = offers;
-    }
+    if (p.isBot) applyOffer(w, p, offers[w.rng.int(0, offers.length - 1)]);
+    else byPlayer[p.id] = offers;
   }
-  if (!w.humanOffers) startFloor(w, s.floor + 1, true);
+  s.rewardOffersByPlayer = byPlayer;
+  syncRewardCompat(w);
+  finishRewardIfDone(w);
+}
+
+/** No pending offers for anyone (floor start, run end). */
+export function clearRewardOffers(w: World): void {
+  const s = w.state;
+  s.rewardOffersByPlayer = s.players.map(() => null);
+  s.rewardOffers = null;
+  w.humanOffers = null;
+}
+
+/** state.rewardOffers / world.humanOffers mirror player 0's entry (compatibility with the single-human API). */
+function syncRewardCompat(w: World): void {
+  const s = w.state;
+  const mine = s.rewardOffersByPlayer[0] ?? null;
+  s.rewardOffers = mine;
+  w.humanOffers = mine ? { player: 0, offers: mine } : null;
+}
+
+/** Reward phase over once nobody has a pending choice → next floor. */
+function finishRewardIfDone(w: World): void {
+  const s = w.state;
+  if (s.phase !== 'reward') return;
+  if (s.rewardOffersByPlayer.some(o => o != null)) return;
+  startFloor(w, s.floor + 1, true);
 }
 
 export function chooseReward(w: World, pi: number, offerIndex: number): CommandResult {
   const s = w.state;
-  if (s.phase !== 'reward' || !w.humanOffers) return { ok: false, reason: '보상 단계가 아님' };
-  if (pi !== w.humanOffers.player) return { ok: false, reason: '잘못된 대상' };
-  const offer = w.humanOffers.offers[offerIndex];
+  if (s.phase !== 'reward') return { ok: false, reason: '보상 단계가 아님' };
+  if (!Number.isInteger(pi) || pi < 0 || pi >= s.players.length) return { ok: false, reason: '잘못된 대상' };
+  const offers = s.rewardOffersByPlayer[pi];
+  if (!offers) return { ok: false, reason: '고를 보상이 없음' };
+  const offer = Number.isInteger(offerIndex) ? offers[offerIndex] : undefined;
   if (!offer) return { ok: false, reason: '잘못된 선택' };
   applyOffer(w, s.players[pi], offer);
-  w.humanOffers = null;
-  s.rewardOffers = null;
-  startFloor(w, s.floor + 1, true);
+  s.rewardOffersByPlayer[pi] = null;
+  syncRewardCompat(w);
+  finishRewardIfDone(w);
   return { ok: true };
+}
+
+/**
+ * R34: hand a player slot to the bot (multiplayer disconnect / leave) or back to its human.
+ * A slot that becomes a bot during the reward phase picks its pending reward at random right away.
+ */
+export function setPlayerBot(w: World, pi: number, isBot: boolean): void {
+  const s = w.state;
+  const p = Number.isInteger(pi) ? s.players[pi] : undefined;
+  if (!p) return;
+  const was = p.isBot;
+  p.isBot = isBot;
+  p.disconnected = isBot;
+  if (isBot && !was) {
+    // fresh bot brain: react from now on (timers are absolute sim time)
+    const b = p.rt.bot;
+    b.thinkIn = Math.min(b.thinkIn, BOT.thinkInterval);
+    b.reactAt = null;
+    b.ultAt = null;
+    b.nextSwapAt = s.time + BOT.periodicSwap[0];
+  }
+  if (isBot && s.phase === 'reward') {
+    const offers = s.rewardOffersByPlayer[pi];
+    if (offers && offers.length > 0) {
+      applyOffer(w, p, offers[w.rng.int(0, offers.length - 1)]);
+      s.rewardOffersByPlayer[pi] = null;
+      syncRewardCompat(w);
+      finishRewardIfDone(w);
+    }
+  }
 }

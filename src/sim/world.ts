@@ -148,6 +148,8 @@ export interface PendingEcho {
   actions: SkillAction[];
   remaining: number;
   telegraphId: number | null;
+  /** The other parts' telegraphs (multi-part drag skills: every spot is shown, not only the first). */
+  extraTelegraphIds: number[];
 }
 export type Pending = PendingHit | PendingEcho;
 

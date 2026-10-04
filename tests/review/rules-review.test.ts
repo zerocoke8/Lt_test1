@@ -496,7 +496,7 @@ describe('R22 telemetry', () => {
     ticks(tg, T(30)); // ult full at 30 s
     ticks(tg, T(4));
     expect(tg.game.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
-    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 19, y: 6 } }).ok).toBe(true);
+    expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: g.pos.x, y: g.pos.y } }).ok).toBe(true);
     ticks(tg, T(26));
     const t = tg.game.telemetry();
     const s = tg.w.state;
@@ -600,14 +600,14 @@ describe('documented interpretations (behaviour as implemented; confirm with the
     bug.rt.base.moveSpeed = 0;
     bug.hp = bug.maxHp = bug.rt.base.maxHp = 25;
     clearEvents(tg);
-    // blade: drag = 2.5 × 32 atk = 80 (crit possible → ≥ 80)
+    // blade: drag = 2.4 × 32 atk = 76.8 (crit possible → ≥ 76.8)
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } }).ok).toBe(true);
     expect(bug.hp).toBeLessThanOrEqual(0);
     const st = tg.w.state.players[0].stats;
     expect(st.damageBySource.drag).toBeCloseTo(25, 9);
     expect(st.damageDealt).toBeCloseTo(25, 9);
     // the floating number still shows the full hit
-    expect(eventsOf(tg, 'damage').find(e => e.targetId === bug.id)!.amount).toBeGreaterThanOrEqual(80);
+    expect(eventsOf(tg, 'damage').find(e => e.targetId === bug.id)!.amount).toBeGreaterThanOrEqual(2.4 * 32 - 1e-9);
   });
 
   it('shield-absorbed damage counts, overkill past HP does not (damage taken too)', () => {

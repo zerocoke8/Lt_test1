@@ -56,7 +56,10 @@ describe('R2–R4 swap', () => {
     expect(s.entities.find(e => e.id === old.id)).toBeUndefined();
     const e = active(tg);
     expect(e.defId).toBe('blade');
-    expect(e.pos).toEqual({ x: 10, y: 4 });
+    // blade's drag skill (질풍 돌파) appears at the drop point, then dashes 6 to the right (R28)
+    expect(eventsOf(tg, 'appear')[0].pos).toEqual({ x: 10, y: 4 });
+    expect(eventsOf(tg, 'dash')[0]).toMatchObject({ entityId: e.id, from: { x: 10, y: 4 }, to: { x: 16, y: 4 } });
+    expect(e.pos).toEqual({ x: 16, y: 4 });
     expect(e.anim).toBe('appear');
     expect(e.invulnTime).toBeCloseTo(tg.game.tunables.appearInvulnTime);
     const types = eventsOf(tg, 'leave').length + eventsOf(tg, 'appear').length;
@@ -69,7 +72,7 @@ describe('R2–R4 swap', () => {
 
   it('drop point is clamped into the arena', () => {
     const tg = makeGame();
-    tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: -5, y: 99 } });
+    tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { x: -5, y: 99 } }); // mage: no dash
     const e = active(tg);
     const a = tg.game.state.plan.arena;
     expect(e.pos).toEqual({ x: 0.5, y: a.height - 0.5 });
@@ -120,10 +123,12 @@ describe('R2–R4 swap', () => {
   it('previewArea shows the drag skill area with radius rewards', () => {
     const tg = makeGame();
     const p = tg.game.state.players[0];
-    expect(tg.game.previewArea(0, 'swap', 1)).toEqual({ shape: 'circle', radius: 2.2 });
+    expect(tg.game.previewArea(0, 'swap', 1)).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.4 });
     p.rewards.push({ rewardId: 'dragrad_epic', partyIndex: 1 });
     const a = tg.game.previewArea(0, 'swap', 1);
-    expect(a.shape === 'circle' && a.radius).toBeCloseTo(2.2 * 1.5);
+    expect(a.shape === 'rect' && a.length).toBeCloseTo(6 * 1.5);
+    expect(a.shape === 'rect' && a.width).toBeCloseTo(1.4 * 1.5);
+    expect(tg.game.previewParts(0, 'swap', 1)[0].dash?.distance).toBeCloseTo(6 * 1.5);
     expect(tg.game.previewArea(0, 'pet', 0)).toEqual({ shape: 'circle', radius: 2.5 });
   });
 });

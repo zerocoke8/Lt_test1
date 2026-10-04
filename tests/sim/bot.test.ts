@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bestDropPoint } from '../../src/sim/bot';
+import { hitsArea } from '../../src/sim/geometry';
 import { applyStatus } from '../../src/sim/status';
 import { active, advance, BOT1, eventsOf, HUMAN, killActive, makeGame, quietFloor, spawnAt } from './helpers';
 
@@ -51,10 +52,13 @@ describe('R23 bots', () => {
     const tg = makeGame({ players: [BOT_P0] });
     quietFloor(tg);
     spawnAt(tg, 'slime', { x: 5, y: 6 });
-    for (const [x, y] of [[25, 6], [25.8, 6.4], [24.4, 5.5], [25.3, 7]]) spawnAt(tg, 'slime', { x, y });
-    const pos = bestDropPoint(tg.w, tg.w.state.players[0], 1); // blade r=2.2
-    expect(pos.x).toBeGreaterThan(23);
-    expect(pos.x).toBeLessThan(27);
+    const cluster = [[25, 6], [25.8, 6.4], [24.4, 5.5], [25.3, 7]].map(([x, y]) => spawnAt(tg, 'slime', { x, y }));
+    // blade: dash right 6 over a rect (R29: scored with the real footprint) → dropped LEFT of the cluster, path covers all
+    const pos = bestDropPoint(tg.w, tg.w.state.players[0], 1);
+    const part = tg.game.previewParts(0, 'swap', 1)[0];
+    for (const s of cluster) expect(hitsArea(part.area, pos, pos, s.pos, s.radius)).toBe(true);
+    expect(pos.x).toBeGreaterThan(17);
+    expect(pos.x).toBeLessThan(25);
   });
 
   it('bots use the same command validation (no swaps while appearing / spectating)', () => {

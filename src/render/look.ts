@@ -6,6 +6,9 @@ import { getCharacter, getMonster, getPet } from '../data';
 export const FONT_STACK =
   '"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic","WenQuanYi Zen Hei",system-ui,sans-serif';
 
+/** Other players' skill flashes and fields are drawn at this strength (mine at 1): my own fight stays readable. */
+export const OTHER_PLAYER_FX = 0.55;
+
 export const COLORS = {
   ally: '#4ade80',
   allyHpBack: '#0e2a18',
@@ -87,7 +90,7 @@ export type BodyShape =
   | 'blob';
 
 /** Hand-held prop drawn on heroes (placeholder art). */
-export type Accessory = 'shield' | 'sword' | 'axe' | 'bow' | 'orb' | 'staff' | 'none';
+export type Accessory = 'shield' | 'sword' | 'axe' | 'bow' | 'orb' | 'staff' | 'hammer' | 'gun' | 'lute' | 'none';
 
 const ACCESSORY_BY_ID: Record<string, Accessory> = {
   guardian: 'shield',
@@ -96,6 +99,12 @@ const ACCESSORY_BY_ID: Record<string, Accessory> = {
   ranger: 'bow',
   mage: 'orb',
   cleric: 'staff',
+  paladin: 'hammer',
+  warden: 'shield',
+  shadow: 'sword',
+  gunner: 'gun',
+  bard: 'lute',
+  chrono: 'orb',
 };
 const ACCESSORY_BY_ROLE: Record<Role, Accessory> = { tank: 'shield', melee: 'sword', ranged: 'bow', support: 'staff' };
 

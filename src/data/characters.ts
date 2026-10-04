@@ -1,9 +1,11 @@
 import type { CharacterDef } from '../types';
 
-// 임시 캐릭터 6명 (기획서 2차 Q5: 개발이 임시로 만듦). 역할 4종: 탱커 / 근접딜러 / 원거리딜러 / 서포터.
-// 드래그스킬은 전부 놓은 지점(point) 중심. swapCooldown(8~12초) = 드래그스킬 쿨, 강할수록 김.
+// 캐릭터 12종 (기획 3차 1: 역할별 3명 — 탱커 / 근접딜러 / 원거리딜러 / 서포터). 스킬 내용은 임시 (2차 Q5).
+// 드래그스킬은 놓은 지점(point)이 기준점. 방향이 있는 형태는 데이터에 방향이 고정됨 (3차 2: 오른쪽 돌진은 항상 오른쪽).
+// swapCooldown(8~12초) = 드래그스킬 쿨, 강할수록 김. 목록 순서 = 프리셋 화면 순서 (역할별로 묶음).
 
 export const CHARACTERS: CharacterDef[] = [
+  // ─────────────────────────── 탱커 ───────────────────────────
   {
     id: 'guardian',
     name: '가디언',
@@ -31,11 +33,11 @@ export const CHARACTERS: CharacterDef[] = [
     },
     drag: {
       id: 'guardian_d',
-      name: '집결의 낙하',
+      name: '방패 파동',
       slot: 'drag',
-      description: '착지 지점 반경 3.5의 적을 끌어당기고 120% 피해 + 0.6초 기절. 자신에게 보호막(최대 HP 25%, 5초).',
+      description: '착지 지점을 가운데로 좌우로 긴 가로 띠(길이 7, 폭 2): 공격력 120% 피해 + 0.6초 기절. 자신에게 보호막(최대 HP 25%, 5초).',
       actions: [
-        { center: 'point', area: { shape: 'circle', radius: 3.5 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 2.5 }, { kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }] },
+        { center: 'point', area: { shape: 'rect', dir: 'right', anchor: 'center', length: 7, width: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }] },
         { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'shield', amount: 0.25, duration: 5 }] },
       ],
     },
@@ -51,6 +53,107 @@ export const CHARACTERS: CharacterDef[] = [
       ],
     },
   },
+  {
+    id: 'paladin',
+    name: '팔라딘',
+    role: 'tank',
+    color: '#48bfe3',
+    stats: { maxHp: 850, atk: 20, def: 0.25, atkSpeed: 0.9, range: 0.6, moveSpeed: 3.2, critChance: 0.05, critMult: 1.5 },
+    swapCooldown: 12,
+    basic: { kind: 'melee' },
+    passive: {
+      id: 'paladin_p',
+      name: '신성한 가호',
+      description: '최대 HP +5%. 등장 후 5초간 초당 HP 2% 회복.',
+      stats: { hpPct: 0.05 },
+      onAppear: { status: 'regen', duration: 5, value: 0.02 },
+    },
+    normal: {
+      id: 'paladin_n',
+      name: '성스러운 일격',
+      slot: 'normal',
+      description: '대상에게 공격력 180% 피해, 자신 HP 5% 회복.',
+      cooldown: 7,
+      castRange: 0.8,
+      castTime: 0.3,
+      actions: [
+        { center: 'target', area: { shape: 'single' }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.8 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'heal', amount: 0.05 }] },
+      ],
+    },
+    drag: {
+      id: 'paladin_d',
+      name: '심판의 십자',
+      slot: 'drag',
+      description: '착지 지점에 십자(+) 낙인(상하좌우 3.5칸, 폭 1.3): 공격력 160% 피해 + 0.8초 기절. 반경 3 아군 5초간 방어 +20%.',
+      actions: [
+        { center: 'point', area: { shape: 'cross', length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.6 }, { kind: 'status', status: 'stun', duration: 0.8, value: 0 }] },
+        { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'status', status: 'defUp', duration: 5, value: 0.2 }] },
+      ],
+    },
+    ult: {
+      id: 'paladin_u',
+      name: '천상의 심판',
+      slot: 'ult',
+      description: '자신 중심 큰 십자(+, 상하좌우 6칸, 폭 2)에 공격력 220% 피해 + 1초 기절. 반경 6 아군에게 보호막(최대 HP 20%, 5초).',
+      castTime: 0.4,
+      actions: [
+        { center: 'self', area: { shape: 'cross', length: 6, width: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.2 }, { kind: 'status', status: 'stun', duration: 1, value: 0 }] },
+        { center: 'self', area: { shape: 'circle', radius: 6 }, affects: 'allies', effects: [{ kind: 'shield', amount: 0.2, duration: 5 }] },
+      ],
+    },
+  },
+  {
+    id: 'warden',
+    name: '워든',
+    role: 'tank',
+    color: '#80b918',
+    stats: { maxHp: 950, atk: 16, def: 0.3, atkSpeed: 0.85, range: 0.7, moveSpeed: 3.0, critChance: 0.05, critMult: 1.5 },
+    swapCooldown: 11,
+    basic: { kind: 'melee' },
+    passive: {
+      id: 'warden_p',
+      name: '쇠사슬 갑주',
+      description: '방어 +10%. 기본 공격 적중 시 25% 확률로 2초간 20% 둔화.',
+      stats: { defFlat: 0.1 },
+      onHitStatus: { chance: 0.25, status: 'slow', duration: 2, value: 0.2 },
+    },
+    normal: {
+      id: 'warden_n',
+      name: '사슬 휘두르기',
+      slot: 'normal',
+      description: '자기 둘레 고리(안쪽 0.8 ~ 바깥 2.6)의 적을 1.2칸 끌어당기고 공격력 140% 피해.',
+      cooldown: 7,
+      castRange: 1.5,
+      castTime: 0.3,
+      actions: [{ center: 'self', area: { shape: 'ring', inner: 0.8, outer: 2.6 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 1.2 }, { kind: 'damage', amount: 1.4 }] }],
+    },
+    drag: {
+      id: 'warden_d',
+      name: '속박의 고리',
+      slot: 'drag',
+      description: '착지 지점 둘레 고리(안쪽 0.6 ~ 바깥 4) 안의 적을 가운데로 2.5칸 끌어당기고 공격력 100% 피해 + 3초간 40% 둔화. 자신에게 보호막(최대 HP 20%, 5초).',
+      actions: [
+        // hole 1.2 → 0.6 (playtest 3차): dropping on the pack itself hit only the edge of it; a small hole keeps the ring
+        // look and the pull, and only a unit dead center is spared
+        { center: 'point', area: { shape: 'ring', inner: 0.6, outer: 4 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 2.5 }, { kind: 'damage', amount: 1.0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'shield', amount: 0.2, duration: 5 }] },
+      ],
+    },
+    ult: {
+      id: 'warden_u',
+      name: '철옹성 감옥',
+      slot: 'ult',
+      description: '자기 둘레 큰 고리(안쪽 2 ~ 바깥 6)의 적을 4칸 끌어당기고 공격력 180% 피해 + 1.2초 기절. 자신에게 보호막(최대 HP 35%, 6초).',
+      castTime: 0.4,
+      actions: [
+        { center: 'self', area: { shape: 'ring', inner: 2, outer: 6 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 4 }, { kind: 'damage', amount: 1.8 }, { kind: 'status', status: 'stun', duration: 1.2, value: 0 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'shield', amount: 0.35, duration: 6 }] },
+      ],
+    },
+  },
+
+  // ─────────────────────────── 근접딜러 ───────────────────────────
   {
     id: 'blade',
     name: '블레이드',
@@ -77,10 +180,18 @@ export const CHARACTERS: CharacterDef[] = [
     },
     drag: {
       id: 'blade_d',
-      name: '급습 베기',
+      name: '질풍 돌파',
       slot: 'drag',
-      description: '착지 지점 반경 2.2에 공격력 250% 피해 + 0.5초 기절.',
-      actions: [{ center: 'point', area: { shape: 'circle', radius: 2.2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.5 }, { kind: 'status', status: 'stun', duration: 0.5, value: 0 }] }],
+      description: '착지 지점에서 오른쪽으로 6칸 돌진하며 지나간 길(폭 1.4)의 적에게 공격력 240% 피해 + 0.4초 기절.',
+      actions: [
+        {
+          center: 'point',
+          area: { shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.4 },
+          affects: 'enemies',
+          effects: [{ kind: 'damage', amount: 2.4 }, { kind: 'status', status: 'stun', duration: 0.4, value: 0 }],
+          dash: { dir: 'right', distance: 6 },
+        },
+      ],
     },
     ult: {
       id: 'blade_u',
@@ -117,10 +228,10 @@ export const CHARACTERS: CharacterDef[] = [
     },
     drag: {
       id: 'berserker_d',
-      name: '대지 분쇄',
+      name: '대지 가르기',
       slot: 'drag',
-      description: '착지 지점 반경 3에 공격력 320% 피해 + 3초간 40% 둔화.',
-      actions: [{ center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 3.2 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] }],
+      description: '착지 지점에서 오른쪽으로 펼쳐지는 부채꼴(반경 4.5, 100°)의 땅을 갈라 공격력 300% 피해 + 3초간 40% 둔화.',
+      actions: [{ center: 'point', area: { shape: 'cone', dir: 'right', radius: 4.5, angle: 100 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 3.0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.4 }] }],
     },
     ult: {
       id: 'berserker_u',
@@ -135,6 +246,53 @@ export const CHARACTERS: CharacterDef[] = [
       ] }],
     },
   },
+  {
+    id: 'shadow',
+    name: '섀도우',
+    role: 'melee',
+    color: '#5e60ce',
+    stats: { maxHp: 560, atk: 34, def: 0.08, atkSpeed: 1.5, range: 0.6, moveSpeed: 4.0, critChance: 0.2, critMult: 1.9 },
+    swapCooldown: 9,
+    basic: { kind: 'melee' },
+    passive: {
+      id: 'shadow_p',
+      name: '그림자 걸음',
+      description: '치명타 확률 +5%. 등장 후 3초간 공격력 +30%.',
+      stats: { critChance: 0.05 },
+      onAppear: { status: 'atkUp', duration: 3, value: 0.3 },
+    },
+    normal: {
+      id: 'shadow_n',
+      name: '암습',
+      slot: 'normal',
+      description: '대상에게 공격력 220% 피해 + 3초간 받는 피해 +15%.',
+      cooldown: 6,
+      castRange: 0.8,
+      castTime: 0.2,
+      actions: [{ center: 'target', area: { shape: 'single' }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.2 }, { kind: 'status', status: 'vulnerable', duration: 3, value: 0.15 }] }],
+    },
+    drag: {
+      id: 'shadow_d',
+      name: '그림자 연격',
+      slot: 'drag',
+      description: '착지 지점부터 오른쪽으로 2.2칸 간격 3연속 폭발(반경 1.4): 각각 공격력 130% 피해, 마지막 폭발은 0.3초 기절.',
+      actions: [
+        { center: 'point', area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }] },
+        { center: 'point', offset: { x: 2.2, y: 0 }, delay: 0.12, area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }] },
+        { center: 'point', offset: { x: 4.4, y: 0 }, delay: 0.24, area: { shape: 'circle', radius: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.3 }, { kind: 'status', status: 'stun', duration: 0.3, value: 0 }] },
+      ],
+    },
+    ult: {
+      id: 'shadow_u',
+      name: '그림자 난무',
+      slot: 'ult',
+      description: '대상 중심 X자(대각선 4방향 4칸, 폭 1.4)에 공격력 100% 피해를 6회.',
+      castTime: 0.2,
+      actions: [{ center: 'target', area: { shape: 'cross', diagonal: true, length: 4, width: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.0 }], hits: 6, hitInterval: 0.18 }],
+    },
+  },
+
+  // ─────────────────────────── 원거리딜러 ───────────────────────────
   {
     id: 'ranger',
     name: '레인저',
@@ -161,10 +319,10 @@ export const CHARACTERS: CharacterDef[] = [
     },
     drag: {
       id: 'ranger_d',
-      name: '화살비',
+      name: '관통 화살',
       slot: 'drag',
-      description: '착지 지점 반경 2.8에 3초간 0.5초마다 공격력 60% 피해.',
-      actions: [{ center: 'point', area: { shape: 'circle', radius: 2.8 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.6 }], zone: { duration: 3, tickInterval: 0.5 } }],
+      description: '착지 지점에서 오른쪽으로 긴 직선(길이 12, 폭 1.2)을 꿰뚫는 화살: 공격력 240% 피해.',
+      actions: [{ center: 'point', area: { shape: 'rect', dir: 'right', anchor: 'start', length: 12, width: 1.2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.4 }] }],
     },
     ult: {
       id: 'ranger_u',
@@ -201,10 +359,23 @@ export const CHARACTERS: CharacterDef[] = [
     },
     drag: {
       id: 'mage_d',
-      name: '운석 낙하',
+      name: '유성우',
       slot: 'drag',
-      description: '0.6초 뒤 착지 지점 반경 3에 공격력 400% 피해 + 4초 화상(초당 공격력 50%).',
-      actions: [{ center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'enemies', delay: 0.6, effects: [{ kind: 'damage', amount: 4 }, { kind: 'status', status: 'burn', duration: 4, value: 0.5 }] }],
+      description: '착지 지점 가운데와 네 모서리(좌우 2칸, 위아래 1.5칸) 다섯 곳에 0.3초부터 차례로 유성 낙하(반경 1.5): 각각 공격력 160% 피해 + 3초 화상(초당 공격력 40%).',
+      actions: [
+        { x: 0, y: 0, delay: 0.3 },
+        { x: -2, y: -1.5, delay: 0.45 },
+        { x: 2, y: -1.5, delay: 0.6 },
+        { x: -2, y: 1.5, delay: 0.75 },
+        { x: 2, y: 1.5, delay: 0.9 },
+      ].map(m => ({
+        center: 'point' as const,
+        offset: { x: m.x, y: m.y },
+        delay: m.delay,
+        area: { shape: 'circle' as const, radius: 1.5 },
+        affects: 'enemies' as const,
+        effects: [{ kind: 'damage' as const, amount: 1.6 }, { kind: 'status' as const, status: 'burn' as const, duration: 3, value: 0.4 }],
+      })),
     },
     ult: {
       id: 'mage_u',
@@ -215,6 +386,48 @@ export const CHARACTERS: CharacterDef[] = [
       actions: [{ center: 'target', area: { shape: 'circle', radius: 4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.5 }, { kind: 'status', status: 'slow', duration: 1, value: 0.5 }], zone: { duration: 5, tickInterval: 0.5 } }],
     },
   },
+  {
+    id: 'gunner',
+    name: '거너',
+    role: 'ranged',
+    color: '#c68b59',
+    stats: { maxHp: 500, atk: 28, def: 0.05, atkSpeed: 1.1, range: 5.5, moveSpeed: 3.5, critChance: 0.15, critMult: 1.7 },
+    swapCooldown: 10,
+    basic: { kind: 'projectile', speed: 20 },
+    passive: {
+      id: 'gunner_p',
+      name: '속사 장전',
+      description: '공격 속도 +15%, 치명타 피해 +20%.',
+      stats: { atkSpeedPct: 0.15, critMult: 0.2 },
+    },
+    normal: {
+      id: 'gunner_n',
+      name: '철갑탄',
+      slot: 'normal',
+      description: '대상 방향 직선(길이 8, 폭 1)에 공격력 200% 피해.',
+      cooldown: 6,
+      castRange: 6.5,
+      castTime: 0.3,
+      actions: [{ center: 'target', area: { shape: 'line', length: 8, width: 1 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.0 }] }],
+    },
+    drag: {
+      id: 'gunner_d',
+      name: '산탄 사격',
+      slot: 'drag',
+      description: '착지 지점에서 왼쪽으로 펼쳐지는 부채꼴(반경 5, 70°)에 산탄: 공격력 260% 피해 + 왼쪽으로 2칸 넉백.',
+      actions: [{ center: 'point', area: { shape: 'cone', dir: 'left', radius: 5, angle: 70 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.6 }, { kind: 'knockback', distance: 2, dir: 'left' }] }],
+    },
+    ult: {
+      id: 'gunner_u',
+      name: '탄막 폭격',
+      slot: 'ult',
+      description: '대상 주변 반경 3.5에 0.2초마다 공격력 75% 피해를 8회.',
+      castTime: 0.3,
+      actions: [{ center: 'target', area: { shape: 'circle', radius: 3.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.75 }], hits: 8, hitInterval: 0.2 }],
+    },
+  },
+
+  // ─────────────────────────── 서포터 ───────────────────────────
   {
     id: 'cleric',
     name: '클레릭',
@@ -243,7 +456,7 @@ export const CHARACTERS: CharacterDef[] = [
       id: 'cleric_d',
       name: '치유의 샘',
       slot: 'drag',
-      description: '착지 지점 반경 3 아군 정화 + HP 10% 회복, 이후 4초간 0.5초마다 HP 3% 회복.',
+      description: '착지 지점 원형(반경 3) 아군 정화 + HP 10% 회복, 이후 4초간 0.5초마다 HP 3% 회복.',
       actions: [
         { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'cleanse' }, { kind: 'heal', amount: 0.1 }] },
         { center: 'point', area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.03 }], zone: { duration: 4, tickInterval: 0.5 } },
@@ -256,6 +469,95 @@ export const CHARACTERS: CharacterDef[] = [
       description: '모든 아군 HP 40% 회복 + 정화 + 5초간 초당 HP 3% 재생.',
       castTime: 0.4,
       actions: [{ center: 'self', area: { shape: 'circle', radius: 99 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.4 }, { kind: 'cleanse' }, { kind: 'status', status: 'regen', duration: 5, value: 0.03 }] }],
+    },
+  },
+  {
+    id: 'bard',
+    name: '바드',
+    role: 'support',
+    color: '#e056fd',
+    stats: { maxHp: 540, atk: 15, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.7, critChance: 0.05, critMult: 1.5 },
+    swapCooldown: 9,
+    basic: { kind: 'projectile', speed: 14 },
+    passive: {
+      id: 'bard_p',
+      name: '경쾌한 박자',
+      description: '이동 속도 +10%, 공격 속도 +10%.',
+      stats: { moveSpeedPct: 0.1, atkSpeedPct: 0.1 },
+    },
+    normal: {
+      id: 'bard_n',
+      name: '격려의 노래',
+      slot: 'normal',
+      description: '주변 반경 5 아군 4초간 공격 속도 +20%.',
+      cooldown: 8,
+      castRange: 99,
+      castTime: 0.3,
+      actions: [{ center: 'self', area: { shape: 'circle', radius: 5 }, affects: 'allies', effects: [{ kind: 'status', status: 'haste', duration: 4, value: 0.2 }] }],
+    },
+    drag: {
+      id: 'bard_d',
+      name: '공명의 파동',
+      slot: 'drag',
+      description: '착지 지점을 지나는 위아래 세로 띠(길이 12, 폭 2.6): 아군은 5초간 공격 속도 +30%·공격력 +20%, 적은 공격력 80% 피해 + 2초간 30% 둔화.',
+      actions: [
+        { center: 'point', area: { shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 }, affects: 'allies', effects: [{ kind: 'status', status: 'haste', duration: 5, value: 0.3 }, { kind: 'status', status: 'atkUp', duration: 5, value: 0.2 }] },
+        { center: 'point', area: { shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.8 }, { kind: 'status', status: 'slow', duration: 2, value: 0.3 }] },
+      ],
+    },
+    ult: {
+      id: 'bard_u',
+      name: '대합창',
+      slot: 'ult',
+      description: '모든 아군 HP 15% 회복 + 8초간 공격력 +35%·공격 속도 +30%.',
+      castTime: 0.4,
+      actions: [{ center: 'self', area: { shape: 'circle', radius: 99 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.15 }, { kind: 'status', status: 'atkUp', duration: 8, value: 0.35 }, { kind: 'status', status: 'haste', duration: 8, value: 0.3 }] }],
+    },
+  },
+  {
+    id: 'chrono',
+    name: '크로노',
+    role: 'support',
+    color: '#b8c0ff',
+    stats: { maxHp: 500, atk: 18, def: 0.08, atkSpeed: 0.9, range: 5.5, moveSpeed: 3.6, critChance: 0.1, critMult: 1.6 },
+    swapCooldown: 10,
+    basic: { kind: 'projectile', speed: 13 },
+    passive: {
+      id: 'chrono_p',
+      name: '느려지는 초침',
+      description: '기본 공격 적중 시 30% 확률로 2초간 30% 둔화.',
+      onHitStatus: { chance: 0.3, status: 'slow', duration: 2, value: 0.3 },
+    },
+    normal: {
+      id: 'chrono_n',
+      name: '초침 베기',
+      slot: 'normal',
+      description: '대상 중심 십자(+, 상하좌우 2칸, 폭 1)에 공격력 150% 피해 + 2초간 30% 둔화.',
+      cooldown: 7,
+      castRange: 6,
+      castTime: 0.3,
+      actions: [{ center: 'target', area: { shape: 'cross', length: 2, width: 1 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.5 }, { kind: 'status', status: 'slow', duration: 2, value: 0.3 }] }],
+    },
+    drag: {
+      id: 'chrono_d',
+      name: '시간 균열',
+      slot: 'drag',
+      description: '착지 지점에 X자 균열(대각선 4방향 3.5칸, 폭 1.3): 적에게 공격력 100% 피해 + 0.8초 기절 + 3초간 50% 둔화. 내 대기 캐릭터 재등장 쿨 2초 감소.',
+      actions: [
+        { center: 'point', area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.0 }, { kind: 'status', status: 'stun', duration: 0.8, value: 0 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 2 }] },
+      ],
+    },
+    ult: {
+      id: 'chrono_u',
+      name: '시간 정지',
+      slot: 'ult',
+      description: '주변 반경 8의 적 2초 기절 + 4초간 받는 피해 +20%. 내 대기 캐릭터 재등장 쿨 4초 감소.',
+      castTime: 0.4,
+      actions: [
+        { center: 'self', area: { shape: 'circle', radius: 8 }, affects: 'enemies', effects: [{ kind: 'status', status: 'stun', duration: 2, value: 0 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.2 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 4 }] },
+      ],
     },
   },
 ];

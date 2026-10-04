@@ -1,7 +1,10 @@
-// 프리셋 화면: 캐릭터 6명 중 3명(고른 순서 = 슬롯 1/2/3) + 펫 8마리 중 3마리. 마지막 편성 기억.
+// 프리셋 화면: 캐릭터 12명 중 3명(고른 순서 = 슬롯 1/2/3) + 펫 8마리 중 3마리. 마지막 편성 기억.
+// 캐릭터는 역할별 4열 × 3행 카드. 카드와 상세 패널에 드래그스킬 형태 미니 도형(모양·방향)을 그림 (3차 1·2).
 
-import type { CharacterDef, PetDef, SkillDef } from '../types';
+import type { CharacterDef, PetDef, Role, SkillDef } from '../types';
 import { CHARACTERS, PETS, ROLE_LABEL, getCharacter, getPet } from '../data';
+import { drawShapeIcon } from '../render/shapeIcon';
+import { partsForActions } from '../sim/preview';
 import { ROLE_ICON, button, h, replayClass } from './dom';
 import { ROLE_GLYPH, basicAttackText } from './format';
 import type { PresetSave } from './storage';
@@ -42,6 +45,24 @@ export function petIcon(def: PetDef, cls: string, parent?: HTMLElement | null): 
   return p;
 }
 
+const ROLES: Role[] = ['tank', 'melee', 'ranged', 'support'];
+
+/** Mini diagram of a character's drag-skill footprint (shape + fixed direction + drop point). */
+export function dragShapeIcon(def: CharacterDef, cls: string, w: number, h: number, parent: HTMLElement, detail = false): HTMLCanvasElement {
+  const cv = h_canvas(cls, parent);
+  cv.style.width = `${w}px`;
+  cv.style.height = `${h}px`;
+  drawShapeIcon(cv, partsForActions(def.drag.actions, 1), { width: w, height: h, color: def.color, detail });
+  return cv;
+}
+
+function h_canvas(cls: string, parent: HTMLElement): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.className = cls;
+  parent.appendChild(cv);
+  return cv;
+}
+
 export function roleTag(def: CharacterDef, parent: HTMLElement): HTMLElement {
   const t = h('span', `role-tag role-${def.role}`, parent);
   const i = h('span', 'role-ico', t);
@@ -71,8 +92,17 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   const left = h('div', 'ps-left', main);
   const secC = h('div', 'ps-sec', left);
   h('span', 'ps-sec-title', secC, '캐릭터');
-  h('span', 'ps-sec-hint', secC, '고른 순서 = 슬롯 · 1번이 먼저 출전');
+  h('span', 'ps-sec-hint', secC, '고른 순서 = 슬롯 · 1번이 먼저 출전 · 도형 = 드래그스킬 범위 · 초 = 재등장 쿨');
   const charGrid = h('div', 'ps-grid ps-grid-chars', left);
+  const roleCols = new Map<Role, HTMLElement>();
+  for (const role of ROLES) {
+    const col = h('div', `ps-col ps-col-${role}`, charGrid);
+    const head = h('div', `ps-role-head role-${role}`, col);
+    const ic = h('span', 'role-ico', head);
+    ic.innerHTML = ROLE_ICON[role];
+    h('span', '', head, ROLE_LABEL[role]);
+    roleCols.set(role, col);
+  }
   const secP = h('div', 'ps-sec', left);
   h('span', 'ps-sec-title', secP, '펫');
   h('span', 'ps-sec-hint', secP, '8마리 중 3마리 · 필드로 끌어 놓으면 발동');
@@ -97,13 +127,15 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
 
   const charCards = new Map<string, HTMLElement>();
   for (const def of CHARACTERS) {
-    const c = button('ps-card ps-char', '', charGrid, () => toggleChar(def.id, c));
+    const c = button('ps-card ps-char', '', roleCols.get(def.role) ?? charGrid, () => toggleChar(def.id, c));
     c.style.setProperty('--c', def.color);
-    portrait(def, 'portrait-md', c);
+    c.setAttribute('aria-label', `${def.name} · ${ROLE_LABEL[def.role]} · ${def.drag.name}`);
+    portrait(def, 'portrait-sm', c);
     const info = h('div', 'ps-card-info', c);
     h('div', 'ps-card-name', info, def.name);
-    roleTag(def, info);
-    h('div', 'ps-card-meta', info, `재등장 쿨 ${def.swapCooldown}초`);
+    const row = h('div', 'ps-card-drag', info);
+    dragShapeIcon(def, 'ps-shape', 58, 30, row);
+    h('span', 'ps-card-meta', row, `${def.swapCooldown}초`);
     h('div', 'ps-badge', c);
     charCards.set(def.id, c);
   }
@@ -143,13 +175,14 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     refresh();
   }
 
-  function skillRow(parentEl: HTMLElement, slotLabel: string, slotCls: string, name: string, desc: string, meta?: string): void {
+  function skillRow(parentEl: HTMLElement, slotLabel: string, slotCls: string, name: string, desc: string, meta?: string): HTMLElement {
     const row = h('div', `sk-row sk-${slotCls}`, parentEl);
     const top = h('div', 'sk-top', row);
     h('span', 'sk-slot', top, slotLabel);
     h('span', 'sk-name', top, name);
     if (meta) h('span', 'sk-meta', top, meta);
     h('div', 'sk-desc', row, desc);
+    return row;
   }
 
   function renderDetail(): void {
@@ -165,11 +198,17 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       const s = def.stats;
       h('div', 'dt-stats', t, `HP ${s.maxHp} · 공격력 ${s.atk} · 사거리 ${s.range}`);
       const list = h('div', 'dt-skills', detail);
+      // 드래그스킬 first: it is what the swap game is about (shape + direction diagram)
+      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, def.drag.description, `재등장 쿨 ${def.swapCooldown}초`);
+      const body = h('div', 'sk-shape-row', drag);
+      const fig = h('div', 'sk-shape', body);
+      dragShapeIcon(def, 'sk-shape-cv', 132, 74, fig, true);
+      h('div', 'sk-shape-cap', fig, '● 놓는 지점');
+      body.appendChild(drag.querySelector('.sk-desc')!);
       skillRow(list, '기본평타', 'basic', def.basic.kind === 'melee' ? '근접 공격' : '원거리 공격', basicAttackText(def.basic), `초당 ${s.atkSpeed}회`);
       skillRow(list, '패시브', 'passive', def.passive.name, def.passive.description, '필드에서만');
       const n: SkillDef = def.normal;
       skillRow(list, '일반스킬', 'normal', n.name, n.description, `자동 · 쿨 ${n.cooldown ?? 0}초`);
-      skillRow(list, '드래그스킬', 'drag', def.drag.name, def.drag.description, `재등장 쿨 ${def.swapCooldown}초`);
       skillRow(list, '궁극기', 'ult', def.ult.name, def.ult.description, '게이지 탭');
     } else {
       const def = getPet(focus.id);

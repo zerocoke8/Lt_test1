@@ -1,14 +1,26 @@
-// 결과 화면 (R22): outcome/reason/floor/duration, per-player contribution, tuning log from game.telemetry().
+// 결과 화면 (R22): outcome/reason/floor/duration, per-player contribution (my row highlighted), my tuning log.
+// Solo: 프리셋으로 / 다시 하기. Multiplayer: 방 나가기 / 방으로 (the room stays; the host can start again).
 
 import type { DamageSource, Game, PlayerState, RunResult } from '../types';
 import { getCharacter } from '../data';
 import { button, h } from './dom';
 import { SOURCE_COLOR, SOURCE_LABEL, formatClock, formatNumber, resultReason, resultTitle } from './format';
-import { LOCAL_PLAYER } from './hud';
+import { showsBotTag } from './hud';
 
 export interface ResultCallbacks {
   onRetry(): void;
   onPreset(): void;
+  /** Multiplayer: back to the room screen. */
+  onRoom?(): void;
+  /** Multiplayer: leave the room. */
+  onLeaveRoom?(): void;
+}
+
+export interface ResultView {
+  localPlayer: number;
+  multi: boolean;
+  /** Multiplayer: I am the room host (a 'quit' result means the host ended the run). */
+  isHost?: boolean;
 }
 
 type Col = { label: string; get: (p: PlayerState) => number; fmt?: (n: number) => string };
@@ -24,10 +36,14 @@ const COLS: Col[] = [
   { label: '펫', get: p => p.stats.petsUsed },
 ];
 
-export function createResultScreen(parent: HTMLElement, cb: ResultCallbacks): { el: HTMLElement; show(game: Game, quitWhileOut: boolean): void; hide(): void } {
+export function createResultScreen(
+  parent: HTMLElement,
+  cb: ResultCallbacks,
+): { el: HTMLElement; show(game: Game, quitWhileOut: boolean, view?: ResultView): void; hide(): void } {
   const el = h('div', 'screen result is-hidden', parent);
 
-  function render(game: Game, quitWhileOut: boolean): void {
+  function render(game: Game, quitWhileOut: boolean, view: ResultView): void {
+    const LOCAL = view.localPlayer;
     el.replaceChildren();
     const s = game.state;
     const r: RunResult = s.runResult ?? { outcome: 'defeat', reason: 'quit', floorReached: s.floor, duration: s.time };
@@ -35,7 +51,8 @@ export function createResultScreen(parent: HTMLElement, cb: ResultCallbacks): { 
 
     const head = h('div', 'rs-head', el);
     h('div', 'rs-title', head, resultTitle(r));
-    h('div', 'rs-reason', head, resultReason(r, quitWhileOut, s.plan.kind === 'boss'));
+    const hostEnded = view.multi && !view.isHost && r.reason === 'quit';
+    h('div', 'rs-reason', head, hostEnded ? '방장이 런을 끝냈어요' : resultReason(r, quitWhileOut, s.plan.kind === 'boss'));
     const facts = h('div', 'rs-facts', head);
     const fact = (k: string, v: string) => {
       const f = h('div', 'rs-fact', facts);
@@ -44,7 +61,7 @@ export function createResultScreen(parent: HTMLElement, cb: ResultCallbacks): { 
     };
     fact('도달 층', `${r.floorReached}층`);
     fact('플레이 시간', formatClock(r.duration));
-    const me = s.players[LOCAL_PLAYER];
+    const me = s.players[LOCAL];
     if (me) fact('보유 유물', `${me.relics.length}개`);
 
     const body = h('div', 'rs-body', el);
@@ -60,11 +77,12 @@ export function createResultScreen(parent: HTMLElement, cb: ResultCallbacks): { 
     const tbody = h('tbody', '', table);
     const maxBy = COLS.map(c => Math.max(0, ...s.players.map(c.get)));
     for (const p of s.players) {
-      const tr = h('tr', p.id === LOCAL_PLAYER ? 'is-me' : '', tbody);
+      const tr = h('tr', p.id === LOCAL ? 'is-me' : '', tbody);
       const nameCell = h('td', 'rs-pname', tr);
       const dot = h('span', 'rs-dot', nameCell);
       dot.style.background = p.color;
-      h('span', '', nameCell, p.id === LOCAL_PLAYER ? '나' : p.name);
+      h('span', 'rs-pname-text', nameCell, p.id === LOCAL ? (view.multi ? `${p.name} (나)` : '나') : p.name);
+      if (p.id !== LOCAL && showsBotTag(p)) h('span', 'rs-bot', nameCell, 'BOT');
       if (p.out) h('span', 'rs-out', nameCell, '사망');
       const party = h('div', 'rs-party', nameCell);
       party.textContent = p.party.map(m => getCharacter(m.defId).name).join(' · ');
@@ -76,7 +94,7 @@ export function createResultScreen(parent: HTMLElement, cb: ResultCallbacks): { 
     }
 
     // tuning log
-    const t = game.telemetry();
+    const t = game.telemetry(LOCAL);
     const right = h('div', 'rs-panel rs-tuning', body);
     h('div', 'rs-panel-title', right, '튜닝 로그 (나)');
     const kv = h('div', 'rs-kv', right);
@@ -115,14 +133,19 @@ export function createResultScreen(parent: HTMLElement, cb: ResultCallbacks): { 
     }
 
     const foot = h('div', 'rs-foot', el);
-    button('btn btn-secondary', '프리셋으로', foot, () => cb.onPreset());
-    button('btn btn-primary', '다시 하기', foot, () => cb.onRetry());
+    if (view.multi) {
+      button('btn btn-secondary', '방 나가기', foot, () => cb.onLeaveRoom?.());
+      button('btn btn-primary', '방으로', foot, () => cb.onRoom?.());
+    } else {
+      button('btn btn-secondary', '프리셋으로', foot, () => cb.onPreset());
+      button('btn btn-primary', '다시 하기', foot, () => cb.onRetry());
+    }
   }
 
   return {
     el,
-    show(game, quitWhileOut) {
-      render(game, quitWhileOut);
+    show(game, quitWhileOut, view = { localPlayer: 0, multi: false }) {
+      render(game, quitWhileOut, view);
       el.classList.remove('is-hidden');
     },
     hide() {

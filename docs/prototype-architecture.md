@@ -2,6 +2,7 @@
 
 - 스택: Vite + TypeScript + Canvas 2D (엔진 없음). 테스트는 Vitest, 브라우저 확인은 Playwright.
 - `npm run build` 하면 `dist/index.html` 한 파일로 나옴 (vite-plugin-singlefile).
+- 멀티플레이(게임 서버, 매칭, 배포)는 [`docs/multiplayer.md`](multiplayer.md).
 
 ## 모듈과 경계
 
@@ -9,10 +10,13 @@
 |---|---|---|
 | `src/types.ts` | **공용 계약**. GameState(읽기 모델), Command(입력), GameEvent(연출), Tunables, 모듈 API | — |
 | `src/config.ts` | 기본 튜닝값, 상수(틱, 아레나 크기, 봇 프리셋, 몬스터 해금 층) | types |
-| `src/data/*` | 임시 콘텐츠: 캐릭터 6, 펫 8, 일반몹 5, 중형보스 2, 보스 1, 보상, 유물 | types |
+| `src/data/*` | 임시 콘텐츠: 캐릭터 12 (역할별 3), 펫 8, 일반몹 5, 중형보스 2, 보스 1, 보상, 유물 | types |
 | `src/sim/*` | 게임 규칙 전부. DOM/Canvas 접근 금지. 고정 틱(30Hz), 시드 랜덤(`Rng`) | types, config, data |
-| `src/render/*` | Canvas 쿼터뷰 렌더링. GameState를 읽기만 함 | types, config, data |
-| `src/ui/*` | DOM HUD, 드래그 입력, 화면(프리셋/보상/결과), 디버그 패널, 앱 루프 | types, config, data, sim(createGame), render(createRenderer) |
+| `src/sim/geometry.ts`, `src/sim/preview.ts` | 순수 함수: 형태 판정(circle/line/rect/cone/ring/cross, 돌진), 드래그 미리보기 파트(`previewPartsFor`) | types, data |
+| `src/render/*` | Canvas 쿼터뷰 렌더링. GameState를 읽기만 함 | types, config, data, sim의 순수 모듈 |
+| `src/ui/*` | DOM HUD, 드래그 입력, 화면(프리셋/매칭·방/보상/결과), 디버그 패널, 앱 루프 | types, config, data, sim(createGame + 순수 모듈), render(createRenderer), net |
+| `src/net/*` | 멀티플레이 클라이언트: 연결, 로비, `RemoteGame`(서버 스냅샷 → `Game` 인터페이스) | types, config, sim의 순수 모듈 |
+| `server/*` | Node 게임 서버 (방, 서버 권위 sim, 스냅샷) → `dist-server/index.js` | types, config, data, sim, net/protocol |
 | `src/main.ts` | 진입점 → `ui/app.ts`의 `startApp()` | ui |
 
 규칙:
@@ -20,6 +24,8 @@
 - 연출(데미지 숫자, 스킬 이펙트)은 `game.drainEvents()`의 GameEvent로 전달.
 - 봇은 플레이어 슬롯의 조작 주체만 다름 (`PlayerState.isBot`). 봇도 같은 Command를 dispatch (sim 내부 `bot.ts`).
 - 숫자는 `Tunables`(디버그 슬라이더로 실시간 조절)나 `src/data`에 둠. 코드에 하드코딩하지 않음.
+- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`. 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건을 씀.
+- `Zone.area`: 띠·고리·십자 등 원이 아닌 장판은 정확한 모양을 담음 (없으면 `radius` 원). 렌더러와 스냅샷이 그대로 사용.
 
 ## 화면 좌표
 
@@ -27,6 +33,7 @@
 - 월드 단위: 캐릭터 지름 ≈ 1. 일반층 아레나 36×12(가로 1.5화면), 보스층 24×12(한 화면).
 - 쿼터뷰: 바닥 평면 (x, y)를 y축으로 눌러 그림. y가 클수록 화면 아래(카메라 쪽). y값으로 정렬해서 그림.
 - 카메라는 내 필드 캐릭터를 가로로만 따라감. 필드가 비면 멈춤. 드래그 중에는 고정.
+- 혼자 하기: sim은 30Hz, 화면은 60Hz → 렌더러에는 직전 틱과 지금 틱 사이를 이은 위치를 넘김 (`render/smooth.ts`, 최대 1틱 ≈ 0.03초 늦음, sim 상태는 건드리지 않음). 멀티는 `RemoteGame`이 스냅샷 사이를 보간.
 
 ## 규칙 체크리스트 (기획서 → 구현)
 
@@ -61,13 +68,20 @@
 
 | 명령 | 내용 |
 |---|---|
-| `npm test` | Vitest: sim 규칙(R1–R24), 렌더 카메라/불변성, UI 로직 |
-| `npm run e2e` | Playwright (`playwright.config.ts`): 빌드 → `vite preview :4173` → 폰 844×390@3x(터치) + PC 1280×720(마우스) |
-| `PERF=1 npm run e2e -- perf` | 실시간 프레임 측정 (40초 일반 플레이 + 몹 30마리·궁극기 스트레스) |
+| `npm test` (`npx vitest run`) | Vitest 31파일 314개: sim 규칙(R1–R35, 형태 판정 = 미리보기, 12종 로스터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간, UI 로직, 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
+| `npx tsc --noEmit` / `npm run typecheck:server` | 타입 검사 (브라우저 + 테스트 / 서버) |
+| `npm run e2e` (`npx playwright test`) | Playwright 3개 프로젝트 (아래). 시작할 때 `vite build` → `vite preview :4173` |
+| `PERF=1 npx playwright test perf` | 실시간 프레임 측정 (40초 일반 플레이 + 몹 30마리·궁극기 스트레스) |
 
-- `tests/e2e/smoke.spec.ts`: 프리셋 → 전투 → 실제 포인터 드래그로 교체/펫 → 궁극기 탭 → 1층 클리어·보상 → 5층 보스 광폭화·퇴각 → 유물 → 포기 → 결과. 콘솔 에러 0 확인. 폰 스크린샷은 `docs/screenshots/`에 저장.
-- `tests/e2e/flows.spec.ts`: 일반층 시간 초과 실패, 보스층 시간 초과 광폭화, 최고층 승리, 전멸 → 관전 → 결과, 세로 화면 정지, PC 단축키.
-- 테스트용 훅: `window.__proto` (`game`, `phase`, `startRun(overrides)`, `ui.dragTo`, `ui.fingerFor`).
+Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/chromium`):
+- `phone` (844×390@3x, 터치) / `desktop` (1280×720, 마우스): 아래 솔로 스펙.
+  - `tests/e2e/smoke.spec.ts`: 프리셋 → 전투 → 실제 포인터 드래그로 교체/펫 → 궁극기 탭 → 1층 클리어·보상 → 5층 보스 광폭화·퇴각 → 유물 → 포기 → 결과. 콘솔 에러 0. 폰 스크린샷은 `docs/screenshots/*.png` (솔로 세트).
+  - `tests/e2e/flows.spec.ts`: 일반층 시간 초과 실패, 보스층 시간 초과 광폭화, 최고층 승리, 전멸 → 관전 → 결과 (관전 띠·멈춘 숫자 없음, `docs/screenshots/spectate.png`), 바닥 맨 아래 조준(손가락이 카드 줄 위여도 놓기 가능), 세로 화면 정지, PC 단축키.
+  - `tests/e2e/artifact.spec.ts`: claude.ai Artifact 빌드(`scripts/make-artifact.mjs`)를 게임 서버 없는 정적 호스트에 올린 것처럼 띄움 → 페이지 말고는 요청 0개(/healthz·WebSocket 없음), 콘솔 에러 0, "혼자 하기 전용" 안내, 출발 → 혼자 하기. 일반 빌드는 같은 호스트에서 /healthz 한 번(404)만 묻고 재시도 없음.
+- `multi`: `tests/e2e/multi.spec.ts` — 빌드한 실제 게임 서버(`dist-server`) + 폰 브라우저 3개, 조용한 끊김(오프라인 폰), 탭 복제. 자세한 흐름은 `docs/multiplayer.md` 5장. 스크린샷 `docs/screenshots/multi-*.png`.
+- 리뷰용 멀티 UI 확인(2번 자리 플레이어, 메뉴 아래 Space 궁극기 없음): `npx playwright test -c tests/review/playwright.multi-review.config.ts`.
+- 다른 작업과 동시에 돌릴 때: `E2E_PORT=4191 E2E_OUT=<빌드 폴더> E2E_RESULTS=<결과 폴더> npx playwright test`.
+- 테스트용 훅: `window.__proto` (`game`, `phase`, `mode`, `localPlayer`, `net`, `startRun(overrides)`, `ui.dragTo`, `ui.fingerFor`, `ui.dragPreview`).
 
 ## 멀티플레이 구조 (3차)
 
@@ -77,10 +91,16 @@
 | `src/net/*` | 브라우저 쪽: WebSocket 연결, 로비 클라이언트, `RemoteGame`(서버 스냅샷을 `Game` 인터페이스로 감쌈) |
 | `server/*` | Node 게임 서버: 정적 파일(dist) 제공 + `/ws` WebSocket, 방 관리, 방마다 `src/sim` 실행(서버 권위) |
 
-- 서버가 30Hz로 sim을 돌리고 15Hz로 스냅샷(GameState + 그 사이 이벤트)을 보냄. 클라이언트는 위치를 보간해서 그림.
+- 서버가 30Hz로 sim을 돌리고 15Hz로 스냅샷(GameState + 그 사이 이벤트)을 보냄. 클라이언트는 유닛마다 최근 스냅샷 위치(서버 시각)를 들고 "서버 지금 − 지연"에서 보간해서 그림. 지연 = 스냅샷 간격 + 측정한 도착 흔들림(+0.01초, 0.05~0.35초) → 늦은 스냅샷 하나에 유닛이 멈추지 않음.
+  - 스냅샷은 sim 내부 값(`rt`, `src`)을 빼고 소수 2자리. 클라이언트가 안 쓰는 값은 줄임: 웨이브 구성(`plan.waves[].spawns` → 빈 배열, 개수만 씀), `targetHeldFor`(정수 초). 튜닝값은 바뀔 때 + 1초마다, 튜닝 로그(telemetry)는 런이 끝난 뒤에만.
+  - 측정(브라우저 3개, 실제 서버): 스냅샷 원본 JSON 평균 6~7KB(일반)·16KB(몹 30마리, 최대 25KB), 실제 전송량(permessage-deflate) 클라이언트당 4.6KB/s(일반)·13KB/s(스트레스). 숫자는 `docs/multiplayer.md` 6장.
 - 클라이언트는 `Command`만 보냄. 서버가 보낸 사람의 슬롯 번호로 `player`를 덮어씀. 디버그·튜닝 명령은 방장만.
+  - `cmd.atTick` = 보낼 때 가진 최신 스냅샷의 틱. 서버는 그 스냅샷을 보낸 지 `MAX_COMMAND_AGE_MS`(2초)가 넘은 교체·펫 명령을 거절 (조용한 끊김 뒤 옛 위치로 교체되는 것 방지).
+- 연결 (`src/net/connection.ts`): 응답 없는 서버는 3분 동안 다시 확인('probing'), 정적 호스트(404 등)는 한 번만. 온라인 중 핑에 5초 동안 아무것도 안 오면 소켓을 새로 염. 닫힘 코드 4001(다른 탭이 같은 토큰으로 접속)이면 다시 접속하지 않고 'replaced' → "여기서 계속"으로만 되찾음.
+- `RemoteGame.stalled`: 게임 중 1.5초 동안 스냅샷이 없으면 HUD 배너 + 교체·펫·궁극기·보상 거절, 5초면 `reconnectNow()`.
+- 서버(`server/*`): 핑 5초마다(응답 없는 소켓은 5~10초 안에 끊고 자리를 봇에게), 전체 제한 `maxConnections`·`maxConnectionsPerIp`·`maxPlayingRooms`(넘으면 503 / `error: server_busy`), 파티 안 같은 캐릭터·펫 중복은 거절(플레이어끼리는 허용).
 - UI는 `Game` 인터페이스만 사용 → 솔로(`createGame`)와 멀티(`RemoteGame`)가 같은 화면 코드를 씀. 내 슬롯 = `localPlayer`.
-- claude.ai Artifact 빌드는 외부 WebSocket이 막혀 있어서 솔로 전용.
+- claude.ai Artifact 빌드(`npm run build:artifact`)는 솔로 전용: `make-artifact.mjs`가 `window.__SWAP_TOWER_SOLO__ = true`를 넣어서 /healthz 확인도 WebSocket도 하지 않음 (네트워크 요청 0, 콘솔 에러 0).
 
 ## 규칙 체크리스트 추가 (3차)
 
@@ -93,7 +113,22 @@
 | R29 | 봇 착지 지점은 실제 형태(파트 전체)로 적을 가장 많이 맞히는 곳 | R23 확장 |
 | R30 | 매칭: 프리셋 다음 화면. 닉네임, 방 목록, 방 만들기, 코드로 참가, 혼자 하기 | 3차 3 |
 | R31 | 방 최대 3명. 방장만 시작. 시작하면 빈자리를 봇 프리셋으로 채움. 게임 중인 방에는 새로 못 들어감 | 3차 3 |
-| R32 | 서버 권위: 모든 판정은 서버 sim. 명령의 player는 서버가 보낸 사람 슬롯으로 강제 | 3차 3 |
+| R32 | 서버 권위: 모든 판정은 서버 sim. 명령의 player는 서버가 보낸 사람 슬롯으로 강제. 기준 스냅샷이 2초보다 오래된 교체·펫 명령은 거절 | 3차 3 |
 | R33 | 층 보상: 사람마다 자기 보상을 고름. 모두 고를 때까지(최대 20초) 다음 층 대기. 시간 초과면 랜덤 | 가정 |
-| R34 | 게임 중 연결 끊김 → 그 슬롯을 봇이 조작(`setPlayerBot`), 같은 토큰으로 재접속하면 복귀. 방장이 나가면 다음 사람이 방장 | 가정 |
+| R34 | 게임 중 연결 끊김 → 그 슬롯을 봇이 조작(`setPlayerBot`), 같은 토큰으로 재접속하면 복귀 (같은 기기·브라우저: 새로고침, 탭을 닫았다 다시 열기). 조용한 끊김도 5~10초 안에 봇. 같은 토큰의 두 번째 탭이 자리를 가져가면 이전 탭은 멈춤("다른 탭에서 접속 중"). 방장이 나가면 다음 사람이 방장 (자동 방 이름 "○○의 방"도 따라 바뀜) | 가정 |
 | R35 | 멀티에서는 일시정지 없음. 디버그 패널·튜닝은 방장만, 모두에게 적용 | 가정 |
+
+## 3차 리뷰·플레이테스트 반영 (2026-10-04)
+
+수치·동작 변경 (숫자는 데이터/설정에 있음):
+
+| 항목 | 전 | 후 | 위치 |
+|---|---|---|---|
+| 워든 속박의 고리 안쪽 빈 원 | 1.2 | 0.6 (무리 위에 놓아도 가운데 적이 맞음. 벤치: 무리 위 4.1명·50 피해 vs 최적 4.5명·57, 전에는 2.7명·30) | `src/data/characters.ts` |
+| 범위 보상: 고리 | 안쪽·바깥 둘 다 커짐 | 바깥만 커짐 (빈 원 크기 유지) | `src/sim/geometry.ts` `scaleArea` |
+| 범위 보상: 십자 | 팔 길이만 | 팔 길이 + 두께 (띠·직선과 같음) | 같은 곳 |
+| 서버 핑 간격 | 15초 | 5초 | `server/server.ts` `heartbeatMs` |
+| 서버 전체 제한 | 없음 | 소켓 300, 주소당 16, 동시 게임 20 (Render 무료 `MAX_GAMES=3`) | `server/server.ts`, `render.yaml` |
+| 늦은 교체·펫 명령 | 그대로 적용 | 기준 스냅샷이 2초보다 오래되면 거절 | `src/net/protocol.ts` `MAX_COMMAND_AGE_MS` |
+
+화면: 관전 중에는 카드·펫의 멈춘 숫자 대신 "사망"/"—", 관전 안내는 바닥 아래 얇은 띠 + 보조 버튼, 보상 화면은 "관전 중 · 보상 없음". 전투 카드 왼쪽 위에 드래그스킬 모양 배지. 다른 플레이어의 스킬 연출·장판은 0.55 세기 (`render/look.ts` `OTHER_PLAYER_FX`). 드래그 미리보기 테두리에 흰 점선(적 예고와 구분), 들고 있는 카드는 반투명. 바닥 맨 아래쪽을 조준해 손가락이 카드 줄 위에 있어도 착지 지점이 바닥이면 놓을 수 있음.

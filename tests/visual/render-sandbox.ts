@@ -4,6 +4,7 @@
 //         enraged=1  cutin=1  live=1 (keep animating)  freeze=1 (no fixture animation)
 //         stress=1 (≈60 entities + 30 projectiles + a hail of damage events)  bench=1 (rAF timing run, 240 frames)
 //         scene=sim [&floor=5] [&t=20]: drives the real createGame (all players bot-controlled) through the renderer
+//         scene=shapes [&char=<id>] [&mode=preview|cast] [&valid=0]: the 12 drag-skill footprints (see shapes-sandbox.ts)
 
 import { createRenderer } from '../../src/render';
 import { BOSS_POS, BOT_PRESETS, DEFAULT_TUNABLES, PLAYER_COLORS } from '../../src/config';
@@ -183,6 +184,7 @@ function emptyState(floor: number, kind: 'normal' | 'boss', w: number, h: number
     monstersAlive: 0,
     midBossSpawned: true,
     rewardOffers: null,
+    rewardOffersByPlayer: [],
     runResult: null,
   };
 }
@@ -338,6 +340,7 @@ function bossFixture(): Fixture {
 // ─────────────────────────── run ───────────────────────────
 
 if (scene === 'sim') void runSim();
+else if (scene === 'shapes') void import('./shapes-sandbox').then(m => m.run(params));
 else runFixture();
 
 /** Hand-made fixture scenes (normal / boss) + synthetic events. */

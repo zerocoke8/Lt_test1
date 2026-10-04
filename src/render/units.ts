@@ -296,6 +296,68 @@ function heroAccessory(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number
       ctx.stroke();
       break;
     }
+    case 'hammer': {
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#6b4a2b';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(hx - s * 2, hy + h * 0.18);
+      ctx.lineTo(hx + s * w * 0.12, hy - h * 0.42);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      const mx = hx + s * w * 0.12;
+      const my = hy - h * 0.46;
+      pathRoundRect(ctx, mx - w * 0.2, my - h * 0.1, w * 0.4, h * 0.2, 3);
+      ctx.fillStyle = flash ? '#ffffff' : '#ffe8a3';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = look.dark;
+      ctx.stroke();
+      break;
+    }
+    case 'gun': {
+      // short blunderbuss pointing forward
+      const gx = hx - s * w * 0.05;
+      const gy = hy + h * 0.02;
+      ctx.save();
+      ctx.translate(gx, gy);
+      ctx.scale(s, 1);
+      ctx.rotate(-0.12);
+      ctx.fillStyle = '#5a3a22';
+      pathRoundRect(ctx, -w * 0.12, -2, w * 0.2, h * 0.2, 2);
+      ctx.fill();
+      ctx.fillStyle = flash ? '#ffffff' : '#9aa5b1';
+      pathRoundRect(ctx, -w * 0.05, -h * 0.07, w * 0.5, h * 0.1, 2);
+      ctx.fill();
+      ctx.fillStyle = '#3d4650';
+      ctx.fillRect(w * 0.4, -h * 0.09, w * 0.08, h * 0.14);
+      ctx.restore();
+      break;
+    }
+    case 'lute': {
+      const lx = hx - s * w * 0.08;
+      const ly = hy + h * 0.06;
+      ctx.strokeStyle = '#7a5230';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(lx + s * w * 0.32, ly - h * 0.38);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.fillStyle = flash ? '#ffffff' : '#d9a066';
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, w * 0.2, h * 0.14, -0.6 * s, 0, TAU);
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#5a3a1f';
+      ctx.stroke();
+      ctx.fillStyle = '#3a2412';
+      ctx.beginPath();
+      ctx.arc(lx, ly, w * 0.05, 0, TAU);
+      ctx.fill();
+      break;
+    }
     case 'orb':
     case 'staff': {
       const orb = look.accessory === 'orb';

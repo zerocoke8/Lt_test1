@@ -4,8 +4,9 @@ import { LOGICAL_H, LOGICAL_W, type AreaShape, type GameEvent, type GameState, t
 import { PLAYER_COLORS } from '../config';
 import { getCharacter } from '../data';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from './camera';
-import { COLORS, FONT_STACK, ROLE_GLYPH, boldFont, petColor, type UnitLook, unitLook } from './look';
+import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, boldFont, petColor, type UnitLook, unitLook } from './look';
 import { Pool } from './pool';
+import { DIR_VEC, aimSamples } from '../sim/geometry';
 import { TAU, areaRadius, pathArea } from './shapes';
 import { type UnitMemo, bodyHeight, bodyTop, bodyWidth, drawBody } from './units';
 
@@ -119,6 +120,29 @@ interface TeleSnap {
   stamp: number;
 }
 
+/** Dash streak (3차 R28): the sim already moved the caster; we replay from → to and leave afterimages. */
+interface DashFx {
+  entityId: number;
+  fx: number;
+  fy: number;
+  tx: number;
+  ty: number;
+  age: number;
+  /** Seconds standing at `from` (landing) before the streak starts. */
+  land: number;
+  /** Streak travel time. */
+  travel: number;
+  color: string;
+  look: UnitLook;
+  radius: number;
+  tier: UnitMemo['tier'];
+  s: number;
+}
+
+/** Visual landing time before a drag-skill dash starts (the character drops in at the drop point first). */
+export const DASH_LAND = 0.12;
+const DASH_TRAIL_FADE = 0.35;
+
 interface HealAcc {
   amount: number;
   age: number;
@@ -167,6 +191,12 @@ export class Vfx {
   readonly warns = new Pool<Warn>(() => ({ x: 0, y: 0, age: 0, dur: 1 }), 40);
   readonly slashes = new Pool<Slash>(() => ({ x: 0, y: 0, z: 0, ang: 0, age: 0, dur: 0.2, color: '#fff', r: 10 }), 48);
   readonly labels = new Pool<Label>(() => ({ x: 0, y: 0, z: 0, age: 0, dur: 1, text: '', color: '#fff', size: 14 }), 16);
+  /** skillCast keys seen since the last update (twin-cast dedupe). */
+  private readonly castKeys = new Set<string>();
+  readonly dashes = new Pool<DashFx>(
+    () => ({ entityId: -1, fx: 0, fy: 0, tx: 0, ty: 0, age: 0, land: DASH_LAND, travel: 0.18, color: '#fff', look: unitLook('monster', '?'), radius: 0.5, tier: 'character', s: 1 }),
+    8,
+  );
 
   private lastDamage = new Map<number, Floater>();
   private heals = new Map<number, HealAcc>();
@@ -190,6 +220,8 @@ export class Vfx {
     this.warns.clear();
     this.slashes.clear();
     this.labels.clear();
+    this.dashes.clear();
+    this.castKeys.clear();
     this.lastDamage.clear();
     this.heals.clear();
     this.teles.clear();
@@ -245,9 +277,34 @@ export class Vfx {
         s.r = Math.max(14, t.radius * PX_PER_UNIT * 0.9);
         break;
       }
-      case 'skillCast':
+      case 'skillCast': {
+        // one skill = one flash: actions that share a footprint (bard's band hits allies AND enemies) arrive as twin casts
+        const key = `${ev.sourceId}|${ev.skillId}|${ev.center.x},${ev.center.y}|${JSON.stringify(ev.area)}`;
+        if (this.castKeys.has(key)) break;
+        this.castKeys.add(key);
         this.onSkillCast(ev, c);
         break;
+      }
+      case 'dash': {
+        const ent = findEntity(c.state, ev.entityId);
+        const d = this.dashes.spawn();
+        d.entityId = ev.entityId;
+        d.fx = ev.from.x;
+        d.fy = ev.from.y;
+        d.tx = ev.to.x;
+        d.ty = ev.to.y;
+        d.age = 0;
+        d.land = ent && ent.anim === 'appear' ? DASH_LAND : 0;
+        d.travel = Math.max(0.06, ev.duration);
+        d.look = ent ? unitLook(ent.kind, ent.defId) : unitLook('monster', '?');
+        d.color = ent && ent.kind === 'character' && ent.ownerPlayer !== null && ent.partyIndex !== null
+          ? characterColor(c.state, ent.ownerPlayer, ent.partyIndex) ?? d.look.color
+          : d.look.color;
+        d.radius = ent ? ent.radius : 0.5;
+        d.tier = ent ? ent.tier : 'character';
+        d.s = ev.to.x >= ev.from.x ? 1 : -1;
+        break;
+      }
       case 'appear': {
         // landing burst in the character's own colour (matches the drag preview), not the player ring colour
         const color = characterColor(c.state, ev.player, ev.partyIndex) ?? playerColor(c.state, ev.player);
@@ -351,16 +408,26 @@ export class Vfx {
     }
 
     const strong = ev.slot === 'ult' || ev.slot === 'drag' || ev.slot === 'pet';
-    if (!delayed) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, strong ? 0.55 : 0.35, color, strong ? 1 : 0.7);
-    if (ev.slot === 'drag' || ev.slot === 'pet') {
-      const r = Math.min(8, areaRadius(ev.area));
-      this.ring(ev.center.x, ev.center.y, 0.2, Math.max(1.2, r), 0.45, color, 5, 0.18);
-      this.ring(ev.center.x, ev.center.y, 0.1, Math.max(0.8, r * 0.6), 0.3, '#ffffff', 2, 0);
-      this.burst(ev.center.x, ev.center.y, 0.3, ev.slot === 'pet' ? 18 : 22, color, Math.max(2, r * 1.6), 2.5, 0.6);
+    // another player's cast: same shape and direction, drawn softer (fewer particles, fainter fill) so it never buries
+    // my own preview or fight; mine stay at full strength
+    const k = ev.player !== null && ev.player !== c.localPlayer ? OTHER_PLAYER_FX : 1;
+    if (!delayed) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, strong ? 0.55 : 0.35, color, (strong ? 1 : 0.7) * k);
+    if ((ev.slot === 'drag' || ev.slot === 'pet') && !delayed) {
+      const a = ev.area;
+      if (a.shape === 'circle' || a.shape === 'single') {
+        const r = Math.min(8, areaRadius(a));
+        this.ring(ev.center.x, ev.center.y, 0.2, Math.max(1.2, r), 0.45, color, 5, 0.18 * k);
+        this.ring(ev.center.x, ev.center.y, 0.1, Math.max(0.8, r * 0.6), 0.3, '#ffffff', 2, 0);
+        this.burst(ev.center.x, ev.center.y, 0.3, Math.round((ev.slot === 'pet' ? 18 : 22) * k), color, Math.max(2, r * 1.6), 2.5, 0.6);
+      } else {
+        // shaped skills: a second bright flash + dust spread over the footprint (and swept along its direction)
+        this.flash(ev.center.x, ev.center.y, ev.center.x, ev.center.y, a, 0.28, '#ffffff', 0.55 * k);
+        this.burstArea(ev.center.x, ev.center.y, a, Math.round(24 * k), color);
+      }
     }
     if (ev.slot === 'ult') {
-      this.ring(ox, oy, 0.4, 4, 0.7, color, 6, 0.12);
-      this.burst(ox, oy, 0.5, 26, color, 5, 4, 0.8);
+      this.ring(ox, oy, 0.4, 4, 0.7, color, 6, 0.12 * k);
+      this.burst(ox, oy, 0.5, Math.round(26 * k), color, 5, 4, 0.8);
       if (ev.player === c.localPlayer) this.showBanner(ev, c, color);
     }
   }
@@ -375,6 +442,39 @@ export class Vfx {
     b.sub = m ? `${m.look.name} · 궁극기` : '궁극기';
     b.color = m ? m.look.color : color;
     b.glyph = m && m.look.role ? ROLE_GLYPH[m.look.role] : '★';
+  }
+
+  /**
+   * Where a dashing entity should be DRAWN this frame, as an offset from its sim position (= the dash end), plus the
+   * landing lift. null when it is not dashing.
+   */
+  dashPose(entityId: number, out: { ox: number; oy: number; z: number }): boolean {
+    const ds = this.dashes;
+    for (let i = ds.count - 1; i >= 0; i--) {
+      const d = ds.items[i];
+      if (d.entityId !== entityId) continue;
+      if (d.age >= d.land + d.travel) return false;
+      let x = d.fx;
+      let y = d.fy;
+      let z = 0;
+      if (d.age < d.land) {
+        const k = 1 - d.age / d.land;
+        z = k * k * 1.6;
+      } else {
+        const k = easeOut(Math.min(1, (d.age - d.land) / d.travel));
+        x = d.fx + (d.tx - d.fx) * k;
+        y = d.fy + (d.ty - d.fy) * k;
+      }
+      out.ox = x - d.tx;
+      out.oy = y - d.ty;
+      out.z = z;
+      return true;
+    }
+    return false;
+  }
+
+  private dashHead(d: DashFx): number {
+    return d.age < d.land ? 0 : easeOut(Math.min(1, (d.age - d.land) / d.travel));
   }
 
   // ─────────────────────────── spawners ───────────────────────────
@@ -463,6 +563,30 @@ export class Vfx {
     }
   }
 
+  /** Particles scattered over a shaped footprint; fixed-direction shapes also push them along their direction. */
+  private burstArea(cx: number, cy: number, area: AreaShape, n: number, color: string): void {
+    const samples = aimSamples(area);
+    const dir = area.shape === 'rect' || area.shape === 'cone' ? DIR_VEC[area.dir] : null;
+    const spread = area.shape === 'rect' ? area.width / 2 : area.shape === 'cross' ? area.width / 2 : 0.7;
+    for (let i = 0; i < n; i++) {
+      const s0 = samples[i % samples.length];
+      const p = this.particles.spawn();
+      const a = Math.random() * TAU;
+      const sp = 1.2 + Math.random() * 2;
+      p.x = cx + s0.x + (Math.random() - 0.5) * spread * 2;
+      p.y = cy + s0.y + (Math.random() - 0.5) * spread * 2;
+      p.z = 0.1;
+      p.vx = Math.cos(a) * sp + (dir ? dir.x * 5 : 0);
+      p.vy = Math.sin(a) * sp + (dir ? dir.y * 5 : 0);
+      p.vz = 2 + Math.random() * 2;
+      p.g = 9;
+      p.age = 0;
+      p.dur = 0.4 + Math.random() * 0.3;
+      p.color = i % 3 === 0 ? '#ffffff' : color;
+      p.size = 2.5 + Math.random() * 3;
+    }
+  }
+
   private ghost(m: UnitMemo, mode: 0 | 1, dur: number): void {
     const g = this.ghosts.spawn();
     g.look = m.look;
@@ -520,9 +644,11 @@ export class Vfx {
       const color = enemy ? '#ff4d4d' : '#7fd1ff';
       this.flash(s.cx, s.cy, s.ox, s.oy, s.area, 0.45, color, 1);
       const r = Math.min(8, areaRadius(s.area));
-      if (s.area.shape !== 'line') {
+      if (s.area.shape === 'circle' || s.area.shape === 'single') {
         this.ring(s.cx, s.cy, r * 0.3, r * 1.08, 0.4, enemy ? '#ffb199' : '#ffffff', 4, 0);
         this.burst(s.cx, s.cy, 0.1, Math.min(30, 8 + Math.round(r * 4)), enemy ? '#ff7b54' : '#bde0fe', r * 1.4, 3, 0.55);
+      } else if (s.area.shape !== 'line') {
+        this.burstArea(s.cx, s.cy, s.area, 22, enemy ? '#ff7b54' : '#bde0fe');
       } else {
         const mx = (s.ox + s.cx) / 2;
         const my = (s.oy + s.cy) / 2;
@@ -533,6 +659,7 @@ export class Vfx {
   };
 
   update(dt: number, c: VfxContext): void {
+    this.castKeys.clear();
     // flush accumulated heals: big heals become numbers, trickles (aura/regen ticks) only sparkle
     for (const [id, h] of this.heals) {
       h.age += dt;
@@ -563,6 +690,19 @@ export class Vfx {
     ageAll(this.warns, dt);
     ageAll(this.slashes, dt);
     ageAll(this.labels, dt);
+    const ds = this.dashes;
+    for (let i = ds.count - 1; i >= 0; i--) {
+      const d = ds.items[i];
+      const was = d.age;
+      d.age += dt;
+      // a puff of dust when the streak starts and when it stops
+      if (was < d.land && d.age >= d.land) this.burst(d.fx, d.fy, 0.1, 8, '#cfc6b8', 2.5, 0.8, 0.35);
+      if (was < d.land + d.travel && d.age >= d.land + d.travel) {
+        this.burst(d.tx, d.ty, 0.2, 12, d.color, 3, 1.5, 0.4);
+        this.ring(d.tx, d.ty, 0.2, 1.2, 0.3, '#ffffff', 2.5, 0);
+      }
+      if (d.age >= d.land + d.travel + DASH_TRAIL_FADE) ds.kill(i);
+    }
     const ps = this.particles;
     for (let i = ps.count - 1; i >= 0; i--) {
       const p = ps.items[i];
@@ -655,6 +795,7 @@ export class Vfx {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    this.drawDashStreaks(ctx, cam);
     // rings
     const rs = this.rings;
     for (let i = 0; i < rs.count; i++) {
@@ -678,8 +819,84 @@ export class Vfx {
     ctx.globalAlpha = 1;
   }
 
-  /** Fading bodies of dead / swapped-out units (drawn before live units). */
+  /** Ground streak of each dash: a tapered band in the character colour from the start to the moving head. */
+  private drawDashStreaks(ctx: CanvasRenderingContext2D, cam: Camera): void {
+    const ds = this.dashes;
+    for (let i = 0; i < ds.count; i++) {
+      const d = ds.items[i];
+      if (d.age < d.land) continue;
+      const head = this.dashHead(d);
+      const end = d.land + d.travel;
+      const fade = d.age <= end ? 1 : Math.max(0, 1 - (d.age - end) / DASH_TRAIL_FADE);
+      const hx = d.fx + (d.tx - d.fx) * head;
+      const hy = d.fy + (d.ty - d.fy) * head;
+      // tail catches up after arrival so the streak shrinks into the character
+      const tailK = d.age <= end ? 0 : Math.min(1, (d.age - end) / DASH_TRAIL_FADE);
+      const tx0 = d.fx + (hx - d.fx) * tailK;
+      const ty0 = d.fy + (hy - d.fy) * tailK;
+      const x0 = cam.sx(tx0);
+      const y0 = cam.sy(ty0);
+      const x1 = cam.sx(hx);
+      const y1 = cam.sy(hy);
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      if (len < 2) continue;
+      const ang = Math.atan2(y1 - y0, x1 - x0);
+      const w = d.radius * PX_PER_UNIT * 1.5;
+      ctx.save();
+      ctx.translate(x0, y0);
+      ctx.rotate(ang);
+      ctx.globalAlpha = 0.5 * fade;
+      ctx.fillStyle = d.color;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(len, -w / 2);
+      ctx.lineTo(len, w / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 0.85 * fade;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(len * 0.3, 0);
+      ctx.lineTo(len, -w * 0.14);
+      ctx.lineTo(len, w * 0.14);
+      ctx.closePath();
+      ctx.fill();
+      // speed lines
+      ctx.globalAlpha = 0.6 * fade;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const k of [-0.42, 0.42]) {
+        ctx.moveTo(len * 0.45, k * w);
+        ctx.lineTo(len * 0.95, k * w);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Fading bodies of dead / swapped-out units (drawn before live units) + dash afterimages. */
   drawGhosts(ctx: CanvasRenderingContext2D, cam: Camera, time: number): void {
+    const ds = this.dashes;
+    for (let i = 0; i < ds.count; i++) {
+      const d = ds.items[i];
+      if (d.age < d.land) continue;
+      const head = this.dashHead(d);
+      const end = d.land + d.travel;
+      const fade = d.age <= end ? 1 : Math.max(0, 1 - (d.age - end) / DASH_TRAIL_FADE);
+      const w = bodyWidth(d.radius);
+      const h = w * d.look.heightMul;
+      for (let j = 1; j <= 4; j++) {
+        const k = head - j * 0.2;
+        if (k <= 0) break;
+        const x = d.fx + (d.tx - d.fx) * k;
+        const y = d.fy + (d.ty - d.fy) * k;
+        ctx.globalAlpha = 0.42 * (1 - j / 5) * fade;
+        drawBody(ctx, d.look, d.tier, cam.sx(x), cam.sy(y), w, h, d.s, time, 0, true);
+      }
+    }
+    ctx.globalAlpha = 1;
     const gs = this.ghosts;
     for (let i = 0; i < gs.count; i++) {
       const g = gs.items[i];

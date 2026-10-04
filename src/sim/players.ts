@@ -1,6 +1,6 @@
 // Player-level rules: swap (R1–R4, R12), ult (R9), pets (R14), revive (R10), bench timers.
 
-import type { CommandResult, Vec2 } from '../types';
+import type { CommandResult, GameState, Vec2 } from '../types';
 import { getCharacter, getPet } from '../data';
 import { APPEAR_SHIELD_DURATION } from './constants';
 import { addShield, hitDamage } from './combat';
@@ -8,7 +8,8 @@ import { petCooldownFor, swapCooldownFor } from './cooldowns';
 import { charCtx, petCtx } from './ctx';
 import { benchActive, createCharacterEntity } from './entities';
 import { appearShieldFrac, hasRelic, relicParam } from './modifiers';
-import { addTelegraph, castSkill, scaleArea } from './skills';
+import { partsForActions } from './preview';
+import { addTelegraph, castSkill } from './skills';
 import { benchMaxHp } from './stats';
 import { applyStatus, tickStatusTimers } from './status';
 import {
@@ -30,13 +31,18 @@ function playerOf(w: World, pi: number): SimPlayer | null {
   return Number.isInteger(pi) && pi >= 0 && pi < w.state.players.length ? w.state.players[pi] : null;
 }
 
-// ─────────────────────────── Swap ───────────────────────────
+function statePlayer(s: GameState, pi: number): GameState['players'][number] | null {
+  return Number.isInteger(pi) && pi >= 0 && pi < s.players.length ? s.players[pi] : null;
+}
 
-export function canSwap(w: World, pi: number, idx: number): CommandResult {
-  const p = playerOf(w, pi);
+// ─────────────────────────── Pure checks over the public GameState ───────────────────────────
+// Used by the sim AND by the multiplayer client (RemoteGame) on a snapshot, so both agree on what is allowed.
+
+export function canSwapState(s: GameState, pi: number, idx: number): CommandResult {
+  const p = statePlayer(s, pi);
   if (!p || !Number.isInteger(idx) || idx < 0 || idx >= p.party.length) return fail('잘못된 대상');
   if (p.out) return fail('관전 중');
-  if (w.state.phase !== 'combat') return fail('전투 중이 아님');
+  if (s.phase !== 'combat') return fail('전투 중이 아님');
   const m = p.party[idx];
   if (p.activeIndex === idx) return fail('이미 필드에 있음');
   if (m.dead) return fail('사망');
@@ -44,6 +50,33 @@ export function canSwap(w: World, pi: number, idx: number): CommandResult {
   if (m.swapCooldownRemaining > 0) return fail('쿨타임');
   if (p.appearLock > 0) return fail('등장 중');
   return ok;
+}
+
+export function canUsePetState(s: GameState, pi: number, petIndex: number): CommandResult {
+  const p = statePlayer(s, pi);
+  if (!p || !Number.isInteger(petIndex) || petIndex < 0 || petIndex >= p.pets.length) return fail('잘못된 대상');
+  if (p.out) return fail('관전 중');
+  if (s.phase !== 'combat') return fail('전투 중이 아님');
+  if (p.pets[petIndex].cooldownRemaining > 0) return fail('쿨타임');
+  return ok;
+}
+
+/** Ult check from the public state (the field character must exist: activeIndex set and that member alive). */
+export function canUltState(s: GameState, pi: number): CommandResult {
+  const p = statePlayer(s, pi);
+  if (!p) return fail('잘못된 대상');
+  if (p.out) return fail('관전 중');
+  if (s.phase !== 'combat') return fail('전투 중이 아님');
+  if (p.ult.charge < 1) return fail('게이지 부족');
+  const m = p.activeIndex != null ? p.party[p.activeIndex] : null;
+  if (!m || m.dead || m.entityId == null) return fail('필드에 캐릭터 없음');
+  return ok;
+}
+
+// ─────────────────────────── Swap ───────────────────────────
+
+export function canSwap(w: World, pi: number, idx: number): CommandResult {
+  return canSwapState(w.state, pi, idx);
 }
 
 export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandResult {
@@ -94,9 +127,19 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
     const power = relicParam('echo_seal', 'power');
     const echo: CastCtx = { ...ctx, dmgMult: ctx.dmgMult * power, healMult: ctx.healMult * power, shieldMult: ctx.shieldMult * power };
     const delay = relicParam('echo_seal', 'delay');
-    const first = def.drag.actions[0];
-    const tg = addTelegraph(w, 'ally', at, at, scaleArea(first.area, ctx.radiusMult), delay);
-    w.pending.push({ kind: 'echo', ctx: echo, actions: def.drag.actions, remaining: delay, telegraphId: tg.id });
+    // telegraph every part of the footprint (e.g. all five meteors), each spot once (bard's two bands share one).
+    // Self-only parts (shields, cooldown cuts) have no footprint on the field — the drag preview hides them too.
+    const ids: number[] = [];
+    const seen = new Set<string>();
+    for (const part of partsForActions(def.drag.actions, ctx.radiusMult)) {
+      if (part.affects === 'self') continue;
+      const c = { x: at.x + part.offset.x, y: at.y + part.offset.y };
+      const key = `${c.x},${c.y},${JSON.stringify(part.area)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ids.push(addTelegraph(w, 'ally', c, c, part.area, delay).id);
+    }
+    w.pending.push({ kind: 'echo', ctx: echo, actions: def.drag.actions, remaining: delay, telegraphId: ids[0] ?? null, extraTelegraphIds: ids.slice(1) });
   }
   return ok;
 }
@@ -148,12 +191,7 @@ export function useUlt(w: World, pi: number): CommandResult {
 // ─────────────────────────── Pets ───────────────────────────
 
 export function canUsePet(w: World, pi: number, petIndex: number): CommandResult {
-  const p = playerOf(w, pi);
-  if (!p || !Number.isInteger(petIndex) || petIndex < 0 || petIndex >= p.pets.length) return fail('잘못된 대상');
-  if (p.out) return fail('관전 중');
-  if (w.state.phase !== 'combat') return fail('전투 중이 아님');
-  if (p.pets[petIndex].cooldownRemaining > 0) return fail('쿨타임');
-  return ok;
+  return canUsePetState(w.state, pi, petIndex);
 }
 
 export function usePet(w: World, pi: number, petIndex: number, pos: Vec2): CommandResult {

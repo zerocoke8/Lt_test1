@@ -405,7 +405,10 @@ export interface Zone {
   team: Team;
   ownerPlayer: number | null;
   center: Vec2;
+  /** Circle zones: their radius. Other shapes: rough reach from center (see `area`). */
   radius: number;
+  /** Exact footprint (3차: rect/ring/cross/cone zones). Absent = circle of `radius`. */
+  area?: AreaShape;
   remaining: number;
   total: number;
   /** For render tint. */

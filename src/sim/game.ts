@@ -8,13 +8,14 @@ import { tickBots } from './bot';
 import { killEntity, tickProjectiles } from './combat';
 import { swapCooldownFor } from './cooldowns';
 import { createCharacterEntity } from './entities';
-import { chooseReward, enrage, floorClear, planFloor, startFloor, tickFloorState, tickSpawner } from './floor';
+import { chooseReward, clearRewardOffers, enrage, floorClear, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
 import { skillMod } from './modifiers';
+import { previewPartsFor } from './preview';
 import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } from './players';
 import { Rng } from './rng';
 import { scaleArea, tickPending, tickZones } from './skills';
 import { benchMaxHp } from './stats';
-import { computeTelemetry, emptyContribution } from './telemetry';
+import { applyTunablesPatch, computeTelemetry, emptyContribution } from './telemetry';
 import { tickUnits } from './units';
 import {
   clampToArena,
@@ -54,6 +55,7 @@ export function createWorld(setup: GameSetup): World {
     monstersAlive: 0,
     midBossSpawned: false,
     rewardOffers: null,
+    rewardOffersByPlayer: [],
     runResult: null,
   };
   const w: World = {
@@ -197,11 +199,15 @@ export function dispatch(w: World, cmd: Command): CommandResult {
       if (s.phase === 'runOver') r = { ok: false, reason: '이미 끝남' };
       else {
         endRun(w, 'defeat', 'quit');
+        clearRewardOffers(w);
         r = { ok: true };
       }
       break;
     case 'debug':
       r = debug(w, cmd.action);
+      break;
+    case 'tunables':
+      r = applyTunablesPatch(w.tunables, cmd.patch);
       break;
     default:
       r = { ok: false, reason: '알 수 없는 명령' };
@@ -216,14 +222,15 @@ export function dispatch(w: World, cmd: Command): CommandResult {
 function debug(w: World, a: DebugAction): CommandResult {
   const s = w.state;
   if (s.phase === 'runOver') return { ok: false, reason: '이미 끝남' };
-  const p0 = s.players[0];
+  const pi = (a.kind === 'chargeUlt' || a.kind === 'resetCooldowns') && a.player != null ? a.player : 0;
+  const p0 = Number.isInteger(pi) ? s.players[pi] : undefined;
   switch (a.kind) {
     case 'chargeUlt':
       if (!p0) return { ok: false, reason: '플레이어 없음' };
       p0.ult.charge = 1;
       if (p0.ult.fullSince == null) {
         p0.ult.fullSince = s.time;
-        emit(w, { type: 'ultReady', player: 0 });
+        emit(w, { type: 'ultReady', player: p0.id });
       }
       return { ok: true };
     case 'resetCooldowns':
@@ -253,17 +260,9 @@ function debug(w: World, a: DebugAction): CommandResult {
   return { ok: false, reason: '알 수 없는 디버그 명령' };
 }
 
+/** First preview part's area (kept for compatibility; the full footprint is previewParts). */
 export function previewArea(w: World, player: number, kind: 'swap' | 'pet', index: number): AreaShape {
-  const p = w.state.players[player];
-  if (!p) return { shape: 'single' };
-  if (kind === 'swap') {
-    const m = p.party[index];
-    if (!m) return { shape: 'single' };
-    const a = getCharacter(m.defId).drag.actions[0];
-    return a ? scaleArea(a.area, 1 + skillMod(p, index, 'drag', 'radius')) : { shape: 'single' };
-  }
-  const pet = p.pets[index];
-  return pet ? getPet(pet.defId).action.area : { shape: 'single' };
+  return previewPartsFor(w.state, player, kind, index)[0]?.area ?? { shape: 'single' };
 }
 
 export function drainEvents(w: World): GameEvent[] {
@@ -288,8 +287,13 @@ export function createGameWithWorld(setup: GameSetup): { game: Game; world: Worl
     canSwap: (player: number, partyIndex: number) => canSwap(w, player, partyIndex),
     canUsePet: (player: number, petIndex: number) => canUsePet(w, player, petIndex),
     previewArea: (player: number, kind: 'swap' | 'pet', index: number) => previewArea(w, player, kind, index),
+    previewParts: (player: number, kind: 'swap' | 'pet', index: number) => previewPartsFor(w.state, player, kind, index),
+    setPlayerBot: (player: number, isBot: boolean) => {
+      setPlayerBot(w, player, isBot);
+      syncMembers(w);
+    },
     clampToArena: (p: Vec2) => clampToArena(w, p),
-    telemetry: () => computeTelemetry(w),
+    telemetry: (player?: number) => computeTelemetry(w, player ?? 0),
   };
   return { game, world: w };
 }

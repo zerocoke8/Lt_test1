@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-server
+dist-artifact
+test-results
+playwright-report
+docs/screenshots
+.git
+.github
+*.log
+.DS_Store

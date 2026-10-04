@@ -1,13 +1,13 @@
 // Bot controller (R23). Same rules as a human: it only issues Commands that go through dispatch validation.
 // Uses the sim Rng so runs stay deterministic.
 
-import type { AreaShape, Command, CommandResult, SkillAction, Vec2 } from '../types';
+import type { Command, CommandResult, PreviewPart, Vec2 } from '../types';
 import { VIEW_WIDTH_UNITS } from '../config';
-import { getCharacter, getPet } from '../data';
+import { getPet } from '../data';
 import { BOT } from './constants';
+import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
-import { skillMod } from './modifiers';
-import { scaleArea } from './skills';
+import { previewPartsFor } from './preview';
 import { activeEntity, clamp, clampToArena, copy, dist, getEntity, isAlive, type SimEntity, type SimPlayer, type World } from './world';
 
 type Dispatch = (cmd: Command) => CommandResult;
@@ -24,12 +24,6 @@ export function tickBots(w: World, dt: number, dispatch: Dispatch): void {
     think(w, p, dispatch);
     if (w.state.phase !== 'combat') return;
   }
-}
-
-function areaRadius(a: AreaShape): number {
-  if (a.shape === 'circle') return a.radius;
-  if (a.shape === 'line') return Math.max(a.width, 1);
-  return 0.8;
 }
 
 function enemiesAlive(w: World): SimEntity[] {
@@ -71,51 +65,89 @@ function toView(w: World, view: View, c: Vec2): Vec2 {
   return clampToArena(w, { x: clamp(c.x, view.lo, view.hi), y: c.y });
 }
 
-/** Candidate drop points: around every relevant unit on the bot's screen (clamped into the arena). */
-function bestPoint(w: World, units: SimEntity[], score: (c: Vec2) => number, near: Vec2 | null, view: View): { pos: Vec2; score: number } | null {
+// ─────────────────────────── R29: aim with the real footprint ───────────────────────────
+
+function partCenter(part: PreviewPart, drop: Vec2): Vec2 {
+  return { x: drop.x + part.offset.x, y: drop.y + part.offset.y };
+}
+
+function partHits(part: PreviewPart, drop: Vec2, e: SimEntity): boolean {
+  const c = partCenter(part, drop);
+  return hitsArea(part.area, c, c, e.pos, e.radius);
+}
+
+/** Enemy score of a drop: every (part, enemy) hit by weight, a bonus when the enemy is fully inside (well aimed). */
+function enemyScore(parts: PreviewPart[], drop: Vec2, enemies: SimEntity[]): number {
+  let n = 0;
+  for (const part of parts) {
+    if (part.affects !== 'enemies') continue;
+    const c = partCenter(part, drop);
+    for (const e of enemies) {
+      if (!hitsArea(part.area, c, c, e.pos, e.radius)) continue;
+      n += weightOf(e);
+      if (containsPoint(part.area, c, e.pos)) n += 0.05;
+    }
+  }
+  return n;
+}
+
+/** Ally score: hurt allies count more (heals), healthy ones a little (buffs / shields). */
+function allyScore(parts: PreviewPart[], drop: Vec2, allies: SimEntity[], perAlly: (a: SimEntity) => number): number {
+  let n = 0;
+  for (const part of parts) {
+    if (part.affects !== 'allies') continue;
+    for (const a of allies) if (partHits(part, drop, a)) n += perAlly(a);
+  }
+  return n;
+}
+
+const hurtWeight = (a: SimEntity) => 0.2 + (1 - a.hp / a.maxHp);
+
+/**
+ * Candidate drop points that put a unit on a representative spot of some part (its offset + aim samples):
+ * fixed-direction shapes get candidates BEHIND the unit (e.g. LEFT of a cluster for a 'right' rect / cone / dash).
+ * Each candidate is pulled onto the bot's screen and into the arena, then scored as dropped there.
+ */
+function bestDrop(
+  w: World,
+  parts: PreviewPart[],
+  units: SimEntity[],
+  aimWith: PreviewPart['affects'],
+  score: (c: Vec2) => number,
+  near: Vec2 | null,
+  view: View,
+): { pos: Vec2; score: number } | null {
   let best: { pos: Vec2; score: number } | null = null;
-  for (const u of units) {
-    const c = clampToArena(w, u.pos);
-    if (!inView(view, c)) continue;
-    let sc = score(c);
-    if (near) sc -= dist(c, near) * 0.001; // tiebreak: closer to the bot
-    if (!best || sc > best.score) best = { pos: c, score: sc };
+  for (const part of parts) {
+    if (part.affects !== aimWith) continue;
+    const samples = aimSamples(part.area);
+    for (const u of units) {
+      for (const s of samples) {
+        const c = toView(w, view, { x: u.pos.x - part.offset.x - s.x, y: u.pos.y - part.offset.y - s.y });
+        let sc = score(c);
+        if (near) sc -= dist(c, near) * 0.001; // tiebreak: closer to the bot
+        if (!best || sc > best.score) best = { pos: c, score: sc };
+      }
+    }
   }
   return best;
 }
 
-function coverEnemies(enemies: SimEntity[], radius: number): (c: Vec2) => number {
-  return c => {
-    let n = 0;
-    for (const e of enemies) if (dist(c, e.pos) <= radius + e.radius) n += weightOf(e);
-    return n;
-  };
-}
-
-function coverHurtAllies(allies: SimEntity[], radius: number): (c: Vec2) => number {
-  return c => {
-    let n = 0;
-    for (const a of allies) if (dist(c, a.pos) <= radius + a.radius) n += 0.2 + (1 - a.hp / a.maxHp);
-    return n;
-  };
-}
-
-/** Where to drop party member idx: spot where its drag skill covers the most enemies (or hurt allies). */
+/** Where to drop party member idx: spot where its real drag footprint covers the most enemies (or hurt allies). */
 export function bestDropPoint(w: World, p: SimPlayer, idx: number): Vec2 {
-  const def = getCharacter(p.party[idx].defId);
-  const action: SkillAction = def.drag.actions[0];
-  const radius = areaRadius(scaleArea(action.area, 1 + skillMod(p, idx, 'drag', 'radius')));
+  const parts = previewPartsFor(w.state, p.id, 'swap', idx);
   const me = activeEntity(w, p);
   const near = me ? copy(me.pos) : null;
   const view = botView(w, p);
   const enemies = enemiesAlive(w);
-  if (action.affects === 'allies') {
-    const allies = alliesAlive(w).filter(a => a.kind === 'character');
+  const allies = alliesAlive(w).filter(a => a.kind === 'character');
+  if (!parts.some(pt => pt.affects === 'enemies')) {
     const hurt = allies.filter(a => a.hp < a.maxHp * 0.9);
-    const best = bestPoint(w, hurt.length ? hurt : allies, coverHurtAllies(allies, radius), near, view);
+    const best = bestDrop(w, parts, hurt.length ? hurt : allies, 'allies', c => allyScore(parts, c, allies, hurtWeight), near, view);
     if (best) return best.pos;
   } else {
-    const best = bestPoint(w, enemies, coverEnemies(enemies, radius), near, view);
+    const score = (c: Vec2) => enemyScore(parts, c, enemies) + allyScore(parts, c, allies, () => 0.3);
+    const best = bestDrop(w, parts, enemies, 'enemies', score, near, view);
     if (best && best.score > 0) return best.pos;
   }
   const t = me ? getEntity(w, me.targetId) : null;
@@ -186,9 +218,8 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
 }
 
 function petPoint(w: World, p: SimPlayer, i: number, enemies: SimEntity[]): Vec2 | null {
-  const def = getPet(p.pets[i].defId);
-  const a = def.action;
-  const radius = areaRadius(a.area);
+  const a = getPet(p.pets[i].defId).action;
+  const parts = previewPartsFor(w.state, p.id, 'pet', i);
   const me = activeEntity(w, p);
   const near = me ? copy(me.pos) : null;
   const view = botView(w, p);
@@ -201,7 +232,7 @@ function petPoint(w: World, p: SimPlayer, i: number, enemies: SimEntity[]): Vec2
     return toView(w, view, { x: (anchor.pos.x + nearest.pos.x) / 2, y: (anchor.pos.y + nearest.pos.y) / 2 });
   }
   if (a.affects === 'enemies') {
-    const best = bestPoint(w, enemies, coverEnemies(enemies, radius), near, view);
+    const best = bestDrop(w, parts, enemies, 'enemies', c => enemyScore(parts, c, enemies), near, view);
     return best && best.score >= 2 ? best.pos : null;
   }
   // allies
@@ -211,17 +242,12 @@ function petPoint(w: World, p: SimPlayer, i: number, enemies: SimEntity[]): Vec2
   if (heals) {
     const hurt = allies.filter(x => x.hp < x.maxHp * BOT.healPetHpFrac);
     if (hurt.length === 0) return null;
-    const best = bestPoint(w, hurt, coverHurtAllies(allies, radius), near, view);
+    const best = bestDrop(w, parts, hurt, 'allies', c => allyScore(parts, c, allies, hurtWeight), near, view);
     return best ? best.pos : null;
   }
   if (enemies.length < 2) return null;
   const shields = a.effects.some(e => e.kind === 'shield');
   if (shields && !allies.some(x => x.hp < x.maxHp * BOT.shieldPetHpFrac)) return null;
-  const cover = (c: Vec2) => {
-    let n = 0;
-    for (const x of allies) if (dist(c, x.pos) <= radius + x.radius) n += x.ownerPlayer === p.id ? 1.5 : 1;
-    return n;
-  };
-  const best = bestPoint(w, allies, cover, near, view);
+  const best = bestDrop(w, parts, allies, 'allies', c => allyScore(parts, c, allies, x => (x.ownerPlayer === p.id ? 1.5 : 1)), near, view);
   return best ? best.pos : null;
 }

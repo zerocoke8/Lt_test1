@@ -1,13 +1,15 @@
 // Shared skill-action executor (drag / normal / ult / pet / monster skills):
 // center → area → targets → effects, with telegraphed delays, multi-hits, zones and summons.
 
-import { DEBUFFS, type Affects, type AreaShape, type Effect, type SkillAction, type Team, type Telegraph, type Vec2 } from '../types';
+import { DEBUFFS, type Affects, type AreaShape, type Dir, type Effect, type SkillAction, type Team, type Telegraph, type Vec2 } from '../types';
 import { getMonster } from '../data';
-import { SUMMON_SPREAD } from './constants';
+import { ARENA_MARGIN, SUMMON_SPREAD } from './constants';
 import { addShield, heal, hitDamage, reduceBenchSwapCd } from './combat';
 import { clampUnit, createUnit } from './entities';
+import { DASH_DEFAULT_DURATION, DIR_VEC, areaExtent, dashEnd, hitsArea, scaleArea, scaleDash } from './geometry';
 import { applyStatus, cleanse } from './status';
 import {
+  arena,
   clampToArena,
   copy,
   countEnemies,
@@ -24,13 +26,15 @@ import {
   type World,
 } from './world';
 
-export function castSkill(w: World, ctx: CastCtx, actions: readonly SkillAction[]): void {
-  for (const a of actions) startAction(w, ctx, a);
+export { scaleArea };
+
+export interface CastOpts {
+  /** Recast without moving the caster (echo_seal repeats a dash skill's hits, not the dash). */
+  noDash?: boolean;
 }
 
-export function scaleArea(a: AreaShape, mult: number): AreaShape {
-  if (a.shape === 'circle' && mult !== 1) return { shape: 'circle', radius: a.radius * mult };
-  return a;
+export function castSkill(w: World, ctx: CastCtx, actions: readonly SkillAction[], opts?: CastOpts): void {
+  for (const a of actions) startAction(w, ctx, a, opts);
 }
 
 export function resolveCenter(w: World, ctx: CastCtx, which: SkillAction['center']): Vec2 {
@@ -66,10 +70,42 @@ function removeTelegraph(w: World, id: number | null): void {
   if (i >= 0) list.splice(i, 1);
 }
 
-export function startAction(w: World, ctx: CastCtx, action: SkillAction): void {
-  const center = resolveCenter(w, ctx, action.center);
+/** Resolved center + the action's fixed world offset (3차: one skill hitting several spots). */
+export function actionCenter(w: World, ctx: CastCtx, action: SkillAction): Vec2 {
+  const c = resolveCenter(w, ctx, action.center);
+  if (action.offset) {
+    c.x += action.offset.x;
+    c.y += action.offset.y;
+  }
+  return c;
+}
+
+/**
+ * R28 dash: the caster (already standing at the resolved center) moves toward dir by distance, clamped into the
+ * arena. Implemented as an immediate reposition; the 'dash' event lets the renderer animate the streak.
+ */
+function doDash(w: World, ctx: CastCtx, from: Vec2, dash: NonNullable<SkillAction['dash']>): void {
+  const caster = getEntity(w, ctx.casterId);
+  if (!caster) return;
+  const d = scaleDash(dash, ctx.radiusMult);
+  const mg = Math.max(ARENA_MARGIN, Math.min(caster.radius, 1));
+  const to = dashEnd(from, d.dir, d.distance, arena(w), mg);
+  caster.pos.x = to.x;
+  caster.pos.y = to.y;
+  caster.facing = facingOf(d.dir);
+  emit(w, { type: 'dash', entityId: caster.id, from: copy(from), to: copy(to), duration: dash.duration ?? DASH_DEFAULT_DURATION });
+}
+
+function facingOf(d: Dir): number {
+  const u = DIR_VEC[d];
+  return Math.atan2(u.y, u.x);
+}
+
+export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: CastOpts): void {
+  const center = actionCenter(w, ctx, action);
   const origin = action.area.shape === 'line' ? originOf(w, ctx) : center;
   const area = scaleArea(action.area, ctx.radiusMult);
+  if (action.dash && !opts?.noDash) doDash(w, ctx, center, action.dash);
   emit(w, {
     type: 'skillCast',
     sourceId: ctx.casterId,
@@ -120,7 +156,7 @@ function fireHit(w: World, p: PendingHit): void {
       const nt = caster ? getEntity(w, caster.targetId) : null;
       if (nt) p.ctx = { ...p.ctx, targetId: nt.id, targetPos: copy(nt.pos) };
     }
-    p.center = resolveCenter(w, p.ctx, a.center);
+    p.center = actionCenter(w, p.ctx, a);
     if (p.area.shape === 'line') p.origin = originOf(w, p.ctx);
   }
   applyEffects(w, p.ctx, a, p.center, p.origin, p.area);
@@ -144,7 +180,8 @@ export function tickPending(w: World, dt: number): void {
     removeTelegraph(w, p.telegraphId);
     p.telegraphId = null;
     if (p.kind === 'echo') {
-      castSkill(w, p.ctx, p.actions);
+      for (const id of p.extraTelegraphIds.splice(0)) removeTelegraph(w, id);
+      castSkill(w, p.ctx, p.actions, { noDash: true });
     } else {
       fireHit(w, p);
       if (p.hitsLeft > 0) keep.push(p);
@@ -172,45 +209,27 @@ export function collectTargets(
   const team = affects === 'enemies' ? otherTeam(ctx.team) : ctx.team;
   const pool: SimEntity[] = [];
   for (const e of w.state.entities) if (e.team === team && isAlive(e)) pool.push(e);
-  switch (area.shape) {
-    case 'single': {
-      const pref = affects === 'enemies' ? getEntity(w, ctx.targetId) : getEntity(w, ctx.selfId);
-      if (pref && pref.team === team) return [pref];
-      let best: SimEntity | null = null;
-      let bd = Infinity;
-      for (const e of pool) {
-        const d = dist(center, e.pos) - e.radius;
-        if (d < bd) {
-          bd = d;
-          best = e;
-        }
+  if (area.shape === 'single') {
+    const pref = affects === 'enemies' ? getEntity(w, ctx.targetId) : getEntity(w, ctx.selfId);
+    if (pref && pref.team === team) return [pref];
+    let best: SimEntity | null = null;
+    let bd = Infinity;
+    for (const e of pool) {
+      const d = dist(center, e.pos) - e.radius;
+      if (d < bd) {
+        bd = d;
+        best = e;
       }
-      return best && bd <= 1 ? [best] : [];
     }
-    case 'circle':
-      return pool.filter(e => dist(center, e.pos) <= area.radius + e.radius);
-    case 'line': {
-      let dx = center.x - origin.x;
-      let dy = center.y - origin.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 1e-6) {
-        const c = getEntity(w, ctx.casterId);
-        const f = c ? c.facing : 0;
-        dx = Math.cos(f);
-        dy = Math.sin(f);
-      } else {
-        dx /= len;
-        dy /= len;
-      }
-      return pool.filter(e => {
-        const rx = e.pos.x - origin.x;
-        const ry = e.pos.y - origin.y;
-        const along = rx * dx + ry * dy;
-        const perp = Math.abs(rx * dy - ry * dx);
-        return along >= -e.radius && along <= area.length + e.radius && perp <= area.width / 2 + e.radius;
-      });
-    }
+    return best && bd <= 1 ? [best] : [];
   }
+  let fallback: Vec2 | undefined;
+  if (area.shape === 'line') {
+    const c = getEntity(w, ctx.casterId);
+    const f = c ? c.facing : 0;
+    fallback = { x: Math.cos(f), y: Math.sin(f) };
+  }
+  return pool.filter(e => hitsArea(area, center, origin, e.pos, e.radius, fallback));
 }
 
 export function applyEffects(w: World, ctx: CastCtx, action: SkillAction, center: Vec2, origin: Vec2, area: AreaShape): void {
@@ -245,7 +264,7 @@ function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: 
       break;
     }
     case 'knockback':
-      displace(w, t, center, eff.distance, true);
+      displace(w, t, center, eff.distance, true, eff.dir);
       break;
     case 'pull':
       displace(w, t, center, eff.distance, false);
@@ -258,8 +277,16 @@ function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: 
   }
 }
 
-function displace(w: World, t: SimEntity, center: Vec2, distance: number, away: boolean): void {
+function displace(w: World, t: SimEntity, center: Vec2, distance: number, away: boolean, dir?: Dir): void {
   if (t.rt.stationary || distance <= 0) return;
+  if (away && dir) {
+    // fixed-direction knockback (e.g. 거너 산탄: always pushed left)
+    const u = DIR_VEC[dir];
+    t.pos.x += u.x * distance;
+    t.pos.y += u.y * distance;
+    clampUnit(w, t);
+    return;
+  }
   const dx = t.pos.x - center.x;
   const dy = t.pos.y - center.y;
   const d = Math.hypot(dx, dy);
@@ -285,22 +312,33 @@ function zoneKind(action: SkillAction): SimZone['kind'] {
   return debuff ? 'debuff' : 'buff';
 }
 
+/** Footprint a zone re-applies its effects on ('single' / 'line' have no fixed footprint → small circle). */
+function zoneArea(area: AreaShape): AreaShape {
+  if (area.shape === 'single' || area.shape === 'line') return { shape: 'circle', radius: 1 };
+  return area;
+}
+
 function createZone(w: World, ctx: CastCtx, action: SkillAction, center: Vec2, area: AreaShape): void {
   const zone = action.zone!;
-  const radius = area.shape === 'circle' ? area.radius : 1;
+  const zArea = zoneArea(area);
   const z: SimZone = {
     id: newId(w),
     team: ctx.team,
     ownerPlayer: ctx.player,
     center: copy(center),
-    radius,
+    radius: zArea.shape === 'circle' ? zArea.radius : areaExtent(zArea),
+    area: zArea,
     remaining: zone.duration,
     total: zone.duration,
     kind: zoneKind(action),
     rt: { ctx, action, nextTick: zone.tickInterval, tickInterval: Math.max(0.05, zone.tickInterval) },
   };
   w.state.zones.push(z);
-  applyEffects(w, ctx, action, z.center, z.center, { shape: 'circle', radius });
+  applyEffects(w, ctx, action, z.center, z.center, zArea);
+}
+
+function zoneFootprint(z: SimZone): AreaShape {
+  return z.area ?? { shape: 'circle', radius: z.radius };
 }
 
 export function tickZones(w: World, dt: number): void {
@@ -313,7 +351,7 @@ export function tickZones(w: World, dt: number): void {
     if (z.remaining <= 1e-6) continue;
     if (z.rt.nextTick <= 1e-6) {
       z.rt.nextTick += z.rt.tickInterval;
-      applyEffects(w, z.rt.ctx, z.rt.action, z.center, z.center, { shape: 'circle', radius: z.radius });
+      applyEffects(w, z.rt.ctx, z.rt.action, z.center, z.center, zoneFootprint(z));
     }
     keep.push(z);
   }

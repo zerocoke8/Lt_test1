@@ -16,7 +16,9 @@ import {
 import { type BossDrawOpts, drawBoss, drawBossShadow } from './boss';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { Backdrop } from './ground';
-import { COLORS, boldFont } from './look';
+import { COLORS, OTHER_PLAYER_FX, boldFont } from './look';
+import { areaCentroid, areaExtent } from '../sim/geometry';
+import { drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
 import { TAU, pathArea, pathCapsule } from './shapes';
 import {
   type UnitMemo,
@@ -135,7 +137,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function drawZones(state: GameState): void {
     const c = ctx!;
     for (const z of state.zones) {
-      if (!cam.visibleX(z.center.x, z.radius + 1)) continue;
+      if (!cam.visibleX(z.center.x, (z.area ? areaExtent(z.area) : z.radius) + 1)) continue;
       const color =
         z.kind === 'heal'
           ? COLORS.zoneHeal
@@ -147,7 +149,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
                 ? COLORS.zoneDamageEnemy
                 : COLORS.zoneDamageAlly;
       const fadeIn = z.total > 0 ? Math.min(1, (z.total - z.remaining) / 0.25) : 1;
-      const fade = Math.min(1, z.remaining / 0.4, fadeIn);
+      // other players' fields (paladin/cleric circles …) are drawn softer so they don't bury my own preview/fight
+      const others = z.ownerPlayer != null && z.ownerPlayer !== vc.localPlayer ? OTHER_PLAYER_FX : 1;
+      const fade = Math.min(1, z.remaining / 0.4, fadeIn) * others;
+      if (z.area && z.area.shape !== 'circle') {
+        drawShapedZone(z, z.area, color, fade);
+        continue;
+      }
       const sx = cam.sx(z.center.x);
       const sy = cam.sy(z.center.y);
       const rx = z.radius * PX_PER_UNIT;
@@ -187,6 +195,38 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.globalAlpha = 1;
   }
 
+  /** Non-circle persistent zone (3차 shapes): exact footprint, slow inner pulse, remaining-time ring at its middle. */
+  function drawShapedZone(z: GameState['zones'][number], area: AreaShape, color: string, fade: number): void {
+    const c = ctx!;
+    pathArea(c, cam, z.center, null, area, 1);
+    c.globalAlpha = (z.team === 'enemy' ? 0.24 : 0.18) * fade;
+    c.fillStyle = color;
+    c.fill();
+    c.globalAlpha = 0.75 * fade;
+    c.lineWidth = 2;
+    c.strokeStyle = color;
+    if (z.team === 'enemy') c.setLineDash(ZONE_DASH);
+    c.stroke();
+    c.setLineDash(NO_DASH);
+    const k = (time * 0.8 + z.id * 0.37) % 1;
+    pathArea(c, cam, z.center, null, area, 0.35 + 0.65 * k);
+    c.globalAlpha = 0.35 * (1 - k) * fade;
+    c.lineWidth = 2.5;
+    c.stroke();
+    if (z.total > 0) {
+      const mid = areaCentroid(area, z.center);
+      const frac = Math.max(0, Math.min(1, z.remaining / z.total));
+      const sx = cam.sx(mid.x);
+      const sy = cam.sy(mid.y);
+      c.globalAlpha = 0.9 * fade;
+      c.lineWidth = 3.5;
+      c.beginPath();
+      c.ellipse(sx, sy, 0.7 * PX_PER_UNIT, 0.7 * PX_PER_UNIT_Y, 0, -Math.PI / 2, -Math.PI / 2 + TAU * frac);
+      c.stroke();
+    }
+    c.globalAlpha = 1;
+  }
+
   /** Ally telegraphs go on the ground; enemy ones are drawn again later, above the boss body (tentacles hid them). */
   function drawTelegraphs(state: GameState, team: 'ally' | 'enemy'): void {
     const c = ctx!;
@@ -216,49 +256,40 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         c.strokeStyle = color;
         c.stroke();
       }
+      if (area.shape === 'rect' || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
     }
     c.globalAlpha = 1;
   }
 
-  function drawPreviewGround(dp: DragPreview): void {
-    const c = ctx!;
-    const color = previewColor(dp);
-    pathArea(c, cam, dp.pos, null, dp.area, 1);
-    c.globalAlpha = dp.valid ? 0.22 : 0.18;
-    c.fillStyle = color;
-    c.fill();
-    c.globalAlpha = 0.95;
-    c.lineWidth = 3;
-    c.strokeStyle = color;
-    c.stroke();
-    if (dp.area.shape === 'circle') {
-      const k = (time * 1.4) % 1;
-      pathArea(c, cam, dp.pos, null, dp.area, k);
-      c.globalAlpha = 0.5 * (1 - k);
-      c.lineWidth = 2;
-      c.stroke();
-    }
-    // center cross
-    const sx = cam.sx(dp.pos.x);
-    const sy = cam.sy(dp.pos.y);
-    c.globalAlpha = 0.9;
-    c.lineWidth = 2;
-    c.strokeStyle = '#ffffff';
-    c.beginPath();
-    c.moveTo(sx - 10, sy);
-    c.lineTo(sx + 10, sy);
-    c.moveTo(sx, sy - 6);
-    c.lineTo(sx, sy + 6);
-    c.stroke();
-    c.globalAlpha = 1;
+  function drawPreviewGround(dp: DragPreview, state: GameState): void {
+    drawPreviewFootprint(ctx!, cam, dp, state.plan.arena, previewColor(dp), time);
   }
 
-  function drawPreviewGhost(dp: DragPreview): void {
+  function drawPreviewGhost(dp: DragPreview, state: GameState): void {
     const c = ctx!;
     const color = previewColor(dp);
     const fx = cam.sx(dp.pos.x);
     const fy = cam.sy(dp.pos.y);
     const bob = Math.sin(time * 5) * 3;
+    const dash = dp.kind === 'swap' ? previewDashEnd(dp, state.plan.arena) : null;
+    if (dash) {
+      // where the character stops after its dash: a faint body that slides toward the end
+      const k = dp.valid ? (time * 0.9) % 1 : 1;
+      const e = 1 - (1 - k) * (1 - k);
+      const gx = cam.sx(dash.from.x + (dash.to.x - dash.from.x) * e);
+      const gy = cam.sy(dash.from.y + (dash.to.y - dash.from.y) * e);
+      const w = bodyWidth(0.5);
+      pathCapsule(c, gx, gy - 2, w, w * 1.3);
+      c.globalAlpha = 0.28 * (dp.valid ? 1 - k * 0.3 : 0.6);
+      c.fillStyle = color;
+      c.fill();
+      c.globalAlpha = 0.85;
+      c.lineWidth = 2;
+      c.setLineDash([5, 4]);
+      c.strokeStyle = '#ffffff';
+      c.stroke();
+      c.setLineDash(NO_DASH);
+    }
     c.globalAlpha = 0.5;
     if (dp.kind === 'swap') {
       const w = bodyWidth(0.5);
@@ -289,6 +320,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       c.strokeStyle = '#ffffff';
       c.stroke();
     }
+    drawPreviewBadges(c, cam, dp, color);
+    c.globalAlpha = 1;
     if (!dp.valid) {
       const cy = fy - 34;
       c.globalAlpha = 1;
@@ -341,6 +374,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       default:
         hMul = 1 + 0.025 * Math.sin(time * 2.6 + m.phase);
     }
+    if (vfx.dashPose(e.id, dashOff)) {
+      // drag-skill dash: drawn at the replayed streak position; it lands fast at the drop point, then dashes
+      ox += dashOff.ox;
+      oy += dashOff.oy;
+      if (e.anim === 'appear') z = dashOff.z;
+    }
     pose.fx = cam.sx(e.pos.x + ox);
     pose.fy = cam.sy(e.pos.y + oy);
     pose.z = z * PX_PER_UNIT_Z;
@@ -349,14 +388,21 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function drawUnitGround(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     const c = ctx!;
-    const lift = e.anim === 'appear' ? (1 - animProgress(e, m)) : 0;
-    drawShadow(c, cam, e.pos.x, e.pos.y, e.radius * (m.look.shape === 'hero' ? 0.9 : 1), 1 - lift * 0.6, 1 - lift * 0.5);
+    let lift = e.anim === 'appear' ? (1 - animProgress(e, m)) : 0;
+    let gx = e.pos.x;
+    let gy = e.pos.y;
+    if (vfx.dashPose(e.id, dashOff)) {
+      gx += dashOff.ox;
+      gy += dashOff.oy;
+      lift = Math.min(1, dashOff.z / 1.6);
+    }
+    drawShadow(c, cam, gx, gy, e.radius * (m.look.shape === 'hero' ? 0.9 : 1), 1 - lift * 0.6, 1 - lift * 0.5);
     if (e.anim === 'cast') {
       const k = 0.5 + 0.5 * Math.sin(time * 14);
       c.globalAlpha = 0.25 + 0.25 * k;
       c.fillStyle = m.look.light;
       c.beginPath();
-      c.ellipse(cam.sx(e.pos.x), cam.sy(e.pos.y), e.radius * PX_PER_UNIT * (1.5 + 0.2 * k), e.radius * PX_PER_UNIT_Y * (1.5 + 0.2 * k), 0, 0, TAU);
+      c.ellipse(cam.sx(gx), cam.sy(gy), e.radius * PX_PER_UNIT * (1.5 + 0.2 * k), e.radius * PX_PER_UNIT_Y * (1.5 + 0.2 * k), 0, 0, TAU);
       c.fill();
       c.globalAlpha = 1;
     }
@@ -364,9 +410,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const owner = e.ownerPlayer;
       const color = owner !== null ? playerColor(state, owner) : '#7fd1ff';
       const mode = e.kind === 'character' ? (owner === local ? 'local' : 'ally') : 'summon';
-      drawGroundRing(c, cam, e.pos.x, e.pos.y, e.radius, color, mode, time);
+      drawGroundRing(c, cam, gx, gy, e.radius, color, mode, time);
     } else {
-      drawGroundRing(c, cam, e.pos.x, e.pos.y, e.radius, COLORS.enemyRing, 'enemy', time);
+      drawGroundRing(c, cam, gx, gy, e.radius, COLORS.enemyRing, 'enemy', time);
     }
   }
 
@@ -711,7 +757,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     drawTelegraphs(state, 'ally');
     vfx.drawGround(c, cam, time);
     c.restore();
-    if (ui.dragPreview) drawPreviewGround(ui.dragPreview);
+    if (ui.dragPreview) drawPreviewGround(ui.dragPreview, state);
     for (const e of sorted) drawUnitGround(e, memos.get(e.id)!, ui.localPlayer, state);
     drawBosses(state, false);
     if (state.telegraphs.length > 0) {
@@ -737,7 +783,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     vfx.drawAir(c, cam);
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
-    if (ui.dragPreview) drawPreviewGhost(ui.dragPreview);
+    if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     vfx.drawOverlay(c, cam);
     drawOffscreenEnemies(state);
     vfx.drawScreen(c, state.bossEnraged && state.bossId !== null, time, getVignette());
@@ -760,6 +806,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 }
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };
+const dashOff = { ox: 0, oy: 0, z: 0 };
 const offSide = { ln: 0, rn: 0, ly: 0, ry: 0, lmid: false, rmid: false };
 
 function hasStun(e: Entity): boolean {

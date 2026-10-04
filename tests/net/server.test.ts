@@ -1,0 +1,377 @@
+// Game server (server/*): HTTP, hello/sessions, rooms (create/join/full/host handoff), start fills bots, command
+// player override, host-only debug/tunables, reward timeout (R33), disconnect → bot → reconnect (R34), quit, robustness.
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { RunningServer } from '../../server/server';
+import { PROTOCOL_VERSION } from '../../src/net/protocol';
+import { PRESET_A, PRESET_B, sleep, startTestServer, TestClient } from './helpers';
+
+let srv: RunningServer;
+const clients: TestClient[] = [];
+
+async function connect(name: string, token?: string): Promise<TestClient> {
+  const c = await TestClient.connect(srv.port, name, token);
+  clients.push(c);
+  return c;
+}
+
+/** A creates a room, the others join in order. Returns the room code. */
+async function makeRoom(host: TestClient, ...others: TestClient[]): Promise<string> {
+  host.mark();
+  host.send({ t: 'createRoom', preset: PRESET_A });
+  const { room } = await host.next('room', m => !!m.room);
+  const code = room!.code;
+  for (const c of others) {
+    c.mark();
+    c.send({ t: 'joinRoom', code, preset: PRESET_B });
+    await c.next('room', m => !!m.room && m.room.code === code);
+  }
+  return code;
+}
+
+async function startGame(host: TestClient, ...others: TestClient[]) {
+  for (const c of [host, ...others]) c.mark();
+  host.send({ t: 'start' });
+  const starts = [await host.next('start')];
+  for (const c of others) starts.push(await c.next('start'));
+  return starts;
+}
+
+beforeEach(async () => {
+  srv = await startTestServer();
+});
+
+afterEach(async () => {
+  for (const c of clients.splice(0)) c.kill();
+  await srv.close();
+});
+
+describe('HTTP', () => {
+  it('serves /healthz, the client build and nothing outside it', async () => {
+    const base = `http://127.0.0.1:${srv.port}`;
+    const h = await fetch(`${base}/healthz`);
+    expect(h.status).toBe(200);
+    expect(await h.text()).toBe('ok');
+    const index = await fetch(`${base}/`, { headers: { 'accept-encoding': 'gzip' } });
+    expect(index.status).toBe(200);
+    expect(index.headers.get('content-type')).toContain('text/html');
+    expect(index.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(await index.text()).toContain('스왑 타워');
+    expect((await fetch(`${base}/nope.js`)).status).toBe(404);
+    expect((await fetch(`${base}/%2e%2e/package.json`)).status).toBe(404);
+    expect((await fetch(`${base}/`, { method: 'POST' })).status).toBe(405);
+  });
+});
+
+describe('hello / sessions', () => {
+  it('welcome with session + token; nickname sanitised (1–12 chars, default 플레이어N)', async () => {
+    const a = await connect('  에이\u0000​  ');
+    expect(a.name).toBe('에이');
+    expect(a.sessionId).toMatch(/^[0-9a-f]+$/);
+    expect(a.token).toMatch(/^[0-9a-f]{32}$/);
+    const b = await connect('가나다라마바사아자차카타파하');
+    expect(b.name).toBe('가나다라마바사아자차카타');
+    const c = await connect('   ');
+    expect(c.name).toMatch(/^플레이어\d+$/);
+    // lobby clients get the room list right away
+    expect((await c.next('rooms')).rooms).toEqual([]);
+    c.mark();
+    c.send({ t: 'setName', name: '새 이름' });
+    expect((await c.next('welcome')).name).toBe('새 이름');
+  });
+
+  it('rejects another protocol version', async () => {
+    const c = await TestClient.open(srv.port);
+    clients.push(c);
+    c.send({ t: 'hello', v: PROTOCOL_VERSION + 1, name: 'x' });
+    expect((await c.next('error')).code).toBe('bad_version');
+  });
+
+  it('ignores junk, answers ping, closes on oversized frames', async () => {
+    const c = await connect('junk');
+    c.sendRaw('not json');
+    c.sendRaw('{"t":"nope"}');
+    c.sendRaw('{"t":"cmd","seq":-1,"cmd":{"type":"swap"}}');
+    c.sendRaw('{"t":"joinRoom","code":"ABCD","preset":{"characters":["x","y","z"],"pets":[]}}');
+    c.sendRaw(Buffer.from([1, 2, 3]));
+    c.mark();
+    c.send({ t: 'ping', at: 123 });
+    const pong = await c.next('pong');
+    expect(pong.at).toBe(123);
+    expect(pong.serverTime).toBeGreaterThan(0);
+    expect(c.msgs.some(m => m.t === 'error')).toBe(false);
+    c.sendRaw('x'.repeat(64 * 1024));
+    await sleep(200);
+    expect(c.closed).toBe(true);
+    expect(c.closeCode).toBe(1009);
+  });
+
+  it('rate-limits floods', async () => {
+    const c = await connect('flood');
+    c.mark();
+    for (let i = 0; i < 200; i++) c.send({ t: 'ping', at: i });
+    await sleep(300);
+    const pongs = c.msgs.filter(m => m.t === 'pong').length;
+    expect(pongs).toBeGreaterThan(50);
+    expect(pongs).toBeLessThan(120);
+  });
+});
+
+describe('rooms', () => {
+  it('create / join by code / full / not found; lobby sees the list', async () => {
+    const [a, b, c, d, lobby] = await Promise.all(['A', 'B', 'C', 'D', 'L'].map(n => connect(n)));
+    lobby.mark();
+    const code = await makeRoom(a, b);
+    expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/);
+    const info = (await a.next('room', m => m.room?.members.length === 2)).room!;
+    expect(info.members.map(m => [m.name, m.isHost, m.connected])).toEqual([
+      ['A', true, true],
+      ['B', false, true],
+    ]);
+    expect(info.members[1].preset).toEqual(PRESET_B);
+    expect(info.status).toBe('waiting');
+    const listed = await lobby.next('rooms', m => m.rooms.some(r => r.code === code && r.players === 2));
+    expect(listed.rooms[0]).toMatchObject({ code, hostName: 'A', players: 2, max: 3, status: 'waiting', name: 'A의 방' });
+    // join by lower-case code
+    c.send({ t: 'joinRoom', code: code.toLowerCase(), preset: PRESET_A });
+    await c.next('room', m => m.room?.members.length === 3);
+    d.send({ t: 'joinRoom', code, preset: PRESET_A });
+    expect((await d.next('error')).code).toBe('room_full');
+    d.send({ t: 'joinRoom', code: 'ZZZZ', preset: PRESET_A });
+    expect((await d.next('error')).code).toBe('room_not_found');
+  });
+
+  it('host handoff when the host leaves; an empty room is deleted', async () => {
+    const [a, b, c, lobby] = await Promise.all(['A', 'B', 'C', 'L'].map(n => connect(n)));
+    const code = await makeRoom(a, b, c);
+    a.mark();
+    a.send({ t: 'leaveRoom' });
+    expect((await a.next('room')).room).toBeNull();
+    const r = (await b.next('room', m => m.room?.members.length === 2)).room!;
+    expect(r.members.find(m => m.isHost)?.name).toBe('B');
+    expect(r.name).toBe('B의 방'); // the automatic name follows the host
+    b.send({ t: 'leaveRoom' });
+    const r2 = (await c.next('room', m => m.room?.members.length === 1)).room!;
+    expect(r2.members[0]).toMatchObject({ name: 'C', isHost: true });
+    lobby.mark();
+    c.send({ t: 'leaveRoom' });
+    await lobby.next('rooms', m => !m.rooms.some(x => x.code === code));
+    expect(srv.hub.rooms.size).toBe(0);
+  });
+
+  it('a dropped member keeps the waiting seat briefly (reload), then is removed', async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    a.mark();
+    b.kill();
+    const r = (await a.next('room', m => m.room?.members.length === 2 && !m.room.members[1].connected)).room!;
+    expect(r.members[1].name).toBe('B');
+    await a.next('room', m => m.room?.members.length === 1, 2000);
+  });
+});
+
+describe('game', () => {
+  it('start: host only; humans in slot order, bots fill to 3; clean, rounded snapshots', async () => {
+    const [a, b, lobby] = await Promise.all(['A', 'B', 'L'].map(n => connect(n)));
+    const code = await makeRoom(a, b);
+    b.send({ t: 'start' });
+    expect((await b.next('error')).code).toBe('not_host');
+    const [sa, sb] = await startGame(a, b);
+    expect([sa.playerIndex, sb.playerIndex]).toEqual([0, 1]);
+    expect(sa.hostPlayerIndex).toBe(0);
+    expect(sb.hostPlayerIndex).toBe(0);
+    const snap = await a.snap();
+    const s = snap.state;
+    expect(s.players.map(p => [p.name, p.isBot])).toEqual([
+      ['A', false],
+      ['B', false],
+      ['BOT 1', true],
+    ]);
+    expect(s.players[0].party.map(m => m.defId)).toEqual(PRESET_A.characters);
+    expect(s.players[1].pets.map(p => p.defId)).toEqual(PRESET_B.pets);
+    expect(snap.hostPlayerIndex).toBe(0);
+    expect(snap.rewardDeadline).toBeNull();
+    // first snapshot carries the tunables; the tuning log only comes with the run's end
+    expect(snap.tunables?.gameSpeed).toBe(1);
+    expect(snap.telemetry).toBeUndefined();
+    const raw = JSON.stringify(snap.state);
+    expect(raw).not.toContain('"rt"');
+    expect(raw).not.toContain('"src"');
+    expect(raw).not.toMatch(/\d\.\d{3,}/);
+    // the room is listed as playing and cannot be joined
+    await lobby.next('rooms', m => m.rooms.some(r => r.code === code && r.status === 'playing'));
+    lobby.send({ t: 'joinRoom', code, preset: PRESET_A });
+    expect((await lobby.next('error')).code).toBe('room_playing');
+    // snapshots keep flowing at ~15 Hz
+    a.mark();
+    await sleep(500);
+    const n = a.msgs.slice(-40).filter(m => m.t === 'snap').length;
+    expect(n).toBeGreaterThanOrEqual(5);
+  });
+
+  it('a 1-human room gets 2 bots', async () => {
+    const a = await connect('Solo');
+    await makeRoom(a);
+    const [sa] = await startGame(a);
+    expect(sa.playerIndex).toBe(0);
+    const s = (await a.snap()).state;
+    expect(s.players.map(p => p.isBot)).toEqual([false, true, true]);
+    expect(s.players.map(p => p.name)).toEqual(['Solo', 'BOT 1', 'BOT 2']);
+  });
+
+  it("commands act for the sender's slot whatever `player` says", async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    await a.snap();
+    b.mark();
+    b.send({ t: 'cmd', seq: 7, cmd: { type: 'swap', player: 0, partyIndex: 1, pos: { x: 14, y: 6 } } });
+    const res = await b.next('cmdResult', m => m.seq === 7);
+    expect(res.ok).toBe(true);
+    const s = (await a.snap(m => m.state.players[1].activeIndex === 1)).state;
+    expect(s.players[0].activeIndex).toBe(0);
+    expect(s.players[1].stats.swaps).toBe(1);
+    // the same card again right away is refused by the sim
+    b.send({ t: 'cmd', seq: 8, cmd: { type: 'swap', player: 1, partyIndex: 1, pos: { x: 14, y: 6 } } });
+    expect((await b.next('cmdResult', m => m.seq === 8)).ok).toBe(false);
+  });
+
+  it('debug and tunables are host-only; debug player is the sender', async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'skipFloor' } } });
+    expect(await b.next('cmdResult', m => m.seq === 1)).toMatchObject({ ok: false, reason: '방장만 할 수 있어요' });
+    b.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { gameSpeed: 2 } } });
+    expect((await b.next('cmdResult', m => m.seq === 2)).ok).toBe(false);
+    a.send({ t: 'cmd', seq: 3, cmd: { type: 'debug', action: { kind: 'chargeUlt', player: 1 } } as never });
+    expect((await a.next('cmdResult', m => m.seq === 3)).ok).toBe(true);
+    const s = (await b.snap(m => m.state.players[0].ult.charge === 1)).state;
+    expect(s.players[1].ult.charge).toBeLessThan(1);
+    a.send({ t: 'cmd', seq: 4, cmd: { type: 'tunables', patch: { ultChargeTime: 9, invincible: true } } });
+    expect((await a.next('cmdResult', m => m.seq === 4)).ok).toBe(true);
+    const snap = await b.snap(m => m.tunables?.ultChargeTime === 9);
+    expect(snap.tunables?.invincible).toBe(true);
+  });
+
+  it('snapshots: tunables only when changed (+ ~1/s), telemetry only after runOver, wave spawns thinned', async () => {
+    const a = await connect('A');
+    await makeRoom(a);
+    await startGame(a);
+    await a.snap();
+    a.mark();
+    const from = a.msgs.length;
+    await sleep(1300); // ~19 snapshots at 15 Hz
+    const snaps = a.msgs.slice(from).filter(m => m.t === 'snap') as Extract<(typeof a.msgs)[number], { t: 'snap' }>[];
+    expect(snaps.length).toBeGreaterThan(10);
+    const withTunables = snaps.filter(m => m.tunables).length;
+    expect(withTunables).toBeGreaterThanOrEqual(1); // the periodic resend
+    expect(withTunables).toBeLessThanOrEqual(2);
+    expect(snaps.every(m => m.telemetry === undefined)).toBe(true);
+    const plan = snaps[snaps.length - 1].state.plan;
+    expect(plan.waves.length).toBeGreaterThan(0);
+    expect(plan.waves.every(w => w.spawns.length === 0)).toBe(true);
+    expect(snaps[snaps.length - 1].state.entities.every(e => Number.isInteger(e.targetHeldFor))).toBe(true);
+    // a change goes out on the next snapshot
+    a.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { ultChargeTime: 11 } } });
+    expect((await a.snap(m => m.tunables?.ultChargeTime === 11, 1000)).tunables?.ultChargeTime).toBe(11);
+    // host ends the run → the runOver snapshots carry this player's tuning log
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'quit' } });
+    const over = await a.snap(m => m.state.phase === 'runOver');
+    expect(over.telemetry).toBeDefined();
+    expect(over.telemetry!.damageShareBySource).toHaveProperty('drag');
+  });
+
+  it('R33 reward phase: everyone picks their own; the timeout picks for the rest', async () => {
+    const [a, b, c] = await Promise.all(['A', 'B', 'C'].map(n => connect(n)));
+    await makeRoom(a, b, c);
+    await startGame(a, b, c);
+    a.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'skipFloor' } } });
+    const snap = await b.snap(m => m.state.phase === 'reward');
+    expect(snap.rewardDeadline).not.toBeNull();
+    expect(snap.rewardDeadline! - snap.serverTime).toBeGreaterThan(300);
+    expect(snap.state.rewardOffersByPlayer.map(o => o?.length)).toEqual([3, 3, 3]);
+    expect(snap.state.rewardOffers).toEqual(snap.state.rewardOffersByPlayer[0]);
+    b.send({ t: 'cmd', seq: 5, cmd: { type: 'chooseReward', player: 0, offerIndex: 1 } });
+    expect((await b.next('cmdResult', m => m.seq === 5)).ok).toBe(true);
+    const after = await a.snap(m => m.state.phase === 'reward' && m.state.rewardOffersByPlayer[1] === null);
+    expect(after.state.phase).toBe('reward');
+    expect(after.state.rewardOffersByPlayer[0]).not.toBeNull();
+    expect(after.state.players[1].rewards.length).toBe(1);
+    a.send({ t: 'cmd', seq: 6, cmd: { type: 'chooseReward', player: 0, offerIndex: 0 } });
+    // C never picks: after the (test) 0.6 s timeout the server picks for C
+    const next = await c.snap(m => m.state.floor === 2 && m.state.phase === 'combat', 3000);
+    expect(next.rewardDeadline).toBeNull();
+    expect(next.state.players.map(p => p.rewards.length + p.relics.length)).toEqual([1, 1, 1]);
+  });
+
+  it('R34 disconnect → bot takes the slot → same token reclaims it', async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    const token = b.token;
+    const sid = b.sessionId;
+    a.mark();
+    b.kill();
+    const r = (await a.next('room', m => m.room?.members[1]?.connected === false)).room!;
+    expect(r.status).toBe('playing');
+    const s = (await a.snap(m => m.state.players[1].isBot)).state;
+    expect(s.players[1].disconnected).toBe(true);
+    expect(s.players[1].name).toBe('B');
+    // back with the same token
+    const b2 = await connect('B', token);
+    expect(b2.sessionId).toBe(sid);
+    expect((await b2.next('room')).room?.status).toBe('playing');
+    const st = await b2.next('start');
+    expect(st.playerIndex).toBe(1);
+    const s2 = (await b2.snap(m => !m.state.players[1].isBot)).state;
+    expect(s2.players[1].disconnected).toBe(false);
+    await a.next('room', m => m.room?.members[1]?.connected === true);
+  });
+
+  it("non-host quit leaves (slot → bot); host quit ends the run; afterwards the room waits and drops absentees", async () => {
+    const [a, b, c] = await Promise.all(['A', 'B', 'C'].map(n => connect(n)));
+    await makeRoom(a, b, c);
+    await startGame(a, b, c);
+    b.mark();
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'quit' } });
+    expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(true);
+    expect((await b.next('room')).room).toBeNull();
+    await a.next('room', m => m.room?.members.length === 2);
+    expect((await a.snap(m => m.state.players[1].isBot)).state.phase).toBe('combat');
+    // C drops; the host ends the run
+    c.kill();
+    await a.next('room', m => m.room?.members[1]?.connected === false);
+    a.mark();
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'quit' } });
+    const over = await a.snap(m => m.state.phase === 'runOver');
+    expect(over.state.runResult).toMatchObject({ outcome: 'defeat', reason: 'quit' });
+    await a.next('gameEnded', () => true, 3000);
+    const room = (await a.next('room', m => m.room?.status === 'waiting')).room!;
+    expect(room.members.map(m => m.name)).toEqual(['A']);
+    // and the host can start again
+    const [again] = await startGame(a);
+    expect(again.playerIndex).toBe(0);
+  });
+
+  it('host leaving mid-game hands the host role (and its debug rights) to the next member', async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    a.send({ t: 'leaveRoom' });
+    const snap = await b.snap(m => m.hostPlayerIndex === 1);
+    expect(snap.state.players[0].isBot).toBe(true);
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'killAll' } } });
+    expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(true);
+  });
+
+  it('snapshot size stays reasonable mid-fight', async () => {
+    const a = await connect('A');
+    await makeRoom(a);
+    await startGame(a);
+    a.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { gameSpeed: 4, invincible: true, monsterHpMult: 10 } } });
+    const s = await a.snap(m => m.state.entities.length > 12, 8000);
+    const bytes = Buffer.byteLength(JSON.stringify(s));
+    console.log(`snapshot: ${s.state.entities.length} entities, ${(bytes / 1024).toFixed(1)} KB raw JSON`);
+    expect(bytes).toBeLessThan(80 * 1024);
+  });
+});

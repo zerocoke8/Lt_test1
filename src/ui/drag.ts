@@ -1,6 +1,8 @@
 // Card drag & drop (기획서 4장, 5장): touch-first Pointer Events with pointer capture.
 // The world drop point sits LIFT px above the finger so the finger never hides it; a connector links them.
-// Release over the field → swap/pet at game.clampToArena(world). Release over HUD/cards/letterbox → cancel (no cooldown used).
+// Release over the field → swap/pet at game.clampToArena(world). Release with neither the finger nor the drop point on
+// the bare field (finger and drop point over HUD/cards/letterbox, or the drop point off the arena) → cancel (no cooldown).
+// Near the bottom edge the finger rests on the card row while the drop point is still on the floor: that counts.
 
 import type { CommandResult, DragPreview, Game, Renderer, Vec2 } from '../types';
 import { getCharacter, getPet } from '../data';
@@ -8,7 +10,6 @@ import { h } from './dom';
 import { ROLE_GLYPH } from './format';
 import { petGlyph } from './preset';
 import type { Hud } from './hud';
-import { LOCAL_PLAYER } from './hud';
 import type { Stage } from './stage';
 
 /** Logical px between finger and drop point. */
@@ -37,6 +38,8 @@ export interface DragDeps {
   game(): Game | null;
   renderer(): Renderer;
   hud(): Hud | null;
+  /** The run's local player index (solo 0, multiplayer = server slot). */
+  localPlayer(): number;
 }
 
 export class DragController {
@@ -65,6 +68,10 @@ export class DragController {
     return !!this.press?.dragging;
   }
 
+  private get lp(): number {
+    return this.deps.localPlayer();
+  }
+
   /** Current preview for RenderUiState (null when not dragging). */
   get dragPreview(): DragPreview | null {
     return this.press?.dragging ? this.preview : null;
@@ -73,7 +80,7 @@ export class DragController {
   private can(kind: DragKind, index: number): CommandResult {
     const g = this.deps.game();
     if (!g) return { ok: false, reason: '전투 중이 아님' };
-    return kind === 'swap' ? g.canSwap(LOCAL_PLAYER, index) : g.canUsePet(LOCAL_PLAYER, index);
+    return kind === 'swap' ? g.canSwap(this.lp, index) : g.canUsePet(this.lp, index);
   }
 
   /** Card pointerdown (wired by the HUD). */
@@ -131,8 +138,8 @@ export class DragController {
     }
     const res =
       p.kind === 'swap'
-        ? g.dispatch({ type: 'swap', player: LOCAL_PLAYER, partyIndex: p.index, pos: pv.pos })
-        : g.dispatch({ type: 'pet', player: LOCAL_PLAYER, petIndex: p.index, pos: pv.pos });
+        ? g.dispatch({ type: 'swap', player: this.lp, partyIndex: p.index, pos: pv.pos })
+        : g.dispatch({ type: 'pet', player: this.lp, petIndex: p.index, pos: pv.pos });
     if (!res.ok) this.deps.hud()?.refuse(p.kind, p.index, res);
     else
       try {
@@ -153,7 +160,7 @@ export class DragController {
 
   private startDrag(p: Press): void {
     p.dragging = true;
-    const me = this.deps.game()?.state.players[LOCAL_PLAYER];
+    const me = this.deps.game()?.state.players[this.lp];
     if (p.kind === 'swap') {
       const def = getCharacter(me?.party[p.index]?.defId ?? '');
       this.ghost.style.setProperty('--c', def.color);
@@ -215,18 +222,24 @@ export class DragController {
     const arena = g.state.plan.arena;
     const inArena =
       world.x >= -ARENA_MARGIN_X && world.x <= arena.width + ARENA_MARGIN_X && world.y >= -ARENA_MARGIN_Y && world.y <= arena.height + ARENA_MARGIN_Y;
-    // finger must be over the bare canvas (not a HUD block, panel, overlay or the letterbox)
-    let overField = false;
-    try {
-      overField = document.elementFromPoint(p.client.x, p.client.y) === this.deps.stage.canvas;
-    } catch {
-      overField = false;
-    }
+    // the finger or the drop point must be over the bare canvas (not a HUD block, panel, overlay or the letterbox).
+    // The drop point alone is enough: aiming at the bottom rows of the floor puts the finger on the card/pet row.
+    const canvas = this.deps.stage.canvas;
+    const onCanvas = (x: number, y: number): boolean => {
+      try {
+        return document.elementFromPoint(x, y) === canvas;
+      } catch {
+        return false;
+      }
+    };
+    const dropClient = this.deps.stage.toClient(drop);
+    const overField = onCanvas(p.client.x, p.client.y) || onCanvas(dropClient.x, dropClient.y);
     const ok = this.can(p.kind, p.index).ok;
     const valid = ok && overField && inArena;
-    const me = g.state.players[LOCAL_PLAYER];
+    const me = g.state.players[this.lp];
     const color = p.kind === 'swap' ? getCharacter(me.party[p.index].defId).color : getPet(me.pets[p.index].defId).color;
-    this.preview = { kind: p.kind, pos: g.clampToArena(world), area: g.previewArea(LOCAL_PLAYER, p.kind, p.index), valid, color };
+    const parts = g.previewParts(this.lp, p.kind, p.index);
+    this.preview = { kind: p.kind, pos: g.clampToArena(world), area: parts[0]?.area ?? g.previewArea(this.lp, p.kind, p.index), parts, valid, color };
 
     // DOM: ghost under the finger, connector up to the drop point
     this.ghost.style.transform = `translate(${p.finger.x.toFixed(1)}px, ${p.finger.y.toFixed(1)}px)`;

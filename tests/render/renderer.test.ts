@@ -154,6 +154,7 @@ function makeState(kind: 'normal' | 'boss', localX: number, floor = 1): GameStat
     monstersAlive: 7,
     midBossSpawned: true,
     rewardOffers: null,
+    rewardOffersByPlayer: [],
     runResult: null,
   };
 }
