@@ -860,7 +860,23 @@ export function drawStatusPips(ctx: CanvasRenderingContext2D, cx: number, y: num
  * 기획 5차 "누가 누군지": a small name tag over every player character — "나" for mine (bigger), the player's name
  * (nickname / BOT 1) for others — on a dark pill edged in that player's colour. Returns the height used.
  */
-export function drawNameTag(ctx: CanvasRenderingContext2D, cx: number, bottomY: number, text: string, color: string, isLocal: boolean): number {
+export interface TagBox {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+export function drawNameTag(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  bottomY: number,
+  text: string,
+  color: string,
+  isLocal: boolean,
+  /** Tags already drawn this frame: this one moves up until it no longer overlaps any of them (then is added). */
+  placed?: TagBox[],
+): number {
   const px = isLocal ? 14 : 12;
   const h = isLocal ? 19 : 16;
   ctx.font = boldFont(px);
@@ -869,7 +885,15 @@ export function drawNameTag(ctx: CanvasRenderingContext2D, cx: number, bottomY: 
   const tw = Number.isFinite(measured) ? (measured as number) : label.length * px * 0.62;
   const w = Math.ceil(tw) + (isLocal ? 14 : 11);
   const x = cx - w / 2;
-  const y = bottomY - h;
+  let y = bottomY - h;
+  if (placed) {
+    for (let guard = 0; guard < 4; guard++) {
+      const hit = placed.find(b => x < b.x1 && x + w > b.x0 && y < b.y1 && y + h > b.y0);
+      if (!hit) break;
+      y = hit.y0 - h - 2;
+    }
+    placed.push({ x0: x, x1: x + w, y0: y, y1: y + h });
+  }
   pathRoundRect(ctx, x, y, w, h, h / 2);
   ctx.globalAlpha = isLocal ? 0.92 : 0.8;
   ctx.fillStyle = '#0b0d14';
@@ -882,7 +906,7 @@ export function drawNameTag(ctx: CanvasRenderingContext2D, cx: number, bottomY: 
   ctx.textBaseline = 'middle';
   ctx.fillStyle = isLocal ? '#ffffff' : color;
   ctx.fillText(label, cx, y + h / 2 + 0.5);
-  return h + 2;
+  return bottomY - y + 2;
 }
 
 export function drawLocalMarker(ctx: CanvasRenderingContext2D, cx: number, bottomY: number, color: string, time: number): void {

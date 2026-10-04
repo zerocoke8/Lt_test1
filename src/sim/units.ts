@@ -7,7 +7,7 @@ import { applyDamage, basicHit, explode, fireProjectile, heal } from './combat';
 import { normalCooldownFor } from './cooldowns';
 import { charCtx, unitCtx } from './ctx';
 import { clampUnit } from './entities';
-import { castSkill } from './skills';
+import { castSkill, startAction } from './skills';
 import { effStats } from './stats';
 import { hasStatus, tickStatusTimers } from './status';
 import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type SimEntity, type SimStatus, type World } from './world';
@@ -196,7 +196,7 @@ function tryNormalSkill(w: World, e: SimEntity, t: SimEntity | null): void {
   if (castRange >= 99) ok = !!t || w.state.entities.some(o => o.team !== e.team && isAlive(o));
   else ok = !!t && edgeDist(e, t) <= castRange;
   if (!ok) return;
-  m.normalCooldownRemaining = normalCooldownFor(w, p, e.partyIndex);
+  m.normalCooldownRemaining = normalCooldownFor(w.tunables, p, e.partyIndex);
   if (t) e.facing = Math.atan2(t.pos.y - e.pos.y, t.pos.x - e.pos.x);
   castSkill(w, charCtx(w, e, 'normal', sk), sk.actions);
   if (sk.castTime && sk.castTime > 0) {
@@ -217,7 +217,8 @@ function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
     const cdMult = e.enraged && def.tier === 'boss' ? (def as BossDef).enrage.cooldownMult : 1;
     e.rt.skillCds[i] = sk.cooldown * cdMult;
     e.rt.skillGap = MONSTER_SKILL_GAP;
-    castSkill(w, unitCtx(w, e, sk.id, sk.name), [sk.action]);
+    // a telegraphed skill is wound up until it lands: a stun in between breaks it (status.ts)
+    e.rt.windup = startAction(w, unitCtx(w, e, sk.id, sk.name), sk.action);
     const delay = sk.action.delay ?? 0;
     e.anim = 'cast';
     e.animTime = Math.max(0.4, delay);

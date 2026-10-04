@@ -101,7 +101,8 @@ function facingOf(d: Dir): number {
   return Math.atan2(u.y, u.x);
 }
 
-export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: CastOpts): void {
+/** Starts one action; returns its pending hit when it is delayed (telegraphed), else null. */
+export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: CastOpts): PendingHit | null {
   const center = actionCenter(w, ctx, action);
   const origin = action.area.shape === 'line' ? originOf(w, ctx) : center;
   const area = scaleArea(action.area, ctx.radiusMult);
@@ -135,10 +136,11 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
   if (delay > 0) {
     p.telegraphId = addTelegraph(w, ctx.team, center, origin, area, delay).id;
     w.pending.push(p);
-    return;
+    return p;
   }
   fireHit(w, p);
   if (p.hitsLeft > 0) w.pending.push(p);
+  return null;
 }
 
 function fireHit(w: World, p: PendingHit): void {
@@ -174,6 +176,13 @@ export function tickPending(w: World, dt: number): void {
   const keep: typeof list = [];
   for (const p of list) {
     if (w.state.phase !== 'combat') break;
+    if (p.kind === 'hit' && p.cancelled) {
+      // a stunned monster's wind-up (status.ts): gone with its telegraph, nothing lands
+      const caster = getEntity(w, p.ctx.casterId);
+      emit(w, { type: 'interrupt', sourceId: p.ctx.casterId, telegraphId: p.telegraphId, pos: copy(caster ? caster.pos : p.center), name: p.ctx.name });
+      removeTelegraph(w, p.telegraphId);
+      continue;
+    }
     p.remaining -= dt;
     if (p.remaining > 1e-9) {
       keep.push(p);

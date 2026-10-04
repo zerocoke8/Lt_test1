@@ -1,4 +1,4 @@
-// Compact skill lines for the combat skill sheet (카드 탭/길게 누르기) and the normal-skill badge.
+// Compact skill lines for the combat skill sheet (카드 탭/길게 누르기) and the cards' normal-skill cooldown (마름모).
 // Pure (no DOM): every number comes from the data (src/data), so retuned skills read correctly without text edits.
 
 import type { AreaShape, BasicAttack, CharacterDef, Dir, Effect, SkillAction, SkillDef, StatusId } from '../types';
@@ -162,6 +162,20 @@ export function secs(v: number): string {
   return v.toFixed(1);
 }
 
+/** Under this many seconds the card number gets a decimal ("2.4"); above it whole seconds ("6"). */
+export const CD_DECIMAL_UNDER = 3;
+
+/**
+ * Card cooldown number (일반스킬 마름모): whole seconds while ≥ 3 s ("7" … "4"), one decimal for the last 3 s ("3.0" …
+ * "0.1") — narrow, so it stays readable at phone size without hiding the sweep. Always rounded up: "4" = 3–4 s left,
+ * and a skill that is still cooling never reads "0" / "0.0".
+ */
+export function cdText(v: number): string {
+  const t = Math.ceil(v * 10 - 1e-6) / 10;
+  if (t > CD_DECIMAL_UNDER) return String(Math.ceil(v - 1e-6));
+  return Math.max(0.1, t).toFixed(1);
+}
+
 /**
  * The five skill rows of a character for the sheet. Cooldowns are the live ones when known
  * (normal: after reward reductions, drag: this card's re-appear cooldown, ult: the gauge time).
@@ -182,27 +196,4 @@ export function skillRows(def: CharacterDef, cd: { normal?: number; drag?: numbe
       summary: skillSummary(def.ult),
     },
   ];
-}
-
-/** Icon family for the normal-skill badge (by its first footprint). */
-export type SkillIcon = 'spin' | 'line' | 'hit' | 'ring' | 'cross' | 'blast' | 'aura';
-
-export function skillIcon(skill: Pick<SkillDef, 'actions'>): SkillIcon {
-  const a = skill.actions.find(x => x.affects !== 'self') ?? skill.actions[0];
-  if (!a) return 'hit';
-  if (a.affects === 'allies') return 'aura';
-  switch (a.area.shape) {
-    case 'single':
-      return 'hit';
-    case 'line':
-    case 'rect':
-      return 'line';
-    case 'ring':
-      return 'ring';
-    case 'cross':
-      return 'cross';
-    case 'circle':
-    case 'cone':
-      return a.center === 'self' ? 'spin' : 'blast';
-  }
 }

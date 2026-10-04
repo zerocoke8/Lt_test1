@@ -382,6 +382,24 @@ export class Vfx implements FxHost {
         if (ev.kind === 'character') this.burst(ev.pos.x, ev.pos.y, 0.8, 8, '#e0e7ff', 0.6, 1.2, 1.0, -1.5);
         break;
       }
+      case 'interrupt': {
+        // a stun broke a monster's wind-up: its red area is gone without an impact, say so over the monster
+        if (ev.telegraphId != null) this.teles.delete(ev.telegraphId);
+        const m = ev.sourceId != null ? c.memos.get(ev.sourceId) : undefined;
+        let z = m ? bodyTop(m.look, m.tier, bodyHeight(m.look, m.radius), bodyWidth(m.radius)) / PX_PER_UNIT_Z + 1.5 : 2.5;
+        // "끊김!" takes the place of the skill's name over the mid boss (onSkillCast), not on top of it
+        const ls = this.labels;
+        for (let i = ls.count - 1; i >= 0; i--) {
+          const l = ls.items[i];
+          if (l.text === ev.name && l.follow < 0 && Math.abs(l.x - ev.pos.x) < 4 && Math.abs(l.y - ev.pos.y) < 4) {
+            z = l.z;
+            ls.kill(i);
+          }
+        }
+        this.label(ev.pos.x, ev.pos.y, z, '끊김!', '#9ad1ff', 17, 1.3);
+        this.burst(ev.pos.x, ev.pos.y, z * 0.6, 10, '#cfe8ff', 1.6, 2, 0.45);
+        break;
+      }
       case 'spawnWarning': {
         const w = this.warns.spawn();
         w.x = ev.pos.x;

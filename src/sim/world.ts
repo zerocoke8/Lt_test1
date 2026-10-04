@@ -51,6 +51,8 @@ export interface EntityRt {
   stationary: boolean;
   /** Ally turret: shoots with owner pet power. */
   petPowered: boolean;
+  /** Monster skill being wound up (telegraphed, not landed yet): a stun breaks it (status.ts, skills.ts tickPending). */
+  windup: PendingHit | null;
 }
 export interface SimEntity extends Entity {
   rt: EntityRt;
@@ -143,6 +145,8 @@ export interface PendingHit {
   hitsLeft: number;
   started: boolean;
   telegraphId: number | null;
+  /** Wind-up broken by a stun before it landed: dropped with its telegraph on the next tickPending. */
+  cancelled?: boolean;
 }
 export interface PendingEcho {
   kind: 'echo';

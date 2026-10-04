@@ -145,7 +145,8 @@ describe('rooms', () => {
     const code = await makeRoom(a, b, c);
     a.mark();
     a.send({ t: 'leaveRoom' });
-    expect((await a.next('room')).room).toBeNull();
+    // wait for the leave reply itself: a late "C joined" broadcast to A may still be in flight after mark()
+    expect((await a.next('room', m => m.room === null)).room).toBeNull();
     const r = (await b.next('room', m => m.room?.members.length === 2)).room!;
     expect(r.members.find(m => m.isHost)?.name).toBe('B');
     expect(r.name).toBe('B의 방'); // the automatic name follows the host
@@ -335,7 +336,7 @@ describe('game', () => {
     b.mark();
     b.send({ t: 'cmd', seq: 1, cmd: { type: 'quit' } });
     expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(true);
-    expect((await b.next('room')).room).toBeNull();
+    expect((await b.next('room', m => m.room === null)).room).toBeNull();
     await a.next('room', m => m.room?.members.length === 2);
     expect((await a.snap(m => m.state.players[1].isBot)).state.phase).toBe('combat');
     // C drops; the host ends the run

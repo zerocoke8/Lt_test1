@@ -38,6 +38,7 @@ import {
   drawStunStars,
   newMemo,
   syncMemo,
+  type TagBox,
 } from './units';
 import { Vfx, type VfxContext, playerColor } from './vfx';
 
@@ -615,6 +616,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.globalAlpha = 1;
   }
 
+  /** Name tags placed this frame (overlap avoidance). */
+  const tagBoxes: TagBox[] = [];
+
   function drawUnitOverhead(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     const c = ctx!;
     computePose(e, m);
@@ -638,9 +642,18 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // 기획 5차: who is who — name tag over every player character ("나" = mine)
     if (e.kind === 'character' && e.ownerPlayer != null) {
       const owner = state.players[e.ownerPlayer];
-      if (owner) y -= drawNameTag(c, pose.fx, y - 1, isLocal ? '나' : owner.name, playerColor(state, e.ownerPlayer), isLocal);
+      if (owner) y -= drawNameTag(c, pose.fx, y - 1, isLocal ? '나' : owner.name, playerColor(state, e.ownerPlayer), isLocal, tagBoxes);
     }
-    if (isLocal) drawLocalMarker(c, pose.fx, y - 2, playerColor(state, local), time);
+    if (isLocal) {
+      // ▼ sits above my tag and must not cover another player's tag stacked there (marker ≈ 26 wide, 19 tall + bob)
+      let my = y - 2;
+      for (let guard = 0; guard < 4; guard++) {
+        const hit = tagBoxes.find(b => pose.fx - 14 < b.x1 && pose.fx + 14 > b.x0 && my - 22 < b.y1 && my + 3 > b.y0);
+        if (!hit) break;
+        my = hit.y0 - 2;
+      }
+      drawLocalMarker(c, pose.fx, my, playerColor(state, local), time);
+    }
   }
 
   function drawLocalOutline(e: Entity, m: UnitMemo, color: string): void {
@@ -975,6 +988,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     drawProjectiles(state);
     vfx.drawAir(c, cam, time);
+    tagBoxes.length = 0;
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);

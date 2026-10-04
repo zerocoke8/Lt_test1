@@ -13,10 +13,11 @@ export const VALUE_WEIGHTS = {
    */
   hp: 1.0,
   /**
-   * Stun: seconds the stunned enemy was in range of its target with its attack ready (= how long its next swing was
-   * pushed back; the sim keeps the attack timer running during a stun) × its basic DPS = HP prevented. × this.
-   * Seconds on enemies still walking in are not priced: outcome ablation (tests/review/drag-ablation.ts) showed they
-   * keep almost no HP on the party.
+   * Stun: seconds the stunned enemy was in range of its target × its basic DPS (after that target's defence) = HP
+   * prevented. × this. 기획 4차: the attack timer is frozen while stunned (src/sim/units.ts), so a stun of S s on an
+   * engaged enemy pushes every later swing back by S (2차 rule: the timer kept running → only the part of the stun
+   * after the swing was due counted). Seconds on enemies still walking in are not priced: outcome ablation
+   * (tests/review/drag-ablation.ts) showed they keep almost no HP on the party.
    */
   stun: 1.0,
   /** Slow v for t s while the enemy is in range of its target (and not stunned): v × t × basic DPS = HP prevented. */

@@ -1544,158 +1544,157 @@
   opacity: 0.4;
 }
 
-/* the field character's auto (normal) skill, right of the cards: ring = cooldown sweep (colour = time passed),
-   centre = seconds left or "자동", then the skill name and its period. Tap → skill sheet. */
-.nskill {
-  --c: #888;
-  --p: 0deg;
-  position: relative;
-  width: 150px;
-  height: 136px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 18%, rgba(18, 21, 33, 0.82)), rgba(12, 14, 22, 0.8) 75%);
-  border: 2px solid color-mix(in srgb, var(--c) 55%, rgba(255, 255, 255, 0.1));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 5px 6px 7px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
-  cursor: pointer;
-  touch-action: none;
-}
-
-.nskill.is-empty {
-  opacity: 0.45;
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-.ns-cap {
-  font-size: 13px;
-  font-weight: 900;
-  color: color-mix(in srgb, var(--c) 45%, #c9d2e3);
-  letter-spacing: 0.5px;
-  line-height: 1;
-}
-
-.ns-ring {
-  position: relative;
-  margin-top: 4px;
-  width: 62px;
-  height: 62px;
-  flex: none;
-  border-radius: 50%;
-  background: conic-gradient(color-mix(in srgb, var(--c) 85%, white) calc(360deg - var(--p)), rgba(255, 255, 255, 0.12) 0);
-  box-shadow: 0 0 0 2px #05060a;
-}
-
-.nskill.is-empty .ns-ring {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.ns-ring::before {
-  content: '';
+/* normal (auto) skill cooldown — the mockup's small diamond + "0.99": at the portrait's lower-left, over the card's
+   left edge (a sibling of the clipped frame, painted above it by DOM order). Lit gem = ready (it goes off by itself
+   once something is in reach); dark gem with the colour sweeping back in clockwise (--p = part elapsed) + the
+   seconds left = cooling; a burst when it fires (hud.ts .is-fired). Clear of the drag badge (top-left), the card
+   number (top-right) and the name/HP/label rows below the portrait. */
+.cc-norm {
+  --p: 360deg;
   position: absolute;
-  inset: 6px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 35%, #232a40, #0c0f18 75%);
+  left: -2px;
+  top: 48px;
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.9));
 }
 
-.ns-ico {
-  position: absolute;
-  inset: 14px;
-  color: color-mix(in srgb, var(--c) 70%, white);
-  opacity: 0.3;
+.ccard.is-active .cc-norm {
+  left: -3px;
+  top: 62px;
+  width: 32px;
+  height: 32px;
 }
 
-.ns-ico svg {
-  display: block;
-  width: 100%;
-  height: 100%;
+.cc-norm-gem,
+.cc-norm-gem::before {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 
-.ns-t {
+/* the gem's rim */
+.cc-norm-gem {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 23px;
+  background: color-mix(in srgb, var(--c) 45%, #aab4c8);
+}
+
+/* cooling: dim colour swept in over a dark face */
+.cc-norm-gem::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: conic-gradient(color-mix(in srgb, var(--c) 70%, #20263a) var(--p), #141927 0);
+}
+
+/* fired: a flash of the lit colour over the (now cooling) face */
+.cc-norm-gem::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--c) 45%, white);
+  opacity: 0;
+}
+
+/* ready: a lit gem in the character's colour (light top-left facet) with a soft glow */
+.cc-norm.is-ready {
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 3px color-mix(in srgb, var(--c) 85%, white));
+}
+
+.cc-norm.is-ready .cc-norm-gem {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.cc-norm.is-ready .cc-norm-gem::before {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--c) 45%, white) 0%, color-mix(in srgb, var(--c) 85%, white) 38%, var(--c) 52%, color-mix(in srgb, var(--c) 70%, black) 100%);
+}
+
+/* ready on the field but not going off (nothing in reach / stunned): still lit, but dimmed and without the glow —
+   the skill sheet says "대기" */
+.cc-norm.is-ready.is-waiting {
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.9)) saturate(0.6) brightness(0.74);
+}
+
+.cc-norm-t {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 13px;
   font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.6px;
   color: #fff;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.5px;
-  text-shadow: 0 2px 0 #000, 0 0 6px rgba(0, 0, 0, 0.9);
-}
-
-.nskill.is-ready .ns-ico {
-  inset: 10px 14px 20px;
-  opacity: 1;
-}
-
-.nskill.is-ready .ns-t {
-  place-items: end center;
-  padding-bottom: 7px;
-  font-size: 14px;
-  color: var(--green-soft);
-}
-
-.nskill.is-ready .ns-ring {
-  animation: normReady 0.9s ease-in-out infinite alternate;
-}
-
-@keyframes normReady {
-  from { box-shadow: 0 0 0 2px #05060a; }
-  to { box-shadow: 0 0 0 2px #05060a, 0 0 16px 4px color-mix(in srgb, var(--c) 75%, transparent); }
-}
-
-.ns-name {
-  margin-top: 5px;
-  font-size: 17px;
-  font-weight: 900;
-  line-height: 1.1;
   white-space: nowrap;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 0 #000;
 }
 
-.ns-every {
-  margin-top: 2px;
+.ccard.is-active .cc-norm-t {
   font-size: 14px;
-  font-weight: 800;
-  color: #cdd6e6;
-  white-space: nowrap;
 }
 
-.nskill.is-fired .ns-ring {
-  animation: badgeFired 0.6s ease-out;
+.ccard.is-dead .cc-norm {
+  opacity: 0.35;
+  filter: grayscale(1);
 }
 
-/* ready but nothing in reach yet: it waits (no pulse) */
-.nskill.is-ready.is-waiting .ns-ring {
-  animation: none;
-}
-
-.nskill.is-ready.is-waiting .ns-t {
-  color: #cdd6e6;
-}
-
-/* "i" = tap for the skill sheet */
-.ns-info {
+/* fired: the gem pops with a flash and a diamond outline bursts outwards */
+.cc-norm::after {
+  content: '';
   position: absolute;
-  top: 5px;
-  right: 7px;
-  width: 20px;
-  height: 20px;
+  inset: 0;
+  border: 3px solid color-mix(in srgb, var(--c) 35%, white);
+  box-shadow: 0 0 6px var(--c);
+  opacity: 0;
+  transform: rotate(45deg) scale(0.71);
+}
+
+.cc-norm.is-fired .cc-norm-gem {
+  animation: normFired 0.5s ease-out;
+}
+
+.cc-norm.is-fired .cc-norm-gem::after {
+  animation: normFlash 0.5s ease-out;
+}
+
+.cc-norm.is-fired::after {
+  animation: normBurst 0.6s ease-out;
+}
+
+@keyframes normFired {
+  0% { transform: scale(1.45); }
+  100% { transform: none; }
+}
+
+@keyframes normFlash {
+  0%, 25% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
+@keyframes normBurst {
+  0% { opacity: 1; transform: rotate(45deg) scale(0.75); }
+  100% { opacity: 0; transform: rotate(45deg) scale(1.9); }
+}
+
+/* "i" on the field character's card: tapping it opens the skill sheet (under the card number, right of the portrait) */
+.cc-info {
+  display: none;
+  position: absolute;
+  top: 24px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  display: grid;
   place-items: center;
-  font: italic 900 14px/1 Georgia, 'Times New Roman', serif;
+  font: italic 900 13px/1 Georgia, 'Times New Roman', serif;
   color: #0b0d14;
   background: rgba(220, 230, 245, 0.85);
+  pointer-events: none;
 }
 
-.nskill.is-empty .ns-info {
-  display: none;
+.ccard.is-active .cc-info {
+  display: grid;
 }
 
 /* one-time tip (start of floor 1, until the sheet was opened once): right above the card row */
@@ -1748,10 +1747,6 @@
 
 .cc-drag.is-cut {
   animation: badgeFired 0.7s ease-out;
-}
-
-.nskill.is-new {
-  animation: introIn 0.3s ease-out;
 }
 
 /* skill sheet (tap the active card / long-press any card): five skills, never blocks the field (no pointer events).
@@ -3791,52 +3786,34 @@
 
 /* ─────────── phones (stage drawn at < 0.75, e.g. 844×390 → 0.54): the small HUD text gets bigger ───────────
    (playtest: 13–15 px logical came out at 7–8 CSS px). Countdowns ≥ ~20 px logical ≈ 11 CSS px. */
-.stage.is-small .ns-cap {
-  font-size: 16px;
+/* card diamond: still small (≈ 18–21 CSS px), the seconds ≈ 10–11 CSS px (narrow: "6", "2.4" — skillinfo cdText) */
+.stage.is-small .cc-norm {
+  left: -5px;
+  top: 43px;
+  width: 34px;
+  height: 34px;
 }
 
-/* smaller ring so the bigger name / period lines fit the 136 px widget */
-.stage.is-small .ns-ring {
-  margin-top: 3px;
-  width: 50px;
-  height: 50px;
+.stage.is-small .ccard.is-active .cc-norm {
+  left: -6px;
+  top: 57px;
+  width: 38px;
+  height: 38px;
 }
 
-.stage.is-small .ns-ico {
-  inset: 11px;
+.stage.is-small .cc-norm-t {
+  font-size: 19px;
 }
 
-.stage.is-small .ns-t {
-  font-size: 21px;
-}
-
-.stage.is-small .ns-every {
-  margin-top: 0;
-  font-size: 22px;
-  line-height: 1.1;
-}
-
-.stage.is-small .ns-name {
-  margin-top: 3px;
+.stage.is-small .ccard.is-active .cc-norm-t {
   font-size: 20px;
 }
 
-/* ready: the word sits in the middle of the ring over a faint icon (no room for both on a phone) */
-.stage.is-small .nskill.is-ready .ns-ico {
-  inset: 11px;
-  opacity: 0.25;
-}
-
-.stage.is-small .nskill.is-ready .ns-t {
-  place-items: center;
-  padding-bottom: 0;
-  font-size: 17px;
-}
-
-.stage.is-small .ns-info {
-  width: 24px;
-  height: 24px;
-  font-size: 17px;
+.stage.is-small .cc-info {
+  top: 22px;
+  width: 22px;
+  height: 22px;
+  font-size: 16px;
 }
 
 .stage.is-small .ult-sub {

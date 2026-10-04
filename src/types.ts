@@ -543,6 +543,8 @@ export type GameEvent =
   | { type: 'leave'; player: number; partyIndex: number; pos: Vec2 }
   | { type: 'death'; entityId: number; pos: Vec2; kind: EntityKind; tier: MonsterTier | 'character' }
   | { type: 'spawnWarning'; pos: Vec2; delay: number }
+  /** A stun broke a monster's telegraphed wind-up: its red area is gone and nothing lands (render: "끊김!", no impact). */
+  | { type: 'interrupt'; sourceId: number | null; telegraphId: number | null; pos: Vec2; name: string }
   | { type: 'spawn'; entityId: number; pos: Vec2; tier: MonsterTier }
   | { type: 'revive'; player: number; partyIndex: number }
   | { type: 'playerOut'; player: number }

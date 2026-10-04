@@ -24,7 +24,7 @@
 - 연출(데미지 숫자, 스킬 이펙트)은 `game.drainEvents()`의 GameEvent로 전달.
 - 봇은 플레이어 슬롯의 조작 주체만 다름 (`PlayerState.isBot`). 봇도 같은 Command를 dispatch (sim 내부 `bot.ts`).
 - 숫자는 `Tunables`(디버그 슬라이더로 실시간 조절)나 `src/data`에 둠. 코드에 하드코딩하지 않음.
-- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`. 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건을 씀.
+- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`, `sim/cooldowns`의 `normalCooldownFor`(튜닝값 + PlayerState → 일반스킬 쿨 길이, 카드 마름모). 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건·쿨 길이를 씀.
 - `Zone.area`: 띠·고리·십자 등 원이 아닌 장판은 정확한 모양을 담음 (없으면 `radius` 원). 렌더러와 스냅샷이 그대로 사용.
 
 ## 화면 좌표
@@ -68,7 +68,7 @@
 
 | 명령 | 내용 |
 |---|---|
-| `npm test` (`npx vitest run`) | Vitest 35파일 368개: sim 규칙(R1–R35, 형태 판정 = 미리보기, 12종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
+| `npm test` (`npx vitest run`) | Vitest 38파일 388개: sim 규칙(R1–R35, 형태 판정 = 미리보기, 12종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
 | `npx tsc --noEmit` / `npm run typecheck:server` | 타입 검사 (브라우저 + 테스트 / 서버) |
 | `npm run e2e` (`npx playwright test`) | Playwright 3개 프로젝트 (아래). 시작할 때 `vite build` → `vite preview :4173` |
 | `PERF=1 npx playwright test perf` | 실시간 프레임 측정 (40초 일반 플레이 + 몹 30마리·궁극기 스트레스) |
@@ -117,6 +117,8 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 | R33 | 층 보상: 사람마다 자기 보상을 고름. 모두 고를 때까지(최대 20초) 다음 층 대기. 시간 초과면 랜덤 | 가정 |
 | R34 | 게임 중 연결 끊김 → 그 슬롯을 봇이 조작(`setPlayerBot`), 같은 토큰으로 재접속하면 복귀 (같은 기기·브라우저: 새로고침, 탭을 닫았다 다시 열기). 조용한 끊김도 5~10초 안에 봇. 같은 토큰의 두 번째 탭이 자리를 가져가면 이전 탭은 멈춤("다른 탭에서 접속 중"). 방장이 나가면 다음 사람이 방장 (자동 방 이름 "○○의 방"도 따라 바뀜) | 가정 |
 | R35 | 멀티에서는 일시정지 없음. 디버그 패널·튜닝은 방장만, 모두에게 적용 | 가정 |
+| R36 | 기절한 동안 공격 대기시간이 줄지 않음 (풀리자마자 못 때림). 스킬 쿨·일반스킬 쿨은 계속 흐름. 보스는 기절 면역 (`sim/units.ts`, `tests/sim/stun.test.ts`) | 4차 |
+| R37 | 몬스터가 예고 공격(빨간 범위)을 준비하는 중에 기절하면 그 공격은 사라짐, 쿨은 씀 (오우거 내려찍기·리치 저주 장판). 캐릭터 자신의 스킬은 그대로 떨어짐 (`sim/status.ts` → `skills.ts` `tickPending`). 이벤트 `interrupt` → 화면: 스킬 이름 자리에 "끊김!", 빨간 범위는 터지는 연출 없이 사라짐 (`render/vfx.ts`) | 가정 (리뷰) |
 
 ## 3차 리뷰·플레이테스트 반영 (2026-10-04)
 
@@ -138,7 +140,7 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 기획 피드백: "스킬은 몇초마다 쓰는지도 안보이고 쿨타임도 안보이고, 모션이 없어서 뭘쓰는지도 모르겠어."
 
 HUD (`src/ui/hud.ts`, `src/ui/skillinfo.ts`, `styles.css`):
-- **일반스킬 쿨 = 카드의 작은 마름모** (목업의 마름모 + '0.99', 4차 결정 §17): 카드마다(활성·대기 모두) 초상화 왼쪽 아래, 카드 왼쪽 테두리에 걸쳐 작은 마름모. 준비 = 캐릭터 색으로 빛나는 마름모, 쿨 중 = 어두운 마름모에 색이 시계 방향으로 다시 차오르고 남은 초(10초 미만은 소수 한 자리 "5.4", 올림이라 쿨 중엔 "0.0" 없음; `skillinfo.ts` `cdText`). 쿨 길이는 sim과 같은 식(`normalCooldownTotal` = `sim/cooldowns.ts` `normalCooldownFor`: 데이터 × 보상 감소, 테스트로 같음을 확인). 대기 카드의 쿨도 sim처럼 계속 흐름. 쓰러짐/관전 = 흐린 회색, 숫자 없음. 발동(`skillCast` slot normal)하면 마름모가 번쩍이고 테두리가 퍼짐. 따로 크게 띄우던 "자동 스킬" 칸은 없앰. 활성 카드 오른쪽(번호 아래) 작은 "i" = 탭하면 스킬 정보.
+- **일반스킬 쿨 = 카드의 작은 마름모** (목업의 마름모 + '0.99', 4차 결정 §17): 카드마다(활성·대기 모두) 초상화 왼쪽 아래, 카드 왼쪽 테두리에 걸쳐 작은 마름모. 준비 = 캐릭터 색으로 빛나는 마름모, 쿨 중 = 어두운 마름모에 색이 시계 방향으로 다시 차오르고 남은 초(3초 이상은 정수 "6", 마지막 3초는 소수 한 자리 "2.4" — 최대 3글자라 폰(글자 19~20 = 약 10~11 CSS px)에서도 마름모 안에 들어감. 올림이라 쿨 중엔 "0"/"0.0" 없음; `skillinfo.ts` `cdText`). 필드 카드가 준비됐는데 안 나가는 중(맞힐 적이 사거리 밖 / 기절) = 빛나는 마름모를 흐리게(`is-waiting`, 스킬 정보의 "대기"와 같은 조건). 쿨 길이는 sim의 `sim/cooldowns.ts` `normalCooldownFor`(데이터 × 보상 감소)를 그대로 호출 (멀티는 스냅샷의 PlayerState로, 테스트로 같음을 확인). 대기 카드의 쿨도 sim처럼 계속 흐름. 쓰러짐/관전 = 흐린 회색, 숫자 없음. 발동(`skillCast` slot normal)하면 마름모가 번쩍이고 테두리가 퍼짐. 마름모는 포인터를 통과시키므로 마우스 설명(title)은 카드에 있음. 따로 크게 띄우던 "자동 스킬" 칸은 없앰. 활성 카드 오른쪽(번호 아래) 작은 "i" = 탭하면 스킬 정보.
 - **카드**: 쿨 중인 대기 카드 상태 줄 = "드래그 6.2초"(재등장 쿨 = 드래그스킬 쿨). 왼쪽 위 드래그 모양 배지 아래 막대가 쿨만큼 차고, 준비되면 초록 테두리.
 - **궁극기**: % 아래 "N초 후"(충전은 시간만: `(1 − charge) × ultChargeTime`), 쓸 수 있으면 "탭!".
 - **쿨 감소가 보임**: 대기 카드의 재등장 쿨이 시간보다 빨리 줄면(크로노 시간 균열, 펫 등) 카드 위로 "-4초"가 떠오르고 드래그 배지가 번쩍임 (`hud.ts` `cutPop`).

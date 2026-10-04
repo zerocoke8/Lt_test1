@@ -52,6 +52,7 @@ export function createUnit(
       pulseTimer: 0,
       stationary: !!def.stationary,
       petPowered: team === 'ally' && def.tier === 'summon' && def.stats.atk === 0,
+      windup: null,
     },
   };
   addEntity(w, e);
@@ -98,6 +99,7 @@ export function createCharacterEntity(w: World, p: SimPlayer, idx: number, pos: 
       pulseTimer: 0,
       stationary: false,
       petPowered: false,
+      windup: null,
     },
   };
   addEntity(w, e);

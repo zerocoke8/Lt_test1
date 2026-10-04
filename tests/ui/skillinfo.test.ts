@@ -2,7 +2,11 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS, getCharacter } from '../../src/data';
 import type { SkillDef } from '../../src/types';
-import { areaLabel, pct, secs, skillIcon, skillRows, skillSummary } from '../../src/ui/skillinfo';
+import { MAX_COOLDOWN_REDUCTION } from '../../src/sim/constants';
+import { normalCooldownFor } from '../../src/sim/cooldowns';
+import { cleanState } from '../../server/snapshot';
+import { areaLabel, cdText, pct, secs, skillRows, skillSummary } from '../../src/ui/skillinfo';
+import { advance, makeGame } from '../sim/helpers';
 
 describe('skill sheet rows', () => {
   it('every character gets its 5 skills with a type, a trigger and a one-line summary', () => {
@@ -54,14 +58,66 @@ describe('skill sheet rows', () => {
     expect(skillSummary(getCharacter('mage').ult)).toContain('0.5초마다 피해 50%');
   });
 
-  it('seconds read like a countdown (decimals only under 10 s) and icons follow the footprint', () => {
+  it('seconds read like a countdown (decimals only under 10 s)', () => {
     expect(secs(6)).toBe('6');
     expect(secs(6.24)).toBe('6.2');
     expect(secs(12.4)).toBe('12');
-    expect(skillIcon(getCharacter('blade').normal)).toBe('spin');
-    expect(skillIcon(getCharacter('ranger').normal)).toBe('line');
-    expect(skillIcon(getCharacter('guardian').normal)).toBe('hit');
-    expect(skillIcon(getCharacter('warden').normal)).toBe('ring');
-    expect(skillIcon(getCharacter('cleric').normal)).toBe('aura');
+  });
+});
+
+describe('card diamond (일반스킬 쿨)', () => {
+  it('seconds: whole seconds while ≥ 3 s, one decimal for the last 3 s, always rounded up (never "0.0" while cooling)', () => {
+    expect(cdText(7)).toBe('7');
+    expect(cdText(6.3)).toBe('7');
+    expect(cdText(5.42)).toBe('6');
+    expect(cdText(3.05)).toBe('4');
+    expect(cdText(3)).toBe('3.0');
+    expect(cdText(2.94)).toBe('3.0');
+    expect(cdText(2.4)).toBe('2.4');
+    expect(cdText(0.91)).toBe('1.0');
+    expect(cdText(0.9)).toBe('0.9');
+    expect(cdText(0.01)).toBe('0.1');
+    expect(cdText(12.4)).toBe('13');
+    // phone width: at most 3 characters ("2.4", "13"), so the number stays narrower than the diamond
+    for (let v = 0.01; v < 20; v += 0.01) expect(cdText(v).length).toBeLessThanOrEqual(3);
+  });
+
+  it('full cooldown (the sim\'s normalCooldownFor, also used by the HUD): data × reward cuts, capped; same on the wire copy; 0 with instant cooldowns', () => {
+    const tg = makeGame();
+    const p = tg.w.state.players[0];
+    const base = (i: number) => getCharacter(p.party[i].defId).normal.cooldown ?? 6;
+    // a multiplayer client only has the snapshot (rounded, sim internals stripped): it must get the same seconds
+    const sameOnWire = () => {
+      const wp = cleanState(tg.w.state).players[0];
+      p.party.forEach((m, i) => expect(normalCooldownFor(tg.w.tunables, wp, i), `${m.defId} #${i}`).toBeCloseTo(normalCooldownFor(tg.w.tunables, p, i), 9));
+    };
+    p.party.forEach((_, i) => expect(normalCooldownFor(tg.w.tunables, p, i)).toBe(base(i)));
+    sameOnWire();
+    p.rewards.push({ rewardId: 'normcd_rare', partyIndex: 1 });
+    expect(normalCooldownFor(tg.w.tunables, p, 1)).toBeLessThan(base(1));
+    expect(normalCooldownFor(tg.w.tunables, p, 0)).toBe(base(0));
+    sameOnWire();
+    for (let k = 0; k < 4; k++) p.rewards.push({ rewardId: 'normcd_epic', partyIndex: 1 });
+    expect(normalCooldownFor(tg.w.tunables, p, 1)).toBeCloseTo(base(1) * (1 - MAX_COOLDOWN_REDUCTION), 9); // 0.3 + 4×0.45, capped
+    sameOnWire();
+    tg.w.tunables.instantCooldowns = true;
+    expect(normalCooldownFor(tg.w.tunables, p, 0)).toBe(0);
+  });
+
+  it('right after the field character\'s auto skill fires, its timer starts at that full cooldown', () => {
+    const tg = makeGame();
+    const p = tg.w.state.players[0];
+    p.rewards.push({ rewardId: 'normcd_common', partyIndex: 0 });
+    const idx = p.activeIndex!;
+    const total = normalCooldownFor(tg.w.tunables, p, idx);
+    let seen = -1;
+    for (let t = 0; t < 60 * 30 && seen < 0; t++) {
+      const before = p.party[idx].normalCooldownRemaining;
+      advance(tg, 1 / 30);
+      if (p.party[idx].normalCooldownRemaining > before + 0.5) seen = p.party[idx].normalCooldownRemaining;
+    }
+    expect(seen, 'the auto skill fired').toBeGreaterThan(0);
+    expect(seen).toBeLessThanOrEqual(total + 1e-9);
+    expect(seen).toBeGreaterThan(total - 1 / 30 - 1e-9);
   });
 });
