@@ -102,7 +102,7 @@ npm start            # http://localhost:8080
 ### 준비 (공통)
 
 1. https://fly.io 가입 → 카드 등록 (체험판이 끝나면 필요).
-2. `fly.toml` 맨 위의 `app = "swap-tower-proto"`를 **나만의 이름**으로 바꾸기 (영어 소문자·숫자·하이픈, 전 세계에서 하나뿐이어야 함). 게임 주소가 `https://<이름>.fly.dev`가 됨.
+2. `fly.toml` 맨 위의 `app = "swap-tower-zerocoke8"`이 앱 이름 (원하면 **나만의 이름**으로 바꾸기) (영어 소문자·숫자·하이픈, 전 세계에서 하나뿐이어야 함). 게임 주소가 `https://<이름>.fly.dev`가 됨.
    - GitHub 웹에서 `fly.toml`을 열고 연필 아이콘으로 고쳐도 됨.
 
 ### 방법 A: 내 컴퓨터에서 명령어로

@@ -2,7 +2,7 @@
 # 방 정보가 서버 메모리에 있어서 머신은 반드시 1대: 배포는 `fly deploy --ha=false`.
 
 # 전 세계에서 하나뿐인 이름이어야 함 → 본인만의 이름으로 바꾸기 (주소가 https://<이름>.fly.dev 가 됨)
-app = "swap-tower-proto"
+app = "swap-tower-zerocoke8"
 # 도쿄. `fly platform regions`로 목록 확인, 없으면 가까운 리전(hkg, sin 등)으로
 primary_region = "nrt"
 
