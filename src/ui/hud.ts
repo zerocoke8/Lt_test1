@@ -8,7 +8,7 @@ import { ROLE_LABEL, getBoss, getCharacter, getMonster, getPet } from '../data';
 import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
-import { dragShapeIcon, petIcon, portrait } from './preset';
+import { petIcon, portrait } from './preset';
 import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
 import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
@@ -77,9 +77,8 @@ interface CharCard {
   hpFill: HTMLElement;
   hpShield: HTMLElement;
   state: HTMLElement;
-  /** Drag-skill badge (shape icon) + its re-appear cooldown bar. */
-  drag: HTMLElement;
-  dragBar: HTMLElement;
+  /** Portrait: flashes when this character's drag skill fires. */
+  por: HTMLElement;
   /** Normal (auto) skill cooldown: small diamond at the portrait's lower-left (목업의 마름모 + '0.99') + its seconds. */
   norm: HTMLElement;
   normT: HTMLElement;
@@ -330,12 +329,8 @@ export class Hud {
       el.dataset.idx = String(i);
       const pips = makePips(el, 6, 'cc-pips');
       const frame = h('div', 'cc-frame', el);
-      // mini footprint of the drag skill (shape + fixed direction), like the preset screen: three melee cards
-      // no longer look alike before you lift one. The bar under it fills as the re-appear (= drag-skill) cooldown runs.
-      const drag = h('div', 'cc-drag', frame);
-      const shape = dragShapeIcon(def, 'cc-shape', 40, 22, drag);
-      shape.title = `${ROLE_LABEL[def.role]} · 드래그스킬 ${def.drag.name}`;
-      const dragBar = h('div', 'cc-drag-bar', drag);
+      // 기획 9차: the re-appear (= drag-skill) cooldown shows only as the big number on the portrait
+      // (no top-left badge/bar, no seconds in the label under the name)
       h('div', 'cc-slot', frame, String(i + 1));
       const por = portrait(def, 'cc-portrait', frame);
       const cd = h('div', 'cc-cd is-hidden', por);
@@ -355,7 +350,7 @@ export class Hud {
       // hover help on the card itself (the diamond lets pointers through to the card, so a title there never shows)
       el.title = `${def.name} · 왼쪽 아래 마름모 = 일반스킬 ${def.normal.name} 쿨 (자동) · 길게 누르면 스킬 정보`;
       el.addEventListener('pointerdown', ev => this.onCardPointerDown(i, ev, el));
-      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, drag, dragBar, norm, normT });
+      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, por, norm, normT });
     });
 
     // ── bottom-center: ult gauge ──
@@ -701,7 +696,7 @@ export class Hud {
             // the caster's card (by entity: the event may arrive after a swap)
             const idx = s.players[this.localPlayer]?.party.findIndex(m => m.entityId === e.sourceId) ?? -1;
             const card = this.charCards[idx];
-            if (card) replayClass(e.slot === 'normal' ? card.norm : card.drag, 'is-fired');
+            if (card) replayClass(e.slot === 'normal' ? card.norm : card.por, 'is-fired');
           }
           if (e.sourceId !== null && e.sourceId === s.bossId && e.name) {
             // telegraphed patterns stay up until they land; instant ones (소환) for a moment
@@ -904,12 +899,8 @@ export class Hud {
       setClass(c.el, 'is-dead', m.dead);
       setClass(c.el, 'is-cool', cooling || locked);
       setClass(c.el, 'is-ready', ready);
-      // re-appear cooldown = drag-skill cooldown (기획서 4장): say so on the card while it runs
-      setText(
-        c.state,
-        me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : cooling ? `드래그 ${secs(m.swapCooldownRemaining)}초` : ready ? '교체가능' : '교체불가',
-      );
-      setClass(c.state, 'is-cd', cooling && !me.out);
+      // re-appear cooldown = drag-skill cooldown (기획서 4장): the seconds are the big number on the portrait only
+      setText(c.state, me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : cooling ? '쿨타임' : ready ? '교체가능' : '교체불가');
       // big countdown: revive time when dead, else the re-appear cooldown of a benched card.
       // Out (all three down = spectating, R11): timers are frozen → no number; all three come back at the next floor
       // if someone clears this one (기획 5차).
@@ -921,11 +912,6 @@ export class Hud {
         const total = m.dead ? Math.max(m.reviveRemaining, this.game.tunables.reviveTime) : Math.max(0.01, m.swapCooldownTotal);
         setStyle(c.cd, '--p', `${Math.round(frac(t, total) * 360)}deg`);
       }
-      // drag badge: bar = how much of the re-appear cooldown has passed (full = ready)
-      const dragLeft = me.out || m.dead ? 1 : m.swapCooldownRemaining > 0 ? frac(m.swapCooldownRemaining, Math.max(0.01, m.swapCooldownTotal)) : 0;
-      setStyle(c.dragBar, 'transform', sx(1 - dragLeft));
-      setClass(c.drag, 'is-ready', ready);
-      setClass(c.drag, 'is-cool', !ready && !active);
       this.updateNormal(c, m, i, me.out, active);
       const hf = m.dead ? 0 : frac(m.hp, m.maxHp);
       setStyle(c.hpFill, 'transform', sx(hf));
@@ -935,10 +921,10 @@ export class Hud {
     });
   }
 
-  /** "-3초" floating off a card whose re-appear cooldown was just cut, plus a flash of its drag badge. */
+  /** "-3초" floating off a card whose re-appear cooldown was just cut, plus a flash of its countdown. */
   private cutPop(c: CharCard, seconds: number): void {
     const pop = h('div', 'cc-cut', c.el, `-${secs(seconds)}초`);
-    replayClass(c.drag, 'is-cut');
+    replayClass(c.cd, 'is-cut');
     setTimeout(() => pop.remove(), 1300);
   }
 

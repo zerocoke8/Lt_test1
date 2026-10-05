@@ -93,7 +93,7 @@ const overlaps = () =>
       };
       if (d.left < 0) out.push(`card ${ci}: diamond off-screen left (${d.left.toFixed(1)})`);
       if (d.bottom > window.innerHeight) out.push(`card ${ci}: diamond off-screen bottom`);
-      for (const sel of ['.cc-drag', '.cc-slot', '.cc-name', '.cc-hp', '.cc-state', '.cc-info', '.cc-count', '.cc-pips']) {
+      for (const sel of ['.cc-slot', '.cc-name', '.cc-hp', '.cc-state', '.cc-info', '.cc-count', '.cc-pips']) {
         const el = card.querySelector(sel);
         if (vis(el)) hit(el.getBoundingClientRect(), sel);
       }

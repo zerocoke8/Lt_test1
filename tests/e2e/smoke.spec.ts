@@ -211,7 +211,10 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   expect(afterSwap.fieldCd).toBe(0);
   await expect(page.locator('.ccard[data-idx="1"]')).toHaveClass(/is-active/);
   await expect(page.locator('.ccard[data-idx="0"]')).toHaveClass(/is-cool/);
-  await expect(page.locator('.ccard[data-idx="0"] .cc-state')).toHaveText(/^드래그 \d+(\.\d)?초$/);
+  // 기획 9차: the drag (= re-appear) cooldown is the big number on the portrait only — no badge, no seconds in the label
+  await expect(page.locator('.ccard[data-idx="0"] .cc-count')).toHaveText(/^\d+$/);
+  await expect(page.locator('.ccard[data-idx="0"] .cc-state')).toHaveText('쿨타임');
+  await expect(page.locator('.ccard .cc-drag')).toHaveCount(0);
 
   // ── 쿨타임이 보임: each card's auto-skill diamond (목업의 마름모: lit = ready, else small seconds), no separate widget;
   //    drag (= re-appear) cooldowns on the cards ──
@@ -243,7 +246,7 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   // the "i" (tap → skill sheet) only on the field character's card
   await expect(page.locator('.ccard[data-idx="1"] .cc-info')).toBeVisible();
   await expect(page.locator('.ccard[data-idx="0"] .cc-info')).toBeHidden();
-  // small, and clear of the drag badge, the card number, name, HP bar and label (diamond = |dx| + |dy| ≤ r)
+  // small, and clear of the card number, countdown, name, HP bar and label (diamond = |dx| + |dy| ≤ r)
   const clash = await page.evaluate(() =>
     [...document.querySelectorAll('.ccard')].flatMap(card => {
       const d = card.querySelector('.cc-norm')!.getBoundingClientRect();
@@ -253,7 +256,7 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
       const stage = document.querySelector('.stage')!.getBoundingClientRect();
       const out: string[] = [];
       if (d.width / (stage.width / 1280) > 40) out.push(`${(card as HTMLElement).dataset.idx}: diamond ${d.width.toFixed(1)} px is not small`);
-      for (const sel of ['.cc-drag', '.cc-slot', '.cc-name', '.cc-hp', '.cc-state', '.cc-info']) {
+      for (const sel of ['.cc-slot', '.cc-count', '.cc-name', '.cc-hp', '.cc-state', '.cc-info']) {
         const el = card.querySelector(sel) as HTMLElement | null;
         if (!el || el.offsetParent === null) continue;
         const b = el.getBoundingClientRect();
@@ -271,7 +274,10 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
       const m = me.party[idx as number];
       return { active: me.activeIndex === idx, cd: m.swapCooldownRemaining, dead: m.dead };
     }, i);
-    if (!st.active && !st.dead && st.cd > 0.3) await expect(page.locator(`.ccard[data-idx="${i}"] .cc-state`)).toHaveText(/^드래그 \d+(\.\d)?초$/);
+    if (!st.active && !st.dead && st.cd > 0.3) {
+      await expect(page.locator(`.ccard[data-idx="${i}"] .cc-state`)).toHaveText('쿨타임');
+      await expect(page.locator(`.ccard[data-idx="${i}"] .cc-count`)).toHaveText(/^\d+$/);
+    }
   }
   await expect(page.locator('.ult-sub')).toHaveText(/(\d+초 후|궁극기 준비)$/);
   // tap the field character's card → compact skill sheet over the field (never blocks it), tap again → closed
