@@ -45,7 +45,8 @@ export function effStats(w: World, e: SimEntity): StatBlock {
     m.atkPct += cdef.passive.lowHpAtkBonus * (1 - frac);
   }
   let atk = b.atk * Math.max(0, 1 + m.atkPct);
-  let atkSpeed = b.atkSpeed * Math.max(0.1, 1 + m.atkSpeedPct);
+  // 기획 8차 boss phases speed the basic attack up (1 for everyone else)
+  let atkSpeed = b.atkSpeed * Math.max(0.1, 1 + m.atkSpeedPct) * e.rt.phaseAtkSpeedMult;
   if (e.team === 'enemy') {
     atk *= w.tunables.monsterDmgMult;
     if (e.enraged && e.rt.monDef?.tier === 'boss') {

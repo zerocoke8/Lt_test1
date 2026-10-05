@@ -58,6 +58,11 @@ function partBounds(p: PreviewPart, at: Vec2, out: number[]): void {
       push(cx - a.outer, cy - a.outer);
       push(cx + a.outer, cy + a.outer);
       break;
+    case 'fan':
+      // monster-only shape (opens toward its target): bound it like a circle around the apex
+      push(cx - a.radius, cy - a.radius);
+      push(cx + a.radius, cy + a.radius);
+      break;
     case 'cross': {
       const [u1, u2] = crossAxes(a.diagonal);
       const L = a.length;

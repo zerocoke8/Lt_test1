@@ -28,6 +28,8 @@ export const TURRET_POWER = 0.5;
 export const MAX_COOLDOWN_REDUCTION = 0.8;
 /** Min gap between two monster skill casts of the same unit (boss patterns don't stack). */
 export const MONSTER_SKILL_GAP = 1.5;
+/** Normal monsters' first skill cast is delayed by a seeded 0..this (≤ 35 % of its cooldown) so a group never syncs. */
+export const SKILL_START_JITTER = 1.5;
 /** Projectiles that never arrive are dropped after this many seconds. */
 export const PROJECTILE_MAX_LIFE = 4;
 /** Game events buffer cap when nobody drains (headless). */

@@ -158,7 +158,7 @@ describe('stun pauses the attack timer', () => {
   });
 });
 
-// A stun during a monster's telegraphed wind-up (오우거 내려찍기 1.2초, 리치 저주 장판 0.8초) breaks it: the red area goes
+// A stun during a monster's telegraphed wind-up (거대 마네킹(ogre) 내려찍기 1.2초, 검은 조문객(lich) 저주 장판 0.8초) breaks it: the red area goes
 // away and nothing lands; the skill's cooldown stays spent. (Bosses cannot be stunned; characters' own casts always land.)
 describe('stun breaks a monster wind-up', () => {
   /** Ogre next to the field character with its slam ready; ticks until the slam's telegraph is up. */
@@ -216,7 +216,7 @@ describe('stun breaks a monster wind-up', () => {
     applyStatus(o, 'stun', 0.5, 0, null);
     advance(tg, 1 / 30);
     expect(tg.w.pending.length).toBeLessThanOrEqual(pendingBefore);
-    expect(o.rt.windup).toBeNull();
+    expect(o.rt.windup).toEqual([]);
     expect(eventsOf(tg, 'interrupt')).toHaveLength(0);
   });
 });

@@ -2,6 +2,7 @@
 // Every AreaShape is laid on the ground plane (x, y) at a center; a unit is a circle (pos, radius) and counts as
 // hit when its circle touches the shape (exact circle–shape distance, except 'line' which keeps its original
 // "rectangle grown by the unit radius" test so monster/normal-skill behaviour is unchanged).
+// 'line' and 'fan' (기획 8차) are auto-aimed: they start at `origin` (the caster) and point toward `center`.
 // No DOM, no randomness.
 
 import type { AreaShape, Dir, SkillAction, Vec2 } from '../types';
@@ -85,10 +86,20 @@ function hitsCone(c: Vec2, u: Vec2, half: number, R: number, pos: Vec2, r: numbe
   return false;
 }
 
+/** Unit direction origin → center, or `fallback` when they coincide (auto-aimed 'line' / 'fan'). */
+export function aimDir(origin: Vec2, center: Vec2, fallback: Vec2 = { x: 1, y: 0 }): Vec2 {
+  const dx = center.x - origin.x;
+  const dy = center.y - origin.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return { x: fallback.x, y: fallback.y };
+  return { x: dx / len, y: dy / len };
+}
+
 /**
  * Does a unit circle (pos, radius) touch `area` placed at `center`?
- * `origin` is only used by 'line' (rectangle from origin toward center); `fallbackDir` is the line direction when
- * origin and center coincide (caster facing).
+ * `origin` is only used by the auto-aimed shapes: 'line' (rectangle from origin toward center) and 'fan' (sector
+ * with its apex at origin, opening toward center); `fallbackDir` is their direction when origin and center
+ * coincide (caster facing).
  */
 export function hitsArea(area: AreaShape, center: Vec2, origin: Vec2, pos: Vec2, radius: number, fallbackDir: Vec2 = { x: 1, y: 0 }): boolean {
   switch (area.shape) {
@@ -131,6 +142,8 @@ export function hitsArea(area: AreaShape, center: Vec2, origin: Vec2, pos: Vec2,
       }
       return false;
     }
+    case 'fan':
+      return hitsCone(origin, aimDir(origin, center, fallbackDir), ((area.angle / 2) * Math.PI) / 180, area.radius, pos, radius);
   }
 }
 
@@ -165,6 +178,8 @@ export function scaleArea(a: AreaShape, mult: number): AreaShape {
       return { shape: 'ring', inner: Math.min(a.inner, a.outer * mult), outer: a.outer * mult };
     case 'cross':
       return { ...a, length: a.length * mult, width: a.width * mult };
+    case 'fan':
+      return { ...a, radius: a.radius * mult };
   }
 }
 
@@ -186,6 +201,24 @@ export function dashEnd(start: Vec2, dir: Dir, distance: number, arena: { width:
   };
 }
 
+/**
+ * 기획 8차 charge: where a rush from `origin` toward `center` by up to `distance` stops — shortened (never bent) so
+ * the caster stays inside the arena.
+ */
+export function chargeEnd(origin: Vec2, center: Vec2, distance: number, arenaSize: { width: number; height: number }, margin: number, fallback?: Vec2): Vec2 {
+  const u = aimDir(origin, center, fallback);
+  let t = Math.max(0, distance);
+  const lo = margin;
+  const hiX = arenaSize.width - margin;
+  const hiY = arenaSize.height - margin;
+  // keep a start that is already outside the walkable area from walking further out
+  if (u.x > 1e-9) t = Math.min(t, Math.max(0, (hiX - origin.x) / u.x));
+  else if (u.x < -1e-9) t = Math.min(t, Math.max(0, (lo - origin.x) / u.x));
+  if (u.y > 1e-9) t = Math.min(t, Math.max(0, (hiY - origin.y) / u.y));
+  else if (u.y < -1e-9) t = Math.min(t, Math.max(0, (lo - origin.y) / u.y));
+  return { x: origin.x + u.x * t, y: origin.y + u.y * t };
+}
+
 /** Rough reach of an area from its center (zone bookkeeping, culling, effect sizes). */
 export function areaExtent(a: AreaShape): number {
   switch (a.shape) {
@@ -197,6 +230,7 @@ export function areaExtent(a: AreaShape): number {
     case 'rect':
       return Math.hypot(a.length, a.width / 2);
     case 'cone':
+    case 'fan':
       return a.radius;
     case 'ring':
       return a.outer;
@@ -229,6 +263,7 @@ export function areaSize(a: AreaShape): number {
     case 'rect':
       return a.length * a.width;
     case 'cone':
+    case 'fan':
       return (Math.PI * a.radius * a.radius * a.angle) / 360;
     case 'ring':
       return Math.PI * (a.outer * a.outer - a.inner * a.inner);
@@ -247,6 +282,8 @@ export function aimSamples(a: AreaShape): Vec2[] {
     case 'single':
       return [{ x: 0, y: 0 }];
     case 'line':
+    case 'fan':
+      // auto-aimed from the caster: the drop point itself is the aim point
       return [{ x: 0, y: 0 }];
     case 'rect': {
       const f = rectFrame(a, { x: 0, y: 0 });

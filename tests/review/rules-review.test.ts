@@ -284,7 +284,7 @@ describe('normal floor clear / cap (R15, R16)', () => {
       m.rt.base.moveSpeed = 0;
       m.hp = m.maxHp = m.rt.base.maxHp = 1e9;
     }
-    const lich = spawnAt(tg, 'lich', { x: 30, y: 9 }); // 해골 소환: 3 skeletons
+    const lich = spawnAt(tg, 'lich', { x: 30, y: 9 }); // 검은 조문객 그림자 부르기: 3 그림자 아이
     lich.rt.skillCds[0] = 0;
     lich.rt.skillCds[1] = 99;
     ticks(tg, 2);
@@ -591,7 +591,7 @@ describe('former deviations', () => {
       want[f] = Math.min(FLOOR_WAVES.max, FLOOR_WAVES.first + (f - 1) * FLOOR_WAVES.perFloor);
     }
     expect(counts).toEqual(want);
-    expect(counts[6]).toBe(counts[4] + 2); // floor 5 (boss) still counts as a floor
+    expect(counts[6]).toBe(Math.min(FLOOR_WAVES.max, counts[4] + 2)); // floor 5 (boss) still counts as a floor
   });
 });
 

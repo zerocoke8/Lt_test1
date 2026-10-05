@@ -64,7 +64,9 @@ describe('cast events over the wire', () => {
     expect(dmg.every(d => typeof d.source === 'string')).toBe(true);
     const drag = dmg.filter(d => d.source === 'drag');
     expect(drag.length).toBeGreaterThan(0);
-    expect(drag.every(d => d.skillName === '유성우')).toBe(true);
+    // every drag hit carries its skill's name; the bot (3rd seat) may swap in the same window with its own drag skill
+    expect(drag.every(d => typeof d.skillName === 'string' && d.skillName.length > 0)).toBe(true);
+    expect(drag.some(d => d.skillName === '유성우')).toBe(true);
   }, 30_000);
 });
 

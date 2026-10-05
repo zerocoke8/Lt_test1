@@ -18,6 +18,7 @@ function areaNumbers(a: AreaShape): number[] {
     case 'rect':
       return [a.length, a.width];
     case 'cone':
+    case 'fan':
       return [a.radius, a.angle];
     case 'ring':
       return [a.inner, a.outer];

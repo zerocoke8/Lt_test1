@@ -1,6 +1,7 @@
 // localStorage persistence (every access wrapped: private mode / blocked storage must not break the game).
 
 import type { Tunables } from '../types';
+import { type JuiceSettings, sanitizeJuice } from '../render/juice';
 import { CHARACTERS, PETS } from '../data';
 import { diffFromDefaults, sanitizeOverrides } from './tunables';
 
@@ -116,4 +117,16 @@ export function markTipSeen(id: string): void {
   const v = read(TIPS_KEY);
   const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
   if (!list.includes(id)) write(TIPS_KEY, [...list, id].slice(-20));
+}
+
+// ─────────────── render-only impact feel (기획 8차: 타격 멈춤 · 화면 흔들림), per device ───────────────
+
+const JUICE_KEY = 'swapTower.juice.v1';
+
+export function loadJuice(): JuiceSettings {
+  return sanitizeJuice(read(JUICE_KEY));
+}
+
+export function saveJuice(j: JuiceSettings): void {
+  write(JUICE_KEY, sanitizeJuice(j));
 }

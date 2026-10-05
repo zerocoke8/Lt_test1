@@ -122,6 +122,20 @@ export function addAreaPath(
       ctx.ellipse(sx, sy, inner * PX_PER_UNIT, inner * PX_PER_UNIT_Y, 0, TAU, 0, true);
       return;
     }
+    case 'fan': {
+      // 기획 8차 (monsters): apex at the caster (origin), opening toward center
+      const f = fanFrame(center, origin, FAN_TMP);
+      const h = (area.angle * Math.PI) / 360;
+      const R = Math.max(0.01, area.radius * k);
+      PTS.length = 0;
+      PTS.push(f.x, f.y);
+      for (let i = 0; i <= CONE_STEPS; i++) {
+        const a = f.a - h + (2 * h * i) / CONE_STEPS;
+        PTS.push(f.x + Math.cos(a) * R, f.y + Math.sin(a) * R);
+      }
+      polyWorld(ctx, cam, PTS);
+      return;
+    }
     case 'cross': {
       const hw = area.width / 2;
       const L = Math.max(hw + 0.01, area.length * k);
@@ -145,8 +159,32 @@ export function areaRadius(area: AreaShape): number {
   if (area.shape === 'circle') return area.radius;
   if (area.shape === 'single') return SINGLE_AREA_RADIUS;
   if (area.shape === 'line') return Math.max(area.width, 1);
+  if (area.shape === 'fan') return area.radius;
   return areaExtent(area);
 }
+
+/** Reach of an area from its center for culling (areaExtent, plus the 기획 8차 fan). */
+export function areaReach(area: AreaShape): number {
+  if (area.shape === 'fan') return area.radius;
+  const r = areaExtent(area);
+  return Number.isFinite(r) ? r : 4;
+}
+
+/**
+ * Apex + world angle of a 'fan' (기획 8차, auto-aimed monster cone): it opens from the caster (origin) toward center.
+ * Without an origin (zones) or when both coincide it sits on center facing +x.
+ */
+export function fanFrame(center: Vec2, origin: Vec2 | null, out: { x: number; y: number; a: number }): { x: number; y: number; a: number } {
+  const ox = origin ? origin.x : center.x;
+  const oy = origin ? origin.y : center.y;
+  const dx = center.x - ox;
+  const dy = center.y - oy;
+  out.x = ox;
+  out.y = oy;
+  out.a = Math.hypot(dx, dy) < 1e-4 ? 0 : Math.atan2(dy, dx);
+  return out;
+}
+const FAN_TMP = { x: 0, y: 0, a: 0 };
 
 /**
  * Direction arrow on the ground from world a to world b (shaft + head), drawn with a dark outline so it reads on any

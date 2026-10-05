@@ -2,7 +2,7 @@
 
 import type { MonsterDef, Team, Vec2 } from '../types';
 import { getCharacter } from '../data';
-import { ARENA_MARGIN, CHAR_RADIUS } from './constants';
+import { ARENA_MARGIN, CHAR_RADIUS, SKILL_START_JITTER } from './constants';
 import { benchMaxHp, effStats } from './stats';
 import { addEntity, arena, clamp, copy, newId, type SimEntity, type SimPlayer, type World } from './world';
 
@@ -16,6 +16,13 @@ export function createUnit(
   opts: { kind: 'monster' | 'summon'; ownerPlayer: number | null; expiresIn: number | null; hpMult: number; atkMult: number },
 ): SimEntity {
   const base = { ...def.stats, maxHp: def.stats.maxHp * opts.hpMult, atk: def.stats.atk * opts.atkMult };
+  const attackCd = w.rng.range(0.2, 0.8);
+  // 기획 8차 리뷰: normal monsters that spawn together (a wave group, a summon) would cast in lockstep forever (two
+  // eye-stalk fans with identical timers → one red blob). Their first cast comes up to SKILL_START_JITTER later.
+  const skillCds = (def.skills ?? []).map(s => s.initialDelay ?? s.cooldown);
+  if (def.tier === 'normal') {
+    for (let i = 0; i < skillCds.length; i++) skillCds[i] += w.rng.range(0, Math.min(SKILL_START_JITTER, 0.35 * def.skills![i].cooldown));
+  }
   const e: SimEntity = {
     id: newId(w),
     kind: opts.kind,
@@ -43,8 +50,9 @@ export function createUnit(
       monDef: def,
       base,
       gone: false,
-      attackCd: w.rng.range(0.2, 0.8),
-      skillCds: (def.skills ?? []).map(s => s.initialDelay ?? s.cooldown),
+      attackCd,
+      skills: (def.skills ?? []).slice(),
+      skillCds,
       skillGap: 0,
       lockTime: 0,
       shieldTime: 0,
@@ -52,7 +60,10 @@ export function createUnit(
       pulseTimer: 0,
       stationary: !!def.stationary,
       petPowered: team === 'ally' && def.tier === 'summon' && def.stats.atk === 0,
-      windup: null,
+      windup: [],
+      phase: 0,
+      phaseAtkSpeedMult: 1,
+      phaseCdMult: 1,
     },
   };
   addEntity(w, e);
@@ -91,6 +102,7 @@ export function createCharacterEntity(w: World, p: SimPlayer, idx: number, pos: 
       base: { ...def.stats },
       gone: false,
       attackCd: 0,
+      skills: [],
       skillCds: [],
       skillGap: 0,
       lockTime: 0,
@@ -99,7 +111,10 @@ export function createCharacterEntity(w: World, p: SimPlayer, idx: number, pos: 
       pulseTimer: 0,
       stationary: false,
       petPowered: false,
-      windup: null,
+      windup: [],
+      phase: 0,
+      phaseAtkSpeedMult: 1,
+      phaseCdMult: 1,
     },
   };
   addEntity(w, e);

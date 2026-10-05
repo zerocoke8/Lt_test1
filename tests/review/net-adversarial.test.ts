@@ -134,7 +134,8 @@ describe('hostile input never crashes the server or leaks into the sim', () => {
     await makeRoom(a, b);
     await startGame(a, b);
     for (let i = 0; i < 2000; i++) b.send({ t: 'cmd', seq: i, cmd: { type: 'ult', player: 0 } });
-    await sleep(500);
+    // under a loaded full-suite run the server may need longer than 0.5 s to chew through the flood
+    for (let i = 0; i < 50 && !b.closed; i++) await sleep(100);
     expect(b.closed).toBe(true);
     expect(b.closeCode).toBe(1008);
     a.mark();

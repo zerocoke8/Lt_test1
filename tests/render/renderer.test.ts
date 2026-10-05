@@ -276,3 +276,65 @@ describe('createRenderer (headless, fake context)', () => {
     expect(p.y).toBeCloseTo(444, 9);
   });
 });
+
+describe('기획 8차 content in the renderer (headless)', () => {
+  const NEW_IDS = ['overtime_ghost', 'copy_man', 'copy_mini', 'iv_zombie', 'wheelchair_rush', 'nurse_doll', 'eye_stalk', 'red_mask', 'elevator_girl', 'copier_beast', 'head_nurse', 'signal_man'];
+  const BOSSES = ['elevator_keeper', 'overtime_lord', 'surgeon_director', 'abyss_watcher'] as const;
+  const THEMES = ['lobby', 'office', 'ward', 'rooftop'] as const;
+
+  function zoneState(kind: 'normal' | 'boss', theme: (typeof THEMES)[number], bossId: string, bossHpFrac: number): GameState {
+    const base = makeState(kind, 12, kind === 'boss' ? 5 : 7);
+    const me = base.entities[0];
+    const extra: Entity[] = NEW_IDS.map((id, i) => {
+      const d = getMonster(id);
+      return ent({ kind: 'monster', team: 'enemy', defId: id, tier: d.tier, pos: { x: 3 + (i % 6) * 3, y: 2 + Math.floor(i / 6) * 4 }, radius: d.radius, maxHp: d.stats.maxHp, anim: i % 3 === 0 ? 'attack' : i % 3 === 1 ? 'move' : 'cast', animTime: 0.3, targetId: me.id });
+    });
+    const entities = base.entities.filter(e => e.tier !== 'boss').concat(extra);
+    let bossEnt: Entity | null = null;
+    if (kind === 'boss') {
+      bossEnt = ent({ kind: 'monster', team: 'enemy', defId: bossId, tier: 'boss', pos: { ...BOSS_POS }, radius: 3, maxHp: 8000, hp: 8000 * bossHpFrac, anim: 'cast', animTime: 1, targetId: me.id });
+      entities.push(bossEnt);
+    }
+    return {
+      ...base,
+      plan: { ...base.plan, theme, ...(kind === 'boss' ? { bossId } : {}) },
+      entities,
+      bossId: bossEnt ? bossEnt.id : null,
+      telegraphs: [
+        ...base.telegraphs,
+        { id: 990, team: 'enemy', center: { x: 10, y: 6 }, origin: { x: 16, y: 3 }, area: { shape: 'fan', radius: 8, angle: 50 }, remaining: 0.4, total: 1 },
+        { id: 991, team: 'enemy', center: { x: 8, y: 8 }, origin: { x: 15, y: 6 }, area: { shape: 'line', length: 7, width: 1.2 }, remaining: 0.2, total: 1.2 },
+      ],
+      zones: [...base.zones, { id: 992, team: 'enemy', ownerPlayer: null, center: { x: 14, y: 5 }, radius: 4, area: { shape: 'fan', radius: 4, angle: 60 }, remaining: 2, total: 4, kind: 'damage' }],
+    };
+  }
+
+  it('draws every new look, zone and boss (each phase) with the new events, never mutating state', () => {
+    const { canvas, sets } = fakeCanvas();
+    const r = createRenderer(canvas as unknown as HTMLCanvasElement);
+    for (const [i, theme] of THEMES.entries()) {
+      for (const kind of ['normal', 'boss'] as const) {
+        for (const hpFrac of kind === 'boss' ? [0.9, 0.45, 0.2] : [1]) {
+          const s = deepFreeze(zoneState(kind, theme, BOSSES[i], hpFrac));
+          const ids = s.entities.filter(e => e.defId === 'copy_man' || e.defId === 'nurse_doll' || e.defId === 'wheelchair_rush' || e.defId === 'iv_zombie');
+          const [copy, doll, chair, iv] = ids;
+          const boss = s.entities.find(e => e.tier === 'boss');
+          const evs: GameEvent[] = deepFreeze([
+            { type: 'blink', entityId: doll.id, from: { x: 3, y: 3 }, to: doll.pos },
+            { type: 'dash', entityId: chair.id, from: { x: 18, y: 2 }, to: chair.pos, duration: 0.3 },
+            { type: 'death', entityId: copy.id, pos: copy.pos, kind: 'monster', tier: 'normal' },
+            { type: 'heal', targetId: iv.id, amount: 30, pos: iv.pos },
+            { type: 'skillCast', sourceId: iv.id, player: null, slot: 'monster', skillId: 'zombie_drip', name: '수액 공급', center: iv.pos, area: { shape: 'circle', radius: 3 }, team: 'enemy' },
+            { type: 'skillCast', sourceId: doll.id, player: null, slot: 'monster', skillId: 'eye_glare', name: '시선 난사', center: { x: 8, y: 6 }, area: { shape: 'fan', radius: 7, angle: 40 }, team: 'enemy' },
+            ...(boss ? [{ type: 'bossPhase', entityId: boss.id, phase: 2, name: '2페이즈' } as GameEvent] : []),
+            { type: 'appear', player: 0, partyIndex: 0, entityId: s.entities[0].id, pos: s.entities[0].pos },
+            { type: 'skillCast', sourceId: s.entities[0].id, player: 0, slot: 'drag', skillId: 'guardian_d', name: '방패 파동', center: s.entities[0].pos, area: { shape: 'rect', dir: 'right', anchor: 'center', length: 7, width: 2 }, team: 'ally' },
+            { type: 'damage', targetId: chair.id, amount: 50, crit: false, pos: chair.pos, targetTeam: 'enemy', absorbed: 0, source: 'drag', skillName: '방패 파동' },
+          ]);
+          for (let f = 0; f < 50; f++) expect(() => r.render(s, f === 0 ? evs : [], 1 / 60, UI)).not.toThrow();
+        }
+      }
+    }
+    expect(sets.has('shadowBlur')).toBe(false);
+  });
+});

@@ -29,6 +29,8 @@ export function areaLabel(area: AreaShape, center: SkillAction['center']): strin
       return `${ARROW[area.dir]} 직선 ${num(area.length)}`;
     case 'cone':
       return `${ARROW[area.dir]} 부채꼴 ${num(area.radius)}`;
+    case 'fan':
+      return `대상 방향 부채꼴 ${num(area.radius)}`;
     case 'ring':
       return `고리 ${num(area.inner)}~${num(area.outer)}`;
     case 'cross':

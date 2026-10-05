@@ -1,7 +1,8 @@
 // Placeholder art palette + per-def "look" cache (colors, glyphs, body shape). Render-only.
 
-import type { EntityKind, Role } from '../types';
+import type { EntityKind, MonsterDef, Role } from '../types';
 import { getCharacter, getMonster, getPet } from '../data';
+import { type CreatureShape, creatureArtFor } from './creatures';
 
 export const FONT_STACK =
   '"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic","WenQuanYi Zen Hei",system-ui,sans-serif';
@@ -89,7 +90,8 @@ export type BodyShape =
   | 'ogre'
   | 'lich'
   | 'turret'
-  | 'blob';
+  | 'blob'
+  | CreatureShape;
 
 /** Hand-held prop drawn on heroes (placeholder art). */
 export type Accessory = 'shield' | 'sword' | 'axe' | 'bow' | 'orb' | 'staff' | 'hammer' | 'gun' | 'lute' | 'none';
@@ -148,7 +150,42 @@ const HEIGHT_BY_SHAPE: Record<BodyShape, number> = {
   lich: 1.35,
   turret: 1.0,
   blob: 1.0,
+  umbrella: 1.15,
+  shadow_child: 1.15,
+  vending: 1.4,
+  phone: 0.95,
+  mannequin: 1.3,
+  office_ghost: 1.25,
+  copy: 1.35,
+  copy_mini: 1.3,
+  patient: 1.35,
+  wheelchair: 1.05,
+  doll: 1.2,
+  eye_stalk: 1.6,
+  red_mask: 1.5,
+  giant_mannequin: 1.3,
+  mourner: 1.45,
+  elevator_girl: 1.45,
+  copier: 1.05,
+  head_nurse: 1.55,
+  signal: 1.5,
 };
+
+/** Boss set-piece colours (the boss renderer draws the body; this tints hit flashes / ghosts / labels). */
+const BOSS_COLOR: Record<string, { name: string; color: string }> = {
+  elevator_keeper: { name: '닫히지 않는 엘리베이터', color: '#8a929c' },
+  overtime_lord: { name: '야근의 군주', color: '#5aa9ff' },
+  surgeon_director: { name: '수술실 원장', color: '#3fae8c' },
+  abyss_watcher: { name: '심연의 감시자', color: '#3a0ca3' },
+};
+
+function tryMonster(id: string): MonsterDef | null {
+  try {
+    return getMonster(id);
+  } catch {
+    return null;
+  }
+}
 
 function makeLook(name: string, color: string, glyph: string, role: Role | null, shape: BodyShape, ranged: boolean, accessory: Accessory = 'none'): UnitLook {
   return {
@@ -179,8 +216,18 @@ export function unitLook(kind: EntityKind, defId: string): UnitLook {
       const d = getCharacter(defId);
       look = makeLook(d.name, d.color, ROLE_GLYPH[d.role], d.role, 'hero', d.basic.kind === 'projectile', ACCESSORY_BY_ID[d.id] ?? ACCESSORY_BY_ROLE[d.role]);
     } else {
-      const d = getMonster(defId);
-      look = makeLook(d.name, d.color, '', null, SHAPE_BY_ID[d.id] ?? 'blob', d.basic.kind === 'projectile');
+      // 기획 8차: 괴담 looks by id (content contract) or MonsterDef.look; data may not know a new id yet
+      const d = tryMonster(defId);
+      const art = creatureArtFor(defId, d?.look);
+      const boss = BOSS_COLOR[defId];
+      if (art) {
+        look = makeLook(d?.name ?? art.name, art.color, '', null, art.shape, d ? d.basic.kind === 'projectile' : art.ranged);
+        look.heightMul = art.heightMul;
+      } else if (boss) {
+        look = makeLook(d?.name ?? boss.name, boss.color, '', null, 'blob', true);
+      } else if (d) {
+        look = makeLook(d.name, d.color, '', null, SHAPE_BY_ID[d.id] ?? 'blob', d.basic.kind === 'projectile');
+      } else look = { ...FALLBACK };
     }
   } catch {
     look = { ...FALLBACK };

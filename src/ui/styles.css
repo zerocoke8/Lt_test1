@@ -863,6 +863,27 @@
   pointer-events: auto;
 }
 
+/* 기획 8차 리뷰: boss enrage edge glow — was a canvas radial gradient filled every frame (≈ −15 fps); now one
+   compositor layer whose opacity pulses (same look: clear inside r 260, red 0.42 at r 760, alpha 0.2–0.8, 2.1 s) */
+.enrage-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 0, 40, 0) 260px, rgba(255, 0, 40, 0.42) 760px);
+  opacity: 0.5;
+  will-change: opacity;
+  animation: enrageVignette 1.05s ease-in-out infinite alternate;
+}
+
+@keyframes enrageVignette {
+  from { opacity: 0.25; }
+  to { opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enrage-vignette { animation: none; }
+}
+
 .bar {
   position: relative;
   height: 10px;
@@ -1089,6 +1110,71 @@
 .boss-name {
   font-size: 21px;
   font-weight: 900;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.boss-name.is-long {
+  font-size: 18px;
+}
+
+/* 기획 8차 boss phases: ◆◆◇ next to the HP %, ticks on the bar at each threshold */
+.boss-phase {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  flex: none;
+}
+
+.boss-phase .bp-mark {
+  width: 10px;
+  height: 10px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  border: 1.5px solid rgba(255, 143, 171, 0.8);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.boss-phase .bp-mark.is-on {
+  background: #ff4d6d;
+  border-color: #ffd6de;
+  box-shadow: 0 0 6px rgba(255, 77, 109, 0.8);
+}
+
+.boss-phase:not(.is-hidden) + .boss-pct {
+  margin-left: 6px;
+}
+
+.boss-bar {
+  position: relative;
+}
+
+.boss-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  z-index: 2;
+}
+
+.boss-tick.is-past {
+  opacity: 0.35;
+}
+
+.boss.is-phase {
+  animation: bossPhase 0.7s ease;
+}
+
+@keyframes bossPhase {
+  0% { box-shadow: 0 0 0 0 rgba(255, 77, 109, 0.9); border-color: #ffffff; }
+  40% { box-shadow: 0 0 34px 6px rgba(255, 77, 109, 0.7); }
+  100% { box-shadow: none; }
 }
 
 .boss-enrage {
@@ -1191,6 +1277,15 @@
   font-size: 30px;
   font-weight: 900;
   line-height: 1.1;
+}
+
+/* 기획 8차: zone name next to the floor number ("7층 · 사무실층") */
+.fi-zone {
+  margin-left: -4px;
+  font-size: 17px;
+  font-weight: 800;
+  color: #b8c2d6;
+  white-space: nowrap;
 }
 
 .fi-chip {
@@ -2110,15 +2205,60 @@
   text-shadow: 0 2px 4px #000;
 }
 
+/* 기획 8차 리뷰: a zone's first floor opens with a 괴담 line (italic, pale, between the floor name and the goal) */
+.banner-lore {
+  font-size: 23px;
+  font-weight: 800;
+  font-style: italic;
+  color: #ffd9de;
+  margin-top: 6px;
+  text-shadow: 0 2px 4px #000, 0 0 12px rgba(120, 0, 30, 0.6);
+}
+
+.banner-lore + .banner-sub {
+  font-size: 18px;
+  color: #c5cbd8;
+}
+
 .banner-clear .banner-big { color: var(--green-soft); }
 .banner-enrage .banner-big { color: #ff4d5e; }
 .banner-boss .banner-big { color: var(--gold); }
+.banner-phase .banner-big { color: #ff4d6d; }
 
 @keyframes bannerIn {
   0% { opacity: 0; transform: scale(1.35); }
   12% { opacity: 1; transform: scale(1); }
   80% { opacity: 1; transform: none; }
   100% { opacity: 0; transform: translateY(-16px); }
+}
+
+/* 기획 8차 리뷰: phase / enrage banners mid-fight sit low over the arena's front edge (field y ≈ 430–500, under the
+   party that fights at the boss's feet) and stay 1.4 s, smaller — the new pattern's warning up top stays visible */
+.banners.is-low {
+  top: 428px;
+}
+
+.banners.is-low .banner {
+  padding: 4px 90px 6px;
+  animation: bannerInLow 1.4s ease forwards;
+}
+
+.banners.is-low .banner-big {
+  font-size: 40px;
+  display: inline;
+}
+
+.banners.is-low .banner-sub {
+  display: inline;
+  font-size: 19px;
+  margin: 0 0 0 14px;
+}
+
+@keyframes bannerInLow {
+  0% { opacity: 0; transform: translateY(14px); }
+  14% { opacity: 1; transform: none; }
+  78% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(8px); }
 }
 
 .empty-hint {

@@ -11,16 +11,17 @@ import {
   type GameState,
   type Renderer,
   type RenderUiState,
+  type Telegraph,
   type Vec2,
 } from '../types';
-import { type BossDrawOpts, drawBoss, drawBossShadow } from './boss';
+import { type BossDrawOpts, bossPhaseOf, drawBossArt, drawBossShadow } from './boss';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { Backdrop } from './ground';
 import { COLORS, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
 import { CHARACTERS } from '../data';
-import { areaCentroid, areaExtent } from '../sim/geometry';
-import { drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
-import { TAU, pathArea, pathCapsule } from './shapes';
+import { areaCentroid } from '../sim/geometry';
+import { drawAimedDirection, drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
+import { TAU, addAreaPath, areaReach, pathArea, pathCapsule } from './shapes';
 import {
   HERO_POSE,
   type UnitMemo,
@@ -41,13 +42,20 @@ import {
   type TagBox,
 } from './units';
 import { Vfx, type VfxContext, playerColor } from './vfx';
+import { TeleSequencer, type TeleSeqInfo } from './teleseq';
+import { screenBoostFor } from './juice';
+import { DASH_LAND } from './dashtime';
+import { CREATURE_POSE, midAura } from './creatures';
 
 export { Camera } from './camera';
 
 const MAX_DT = 0.1;
+/** Drop-in height (world units) of a character appearing (swap / floor start). */
+const APPEAR_DROP = 3;
 const PROJECTILE_Z = 0.75;
 const ZONE_DASH = [8, 6];
 const NO_DASH: number[] = [];
+const LATER_DASH = [10, 7];
 const byY = (a: Entity, b: Entity) => a.pos.y - b.pos.y || a.id - b.id;
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer {
@@ -56,6 +64,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const cam = new Camera();
   const backdrop = new Backdrop();
   const vfx = new Vfx();
+  const teleSeq = new TeleSequencer();
+  /** Last monster skill each enemy cast (bodies that change with their pattern: 신호등 인간 빨간불 / 초록불). */
+  const lastMonsterSkill = new Map<number, string>();
   const memos = new Map<number, UnitMemo>();
   const vc: VfxContext = { state: null as unknown as GameState, memos, localPlayer: 0 };
   const sorted: Entity[] = [];
@@ -70,13 +81,18 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   let arenaW = 0;
   let arenaH = 0;
   let snapPending = true;
-  let vignette: CanvasGradient | null = null;
-  const lastBoss = { x: 0, y: 0, radius: 3, color: '#3a0ca3' };
-  const bossOpts: BossDrawOpts = { color: '', time: 0, enraged: false, flash: 0, retreat: 0, lookX: null, lookY: null, charge: 0, shake: 0 };
+  const lastBoss = { x: 0, y: 0, radius: 3, color: '#3a0ca3', defId: '', phase: 1 };
+  const bossOpts: BossDrawOpts = { color: '', time: 0, enraged: false, flash: 0, retreat: 0, lookX: null, lookY: null, charge: 0, shake: 0, phase: 1, phaseFlash: 0 };
   const pruneMemo = (m: UnitMemo, id: number) => {
     if (m.stamp !== stamp) memos.delete(id);
   };
   let hasLastBoss = false;
+  /**
+   * The top-centre HUD box in logical px (styles.css `.hud-tc`: centred at x 640, top 8 — `.boss` 420 wide, bottom
+   * ≈ 95 on boss floors; `.floorinfo` ≈ 402 wide, bottom ≈ 57 on normal floors), plus a few px of margin.
+   */
+  const TOP_PANEL_BOSS = { x0: 424, x1: 856, y1: 100 };
+  const TOP_PANEL_NORMAL = { x0: 433, x1: 847, y1: 62 };
 
   // Backing-store resolution follows the pixels actually shown: the stage is CSS-scaled to fit the screen
   // (e.g. ×0.54 on an 844×390 phone), so DPR alone would over-allocate (≈50% more pixels to fill per frame).
@@ -106,7 +122,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function ensureBackingStore(dt: number): void {
     const raw = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
     // device px per logical px, in 1/8 steps so tiny layout jitter never reallocates; never below 1, at most 2
-    const want = Math.max(1, Math.min(2, Math.round(raw * readShownScale(dt) * 8) / 8));
+    const shown = readShownScale(dt);
+    const want = Math.max(1, Math.min(2, Math.round(raw * shown * 8) / 8));
+    // 기획 8차 리뷰: the shake is felt in CSS px — a phone's 0.54× stage gets ~1.5× the logical kick
+    vfx.juice.screenBoost = screenBoostFor(shown);
     const w = Math.round(LOGICAL_W * want);
     const h = Math.round(LOGICAL_H * want);
     if (want !== dpr || canvas.width !== w || canvas.height !== h) {
@@ -126,22 +145,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     return m ? m.x : null;
   }
 
-  function getVignette(): CanvasGradient {
-    if (!vignette) {
-      const g = ctx!.createRadialGradient(LOGICAL_W / 2, LOGICAL_H / 2, 260, LOGICAL_W / 2, LOGICAL_H / 2, 760);
-      g.addColorStop(0, 'rgba(255,0,40,0)');
-      g.addColorStop(1, 'rgba(255,0,40,0.42)');
-      vignette = g;
-    }
-    return vignette;
-  }
-
   // ─────────────────────────── ground-layer passes ───────────────────────────
 
   function drawZones(state: GameState): void {
     const c = ctx!;
     for (const z of state.zones) {
-      if (!cam.visibleX(z.center.x, (z.area ? areaExtent(z.area) : z.radius) + 1)) continue;
+      if (!cam.visibleX(z.center.x, (z.area ? areaReach(z.area) : z.radius) + 1)) continue;
       const color =
         vfx.zoneTint(z.center.x, z.center.y) ??
         (z.kind === 'heal'
@@ -244,26 +253,29 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   /** Ally telegraphs go on the ground; enemy ones are drawn again later, above the boss body (tentacles hid them). */
   function drawTelegraphs(state: GameState, team: 'ally' | 'enemy'): void {
+    if (team === 'enemy') {
+      drawEnemyTelegraphs(state);
+      return;
+    }
+    // ally warnings (delayed parts of our own skills, e.g. meteors): light fills, few at once
     const c = ctx!;
+    const color = COLORS.telegraphAlly;
     for (const t of state.telegraphs) {
-      if (t.team !== team) continue;
-      const enemy = t.team === 'enemy';
-      const color = enemy ? COLORS.telegraphEnemy : COLORS.telegraphAlly;
+      if (t.team !== 'ally') continue;
       const p = t.total > 0 ? Math.max(0, Math.min(1, 1 - t.remaining / t.total)) : 1;
       const area = t.area.shape === 'circle' && t.area.radius > 30 ? BIG_CIRCLE : t.area;
       pathArea(c, cam, t.center, t.origin, area, 1);
-      // enemy fill darkens toward the hit so a big slow circle still reads as "get out"
-      c.globalAlpha = enemy ? 0.16 + 0.2 * p : 0.12;
+      c.globalAlpha = 0.12;
       c.fillStyle = color;
       c.fill();
       const urgent = t.remaining < 0.35;
       c.globalAlpha = urgent ? 0.6 + 0.4 * Math.sin(time * 40) : 0.9;
-      c.lineWidth = enemy ? 3 : 2.5;
+      c.lineWidth = 2.5;
       c.strokeStyle = urgent ? '#ffffff' : color;
       c.stroke();
       if (p > 0.01) {
         pathArea(c, cam, t.center, t.origin, area, p);
-        c.globalAlpha = enemy ? 0.38 : 0.3;
+        c.globalAlpha = 0.3;
         c.fillStyle = color;
         c.fill();
         c.globalAlpha = 0.8;
@@ -274,6 +286,269 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (area.shape === 'rect' || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
     }
     c.globalAlpha = 1;
+  }
+
+  // ── enemy warnings (기획 8차 리뷰: "red soup" on 16~20층, the 5층 door sweep reading as one red wall) ──
+  // 1. Overlapping footprints fill as ONE even tint (each later one clipped to leave out the earlier ones), so overlaps
+  //    no longer darken into a blob; every warning keeps its own outline and countdown fill.
+  // 2. Parts of one multi-part cast (TeleSequencer): only the next part is strong; later ones are dashed, numbered
+  //    outlines with a sweep arrow from part to part (문짝 1·2·3·4, 메스 3줄, 고리 → 가운데, 도장 연타).
+  const seqTmp: TeleSeqInfo = { order: 0, count: 0, next: false, group: 0 };
+  const labelTmp = { x: 0, y: 0 };
+  const seqChain: { group: number; order: number; x: number; y: number; next: boolean }[] = [];
+
+  /** Strong (not "later part") enemy warnings this frame with their screen boxes (logical px); pooled. */
+  interface TeleBox {
+    t: Telegraph;
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+    over: boolean;
+  }
+  const teleBoxes: TeleBox[] = [];
+  let teleBoxN = 0;
+
+  function collectTeleBoxes(state: GameState): boolean {
+    teleBoxN = 0;
+    for (const t of state.telegraphs) {
+      if (t.team !== 'enemy') continue;
+      const sq = teleSeq.info(t, seqTmp);
+      if (sq && !sq.next) continue;
+      const r = (t.area.shape === 'circle' && t.area.radius > 30 ? 40 : areaReach(t.area)) + 0.3;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      const pts = t.area.shape === 'line' || t.area.shape === 'fan' ? 2 : 1;
+      for (let i = 0; i < pts; i++) {
+        const p = i === 0 ? t.center : t.origin;
+        const sx = cam.sx(p.x);
+        const sy = cam.sy(p.y);
+        x0 = Math.min(x0, sx - r * PX_PER_UNIT);
+        x1 = Math.max(x1, sx + r * PX_PER_UNIT);
+        y0 = Math.min(y0, sy - r * PX_PER_UNIT_Y);
+        y1 = Math.max(y1, sy + r * PX_PER_UNIT_Y);
+      }
+      let b = teleBoxes[teleBoxN];
+      if (!b) teleBoxes.push((b = { t, x0, y0, x1, y1, over: false }));
+      b.t = t;
+      b.x0 = x0;
+      b.y0 = y0;
+      b.x1 = x1;
+      b.y1 = y1;
+      b.over = false;
+      teleBoxN++;
+    }
+    let any = false;
+    for (let i = 0; i < teleBoxN; i++) {
+      const a = teleBoxes[i];
+      for (let j = i + 1; j < teleBoxN; j++) {
+        const b = teleBoxes[j];
+        if (a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1) {
+          a.over = b.over = true;
+          any = true;
+        }
+      }
+    }
+    return any;
+  }
+
+  function teleProgress(t: Telegraph): number {
+    return t.total > 0 ? Math.max(0, Math.min(1, 1 - t.remaining / t.total)) : 1;
+  }
+
+  /**
+   * Fills of the strong warnings: footprint (alpha 0.24) + countdown (0.36). Where footprints overlap, each later one
+   * is clipped to leave out the ones already filled (even-odd "box minus shape" clips), so the union is one even tint
+   * instead of a darker blob; countdown fills stay per warning (overlapping ones darken only as they are about to land).
+   * No offscreen layer: a full-resolution layer blit cost ~10 fps in crowds on a software-rendered phone-sized canvas.
+   */
+  function fillEnemyTelegraphs(state: GameState, c: CanvasRenderingContext2D): void {
+    const overlap = collectTeleBoxes(state);
+    const color = COLORS.telegraphEnemy;
+    c.fillStyle = color;
+    for (let pass = 0; pass < 2; pass++) {
+      const full = pass === 0;
+      c.globalAlpha = full ? 0.24 : 0.36;
+      for (let i = 0; i < teleBoxN; i++) {
+        const b = teleBoxes[i];
+        const p = teleProgress(b.t);
+        if (!full && p <= 0.01) continue;
+        let clipped = false;
+        if (full && overlap && b.over) {
+          for (let j = 0; j < i; j++) {
+            const o = teleBoxes[j];
+            if (!o.over || o.x0 >= b.x1 || b.x0 >= o.x1 || o.y0 >= b.y1 || b.y0 >= o.y1) continue;
+            if (!clipped) {
+              c.save();
+              clipped = true;
+            }
+            c.beginPath();
+            c.rect(b.x0 - 4, b.y0 - 4, b.x1 - b.x0 + 8, b.y1 - b.y0 + 8);
+            addAreaPath(c, cam, o.t.center, o.t.origin, teleArea(o.t), 1);
+            c.clip('evenodd');
+          }
+        }
+        pathArea(c, cam, b.t.center, b.t.origin, teleArea(b.t), full ? 1 : p);
+        c.fill();
+        if (clipped) {
+          c.restore();
+          c.fillStyle = color;
+          c.globalAlpha = full ? 0.24 : 0.36;
+        }
+      }
+    }
+    c.globalAlpha = 1;
+  }
+
+  function teleArea(t: Telegraph): AreaShape {
+    return t.area.shape === 'circle' && t.area.radius > 30 ? BIG_CIRCLE : t.area;
+  }
+
+  /** Where a warning's number badge goes (world): the footprint's middle (aimed shapes: along the aim). */
+  function teleLabelPoint(t: Telegraph, arena: { width: number; height: number }): { x: number; y: number } {
+    const a = t.area;
+    if (a.shape === 'line' || a.shape === 'fan') {
+      const dx = t.center.x - t.origin.x;
+      const dy = t.center.y - t.origin.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const len = a.shape === 'line' ? a.length * 0.5 : a.radius * 0.55;
+      labelTmp.x = t.origin.x + (dx / d) * len;
+      labelTmp.y = t.origin.y + (dy / d) * len;
+    } else {
+      const p = areaCentroid(a, t.center);
+      labelTmp.x = p.x;
+      labelTmp.y = p.y;
+    }
+    labelTmp.x = Math.max(0.6, Math.min(arena.width - 0.6, labelTmp.x));
+    labelTmp.y = Math.max(0.8, Math.min(arena.height - 0.8, labelTmp.y));
+    return labelTmp;
+  }
+
+  function drawEnemyTelegraphs(state: GameState): void {
+    const c = ctx!;
+    const color = COLORS.telegraphEnemy;
+    fillEnemyTelegraphs(state, c);
+    seqChain.length = 0;
+    for (const t of state.telegraphs) {
+      if (t.team !== 'enemy') continue;
+      const p = t.total > 0 ? Math.max(0, Math.min(1, 1 - t.remaining / t.total)) : 1;
+      const area = t.area.shape === 'circle' && t.area.radius > 30 ? BIG_CIRCLE : t.area;
+      const sq = teleSeq.info(t, seqTmp);
+      const later = !!sq && !sq.next;
+      pathArea(c, cam, t.center, t.origin, area, 1);
+      if (later) {
+        // a later part of the same cast: a dashed outline only (its number says when)
+        c.setLineDash(LATER_DASH);
+        c.globalAlpha = 0.6;
+        c.lineWidth = 2;
+        c.strokeStyle = '#ff9aa2';
+        c.stroke();
+        c.setLineDash(NO_DASH);
+      } else {
+        const urgent = t.remaining < 0.35;
+        c.globalAlpha = urgent ? 0.6 + 0.4 * Math.sin(time * 40) : 0.9;
+        c.lineWidth = 3;
+        c.strokeStyle = urgent ? '#ffffff' : color;
+        c.stroke();
+        if (p > 0.01) {
+          pathArea(c, cam, t.center, t.origin, area, p);
+          c.globalAlpha = 0.8;
+          c.lineWidth = 1.5;
+          c.strokeStyle = color;
+          c.stroke();
+        }
+        // a sweep band's own "down" chevrons would point the wrong way (the sweep goes sideways): arrows only on lone rects
+        if ((area.shape === 'rect' && !sq) || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
+        else if (area.shape === 'fan' || area.shape === 'line') drawAimedDirection(c, cam, t.center, t.origin, area, '#ffe2e2', 0.85, time);
+      }
+      if (sq) {
+        const lp = teleLabelPoint(t, state.plan.arena);
+        seqChain.push({ group: sq.group, order: sq.order, x: lp.x, y: lp.y, next: sq.next });
+      }
+    }
+    if (seqChain.length > 1) drawSeqChains();
+    c.globalAlpha = 1;
+  }
+
+  /** Per multi-part cast: arrows from part to part in landing order, then a number on each part (1 = next). */
+  function drawSeqChains(): void {
+    const c = ctx!;
+    seqChain.sort((a, b) => a.group - b.group || a.order - b.order);
+    for (let i = 0; i < seqChain.length; i++) {
+      const a = seqChain[i];
+      const b = seqChain[i + 1];
+      if (!b || b.group !== a.group) continue;
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 1.2) continue;
+      drawSweepArrow(c, cam.sx(a.x), cam.sy(a.y), cam.sx(b.x), cam.sy(b.y), a.next);
+    }
+    for (let i = 0; i < seqChain.length; i++) {
+      const a = seqChain[i];
+      // parts stacked on one spot (도장 연타): one badge, the next part's step
+      let hidden = false;
+      for (let j = 0; j < seqChain.length; j++) {
+        const o = seqChain[j];
+        if (j === i || o.group !== a.group || Math.hypot(o.x - a.x, o.y - a.y) >= 1.2) continue;
+        if (o.order < a.order) hidden = true;
+      }
+      if (hidden) continue;
+      drawSeqBadge(c, cam.sx(a.x), cam.sy(a.y), a.order, a.next);
+    }
+  }
+
+  function drawSweepArrow(c: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, strong: boolean): void {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const d = Math.hypot(dx, dy);
+    if (d < 30) return;
+    const ux = dx / d;
+    const uy = dy / d;
+    const ax = x0 + ux * 22;
+    const ay = y0 + uy * 22;
+    const bx = x1 - ux * 22;
+    const by = y1 - uy * 22;
+    // marching chevrons along the way (the sweep's direction at a glance)
+    const n = Math.max(1, Math.floor((d - 44) / 26));
+    const shift = (time * 1.6) % 1;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    for (let k = 0; k < n; k++) {
+      const f = (k + shift) / n;
+      const cx = ax + (bx - ax) * f;
+      const cy = ay + (by - ay) * f;
+      c.beginPath();
+      c.moveTo(cx - ux * 7 - uy * 8, cy - uy * 7 + ux * 8);
+      c.lineTo(cx + ux * 3, cy + uy * 3);
+      c.lineTo(cx - ux * 7 + uy * 8, cy - uy * 7 - ux * 8);
+      c.globalAlpha = (strong ? 0.95 : 0.6) * (0.35 + 0.65 * Math.sin(Math.PI * f));
+      c.lineWidth = 6;
+      c.strokeStyle = '#2a0006';
+      c.stroke();
+      c.lineWidth = 3;
+      c.strokeStyle = strong ? '#ffffff' : '#ffc2c7';
+      c.stroke();
+    }
+    c.lineCap = 'butt';
+    c.globalAlpha = 1;
+  }
+
+  function drawSeqBadge(c: CanvasRenderingContext2D, x: number, y: number, n: number, next: boolean): void {
+    const r = next ? 15 : 12;
+    c.beginPath();
+    c.arc(x, y, r, 0, TAU);
+    c.globalAlpha = next ? 0.95 : 0.75;
+    c.fillStyle = next ? '#ffffff' : '#2a0610';
+    c.fill();
+    c.lineWidth = 2.5;
+    c.strokeStyle = next ? '#ff2a3d' : '#ff9aa2';
+    c.stroke();
+    c.globalAlpha = 1;
+    c.font = boldFont(next ? 18 : 15);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = next ? '#d90429' : '#ffd6da';
+    c.fillText(String(n), x, y + 1);
   }
 
   function drawPreviewGround(dp: DragPreview, state: GameState): void {
@@ -418,11 +693,23 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         }
         break;
       }
-      case 'appear':
-        z = (1 - p) * (1 - p) * 3.2;
-        hMul = p > 0.85 ? 1 - 0.18 * Math.sin(((p - 0.85) / 0.15) * Math.PI) : 1.08;
-        wMul = p > 0.85 ? 1 + 0.14 * Math.sin(((p - 0.85) / 0.15) * Math.PI) : 0.95;
+      case 'appear': {
+        // 기획 8차: a fast drop (accelerating, DASH_LAND s) → touchdown squash → spring back. The hit-stop lands on the
+        // touchdown frame (vfx landings), so the frozen picture is the squash with the skill's shockwave around it.
+        const t = m.appearAge;
+        if (t < DASH_LAND) {
+          const k = t / DASH_LAND;
+          z = APPEAR_DROP * (1 - k * k);
+          hMul = 1.14;
+          wMul = 0.88;
+        } else {
+          const u = Math.min(1, (t - DASH_LAND) / 0.26);
+          const q = 1 - u;
+          hMul = 1 - 0.26 * q * q + 0.06 * Math.sin(u * Math.PI);
+          wMul = 1 + 0.22 * q * q - 0.03 * Math.sin(u * Math.PI);
+        }
         break;
+      }
       case 'move': {
         const b = Math.abs(Math.sin(time * 10 + m.phase));
         z = b * 0.13;
@@ -485,7 +772,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function drawUnitGround(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     const c = ctx!;
-    let lift = e.anim === 'appear' ? (1 - animProgress(e, m)) : 0;
+    let lift = e.anim === 'appear' && m.appearAge < DASH_LAND ? 1 - (m.appearAge / DASH_LAND) ** 2 : 0;
     let gx = e.pos.x;
     let gy = e.pos.y;
     if (vfx.dashPose(e.id, dashOff)) {
@@ -496,6 +783,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     drawShadow(c, cam, gx, gy, e.radius * (m.look.shape === 'hero' ? 0.9 : 1), 1 - lift * 0.6, 1 - lift * 0.5);
     const sx0 = cam.sx(gx);
     const sy0 = cam.sy(gy);
+    if (e.tier === 'mid' && e.team === 'enemy') midAura(c, sx0, sy0, e.radius * PX_PER_UNIT, e.radius * PX_PER_UNIT_Y, time, m.phase);
     if (e.kind === 'character' && e.ownerPlayer != null && e.ownerPlayer !== local) {
       // another player's character: a ring in that player's colour (their name tag colour) — two 가디언 on the
       // field no longer look the same; mine has the bright outline + marker instead
@@ -595,9 +883,18 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.globalAlpha = alpha;
     HERO_POSE.swing = pose.swing;
     HERO_POSE.recoil = pose.recoil;
+    if (e.kind !== 'character') {
+      // 괴담 bodies open mouths / raise arms through their attack or cast, and roll / hop while moving
+      CREATURE_POSE.act = e.anim === 'attack' || e.anim === 'cast' ? Math.sin(animProgress(e, m) * Math.PI) : 0;
+      CREATURE_POSE.moving = e.anim === 'move';
+      CREATURE_POSE.skill = lastMonsterSkill.get(e.id) ?? '';
+    }
     drawBody(c, look, e.tier, fx, fy, w, h, s, time, m.phase, m.flash > 0);
     HERO_POSE.swing = 0;
     HERO_POSE.recoil = 0;
+    CREATURE_POSE.act = 0;
+    CREATURE_POSE.moving = false;
+    CREATURE_POSE.skill = '';
     if (e.kind === 'character' && hasStatus(e, 'slow')) {
       c.globalAlpha = 0.22;
       pathCapsule(c, fx, fy, w * 0.95, h);
@@ -629,6 +926,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const isLocal = e.kind === 'character' && e.ownerPlayer === local;
     const ally = e.team === 'ally';
     const showBar = e.kind !== 'monster' || e.tier === 'mid' || e.hp < e.maxHp || e.shield > 0;
+    if (e.kind === 'character' && e.ownerPlayer != null && overheadUnderPanel(state, e, top, isLocal, showBar)) {
+      drawOverheadBelow(e, m, local, state, isLocal, w);
+      return;
+    }
     let y = top - 8;
     if (showBar) {
       const style = barStyleFor(e, isLocal, w);
@@ -654,6 +955,37 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       }
       drawLocalMarker(c, pose.fx, my, playerColor(state, local), time);
     }
+  }
+
+  /**
+   * 기획 8차 리뷰: a player character right under the top-centre HUD box (boss HP panel / floor info) would have its
+   * tag + HP bar drawn under that box (my "나" was hidden 22–44 % of the time while fighting at the boss's feet).
+   * True when the overhead stack (bar, pips, tag, my ▼) would reach into the box.
+   */
+  function overheadUnderPanel(state: GameState, e: Entity, top: number, isLocal: boolean, showBar: boolean): boolean {
+    const panel = state.plan.kind === 'boss' ? TOP_PANEL_BOSS : TOP_PANEL_NORMAL;
+    if (pose.fx + 30 < panel.x0 || pose.fx - 30 > panel.x1) return false;
+    const stack = 8 + (showBar ? 12 : 0) + (e.statuses.length > 0 ? 9 : 0) + (isLocal ? 21 + 24 : 18);
+    return top - stack < panel.y1;
+  }
+
+  /** The overhead stack mirrored under the feet: HP bar, status pips, then the name tag (stacking downward). */
+  function drawOverheadBelow(e: Entity, m: UnitMemo, local: number, state: GameState, isLocal: boolean, w: number): void {
+    const c = ctx!;
+    let y = pose.fy + 9;
+    const style = barStyleFor(e, isLocal, w);
+    drawHpBar(c, pose.fx, y, style, e.hp, e.maxHp, e.shield, m.hpLag, true, isLocal ? playerColor(state, local) : null);
+    y += style.height + 3;
+    if (e.statuses.length > 0) y += drawStatusPips(c, pose.fx, y + 7, e.statuses);
+    const stunned = e.anim === 'stunned' || hasStatus(e, 'stun');
+    if (stunned) {
+      const top = pose.fy - pose.z - bodyTop(m.look, e.tier, w * m.look.heightMul, w);
+      drawStunStars(c, pose.fx, top + 2, w, time + m.phase);
+    }
+    const owner = state.players[e.ownerPlayer!];
+    if (!owner) return;
+    const th = isLocal ? 19 : 16;
+    drawNameTag(c, pose.fx, y + th, isLocal ? '나' : owner.name, playerColor(state, e.ownerPlayer!), isLocal, tagBoxes, true);
   }
 
   function drawLocalOutline(e: Entity, m: UnitMemo, color: string): void {
@@ -838,7 +1170,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
           o.lookY = null;
           o.charge = 0;
           o.shake = 0;
-          drawBoss(c, cam, lastBoss.x, lastBoss.y, lastBoss.radius, o);
+          o.phase = lastBoss.phase;
+          o.phaseFlash = 0;
+          drawBossArt(c, cam, lastBoss.defId, lastBoss.x, lastBoss.y, lastBoss.radius, o);
         }
       }
       return;
@@ -862,11 +1196,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       o.lookY = tgt ? tgt.y : null;
       o.charge = charge;
       o.shake = shake;
-      drawBoss(c, cam, e.pos.x, e.pos.y, e.radius, o);
+      o.phase = bossPhaseOf(e.defId, e.hp, e.maxHp);
+      o.phaseFlash = vfx.phaseFlash;
+      drawBossArt(c, cam, e.defId, e.pos.x, e.pos.y, e.radius, o);
       lastBoss.x = e.pos.x;
       lastBoss.y = e.pos.y;
       lastBoss.radius = e.radius;
       lastBoss.color = m.look.color;
+      lastBoss.defId = e.defId;
+      lastBoss.phase = o.phase;
       hasLastBoss = true;
     }
   }
@@ -875,16 +1213,24 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function render(state: GameState, events: GameEvent[], realDt: number, ui: RenderUiState): void {
     const c = ctx!;
-    const dt = Math.max(0, Math.min(MAX_DT, Number.isFinite(realDt) ? realDt : 0));
+    const realStep = Math.max(0, Math.min(MAX_DT, Number.isFinite(realDt) ? realDt : 0));
+    // 기획 8차 hit-stop: while frozen the world clock stands still (render only — the sim and the DOM HUD keep going);
+    // a drag in progress always sees the live field
+    const juice = vfx.juice;
+    juice.update(realStep);
+    if (ui.dragPreview) juice.cancelFreeze();
+    const dt = juice.frozen && freezeOk ? 0 : realStep;
     time += dt;
     stamp++;
-    ensureBackingStore(dt);
+    ensureBackingStore(realStep);
 
     // A new run (다시 하기 / 프리셋 → 출발) reuses entity ids from 1: drop every memo and effect of the old run.
     if (state.seed !== runSeed || state.tick < lastTick) {
       if (runSeed !== null) {
         memos.clear();
         vfx.reset();
+        teleSeq.reset();
+        lastMonsterSkill.clear();
         arenaFloor = -1;
       }
       runSeed = state.seed;
@@ -894,7 +1240,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const arena = state.plan.arena;
     const boss = state.plan.kind === 'boss';
     if (state.floor !== arenaFloor || boss !== arenaBoss || arena.width !== arenaW || arena.height !== arenaH) {
-      if (arenaFloor !== -1) vfx.reset();
+      if (arenaFloor !== -1) {
+        vfx.reset();
+        teleSeq.reset();
+      }
       arenaFloor = state.floor;
       arenaBoss = boss;
       arenaW = arena.width;
@@ -903,15 +1252,19 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       snapPending = true;
       hasLastBoss = false;
     }
-    backdrop.ensure(arena.width, arena.height, boss, state.floor, dpr);
+    backdrop.ensure(arena.width, arena.height, boss, state.floor, dpr, state.plan.theme, state.plan.bossId);
 
     // events first: death/leave ghosts need last frame's memos. Units that appeared this frame get theirs now, so a
     // drag skill cast by a character that just landed can follow it (callout, cast pose).
     for (const e of state.entities) if (!memos.has(e.id)) memos.set(e.id, newMemo(e, stamp));
     vc.state = state;
     vc.localPlayer = ui.localPlayer;
+    vc.camX = cam.x;
     for (const ev of events) {
       vfx.handle(ev, vc);
+      teleSeq.noteEvent(ev);
+      if (ev.type === 'skillCast' && ev.slot === 'monster' && ev.sourceId != null) lastMonsterSkill.set(ev.sourceId, ev.skillId);
+      else if (ev.type === 'death') lastMonsterSkill.delete(ev.entityId);
       if (ev.type === 'floorStart') {
         snapPending = true;
         hasLastBoss = false;
@@ -932,7 +1285,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     memos.forEach(pruneMemo);
 
+    if (juice.frozen && freezeOk && freezeCanvas) {
+      drawFrozen(state);
+      return;
+    }
+    freezeOk = false;
+
     vfx.trackTelegraphs(state.telegraphs);
+    teleSeq.track(state.telegraphs);
     vfx.update(dt, vc);
 
     // camera
@@ -952,8 +1312,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // ── draw ──
     c.globalAlpha = 1;
     c.lineJoin = 'round';
-    // camera shake (my own heavy skills only): the world layer jitters, the screen overlays below do not
-    if (vfx.shakeAmp > 0.2) c.translate((Math.random() * 2 - 1) * vfx.shakeAmp, (Math.random() * 2 - 1) * vfx.shakeAmp * 0.6);
+    // camera shake: the world layer moves, the screen overlays below do not. A freeze that starts this frame captures
+    // this frame unshaken (the frozen frames then shake it).
+    const startsFreeze = juice.frozen && !ui.dragPreview;
+    const sh = startsFreeze ? ZERO_OFF : juice.offset(shakeOff);
+    if (sh.x !== 0 || sh.y !== 0) {
+      c.fillStyle = '#05060a';
+      c.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+      c.translate(sh.x, sh.y);
+    }
     backdrop.draw(c, cam, time, ui.dragPreview !== null);
     drawBosses(state, true);
     c.save();
@@ -994,8 +1361,54 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     vfx.drawOverlay(c, cam);
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (startsFreeze) {
+      // hold this picture for the hit-stop (no DOM → no freeze: tests, workers)
+      freezeOk = captureFreeze();
+      if (!freezeOk) juice.cancelFreeze();
+    }
     drawOffscreenEnemies(state);
-    vfx.drawScreen(c, state.bossEnraged && state.bossId !== null, time, getVignette());
+    vfx.drawScreen(c);
+    c.globalAlpha = 1;
+  }
+
+  /** Copy of the world layer of the frame where a hit-stop began (backing-store pixels). */
+  let freezeCanvas: HTMLCanvasElement | null = null;
+  let freezeOk = false;
+  function captureFreeze(): boolean {
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return false;
+    try {
+      if (!freezeCanvas) freezeCanvas = document.createElement('canvas');
+      if (freezeCanvas.width !== canvas.width) freezeCanvas.width = canvas.width;
+      if (freezeCanvas.height !== canvas.height) freezeCanvas.height = canvas.height;
+      const g = freezeCanvas.getContext('2d');
+      if (!g) return false;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.drawImage(canvas, 0, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** A hit-stop frame: the held world picture, shaken, under live screen overlays (offscreen arrows, enrage tint). */
+  function drawFrozen(state: GameState): void {
+    const c = ctx!;
+    const fc = freezeCanvas!;
+    if (fc.width !== canvas.width || fc.height !== canvas.height) {
+      vfx.juice.cancelFreeze();
+      freezeOk = false;
+      return;
+    }
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.globalAlpha = 1;
+    const o = vfx.juice.offset(shakeOff);
+    if (o.x !== 0 || o.y !== 0) {
+      c.fillStyle = '#05060a';
+      c.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    }
+    c.drawImage(fc, 0, 0, fc.width, fc.height, o.x, o.y, LOGICAL_W, LOGICAL_H);
+    drawOffscreenEnemies(state);
+    vfx.drawScreen(c);
     c.globalAlpha = 1;
   }
 
@@ -1015,6 +1428,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 }
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };
+const shakeOff = { x: 0, y: 0 };
+const ZERO_OFF = { x: 0, y: 0 } as const;
 const dashOff = { ox: 0, oy: 0, z: 0 };
 const offSide = { ln: 0, rn: 0, ly: 0, ry: 0, lmid: false, rmid: false };
 const CAST_DASH = [10, 7];

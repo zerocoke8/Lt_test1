@@ -65,7 +65,7 @@ export function createWorld(setup: GameSetup): World {
     nextId: 1,
     acc: 0,
     pending: [],
-    spawner: { points: [], nextWave: 0, pending: [], kills: 0, midTriggered: false },
+    spawner: { points: [], nextWave: 0, pending: [], kills: 0, midTriggered: false, deferred: [] },
     floorTimes: [],
     bossRetreat: false,
     enragedEmptyTime: 0,
@@ -239,7 +239,8 @@ function debug(w: World, a: DebugAction): CommandResult {
       return { ok: true };
     case 'killAll':
       if (s.phase !== 'combat') return { ok: false, reason: '전투 중이 아님' };
-      for (const e of s.entities) if (e.team === 'enemy' && e.tier !== 'boss' && isAlive(e)) killEntity(w, e, null);
+      for (const e of s.entities) if (e.team === 'enemy' && e.tier !== 'boss' && isAlive(e)) killEntity(w, e, null, { noOnDeath: true });
+      w.spawner.deferred = [];
       return { ok: true };
     case 'skipFloor':
       if (s.phase !== 'combat') return { ok: false, reason: '전투 중이 아님' };

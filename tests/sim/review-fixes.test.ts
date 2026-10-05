@@ -112,7 +112,7 @@ describe('boss summons 4~6 (×1.5 when enraged), capped by maxAliveMonsters', ()
     const boss = tg.w.byId.get(tg.w.state.bossId!)!;
     for (let k = 0; k < 12; k++) {
       clearEvents(tg);
-      boss.rt.skillCds[1] = 0; // 권속 소환 now
+      boss.rt.skillCds[1] = 0; // 5층 닫히지 않는 엘리베이터: 그림자 아이 호출 now
       boss.rt.skillGap = 0;
       for (let i = 0; i < boss.rt.skillCds.length; i++) if (i !== 1) boss.rt.skillCds[i] = 99;
       for (let t = 0; t < 2 * TICK_RATE; t++) tick(tg.w);

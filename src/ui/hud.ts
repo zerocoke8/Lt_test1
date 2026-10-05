@@ -5,6 +5,7 @@
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
 import { ROLE_LABEL, getBoss, getCharacter, getMonster, getPet } from '../data';
+import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
 import { dragShapeIcon, petIcon, portrait } from './preset';
@@ -183,6 +184,7 @@ export class Hud {
   private readonly bots: BotPanel[] = [];
   // top center
   private readonly bossBox: HTMLElement;
+  private readonly enrageVignette: HTMLElement;
   private readonly bossName: HTMLElement;
   private readonly bossLv: HTMLElement;
   private readonly bossEnrage: HTMLElement;
@@ -190,12 +192,19 @@ export class Hud {
   private readonly bossFill: HTMLElement;
   private readonly bossLag: HTMLElement;
   private readonly bossPips: Pip[];
+  /** 기획 8차 boss phases: one diamond per phase (filled up to the current one) + threshold ticks on the HP bar. */
+  private readonly bossPhase: HTMLElement;
+  private readonly bossBar: HTMLElement;
+  private phaseKey = '';
+  private phaseMarks: HTMLElement[] = [];
+  private phaseTicks: { el: HTMLElement; at: number }[] = [];
   private bossLagFrac = 1;
   /** Boss pattern name ("cast pill") under the boss HP bar, shown until castUntil (performance.now ms). */
   private readonly bossCast: HTMLElement;
   private castUntil = 0;
   private readonly floorBox: HTMLElement;
   private readonly floorNum: HTMLElement;
+  private readonly floorZone: HTMLElement;
   private readonly floorWaves: HTMLElement;
   private readonly floorEnemies: HTMLElement;
   private readonly midBox: HTMLElement;
@@ -247,6 +256,9 @@ export class Hud {
     const me = s.players[this.localPlayer];
     this.root = h('div', 'hud', layer);
     setClass(this.root, 'is-multi', this.multi);
+    // 기획 8차 리뷰: the enrage vignette is a compositor-animated overlay (under every HUD widget) instead of a
+    // full-screen canvas gradient redrawn each frame (that cost ~15 fps on a phone-sized software raster)
+    this.enrageVignette = h('div', 'enrage-vignette is-hidden', this.root);
 
     // ── top-left: the other two players (people or bots) ──
     const tl = h('div', 'hud-tl', this.root);
@@ -277,8 +289,10 @@ export class Hud {
     this.bossLv = h('span', 'boss-lv', brow);
     this.bossName = h('span', 'boss-name', brow);
     this.bossEnrage = h('span', 'boss-enrage is-hidden', brow, '광폭화');
+    this.bossPhase = h('span', 'boss-phase is-hidden', brow);
     this.bossPct = h('span', 'boss-pct', brow);
     const bbar = h('div', 'bar boss-bar', this.bossBox);
+    this.bossBar = bbar;
     this.bossLag = h('div', 'bar-lag', bbar);
     this.bossFill = h('div', 'bar-fill', bbar);
     this.bossPips = makePips(this.bossBox, 16, 'boss-pips');
@@ -287,6 +301,7 @@ export class Hud {
     this.floorBox = h('div', 'floorinfo hud-block', tc);
     const frow = h('div', 'fi-row', this.floorBox);
     this.floorNum = h('span', 'fi-floor', frow);
+    this.floorZone = h('span', 'fi-zone', frow);
     this.floorWaves = h('span', 'fi-chip', frow);
     this.floorEnemies = h('span', 'fi-chip', frow);
     this.midBox = h('div', 'fi-mid is-hidden', this.floorBox);
@@ -636,12 +651,17 @@ export class Hud {
 
   // ─────────────────────────── events ───────────────────────────
 
-  private banner(big: string, sub: string, kind: string): void {
+  private banner(big: string, sub: string, kind: string, lore = ''): void {
     this.bannerBox.replaceChildren();
+    // 기획 8차 리뷰: mid-fight boss banners (phase change, enrage) must not cover the fight at the boss's feet, where
+    // the new phase's first pattern lands right away → a smaller, shorter strip low over the arena's front edge
+    const low = kind === 'phase' || kind === 'enrage';
+    setClass(this.bannerBox, 'is-low', low);
     const b = h('div', `banner banner-${kind}`, this.bannerBox);
     h('div', 'banner-big', b, big);
+    if (lore) h('div', 'banner-lore', b, lore);
     if (sub) h('div', 'banner-sub', b, sub);
-    setTimeout(() => b.remove(), 2300);
+    setTimeout(() => b.remove(), low ? 1500 : 2300);
   }
 
   private onEvents(s: GameState, events: GameEvent[]): void {
@@ -651,10 +671,13 @@ export class Hud {
       switch (e.type) {
         case 'floorStart':
           if (e.kind === 'boss') {
-            const name = s.plan.bossId ? getBoss(s.plan.bossId).name : '보스';
+            const name = bossName(s.plan.bossId);
             this.banner(`${e.floor}층 · 보스`, `${name} — HP를 0으로 만들면 퇴각해요`, 'boss');
           } else {
-            this.banner(`${e.floor}층`, `몬스터를 모두 처치하세요 · 제한시간 ${formatClock(s.plan.timeLimit)}`, 'floor');
+            const zone = zoneName(s.plan.theme, e.floor);
+            // 기획 8차 리뷰: entering a new zone (1·6·11·16층) opens with its 괴담 line
+            const lore = zoneLore(s.plan.theme, e.floor);
+            this.banner(zone ? `${e.floor}층 · ${zone}` : `${e.floor}층`, `몬스터를 모두 처치하세요 · 제한시간 ${formatClock(s.plan.timeLimit)}`, 'floor', lore);
           }
           if (e.floor === 1 && !tipSeen(TIP_ID)) {
             this.tipUntil = performance.now() + TIP_MS;
@@ -667,6 +690,11 @@ export class Hud {
           break;
         case 'enrage':
           this.banner('보스 광폭화!', '공격력 · 공격 속도 · 소환량 증가', 'enrage');
+          break;
+        case 'bossPhase':
+          // 기획 8차: "2페이즈 · 추락" — new patterns join, the boss speeds up
+          this.banner(`${e.phase}페이즈`, e.name && !/^\d+페이즈$/.test(e.name) ? `${e.name} — 새 패턴이 추가돼요` : '새 패턴이 추가돼요', 'phase');
+          replayClass(this.bossBox, 'is-phase');
           break;
         case 'skillCast':
           if (e.player === this.localPlayer && (e.slot === 'normal' || e.slot === 'drag') && e.sourceId != null) {
@@ -683,6 +711,12 @@ export class Hud {
             show(this.bossCast, true);
             replayClass(this.bossCast, 'is-new');
             this.castUntil = performance.now() + secs * 1000;
+            // 기획 8차 리뷰: patterns with a "how to" tip (문짝 쓸기 → 교체로 피하기) say it once per device
+            const hint = bossSkillHint(s.plan.bossId, e.skillId);
+            if (hint && !tipSeen(`hint:${e.skillId}`)) {
+              markTipSeen(`hint:${e.skillId}`);
+              this.toast(`ⓘ ${hint}`, 'warn');
+            }
           }
           break;
         case 'runOver':
@@ -775,12 +809,15 @@ export class Hud {
   private updateTop(s: GameState, dt: number): void {
     const bossFloor = s.plan.kind === 'boss';
     show(this.bossBox, bossFloor);
+    show(this.enrageVignette, bossFloor && s.bossEnraged && s.bossId !== null);
     show(this.floorBox, !bossFloor);
     if (bossFloor) {
       const boss = s.bossId != null ? s.entities.find(e => e.id === s.bossId) : undefined;
-      const name = s.plan.bossId ? getBoss(s.plan.bossId).name : '보스';
+      const name = bossName(s.plan.bossId);
       setText(this.bossName, name);
+      setClass(this.bossName, 'is-long', name.length > 8);
       setText(this.bossLv, `Lv.${s.floor}`);
+      this.updatePhases(s.plan.bossId, boss);
       show(this.bossEnrage, s.bossEnraged);
       setClass(this.bossBox, 'is-enraged', s.bossEnraged);
       const f = boss ? frac(boss.hp, boss.maxHp) : 0;
@@ -796,13 +833,16 @@ export class Hud {
       this.castUntil = 0;
       this.bossLagFrac = 1;
       setText(this.floorNum, `${s.floor}층`);
+      const zone = zoneName(s.plan.theme, s.floor);
+      setText(this.floorZone, zone ? `· ${zone}` : '');
+      show(this.floorZone, !!zone);
       const total = s.plan.waves.length;
       setText(this.floorWaves, `웨이브 ${Math.min(total, total - s.wavesRemaining)}/${total}`);
       setText(this.floorEnemies, `남은 적 ${s.monstersAlive}`);
       const mid = s.midBossSpawned ? s.entities.find(e => e.tier === 'mid' && e.team === 'enemy' && e.hp > 0) : undefined;
       show(this.midBox, s.midBossSpawned);
       if (s.midBossSpawned) {
-        setText(this.midName, mid ? getMonster(mid.defId).name : '중형보스 처치!');
+        setText(this.midName, mid ? monsterName(mid.defId) : '중형보스 처치!');
         setClass(this.midBox, 'is-dead', !mid);
         setStyle(this.midFill, 'transform', sx(mid ? frac(mid.hp, mid.maxHp) : 0));
       }
@@ -813,6 +853,33 @@ export class Hud {
     setText(this.timerVal, enraged ? '광폭화' : formatClock(s.timeRemaining));
     setClass(this.timer, 'is-urgent', !enraged && s.timeRemaining < 10 && s.phase === 'combat');
     setClass(this.timer, 'is-enraged', enraged);
+  }
+
+  /** Phase diamonds (◆◆◇) next to the HP %, and a tick on the HP bar at each threshold (crossed ones dim). */
+  private updatePhases(bossId: string | undefined, boss: Entity | undefined): void {
+    const phases = bossPhases(bossId);
+    const key = `${bossId ?? ''}:${phases.length}`;
+    if (key !== this.phaseKey) {
+      this.phaseKey = key;
+      this.bossPhase.replaceChildren();
+      this.phaseMarks = [];
+      for (const t of this.phaseTicks) t.el.remove();
+      this.phaseTicks = [];
+      for (let i = 0; i <= phases.length; i++) this.phaseMarks.push(h('i', 'bp-mark', this.bossPhase));
+      for (const ph of phases) {
+        const el = h('div', 'boss-tick', this.bossBar);
+        el.style.left = `${Math.round(ph.hpBelow * 1000) / 10}%`;
+        this.phaseTicks.push({ el, at: ph.hpBelow });
+      }
+      show(this.bossPhase, phases.length > 0);
+    }
+    if (!phases.length) return;
+    const f = boss ? frac(boss.hp, boss.maxHp) : 1;
+    let phase = 1;
+    for (const ph of phases) if (f < ph.hpBelow) phase++;
+    this.phaseMarks.forEach((m, i) => setClass(m, 'is-on', i < phase));
+    for (const t of this.phaseTicks) setClass(t.el, 'is-past', f < t.at);
+    setAttr(this.bossPhase, 'title', `${phase}페이즈 / ${phases.length + 1}`);
   }
 
   private updateCards(s: GameState, me: PlayerState): void {
@@ -976,5 +1043,57 @@ export class Hud {
       setText(this.hintSub, '내 필드가 비어 있어요');
       setClass(this.hint, 'is-ready', false);
     }
+  }
+}
+
+// ─────────────────────────── 기획 8차 names ───────────────────────────
+
+/** Zone name of a floor ("사무실층"), from the plan's theme (or the floor number). */
+export function zoneName(theme: GameState['plan']['theme'], floor: number): string {
+  const z = theme ? ZONES.find(x => x.theme === theme) : ZONES.find(x => floor >= x.from && floor <= x.to);
+  return z ? z.name : '';
+}
+
+/** The zone's 괴담 line on its first floor (ZoneDef.lore), else ''. */
+export function zoneLore(theme: GameState['plan']['theme'], floor: number): string {
+  const z = ZONES.find(x => floor >= x.from && floor <= x.to && (!theme || x.theme === theme));
+  return z && z.from === floor ? z.lore : '';
+}
+
+/** A boss pattern's one-time tip (MonsterSkill.hint), phase patterns included. */
+function bossSkillHint(bossId: string | undefined, skillId: string): string | null {
+  if (!bossId) return null;
+  try {
+    const def = getBoss(bossId);
+    for (const sk of [...def.skills, ...(def.phases ?? []).flatMap(p => p.skills ?? [])]) if (sk.id === skillId) return sk.hint ?? null;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function bossName(id: string | undefined): string {
+  if (!id) return '보스';
+  try {
+    return getBoss(id).name;
+  } catch {
+    return '보스';
+  }
+}
+
+function monsterName(id: string): string {
+  try {
+    return getMonster(id).name;
+  } catch {
+    return '중형보스';
+  }
+}
+
+function bossPhases(id: string | undefined): { hpBelow: number }[] {
+  if (!id) return [];
+  try {
+    return getBoss(id).phases ?? [];
+  } catch {
+    return [];
   }
 }

@@ -5,6 +5,7 @@
 //         stress=1 (≈60 entities + 30 projectiles + a hail of damage events)  bench=1 (rAF timing run, 240 frames)
 //         scene=sim [&floor=5] [&t=20]: drives the real createGame (all players bot-controlled) through the renderer
 //         scene=shapes [&char=<id>] [&mode=preview|cast] [&valid=0]: the 12 drag-skill footprints (see shapes-sandbox.ts)
+//         scene=zoo [&zone=…] [&gallery|pack|boss|fx=…]: 기획 8차 zones, monster looks, bosses, new VFX (see zoo-sandbox.ts)
 
 import { createRenderer } from '../../src/render';
 import { BOSS_POS, BOT_PRESETS, DEFAULT_TUNABLES, PLAYER_COLORS } from '../../src/config';
@@ -341,6 +342,7 @@ function bossFixture(): Fixture {
 
 if (scene === 'sim') void runSim();
 else if (scene === 'shapes') void import('./shapes-sandbox').then(m => m.run(params));
+else if (scene === 'zoo') void import('./zoo-sandbox').then(m => m.run(params));
 else runFixture();
 
 /** Hand-made fixture scenes (normal / boss) + synthetic events. */
