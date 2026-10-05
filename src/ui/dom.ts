@@ -70,7 +70,9 @@ export const ROLE_ICON: Record<string, string> = {
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2h-4.5L6.8 10.7l-1.7-1.7-1.4 1.4 2.5 2.5L3 16.1 4.4 17.5 3 19l2 2 1.5-1.4 1.4 1.4 3.2-3.2 2.5 2.5 1.4-1.4-1.7-1.7L22 8.5V2Z" fill="currentColor"/></svg>',
   ranged:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="currentColor" stroke-width="2.4"/></svg>',
-  support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z" fill="currentColor"/></svg>',
+  // 기획 12차: the medical cross moved to 힐러; 서포터 gets a four-point sparkle
+  healer: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z" fill="currentColor"/></svg>',
+  support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.6 7.4L22 12l-7.4 2.6L12 22l-2.6-7.4L2 12l7.4-2.6Z" fill="currentColor"/></svg>',
 };
 
 export const ICON_GEAR =

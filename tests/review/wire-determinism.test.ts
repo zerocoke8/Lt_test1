@@ -3,21 +3,22 @@
 // previewParts, canSwap/canUsePet, telemetry) never perturb the deterministic sim.
 import { describe, expect, it } from 'vitest';
 import { cleanState, wireJson } from '../../server/snapshot';
+import { dropOutcome } from '../../src/sim/fieldEventPreview';
 import { tick } from '../../src/sim/game';
 import type { Command, GameState } from '../../src/types';
 import { makeGame, type TestGame } from '../sim/helpers';
 
 const KEYS: Record<string, string[]> = {
-  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'runResult'],
+  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'runResult'],
   plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'bossId', 'theme'],
   wave: ['at', 'spawns'],
-  entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged'],
+  entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged', 'eventTag'],
   status: ['id', 'remaining', 'total', 'value', 'sourcePlayer'],
   player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog'],
   member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId'],
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
-  stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount'],
+  stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents'],
   telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total'],
   zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
   projectile: ['id', 'team', 'pos', 'targetId', 'targetPos', 'speed', 'color'],
@@ -29,6 +30,9 @@ const KEYS: Record<string, string[]> = {
   goedamOutcome: ['id', 'reward', 'relicId', 'traces', 'revived'],
   goedamTrace: ['id', 'floorsLeft'],
   goedamLog: ['floor', 'label', 'roomId', 'optionId', 'outcome', 'auto'],
+  // 기획 12차 돌발 괴담
+  fieldEvent: ['id', 'stage', 'warnRemaining', 'remaining', 'total', 'pos', 'entityIds', 'marks', 'progress', 'goal', 'creditPlayer', 'startled', 'printIn', 'printed'],
+  fieldEventMark: ['pos', 'radius', 'doneBy'],
 };
 
 function extra(kind: string, o: object | null): string[] {
@@ -60,6 +64,12 @@ function audit(s: GameState, seen: Set<string>): string[] {
     bad.push(...extra('goedam', s.goedam));
     for (const pr of s.goedam.players) bad.push(...extra('goedamProgress', pr), ...extra('goedamParams', pr.params), ...extra('goedamOutcome', pr.outcome));
   }
+  if (s.fieldEvent) {
+    seen.add('fieldEvent');
+    bad.push(...extra('fieldEvent', s.fieldEvent));
+    for (const m of s.fieldEvent.marks) bad.push(...extra('fieldEventMark', m));
+  }
+  for (const e of s.entities) if (e.eventTag) seen.add('entity:event');
   for (const t of s.telegraphs) (seen.add('telegraph'), bad.push(...extra('telegraph', t)));
   for (const z of s.zones) (seen.add('zone'), bad.push(...extra('zone', z)));
   for (const pr of s.projectiles) (seen.add('projectile'), bad.push(...extra('projectile', pr)));
@@ -76,7 +86,7 @@ function scripted(seed: number, observe: (tg: TestGame) => void): string {
       { name: '봇1', isBot: true, characters: ['gunner', 'warden', 'bard'], pets: ['owl_frost', 'turtle_guard', 'frog_bomb'] },
       { name: '봇2', isBot: true, characters: ['chrono', 'paladin', 'shadow'], pets: ['frog_bomb', 'owl_frost', 'fairy_heal'] },
     ],
-    tunables: { invincible: true, goedamRoomsPerZone: 2 },
+    tunables: { invincible: true, goedamRoomsPerZone: 2, fieldEventChance: 1 },
   });
   const s = tg.w.state;
   s.players[0].relics.push('echo_seal');
@@ -122,7 +132,7 @@ describe('wire snapshot = contract only', () => {
     });
     expect([...bad]).toEqual([]);
     // the run really exercised every kind
-    for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog']) expect(seen.has(k), k).toBe(true);
+    for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog', 'fieldEvent', 'entity:event']) expect(seen.has(k), k).toBe(true);
   });
 });
 
@@ -140,11 +150,14 @@ describe('determinism with observers', () => {
           g.previewArea(p, 'swap', i);
           g.canSwap(p, i);
           g.canUsePet(p, i);
+          // 기획 12차: the dragger's 돌발 괴담 highlight (client, every frame of a drag) is pure too
+          dropOutcome(g.state, p, 'swap', i, { x: 6 + i * 9, y: 6 });
+          dropOutcome(g.state, p, 'pet', i, { x: 12, y: 3 + i * 3 });
         }
         g.telemetry(p);
       }
       g.clampToArena({ x: Number.NaN, y: Infinity });
     });
     expect(observed).toBe(plain);
-  });
+  }, 60_000);
 });

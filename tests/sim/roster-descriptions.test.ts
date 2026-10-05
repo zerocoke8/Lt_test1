@@ -1,7 +1,7 @@
 // Skill descriptions (Korean, shown on the preset screen / skill sheet) must match the data exactly.
 // Balance passes change numbers in src/data/characters.ts (docs/balance.md); this catches a stale "%", "초" or "칸".
 import { describe, expect, it } from 'vitest';
-import { CHARACTERS } from '../../src/data';
+import { CHARACTERS, getMonster } from '../../src/data';
 import type { AreaShape, Effect, SkillAction, SkillDef } from '../../src/types';
 
 /** Number as a description writes it: 1 → "1", 0.4 → "0.4", 2.5 → "2.5". */
@@ -40,10 +40,25 @@ function effectNumbers(e: Effect): number[] {
     case 'pull':
       return [e.distance];
     case 'swapCooldownReduce':
+    case 'reviveReduce':
       return [e.seconds];
+    case 'benchHeal':
+      return [e.amount * 100];
     case 'cleanse':
       return [];
   }
+}
+
+/** 기획 12차: a summon's numbers (lifetime, inherited HP %, and what its onDeath does — 종이 인형 bursting). */
+function summonNumbers(s: NonNullable<SkillAction['summon']>): number[] {
+  const out = [s.count, s.duration];
+  if (s.inherit) out.push(s.inherit.hp * 100, s.inherit.atk * 100);
+  const od = getMonster(s.unitId).onDeath?.action;
+  if (od) {
+    out.push(...areaNumbers(od.area));
+    for (const e of od.effects) out.push(...effectNumbers(e));
+  }
+  return out;
 }
 
 /** Every number the data can explain (dimensions, offsets, delays, hits, zones, effect values, part count). */
@@ -56,6 +71,7 @@ function dataNumbers(skill: SkillDef): number[] {
     if (a.hits) out.push(a.hits, a.hitInterval ?? 0.2);
     if (a.zone) out.push(a.zone.duration, a.zone.tickInterval);
     if (a.dash) out.push(a.dash.distance);
+    if (a.summon) out.push(...summonNumbers(a.summon));
     for (const e of a.effects) out.push(...effectNumbers(e));
   }
   return out;
@@ -89,6 +105,13 @@ function requiredPhrases(a: SkillAction): string[] {
       case 'cleanse':
         out.push('정화');
         break;
+      // 기획 12차 (메딕)
+      case 'benchHeal':
+        out.push(`대기 캐릭터 HP ${pct(e.amount)}%`);
+        break;
+      case 'reviveReduce':
+        out.push(`부활 대기 ${fmt(e.seconds)}초 감소`);
+        break;
       case 'status':
         switch (e.status) {
           case 'stun':
@@ -109,6 +132,13 @@ function requiredPhrases(a: SkillAction): string[] {
             break;
           case 'defUp':
             out.push(`${fmt(e.duration)}초간`, `방어 +${pct(e.value)}%`);
+            break;
+          // 기획 12차
+          case 'atkDown':
+            out.push(`${fmt(e.duration)}초간`, `공격력 −${pct(e.value)}%`);
+            break;
+          case 'drain':
+            out.push(`${fmt(e.duration)}초간 흡혼 표식`, `피해의 ${pct(e.value)}%`);
             break;
           default:
             break;
@@ -151,7 +181,7 @@ describe('drag-skill descriptions match the data (balance pass, docs/balance.md)
     expect(perTarget('gunner')).toBeGreaterThan(perTarget('berserker'));
     // every damage dealer hits harder per target than every CC / support skill
     for (const dealer of ['blade', 'berserker', 'ranger', 'gunner']) {
-      for (const util of ['guardian', 'paladin', 'warden', 'bard', 'chrono']) expect(perTarget(dealer), `${dealer} vs ${util}`).toBeGreaterThan(perTarget(util) * 1.5);
+      for (const util of ['guardian', 'paladin', 'warden', 'bard', 'chrono', 'exorcist', 'puppeteer']) expect(perTarget(dealer), `${dealer} vs ${util}`).toBeGreaterThan(perTarget(util) * 1.5);
     }
   });
 
@@ -167,7 +197,8 @@ describe('normal / ult descriptions use only numbers from the data', () => {
   for (const c of CHARACTERS) {
     for (const sk of [c.normal, c.ult]) {
       it(`${c.id} ${sk.name}`, () => {
-        const known = [...dataNumbers(sk), ...(sk.cooldown != null ? [sk.cooldown] : [])];
+        // castRange: 메딕 응급 주사 "반경 6 안에서" (기획 12차)
+        const known = [...dataNumbers(sk), ...(sk.cooldown != null ? [sk.cooldown] : []), ...(sk.castRange != null ? [sk.castRange] : [])];
         for (const n of descNumbers(sk.description)) expect(known.some(k => Math.abs(k - n) < 1e-6), `${c.id}: "${fmt(n)}" in "${sk.description}"`).toBe(true);
         for (const a of sk.actions) for (const ph of requiredPhrases(a)) expect(sk.description, `${c.id}: missing "${ph}"`).toContain(ph);
       });

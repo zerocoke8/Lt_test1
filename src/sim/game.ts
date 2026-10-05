@@ -2,11 +2,12 @@
 
 import type { AreaShape, Command, CommandResult, DebugAction, Game, GameEvent, GameSetup, Vec2 } from '../types';
 import { PLAYER_COLORS, TICK_DT } from '../config';
-import { GOEDAM_ROOMS, getCharacter, getPet } from '../data';
+import { GOEDAM_ROOMS, getCharacter, getPet, isFieldEventId } from '../data';
 import { BOT } from './constants';
 import { tickBots } from './bot';
 import { killEntity, tickProjectiles } from './combat';
 import { createCharacterEntity } from './entities';
+import { forceFieldEvent, newFieldEventRt, tickFieldEvents } from './fieldEvents';
 import { chooseReward, clearRewardOffers, enrage, floorClear, goedamCommand, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
 import { skillMod } from './modifiers';
 import { previewPartsFor } from './preview';
@@ -56,6 +57,7 @@ export function createWorld(setup: GameSetup): World {
     rewardOffers: null,
     rewardOffersByPlayer: [],
     goedam: null,
+    fieldEvent: null,
     runResult: null,
   };
   const w: World = {
@@ -73,6 +75,7 @@ export function createWorld(setup: GameSetup): World {
     byId: new Map(),
     humanOffers: null,
     goedam: { forced: null, seen: [] },
+    fieldEvents: newFieldEventRt(),
   };
 
   const n = setup.players.length;
@@ -153,6 +156,7 @@ export function tick(w: World): void {
   s.timeRemaining = Math.max(0, s.plan.timeLimit - s.floorTime);
   tickPlayers(w, dt);
   tickSpawner(w, dt);
+  tickFieldEvents(w, dt);
   tickUnits(w, dt);
   if (s.phase === 'combat') tickProjectiles(w, dt);
   if (s.phase === 'combat') tickPending(w, dt);
@@ -160,10 +164,8 @@ export function tick(w: World): void {
   syncMembers(w);
   compactEntities(w);
   tickFloorState(w, dt);
-  if (s.phase === 'combat') {
-    tickBots(w, dt, cmd => dispatch(w, cmd));
-    compactEntities(w);
-  }
+  if (s.phase === 'combat') tickBots(w, dt, cmd => dispatch(w, cmd));
+  compactEntities(w); // also after a run end this tick (its closed 돌발 괴담 units must not reach the last snapshot)
 }
 
 export function step(w: World, realDt: number): void {
@@ -248,7 +250,8 @@ function debug(w: World, a: DebugAction): CommandResult {
       return { ok: true };
     case 'killAll':
       if (s.phase !== 'combat') return { ok: false, reason: '전투 중이 아님' };
-      for (const e of s.entities) if (e.team === 'enemy' && e.tier !== 'boss' && isAlive(e)) killEntity(w, e, null, { noOnDeath: true });
+      // 기획 12차: 돌발 괴담 units stay (killing them here would count as the event's success)
+      for (const e of s.entities) if (e.team === 'enemy' && e.tier !== 'boss' && !e.eventTag && isAlive(e)) killEntity(w, e, null, { noOnDeath: true });
       w.spawner.deferred = [];
       return { ok: true };
     case 'skipFloor':
@@ -265,6 +268,11 @@ function debug(w: World, a: DebugAction): CommandResult {
     case 'goedamNext':
       if (a.room != null && !GOEDAM_ROOMS.some(r => r.id === a.room)) return { ok: false, reason: '알 수 없는 방' };
       w.goedam.forced = a.room ?? '';
+      return { ok: true };
+    case 'fieldEventNext':
+      // 기획 12차: now (normal floor, early in combat) or 8 s into the next normal floor
+      if (a.id != null && !isFieldEventId(a.id)) return { ok: false, reason: '알 수 없는 돌발 괴담' };
+      forceFieldEvent(w, a.id);
       return { ok: true };
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };

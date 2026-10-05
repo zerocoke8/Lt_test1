@@ -16,11 +16,16 @@
 //   TUN='{"maxAliveMonsters":30}'   tunables override
 //   PATCH='[["red_mask.skills.0.action.delay",0.7],["ZONES.3.waveSize.max",5],["LATE.factor",0.5],["head_nurse.stats.maxHp","*0.9"]]'
 //                                   data edits applied before the run (value "*x" multiplies); first segment = a
-//                                   monster/boss/character id, or ZONES / LATE (LATE_STAT_GROWTH) / WAVES (FLOOR_WAVES)
+//                                   monster/boss/character id, a 돌발 괴담 id or event unit id (기획 12차: e.g.
+//                                   ["lucky_toad.reward.value",0] = the event without its reward), or ZONES / LATE (LATE_STAT_GROWTH) / WAVES (FLOOR_WAVES)
 //   DETAIL=1                        also print per-floor top damage sources / killers
 //   GOEDAM=leave                    기획 10차 괴담 room policy for the humans: off|leave|random|first|greedy|forced:<room>:<opt>
 //                                   (tests/playtest/goedam-policy.ts; START > 1 forces off). Output 'goedam' = room report.
 //   GOEDAM_DUMP=/path.json          also write one row per run (seed, victory, death floor, player 0's 수첩)
+//   FIELD_EVENTS=off                기획 12차 돌발 괴담: off (default, old numbers) | on (tunables.fieldEventChance, default 0.6)
+//                                   | forced:<id> (that event at 8 s of every normal floor 2–19). Output 'fieldEvents' = report.
+//   FE_SEAT=play                    the human seats (active/dodge) with events on: play (react like a bot: once-per-event swap,
+//                                   event pet rules, event drop score) | ignore (event-blind: the bots alone do the events)
 //
 // Same seeds + same 'active' policy as tests/playtest/balance.ts (SEED0 + k × 7919) → identical runs (cross-check).
 // Damage attribution: every monster/boss skill effect amount (damage/heal) is wrapped in a getter that marks the
@@ -34,6 +39,8 @@ import { BOT_PRESETS, DEFAULT_TUNABLES, FLOOR_WAVES, LATE_STAT_GROWTH, TICK_RATE
 import { BOSSES, CHARACTERS, MONSTERS, getPet } from '../../src/data';
 import fs from 'node:fs';
 import { bestDropPoint, tickBots } from '../../src/sim/bot';
+import { EVENT_BLIND, eventPetPoint, eventThink } from '../../src/sim/botEvents';
+import { FIELD_EVENT_UNITS, FIELD_EVENTS as FIELD_EVENT_DEFS, isFieldEventId } from '../../src/data';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { hitsArea } from '../../src/sim/geometry';
 import { canSwap, canUsePet } from '../../src/sim/players';
@@ -59,6 +66,12 @@ const TUN: Partial<Tunables> = env.TUN ? JSON.parse(env.TUN) : {};
 const PATCH: [string, number | string | boolean][] = env.PATCH ? JSON.parse(env.PATCH) : [];
 const DETAIL = env.DETAIL === '1';
 const GOEDAM = parseGoedamPolicy(env.GOEDAM, START);
+/** 기획 12차: 'off' | 'on' | a forced event id. */
+const FIELD_EVENTS = env.FIELD_EVENTS ?? 'off';
+const FE_FORCED = FIELD_EVENTS.startsWith('forced:') ? FIELD_EVENTS.slice(7) : null;
+if (FE_FORCED != null && !isFieldEventId(FE_FORCED)) throw new Error(`FIELD_EVENTS: unknown event ${FE_FORCED}`);
+const FE_SEAT = env.FE_SEAT === 'ignore' ? 'ignore' : 'play';
+const feTunables = (): Partial<Tunables> => (FIELD_EVENTS === 'on' ? {} : { fieldEventChance: 0 });
 
 const PETS_DEFAULT = [
   ['frog_bomb', 'fairy_heal', 'cat_void'],
@@ -72,6 +85,12 @@ const COMPS: Record<string, string[][]> = {
   support: [['cleric', 'bard', 'chrono'], ['cleric', 'guardian', 'bard'], ['chrono', 'bard', 'mage']],
   notank: [['blade', 'mage', 'cleric'], ['ranger', 'gunner', 'cleric'], ['blade', 'mage', 'berserker']],
   tank: [['guardian', 'paladin', 'warden'], ['warden', 'guardian', 'cleric'], ['paladin', 'warden', 'mage']],
+  // 기획 12차 (docs/new-characters.md 9장): "힐 의존도" — player 0 = 블레이드·메이지·X with the stock bots
+  ...Object.fromEntries(
+    ['cleric', 'medic', 'exorcist', 'puppeteer', 'bard', 'chrono'].map(x => [`h_${x}`, [['blade', 'mage', x], [...BOT_PRESETS[0].characters], [...BOT_PRESETS[1].characters]]]),
+  ),
+  healers2: [['blade', 'medic', 'exorcist'], [...BOT_PRESETS[0].characters], [...BOT_PRESETS[1].characters]],
+  nohealer: [['blade', 'mage', 'puppeteer'], ['guardian', 'ranger', 'chrono'], ['berserker', 'gunner', 'bard']],
 };
 
 // ─────────────────────────── data patches ───────────────────────────
@@ -84,7 +103,7 @@ function applyPatch(path: string, value: number | string | boolean): void {
   else if (head === 'LATE') obj = LATE_STAT_GROWTH as unknown as Record<string, unknown>;
   else if (head === 'WAVES') obj = FLOOR_WAVES as unknown as Record<string, unknown>;
   else {
-    const def = [...MONSTERS, ...BOSSES, ...CHARACTERS].find(d => d.id === head);
+    const def = [...MONSTERS, ...BOSSES, ...CHARACTERS, ...FIELD_EVENT_DEFS, ...FIELD_EVENT_UNITS].find(d => d.id === head);
     if (!def) throw new Error(`PATCH: unknown def ${head}`);
     obj = def as unknown as Record<string, unknown>;
   }
@@ -183,6 +202,12 @@ interface FloorRec {
   maxAlive: number;
   leftAtTimeout: Record<string, number> | null;
   boss2: BossRec | null;
+  /** 기획 12차: the 돌발 괴담 of this floor (id) and how it went. */
+  event: string | null;
+  eventOk: boolean | null;
+  eventSec: number | null;
+  /** Who got the credit on success: 'human' (a POLICY seat), 'bot', or null (nobody / failed). */
+  eventCredit: 'human' | 'bot' | null;
   swaps: number;
   dodges: number;
   maxTeleAll: number;
@@ -198,6 +223,9 @@ interface RunRec {
 
 function petTarget(w: World, pi: number, petIdx: number): Vec2 | null {
   const p = w.state.players[pi];
+  // 기획 12차: a human who plays the events uses the bots' event pet rules first
+  const fe = FIELD_EVENTS !== 'off' && FE_SEAT === 'play' ? eventPetPoint(w, p, petIdx) : undefined;
+  if (fe !== undefined) return fe;
   const def = getPet(p.pets[petIdx].defId);
   const a = def.action;
   const r = a.area.shape === 'circle' ? a.area.radius : 1;
@@ -249,6 +277,8 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
     if (st.ultAt == null) st.ultAt = s.time + 0.5;
     if (s.time >= st.ultAt && dispatch(w, { type: 'ult', player: pi }).ok) st.ultAt = null;
   }
+  // 기획 12차: the once-per-event swap toward the event (same rule as the bots)
+  if (FIELD_EVENTS !== 'off' && FE_SEAT === 'play' && eventThink(w, p, cmd => dispatch(w, cmd))) st.lastSwap = s.time;
   const ready = [0, 1, 2].filter(i => canSwap(w, pi, i).ok);
   if (ready.length) {
     const lowHp = me && me.hp < me.maxHp * 0.35;
@@ -271,7 +301,7 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
     }
     if (go) {
       const idx = [...ready].sort((a, b) => p.party[b].hp / p.party[b].maxHp - p.party[a].hp / p.party[a].maxHp)[0];
-      if (dispatch(w, { type: 'swap', player: pi, partyIndex: idx, pos: bestDropPoint(w, p, idx) }).ok) {
+      if (dispatch(w, { type: 'swap', player: pi, partyIndex: idx, pos: seatDropPoint(w, p, idx) }).ok) {
         st.lastSwap = s.time;
         st.react = null;
         if (dodge) rec.dodges++;
@@ -282,6 +312,21 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
     if (!canUsePet(w, pi, i).ok) continue;
     const pos = petTarget(w, pi, i);
     if (pos && dispatch(w, { type: 'pet', player: pi, petIndex: i, pos }).ok) break;
+  }
+}
+
+/**
+ * The human seat's swap spot. FE_SEAT=ignore: an event-blind player — the event targets weigh like any monster for
+ * its aim (the bots' weight 4 is an event rule), so the tags are hidden for this one (pure) call.
+ */
+function seatDropPoint(w: World, p: World['state']['players'][number], idx: number): Vec2 {
+  if (FE_SEAT !== 'ignore' || !w.state.fieldEvent) return bestDropPoint(w, p, idx);
+  const hidden = w.state.entities.filter(e => e.eventTag === 'target');
+  for (const e of hidden) e.eventTag = undefined;
+  try {
+    return bestDropPoint(w, p, idx);
+  } finally {
+    for (const e of hidden) e.eventTag = 'target';
   }
 }
 
@@ -301,7 +346,7 @@ const inc = (o: Record<string, number>, k: string, v = 1) => {
 };
 
 function runOnce(seed: number): RunRec {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...TUN, ...goedamTunables(GOEDAM) };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...TUN, ...goedamTunables(GOEDAM) };
   const comp = COMPS[COMP];
   if (!comp) throw new Error(`unknown COMP ${COMP}`);
   const humanCount = POLICY === 'bot' || POLICY === 'idle' || POLICY === 'botseat' ? Math.max(1, HUMANS) : HUMANS;
@@ -321,6 +366,9 @@ function runOnce(seed: number): RunRec {
   }
   game.drainEvents();
   const humans = s.players.filter(p => !p.isBot).map(p => p.id);
+  EVENT_BLIND.clear();
+  if (FE_SEAT === 'ignore') for (const pi of humans) EVENT_BLIND.add(pi);
+  let feForcedFloor = -1;
   const pilot = goedamPilot(w, GOEDAM);
   const thinkers = POLICY === 'active' || POLICY === 'dodge' || POLICY === 'dodgeonly' ? humans : [];
   const brains = new Map<number, Brain>(thinkers.map(pi => [pi, { lastSwap: -99, ultAt: null, react: null, dodgedTele: new Set() }]));
@@ -364,6 +412,10 @@ function runOnce(seed: number): RunRec {
     deferredSec: 0,
     maxAlive: 0,
     leftAtTimeout: null,
+    event: null,
+    eventOk: null,
+    eventSec: null,
+    eventCredit: null,
     boss2:
       s.plan.kind === 'boss'
         ? { phases: [], enragedAt: null, hpAtEnrage: null, deathsBySeg: [0, 0, 0, 0], outsBySeg: [0, 0, 0, 0], maxTele: 0, wipeAt: null, wipeSeg: null, deathsAfterPhase: [0, 0] }
@@ -380,6 +432,13 @@ function runOnce(seed: number): RunRec {
 
   const seg = (b: BossRec): number => (s.bossEnraged ? 3 : Math.min(2, b.phases.length));
   const finish = (outcome: FloorRec['outcome'], seconds: number) => {
+    const fe = w.fieldEvents.history.find(h => h.floor === rec.floor);
+    if (fe) {
+      rec.event = fe.id;
+      rec.eventOk = fe.success;
+      rec.eventSec = fe.seconds;
+      rec.eventCredit = fe.credit == null ? null : s.players[fe.credit]?.isBot ? 'bot' : 'human';
+    }
     rec.outcome = outcome;
     rec.seconds = seconds;
     rec.swaps = s.players[0].stats.swaps - rec.swaps;
@@ -407,6 +466,10 @@ function runOnce(seed: number): RunRec {
       }
     }
     if (POLICY === 'botseat' && s.phase === 'combat') botSeatThink(w);
+    if (FE_FORCED && s.phase === 'combat' && s.plan.kind === 'normal' && s.floor >= 2 && s.floor <= 19 && s.floor !== feForcedFloor && s.floorTime >= 8) {
+      feForcedFloor = s.floor;
+      dispatch(w, { type: 'debug', action: { kind: 'fieldEventNext', id: FE_FORCED as never } });
+    }
     for (const e of s.entities) {
       if (!info.has(e.id)) info.set(e.id, { defId: e.defId, kind: e.kind, tier: e.tier, team: e.team, maxHp: e.maxHp });
     }
@@ -775,8 +838,55 @@ for (const r of runs) {
   inc(ends, `${l.floor}:${l.outcome}`);
 }
 const vict = runs.filter(r => r.victory);
+
+/**
+ * 기획 12차 돌발 괴담 report: count / success % / seconds to resolve per event; event floors vs the others (median clear
+ * time, timeouts %); character deaths on the floor right after an event floor vs after a floor without; floor 20 deaths.
+ */
+function fieldEventReport(rs: RunRec[]): unknown {
+  const all = rs.flatMap(r => r.floors);
+  const evFloors = all.filter(f => f.event != null && (f.eventSec ?? 0) > 0);
+  const byId: Record<string, { n: number; ok: number; okSec: number[]; human: number; bot: number }> = {};
+  for (const f of evFloors) {
+    const b = (byId[f.event!] ??= { n: 0, ok: 0, okSec: [], human: 0, bot: 0 });
+    b.n++;
+    if (f.eventOk) {
+      b.ok++;
+      b.okSec.push(f.eventSec ?? 0);
+      if (f.eventCredit) b[f.eventCredit]++;
+    }
+  }
+  const normal = all.filter(f => f.kind === 'normal');
+  const plain = normal.filter(f => f.event == null);
+  const evNormal = normal.filter(f => f.event != null);
+  const med = (fs: FloorRec[]) => r1(pctl(fs.filter(f => f.outcome === 'clear').map(f => f.seconds), 0.5));
+  const toPct = (fs: FloorRec[]) => r2((fs.filter(f => f.outcome === 'timeout').length / Math.max(1, fs.length)) * 100);
+  const nextDeaths = (pred: (f: FloorRec) => boolean) => {
+    let d = 0;
+    let n = 0;
+    for (const r of rs)
+      for (let i = 1; i < r.floors.length; i++) {
+        if (!pred(r.floors[i - 1])) continue;
+        n++;
+        d += r.floors[i].deaths;
+      }
+    return r2(d / Math.max(1, n));
+  };
+  const f20 = all.filter(f => f.floor === 20);
+  return {
+    perRun: r2(evFloors.length / Math.max(1, rs.length)),
+    successPct: r1((evFloors.filter(f => f.eventOk).length / Math.max(1, evFloors.length)) * 100),
+    byId: Object.fromEntries(
+      Object.entries(byId).map(([k, b]) => [k, { n: b.n, okPct: r1((b.ok / b.n) * 100), okSecMed: r1(pctl(b.okSec, 0.5)), humanCredit: b.human, botCredit: b.bot }]),
+    ),
+    clearSecMed: { eventFloors: med(evNormal), otherNormal: med(plain) },
+    timeoutPct: { eventFloors: toPct(evNormal), otherNormal: toPct(plain) },
+    nextFloorDeaths: { afterEvent: nextDeaths(f => f.event != null), afterOtherNormal: nextDeaths(f => f.kind === 'normal' && f.event == null) },
+    floor20: { reached: f20.length, deathsAvg: r2(f20.reduce((a, f) => a + f.deaths, 0) / Math.max(1, f20.length)), clearPct: r1((f20.filter(f => f.outcome === 'clear').length / Math.max(1, f20.length)) * 100) },
+  };
+}
 const out = {
-  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name },
+  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name, FIELD_EVENTS, FE_SEAT },
   runs: {
     victories: vict.length,
     victoryPct: r1((vict.length / runs.length) * 100),
@@ -790,6 +900,7 @@ const out = {
   skillTable,
   monsterHeal: top(gHeal, 10, runs.length),
   goedam: goedamSummary(GOEDAM, runs.map(r => r.goedam)),
+  fieldEvents: fieldEventReport(runs),
   perFloor,
 };
 if (env.GOEDAM_DUMP) fs.writeFileSync(env.GOEDAM_DUMP, JSON.stringify(runs.map(r => ({ seed: r.seed, ...r.goedam }))));

@@ -4,7 +4,7 @@
 import type { ClientMsg, PresetChoice } from '../src/net/protocol';
 import { GOEDAM_OPTION_RE } from '../src/net/protocol';
 import type { Command, DebugAction, Vec2 } from '../src/types';
-import { CHARACTERS, PETS } from '../src/data';
+import { CHARACTERS, PETS, isFieldEventId } from '../src/data';
 
 type Obj = Record<string, unknown>;
 
@@ -52,6 +52,10 @@ function parseDebug(v: unknown): DebugAction | null {
     case 'goedamNext':
       if (v.room === undefined) return { kind: 'goedamNext' };
       return goedamId(v.room) ? { kind: 'goedamNext', room: v.room } : null;
+    case 'fieldEventNext':
+      // 기획 12차: a known 돌발 괴담 id, or none (any that fits)
+      if (v.id === undefined) return { kind: 'fieldEventNext' };
+      return isFieldEventId(v.id) ? { kind: 'fieldEventNext', id: v.id } : null;
   }
   return null;
 }

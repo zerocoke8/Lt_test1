@@ -5,6 +5,7 @@ import type { Command, CommandResult, PreviewPart, Vec2 } from '../types';
 import { VIEW_WIDTH_UNITS } from '../config';
 import { getPet } from '../data';
 import { BOT } from './constants';
+import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botEvents';
 import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
 import { previewPartsFor } from './preview';
@@ -34,7 +35,7 @@ function alliesAlive(w: World): SimEntity[] {
 }
 
 function weightOf(e: SimEntity): number {
-  return e.tier === 'boss' ? 3 : e.tier === 'mid' ? 2 : 1;
+  return e.eventTag === 'target' ? TARGET_WEIGHT : e.tier === 'boss' ? 3 : e.tier === 'mid' ? 2 : 1; // 기획 12차: 돌발 괴담 target 4
 }
 
 /** Horizontal slice of the arena a human in this bot's seat would see (camera follows the field character). */
@@ -143,10 +144,11 @@ export function bestDropPoint(w: World, p: SimPlayer, idx: number): Vec2 {
   const allies = alliesAlive(w).filter(a => a.kind === 'character');
   if (!parts.some(pt => pt.affects === 'enemies')) {
     const hurt = allies.filter(a => a.hp < a.maxHp * 0.9);
-    const best = bestDrop(w, parts, hurt.length ? hurt : allies, 'allies', c => allyScore(parts, c, allies, hurtWeight), near, view);
+    const score = (c: Vec2) => allyScore(parts, c, allies, hurtWeight) + eventDropBonus(w, p, 'swap', idx, c);
+    const best = bestDrop(w, parts, hurt.length ? hurt : allies, 'allies', score, near, view);
     if (best) return best.pos;
   } else {
-    const score = (c: Vec2) => enemyScore(parts, c, enemies) + allyScore(parts, c, allies, () => 0.3);
+    const score = (c: Vec2) => enemyScore(parts, c, enemies) + allyScore(parts, c, allies, () => 0.3) + eventDropBonus(w, p, 'swap', idx, c);
     const best = bestDrop(w, parts, enemies, 'enemies', score, near, view);
     if (best && best.score > 0) return best.pos;
   }
@@ -180,6 +182,9 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
     b.ultAt = null;
   }
 
+  eventThink(w, p, dispatch); // 기획 12차: once per 돌발 괴담, swap toward it (src/sim/botEvents.ts)
+  if (s.phase !== 'combat') return;
+
   // Swap.
   const ready: number[] = [];
   p.party.forEach((_, i) => {
@@ -202,9 +207,9 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
   } else {
     b.reactAt = null;
     if (ready.length > 0 && me.hp < me.maxHp * BOT.lowHpFrac) {
-      swapTo([...ready].sort(byHp)[0]);
+      swapTo(emergencyCard(p, ready, byHp));
     } else if (ready.length > 0 && enemies.length > 0 && s.time >= b.nextSwapAt) {
-      swapTo(w.rng.pick(ready));
+      swapTo(periodicCard(p, ready) ?? w.rng.pick(ready));
     }
   }
   if (s.phase !== 'combat') return;
@@ -218,6 +223,8 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
 }
 
 function petPoint(w: World, p: SimPlayer, i: number, enemies: SimEntity[]): Vec2 | null {
+  const ev = eventPetPoint(w, p, i); // 기획 12차: 돌발 괴담 pet rules first (undefined = none)
+  if (ev !== undefined) return ev;
   const a = getPet(p.pets[i].defId).action;
   const parts = previewPartsFor(w.state, p.id, 'pet', i);
   const me = activeEntity(w, p);
@@ -232,7 +239,7 @@ function petPoint(w: World, p: SimPlayer, i: number, enemies: SimEntity[]): Vec2
     return toView(w, view, { x: (anchor.pos.x + nearest.pos.x) / 2, y: (anchor.pos.y + nearest.pos.y) / 2 });
   }
   if (a.affects === 'enemies') {
-    const best = bestDrop(w, parts, enemies, 'enemies', c => enemyScore(parts, c, enemies), near, view);
+    const best = bestDrop(w, parts, enemies, 'enemies', c => enemyScore(parts, c, enemies) + eventDropBonus(w, p, 'pet', i, c), near, view);
     return best && best.score >= 2 ? best.pos : null;
   }
   // allies
@@ -251,3 +258,28 @@ function petPoint(w: World, p: SimPlayer, i: number, enemies: SimEntity[]): Vec2
   const best = bestDrop(w, parts, allies, 'allies', c => allyScore(parts, c, allies, x => (x.ownerPlayer === p.id ? 1.5 : 1)), near, view);
   return best ? best.pos : null;
 }
+
+// ─────────────────────────── 기획 12차: new characters (docs/new-characters.md 8장) ───────────────────────────
+// Both only change the pick when a new character is in the party, so the BOT_PRESETS runs (and their rng draws) stay.
+
+/** Emergency swap (field < 30 %): a ready 메딕 (the leaving card heals on the bench), else 퍼펫티어 (decoys), else the healthiest. */
+function emergencyCard(p: SimPlayer, ready: number[], byHp: (a: number, c: number) => number): number {
+  const medic = ready.find(i => p.party[i].defId === 'medic');
+  if (medic != null) return medic;
+  const puppeteer = ready.find(i => p.party[i].defId === 'puppeteer');
+  if (puppeteer != null) return puppeteer;
+  return [...ready].sort(byHp)[0];
+}
+
+/** Periodic swap: a ready 메딕 when a bench card is down or the bench averages under 60 % HP; null = random as before. */
+function periodicCard(p: SimPlayer, ready: number[]): number | null {
+  const medic = ready.find(i => p.party[i].defId === 'medic');
+  if (medic == null) return null;
+  const bench = p.party.filter((_, i) => i !== p.activeIndex);
+  if (bench.length === 0) return null;
+  const down = bench.some(m => m.dead);
+  const avg = bench.reduce((sum, m) => sum + (m.dead ? 0 : m.hp / Math.max(1, m.maxHp)), 0) / bench.length;
+  return down || avg < BENCH_LOW_HP_FRAC ? medic : null;
+}
+
+const BENCH_LOW_HP_FRAC = 0.6;

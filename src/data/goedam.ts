@@ -41,6 +41,9 @@ export const GOEDAM_TRACES: GoedamTraceDef[] = [
   { id: 'torn_smile', name: '찢어진 미소', icon: '✂️', floors: 3, mods: { hpPct: -0.08 }, banner: '찢어진 미소가 떠오른다' },
   { id: 'box_owner', name: '함의 주인', icon: '📦', floors: null, mods: { hpPct: -0.1 }, banner: '함의 주인이 바뀌었다' },
   { id: 'box_owner_weak', name: '함의 주인 (약)', icon: '🗝️', floors: 3, mods: { hpPct: -0.1 }, banner: '함 속의 손이 아직 잡고 있다' },
+  // 기획 12차: 돌발 괴담 rewards (src/data/fieldEvents.ts) — 23:59 정각 and 깨우면 안 되는 아이
+  { id: 'morning_light', name: '아침 햇살', icon: '☀️', floors: 1, mods: { atkPct: 0.2, atkSpeedPct: 0.15 }, banner: '창밖이 밝아 온다' },
+  { id: 'small_hand', name: '작은 손', icon: '🤚', floors: 2, damageTaken: -0.08, banner: '작은 손이 옷자락을 잡고 있다' },
 ];
 
 // ─────────────────────────── 방 12종 (4장) ───────────────────────────

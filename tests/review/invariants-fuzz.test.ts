@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TICK_RATE } from '../../src/config';
-import { GOEDAM_ROOMS } from '../../src/data';
+import { FIELD_EVENTS, GOEDAM_ROOMS } from '../../src/data';
 import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
 import type { Command } from '../../src/types';
@@ -55,6 +55,15 @@ function check(tg: TestGame, where: string): string[] {
       if ((pr.stage === 'choosing') !== (pr.choice == null)) bad(`p${i} stage ${pr.stage} choice ${pr.choice}`);
     });
   }
+  // 기획 12차 돌발 괴담: only in combat on normal floors; its units exist only while it is open (and are its own)
+  const fe = s.fieldEvent;
+  if (fe && (s.phase !== 'combat' || s.plan.kind !== 'normal')) bad(`field event ${fe.id} open in ${s.phase} / ${s.plan.kind}`);
+  for (const e of s.entities) {
+    if (e.rt.gone || !e.eventTag) continue;
+    if (!fe || !fe.entityIds.includes(e.id)) bad(`event unit ${e.id} ${e.defId} without its event`);
+    if (e.eventTag === 'ward' && e.hp <= 0) bad(`ward ${e.id} at ${e.hp} HP`);
+  }
+  if (fe && !(fe.remaining >= 0 && fe.remaining <= fe.total + 1e-9)) bad(`field event remaining ${fe.remaining}`);
   if (s.phase === 'combat' && s.plan.kind === 'boss' && s.bossId == null) bad('boss floor without boss');
   if (s.phase === 'combat' && s.plan.kind === 'normal' && s.floorTime > s.plan.timeLimit + 1e-6) bad('normal floor past time limit still in combat');
   return errs;
@@ -75,7 +84,16 @@ function randomCommand(r: Rng, n: number): Command {
   if (k < 0.97) return { type: 'goedam', player, option: r.pick(garbage ? ['', 'nope', '__proto__', 'constructor'] : GOEDAM_PICKS) };
   return {
     type: 'debug',
-    action: r.pick([{ kind: 'killAll' }, { kind: 'chargeUlt' }, { kind: 'resetCooldowns' }, { kind: 'forceEnrage' }, { kind: 'skipFloor' }, { kind: 'goedamNext' }] as const),
+    action: r.pick([
+      { kind: 'killAll' },
+      { kind: 'chargeUlt' },
+      { kind: 'resetCooldowns' },
+      { kind: 'forceEnrage' },
+      { kind: 'skipFloor' },
+      { kind: 'goedamNext' },
+      { kind: 'fieldEventNext' },
+      { kind: 'fieldEventNext', id: r.pick(FIELD_EVENTS).id },
+    ] as const),
   };
 }
 
@@ -88,6 +106,9 @@ describe('invariants under random commands', () => {
     // 기획 10차: 괴담 rooms on (2 per zone), random picks / continues / garbage ids, fast floors so several rooms open
     { seed: 5, t: { maxFloor: 20, reviveTime: 8, goedamRoomsPerZone: 2, monsterHpMult: 0.2 } },
     { seed: 6, t: { maxFloor: 20, reviveTime: 20, goedamRoomsPerZone: 1, monsterHpMult: 0.3, monsterDmgMult: 3 } },
+    // 기획 12차: 돌발 괴담 on every eligible floor (+ random forced ones)
+    { seed: 7, t: { maxFloor: 20, reviveTime: 8, fieldEventChance: 1, monsterHpMult: 0.3 } },
+    { seed: 8, t: { maxFloor: 12, reviveTime: 20, fieldEventChance: 0.6, goedamRoomsPerZone: 1, monsterDmgMult: 3 } },
   ];
   for (const { seed, t } of cases) {
     it(`seed ${seed} ${JSON.stringify(t)}: 6 sim minutes, no broken invariant`, () => {

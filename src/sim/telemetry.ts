@@ -21,6 +21,7 @@ export function emptyContribution(): ContributionStats {
     damageBySource: bySource,
     ultDelayTotal: 0,
     ultDelayCount: 0,
+    fieldEvents: 0,
   };
 }
 
@@ -38,6 +39,7 @@ export function computeTelemetry(w: World, player = 0): Telemetry {
     avgUltDelay: st.ultDelayCount > 0 ? st.ultDelayTotal / st.ultDelayCount : 0,
     floorTimes: w.floorTimes.map(f => ({ ...f })),
     goedam: p ? p.goedamLog.map(e => ({ ...e, outcome: { ...e.outcome, traces: [...e.outcome.traces] } })) : [],
+    fieldEvents: w.fieldEvents.history.map(h => ({ ...h })),
   };
 }
 
@@ -69,6 +71,7 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   bossLockReleaseSec: [0, 600],
   petCooldownMult: [0, 10],
   goedamRoomsPerZone: [0, 2, true],
+  fieldEventChance: [0, 1],
 };
 
 /**

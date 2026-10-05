@@ -29,7 +29,7 @@ export function formatPct(frac: number, digits = 0): string {
 }
 
 /** Short Korean glyph per role, same convention as the renderer's unit bodies. */
-export const ROLE_GLYPH: Record<Role, string> = { tank: '방', melee: '근', ranged: '원', support: '지' };
+export const ROLE_GLYPH: Record<Role, string> = { tank: '방', melee: '근', ranged: '원', healer: '힐', support: '지' };
 
 export const STATUS_LABEL: Record<StatusId, string> = {
   stun: '기절',
@@ -42,6 +42,7 @@ export const STATUS_LABEL: Record<StatusId, string> = {
   regen: '재생',
   vulnerable: '취약',
   lifesteal: '흡혈',
+  drain: '흡혼 표식', // 기획 12차 (퇴마사)
 };
 
 /** One-character pip glyph. */
@@ -56,6 +57,7 @@ export const STATUS_GLYPH: Record<StatusId, string> = {
   regen: '재',
   vulnerable: '취',
   lifesteal: '흡',
+  drain: '혼',
 };
 
 export const SOURCE_LABEL: Record<DamageSource, string> = {

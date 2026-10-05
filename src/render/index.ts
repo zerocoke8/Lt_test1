@@ -20,7 +20,8 @@ import { Backdrop } from './ground';
 import { COLORS, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
 import { CHARACTERS } from '../data';
 import { areaCentroid } from '../sim/geometry';
-import { drawAimedDirection, drawAreaDirection, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
+import { drawAimedDirection, drawAreaDirection, drawFieldEventPreview, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
+import { FieldEventFx } from './fieldEvents';
 import { TAU, addAreaPath, areaReach, pathArea, pathCapsule } from './shapes';
 import {
   HERO_POSE,
@@ -64,6 +65,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const cam = new Camera();
   const backdrop = new Backdrop();
   const vfx = new Vfx();
+  /** 기획 12차: 돌발 괴담 rings, markers, arrows and bursts (render/fieldEvents.ts). */
+  const fieldFx = new FieldEventFx();
   const teleSeq = new TeleSequencer();
   /** Last monster skill each enemy cast (bodies that change with their pattern: 신호등 인간 빨간불 / 초록불). */
   const lastMonsterSkill = new Map<number, string>();
@@ -917,6 +920,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const tagBoxes: TagBox[] = [];
 
   function drawUnitOverhead(e: Entity, m: UnitMemo, local: number, state: GameState): void {
+    if (e.eventTag === 'ward') return; // 기획 12차: the patient / child get their own markers (render/fieldEvents.ts)
     const c = ctx!;
     computePose(e, m);
     const look = m.look;
@@ -1022,7 +1026,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     side.ly = side.ry = 0;
     side.lmid = side.rmid = false;
     for (const e of state.entities) {
-      if (e.team !== 'enemy' || e.hp <= 0 || e.tier === 'boss') continue;
+      // 기획 12차: 돌발 괴담 targets get their own gold arrows (render/fieldEvents.ts), not the red ones
+      if (e.team !== 'enemy' || e.hp <= 0 || e.tier === 'boss' || e.eventTag === 'target') continue;
       const dx = e.pos.x - cam.x;
       // counted as off-screen once its body is fully past the edge
       if (dx < -half - e.radius * 0.5) {
@@ -1229,6 +1234,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (runSeed !== null) {
         memos.clear();
         vfx.reset();
+        fieldFx.reset();
         teleSeq.reset();
         lastMonsterSkill.clear();
         arenaFloor = -1;
@@ -1242,6 +1248,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (state.floor !== arenaFloor || boss !== arenaBoss || arena.width !== arenaW || arena.height !== arenaH) {
       if (arenaFloor !== -1) {
         vfx.reset();
+        fieldFx.reset();
         teleSeq.reset();
       }
       arenaFloor = state.floor;
@@ -1262,6 +1269,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     vc.camX = cam.x;
     for (const ev of events) {
       vfx.handle(ev, vc);
+      fieldFx.handle(ev, state);
       teleSeq.noteEvent(ev);
       if (ev.type === 'skillCast' && ev.slot === 'monster' && ev.sourceId != null) lastMonsterSkill.set(ev.sourceId, ev.skillId);
       else if (ev.type === 'death') lastMonsterSkill.delete(ev.entityId);
@@ -1294,6 +1302,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     vfx.trackTelegraphs(state.telegraphs);
     teleSeq.track(state.telegraphs);
     vfx.update(dt, vc);
+    fieldFx.update(dt);
 
     // camera
     const target = localTargetX(state, ui.localPlayer);
@@ -1330,6 +1339,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     drawZones(state);
     drawTelegraphs(state, 'ally');
     vfx.drawGround(c, cam, time);
+    fieldFx.drawGround(c, cam, state, time);
     c.restore();
     if (ui.dragPreview) drawPreviewGround(ui.dragPreview, state);
     for (const e of sorted) drawUnitGround(e, memos.get(e.id)!, ui.localPlayer, state);
@@ -1358,7 +1368,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     tagBoxes.length = 0;
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
+    fieldFx.drawOverlay(c, cam, state, time);
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
+    if (ui.dragPreview) drawFieldEventPreview(c, cam, state, ui.dragPreview, ui.localPlayer, time);
     vfx.drawOverlay(c, cam);
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (startsFreeze) {
@@ -1367,6 +1379,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (!freezeOk) juice.cancelFreeze();
     }
     drawOffscreenEnemies(state);
+    fieldFx.drawScreen(c, cam, state, time);
     vfx.drawScreen(c);
     c.globalAlpha = 1;
   }
@@ -1408,6 +1421,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     c.drawImage(fc, 0, 0, fc.width, fc.height, o.x, o.y, LOGICAL_W, LOGICAL_H);
     drawOffscreenEnemies(state);
+    fieldFx.drawScreen(c, cam, state, time);
     vfx.drawScreen(c);
     c.globalAlpha = 1;
   }
@@ -1446,10 +1460,11 @@ function easeOutQ(t: number): number {
 }
 
 /** Ally projectile look by the shooter's character colour (projectiles carry only a colour). */
-type ProjStyle = 'ranger' | 'gunner' | 'mage' | 'cleric' | 'bard' | 'chrono';
+type ProjStyle = 'ranger' | 'gunner' | 'mage' | 'cleric' | 'bard' | 'chrono' | 'medic' | 'exorcist' | 'puppeteer';
+const PROJ_STYLED: readonly string[] = ['ranger', 'gunner', 'mage', 'cleric', 'bard', 'chrono', 'medic', 'exorcist', 'puppeteer'];
 const PROJ_STYLE = new Map<string, ProjStyle>();
 for (const ch of CHARACTERS) {
-  if (ch.id === 'ranger' || ch.id === 'gunner' || ch.id === 'mage' || ch.id === 'cleric' || ch.id === 'bard' || ch.id === 'chrono') PROJ_STYLE.set(ch.color.toLowerCase(), ch.id);
+  if (PROJ_STYLED.includes(ch.id)) PROJ_STYLE.set(ch.color.toLowerCase(), ch.id as ProjStyle);
 }
 
 function drawStyledProjectile(c: CanvasRenderingContext2D, style: ProjStyle, color: string, x: number, y: number, ang: number, t: number): void {
@@ -1584,6 +1599,69 @@ function drawStyledProjectile(c: CanvasRenderingContext2D, style: ProjStyle, col
       c.lineTo(0, 5);
       c.closePath();
       c.fill();
+      c.stroke();
+      break;
+    }
+    // 기획 12차
+    case 'medic': {
+      // syringe dart: white capsule, teal tip
+      c.globalAlpha = 0.3;
+      c.strokeStyle = color;
+      c.lineWidth = 4;
+      c.beginPath();
+      c.moveTo(-26, 0);
+      c.lineTo(-8, 0);
+      c.stroke();
+      c.globalAlpha = 1;
+      c.fillStyle = '#f4fbff';
+      c.strokeStyle = '#0b3d3a';
+      c.lineWidth = 1.2;
+      c.beginPath();
+      c.roundRect(-9, -3, 13, 6, 3);
+      c.fill();
+      c.stroke();
+      c.fillStyle = color;
+      c.beginPath();
+      c.moveTo(4, -2.5);
+      c.lineTo(10, 0);
+      c.lineTo(4, 2.5);
+      c.closePath();
+      c.fill();
+      break;
+    }
+    case 'exorcist': {
+      // spinning yellow talisman with a red stroke
+      c.rotate(t * 11);
+      c.fillStyle = '#ffd23f';
+      c.strokeStyle = '#c1121f';
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.rect(-4, -7, 8, 14);
+      c.fill();
+      c.stroke();
+      c.beginPath();
+      c.moveTo(0, -4);
+      c.lineTo(0, 4);
+      c.moveTo(-2, -1);
+      c.lineTo(2, 1);
+      c.stroke();
+      break;
+    }
+    case 'puppeteer': {
+      // needle trailing a pink thread
+      c.globalAlpha = 0.85;
+      c.strokeStyle = color;
+      c.lineWidth = 1.6;
+      c.beginPath();
+      c.moveTo(-34, Math.sin(t * 14) * 3);
+      c.quadraticCurveTo(-18, -Math.sin(t * 14) * 4, -6, 0);
+      c.stroke();
+      c.globalAlpha = 1;
+      c.strokeStyle = '#e9ecef';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(-7, 0);
+      c.lineTo(8, 0);
       c.stroke();
       break;
     }

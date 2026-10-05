@@ -10,8 +10,10 @@
 |---|---|---|
 | `src/types.ts` | **공용 계약**. GameState(읽기 모델), Command(입력), GameEvent(연출), Tunables, 모듈 API | — |
 | `src/config.ts` | 기본 튜닝값, 상수(틱, 아레나 크기, 봇 프리셋), 구역 표 `ZONES`(층 범위 · 몬스터 풀 가중치·해금 층 · 중형보스 순서 · 보스 · 웨이브 크기, 8차), 층별 몬스터 배율(`LATE_STAT_GROWTH`) | types |
-| `src/data/*` | 임시 콘텐츠: 캐릭터 12 (역할별 3), 펫 8, 일반몹 12 + 복사본, 중형보스 6, 보스 4 (8차 괴담 빌딩, [`content-20f.md`](content-20f.md)), 보상, 유물, 괴담 방 12 + 흔적 20과 그 버튼·결과 문구 함수 (`data/goedam.ts`, 10차) | types |
+| `src/data/*` | 임시 콘텐츠: 캐릭터 15 (5역할 × 3, 12차), 펫 8 (12차 쿨 ×0.8), 일반몹 12 + 복사본 + 아군 소환물(포탑·종이 인형), 중형보스 6, 보스 4 (8차 괴담 빌딩, [`content-20f.md`](content-20f.md)), 보상, 유물, 괴담 방 12 + 흔적 20과 그 버튼·결과 문구 함수 (`data/goedam.ts`, 10차) | types |
 | `src/sim/*` | 게임 규칙 전부. DOM/Canvas 접근 금지. 고정 틱(30Hz), 시드 랜덤(`Rng`) | types, config, data |
+| `src/sim/fieldEvents.ts`, `fieldEventPreview.ts`, `botEvents.ts` | 돌발 괴담 (12차): 일정·진행·보상, 드롭 결과 순수 함수(미리보기 = 서버 판정), 봇 규칙. 이벤트 전용 랜덤 (아래 12차 장) | types, config, data |
+| `src/sim/bench.ts` | 대기 카드 회복·부활 대기 단축·메딕 패시브 (12차, 아래 12차 장) | types, data |
 | `src/sim/goedam.ts` | 괴담 방 (10차): 일정(`goedamSchedule`, 순수), 방 전용 랜덤(`goedamRng` = 시드 + 층 + 플레이어, `w.rng`는 안 씀), 방 열기·선택·계속·자동 처리, 흔적 추가·만료, 미리 검사 `canGoedamState`, 서버 마감용 `goedamTimeoutCommands` | types, config, data |
 | `src/sim/geometry.ts`, `src/sim/preview.ts` | 순수 함수: 형태 판정(circle/line/rect/cone/ring/cross/fan, 돌진·몬스터 돌진 끝점), 드래그 미리보기 파트(`previewPartsFor`) | types, data |
 | `src/render/*` | Canvas 쿼터뷰 렌더링. GameState를 읽기만 함 | types, config, data, sim의 순수 모듈 |
@@ -69,7 +71,7 @@
 
 | 명령 | 내용 |
 |---|---|
-| `npm test` (`npx vitest run`) | Vitest 43파일 483개: sim 규칙(R1–R52, 10차 괴담 방 `tests/sim/goedam.test.ts`(일정·봇·절대 안 죽음·궁극기 규칙·흔적 만료·대체 처리·'지나간다' = 끔과 비트 단위로 같음·3인 순서 무관), 8차 부채꼴·돌진·순간이동·분열·보스 페이즈·1~20층 계획 `tests/sim/anomalies.test.ts`·`floor.test.ts`, 타격 멈춤·흔들림 `tests/render/juice.test.ts`, 형태 판정 = 미리보기, 12종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
+| `npm test` (`npx vitest run`) | Vitest 46파일 562개: sim 규칙(R1–R52, 12차 돌발 괴담 `tests/sim/field-events.test.ts`·새 힐러 `tests/sim/healers.test.ts`, 10차 괴담 방 `tests/sim/goedam.test.ts`(일정·봇·절대 안 죽음·궁극기 규칙·흔적 만료·대체 처리·'지나간다' = 끔과 비트 단위로 같음·3인 순서 무관), 8차 부채꼴·돌진·순간이동·분열·보스 페이즈·1~20층 계획 `tests/sim/anomalies.test.ts`·`floor.test.ts`, 타격 멈춤·흔들림 `tests/render/juice.test.ts`, 형태 판정 = 미리보기, 15종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
 | `npx tsc --noEmit` / `npm run typecheck:server` | 타입 검사 (브라우저 + 테스트 / 서버) |
 | `npm run e2e` (`npx playwright test`) | Playwright 3개 프로젝트 (아래). 시작할 때 `vite build` → `vite preview :4173` |
 | `PERF=1 npx playwright test perf` | 실시간 프레임 측정 (40초 일반 플레이 + 몹 30마리·궁극기 스트레스) |
@@ -79,10 +81,11 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
   - `tests/e2e/smoke.spec.ts`: 프리셋 → 전투 → 실제 포인터 드래그로 교체/펫 → 궁극기 탭 → 1층 클리어·보상 → 괴담 방(강제한 엘리베이터 → 끝까지 탄다 → 결과 → 계속 → 2층, 흔적 칩·배너 줄·일시정지 목록) → 5층 보스 광폭화·퇴각 → 유물 → 포기 → 결과. 콘솔 에러 0. 폰 스크린샷은 `docs/screenshots/*.png` (솔로 세트).
   - `tests/e2e/flows.spec.ts`: 일반층 시간 초과 실패, 보스층 시간 초과 광폭화, 최고층 승리, 전멸 → 관전 → 결과 (관전 띠·멈춘 숫자 없음, `docs/screenshots/spectate.png`), 바닥 맨 아래 조준(손가락이 카드 줄 위여도 놓기 가능), 세로 화면 정지, PC 단축키.
   - `tests/e2e/artifact.spec.ts`: claude.ai Artifact 빌드(`scripts/make-artifact.mjs`)를 게임 서버 없는 정적 호스트에 올린 것처럼 띄움 → 페이지 말고는 요청 0개(/healthz·WebSocket 없음), 콘솔 에러 0, "혼자 하기 전용" 안내, 출발 → 혼자 하기. 일반 빌드는 같은 호스트에서 /healthz 한 번(404)만 묻고 재시도 없음.
-- `multi`: `tests/e2e/multi.spec.ts` — 빌드한 실제 게임 서버(`dist-server`) + 폰 브라우저 3개, 괴담 방(둘이 고르고 한 명은 마감까지 가만히 → '지나간다' → 2층, 세 화면 상태 같음), 조용한 끊김(오프라인 폰), 탭 복제. 자세한 흐름은 `docs/multiplayer.md` 5장. 스크린샷 `docs/screenshots/multi-*.png`.
+- `multi`: `tests/e2e/multi.spec.ts` — 빌드한 실제 게임 서버(`dist-server`) + 폰 브라우저 3개, 괴담 방(둘이 고르고 한 명은 마감까지 가만히 → '지나간다' → 2층, 세 화면 상태 같음), 12차 새 힐러 고르기 + 돌발 괴담(세 화면 같은 자리, 실제 드롭으로 성공, 모두에게 보상), 조용한 끊김(오프라인 폰), 탭 복제. 자세한 흐름은 `docs/multiplayer.md` 5장. 스크린샷 `docs/screenshots/multi-*.png`.
 - 리뷰용 멀티 UI 확인(2번 자리 플레이어, 메뉴 아래 Space 궁극기 없음): `npx playwright test -c tests/review/playwright.multi-review.config.ts`.
 - 다른 작업과 동시에 돌릴 때: `E2E_PORT=4191 E2E_OUT=<빌드 폴더> E2E_RESULTS=<결과 폴더> npx playwright test`.
 - 테스트용 훅: `window.__proto` (`game`, `phase`, `mode`, `localPlayer`, `net`, `startRun(overrides)`, `ui.dragTo`, `ui.fingerFor`, `ui.dragPreview`).
+- 12차 새 캐릭터 화면: `node tests/visual/new-chars.mjs` (먼저 `npx vite --port 5181`) → `docs/screenshots/skill-{medic,exorcist,puppeteer}-{drag,ult}.png` (폰 844×390@3x, 가짜 시계).
 - 8차 실제 화면 확인 도구 (Playwright 스펙 아님, 손으로 돌림):
   - `node tests/visual/zone-tour.mjs` (먼저 `npx vite --port 5181`): 폰 844×390@3x, 가짜 시계를 멈춘 채 디버그 층 이동으로 1·5·6·10·11·15·16·20층 → `docs/screenshots/zone-<층>.png`(구역 배경·몬스터·중형보스), `boss-<층>.png` + `boss-<층>-p<N>.png`(보스 HP를 문턱 바로 위로 내려 페이즈 강제), `landing-seq.png`(내 드래그 착지 17ms 간격 16장). 층마다 실제 theme·HUD 구역 이름·몬스터 id·보스 이름·페이즈 이벤트를 JSON으로 출력.
   - `node tests/playtest/mp-zones.mjs` (먼저 `npm run build:all`): 실제 게임 서버 + 폰 3대가 로비로 한 방 → 방장이 12층(폐병동: 순간이동·돌진·부채꼴) → 20층(몬스터 HP ×0.25로 페이즈 2·3 통과). 세 화면이 받은 스냅샷 요약(틱별 층·구역·모든 유닛 id/HP/위치·예고·이벤트)이 같은지, 렌더러가 받은 순간이동·돌진·페이즈·부채꼴 이벤트가 같은지, HUD 구역·보스 이름·페이즈 표시, 콘솔 에러 0을 확인.
@@ -110,7 +113,7 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 
 | # | 규칙 | 근거 |
 |---|---|---|
-| R25 | 캐릭터 12종 (역할별 3), 프리셋에서 3명 선택 | 3차 1 |
+| R25 | 캐릭터 15종 (5역할 × 3: 탱커·근접딜러·원거리딜러·힐러·서포터, 12차에서 12 → 15), 프리셋에서 3명 선택 | 3차 1, 12차 |
 | R26 | 드래그스킬 형태: rect(가로·세로 띠, 직선), cone, ring, cross(+/X), 돌진(dash), 여러 지점(offset+delay), circle | 3차 2 |
 | R27 | 방향형 스킬은 데이터에 고정된 방향(dir)을 씀. 놓은 위치가 기준점. 미리보기 = 실제 판정 범위(모든 파트, 오프셋, 돌진 경로) | 3차 2 |
 | R28 | 돌진: 놓은 지점에 등장 → dir 방향으로 distance만큼 이동하며 경로상 적 타격, 끝 지점에 멈춤(아레나 안으로 보정) | 3차 2 |
@@ -268,3 +271,45 @@ HUD (`src/ui/hud.ts`, `src/ui/skillinfo.ts`, `styles.css`):
 - 화면(폰 844×390@3x): `docs/screenshots/goedam.png`(고르기), `goedam-result.png`(결과 카드), `goedam-multi.png`(멀티 대기 패널 (2/3) + 다른 사람 줄 + 마감), `goedam-multi-idle.png`(아직 안 고른 사람: ✓ 칩만). 12개 방 모두와 결과 카드가 스크롤 없이 들어감(smoke). 흔적 칩 6개(4 + '+2')도 위쪽 줄에 들어감, 혼선이 걸리면 궁극기 "N초 후"도 그 속도로 셈.
 - 고친 것: 자판기 미믹 결과 카드에 「전원 HP 10% 잃음」이 두 번 나오던 것 → 두 번째는 「전원 HP 10% 더 잃음」.
 - 남은 화면 메모: 흔적 칩 줄은 오른쪽 위 벽 앞(논리 y 약 97~136)에 있어서, 캐릭터가 오른쪽 위 벽에 붙으면 머리 위 HP 바가 칩 뒤에 가려질 수 있음(위쪽 HUD 상자처럼 발밑으로 내리는 처리는 아직 없음).
+
+## 12차: 돌발 괴담 (전투 중 이벤트, 2026-10-05)
+
+설계 [`combat-events.md`](combat-events.md), 측정 [`balance.md`](balance.md) 11장 (11-5~11-8). 같은 차수의 새 캐릭터·힐러 역할은 [`new-characters.md`](new-characters.md).
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/types.ts` | `FieldEventId`·`FieldEventTag`('target' 두꺼비·프린터 / 'minion' 23:59 그림자 / 'ward' 환자·아이)·`FieldEventDef`·`FieldEventReward`·`FieldEventState`·`FieldEventMark`, `GameState.fieldEvent`, `Entity.eventTag`, 이벤트 `fieldEventWarn`·`fieldEventStart`·`fieldEventProgress`·`fieldEventEnd`, 피해 이벤트 `weak`(약점 ×2), 디버그 `fieldEventNext`, 튜닝 `fieldEventChance`, `ContributionStats.fieldEvents`, `Telemetry.fieldEvents`, `DragPreview.index` |
+| `src/data/fieldEvents.ts` | 이벤트 7종의 숫자 전부(시간·목표·보상·`params`), 공통 상수(약점 ×2, 잡기 범위 max(2.5, 사거리+1), 고정 해제 8칸), 이벤트 개체 5종(`FIELD_EVENT_UNITS`, `MONSTERS`에는 안 넣음 → 웨이브·로스터 테스트에 안 섞임, `getMonster`로만 찾음), 배너·띠·토스트 문구 함수(숫자에서 만듦). 흔적 2개(아침 햇살·작은 손)는 `data/goedam.ts` 흔적 목록에 |
+| `src/sim/fieldEvents.ts` | 일정(순수: `planFieldEventFor`·`fieldEventSchedule`), 예고 → 시작 → 행동(두꺼비 도망·점프, 프린터 출력, 환자 회복, 통로 빨아들임·추락, 23:59 그림자, 비상등 서 있기, 아이 걷기) → 성공·실패 → 파티 보상 → 정리. 이벤트 전용 랜덤 `mixSeed(seed, salt, stream, floor)` (`w.rng`는 첫 예고 전까지 절대 안 씀; 이벤트 개체도 `createUnit(opts.rng)`로 이벤트 랜덤) |
+| `src/sim/fieldEventPreview.ts` | 순수 `dropOutcome(state, player, kind, index, pos)`: 이 드롭이 이벤트에 하는 일(고정할 대상·약점 대상·켜질 등·아이 놀람·통로 당기기·환자 회복). sim 훅·드래그 미리보기·봇 점수가 모두 이것을 씀 → 미리보기 = 실제 결과 (멀티 클라이언트도 스냅샷으로 같은 계산) |
+| `src/sim/botEvents.ts` | 봇 규칙(대상 가중치 4, 드롭 점수 보너스, 펫 규칙, 이벤트당 한 번 교체 · 비상등·아이 동행은 필요할 때마다). `bot.ts`는 네 곳에서 부르기만 함. `EVENT_BLIND`는 벤치 전용(사람 자리가 이벤트를 모르는 척) |
+| `src/sim/units.ts`·`combat.ts`·`players.ts`·`floor.ts`·`game.ts`·`world.ts`·`entities.ts`·`ctx.ts` | 타겟 규칙(`pickTarget`: 아군은 대상 제외, 몬스터는 'ward' 제외, 8칸 넘으면 고정 해제), 'ward'는 피해 0, 드래그·펫 피해 ×2, 처치 훅·처치 수 제외, 드롭 훅(교체: 등장 뒤 드래그스킬 전 / 펫: 시전 뒤), 층 시작에 일정·남은 이벤트 정리, 클리어·런 끝 정리, 틱 순서(`tickSpawner` 바로 뒤 `tickFieldEvents`), `countEnemies`가 이벤트 개체 제외, `woundedAlly` 후보에 환자 |
+| `src/render/fieldEvents.ts`, `render/creatures.ts`·`preview.ts`·`index.ts` | 금색 회전 점선 고리 + 남은 시간 호, 머리 위 '!' 마름모, 마지막 5초 숫자, 두꺼비 웅크림 호, 프린터 출력 원(기절 중 회색), 환자 큰 HP 막대 + 반경 4 점선, 통로(검은 구멍·손·금 테두리), 비상등(회색 전구 + 1.6 점선 / 빛기둥), 아이 길·출구 문·동행 원·Zz/으앙, 23:59 가장자리 어둠, 금색 화면 밖 화살표(빨간 화살표와 겹치지 않게), 성공 동전·실패 연기, '약점'. 생김새 5종(금두꺼비·프린터·환자 침대·그림자·노란 우비 아이). 끄는 사람에게만: 잡기 ✓·켜기·깨요!·통로 테두리 |
+| `src/ui/fieldEventHud.ts`, `hud.ts`·`debug.ts`·`tunables.ts`·`result.ts`·`styles.css` | 층 상자 아래 한 줄 띠(아이콘 · 남은 초 · 진행 · 보상 한 단어), 시작 배너(보스 페이즈 자리), 성공·실패 토스트(해낸 사람 이름), 보상 받은 곳 금빛 깜빡임, 디버그 「돌발 괴담 확률」 슬라이더 + 「다음 돌발 괴담」, 결과 화면 「돌발 괴담 n/m 성공 · 사람별」 |
+| `server/validate.ts` | `fieldEventNext` (아는 id만) |
+
+- 정리 (리뷰 후): 층 클리어·층 시작(점프 포함, 층 번호가 바뀌기 **전에** 닫아서 원래 층의 실패로 기록)·런 끝(전멸·시간 초과·나가기)에서 열린 이벤트는 실패로 기록되고 개체가 사라진다. 런 끝은 `world.ts`의 `onRunEnd` 훅(`fieldEvents.ts`가 등록, 순환 import 없이)으로 처리하고, `tick()`은 런이 끝난 틱에도 `compactEntities`를 해서 마지막 스냅샷에 이벤트 개체가 남지 않는다. 디버그 「모두 처치」는 이벤트 개체를 건드리지 않는다.
+- 약점 ×2 (리뷰 후): 드래그 시전·펫 시전에 더해, 펫이 남긴 소환물(`summonSlot` 'pet' = 포탑 골렘)과 드래그가 남긴 소환물('drag' = 종이 인형의 터짐)의 피해도 약점 (`combat.ts weakHit`). 피해 출처(`damageBySource`)는 그대로 'summon'/'drag'.
+- 스냅샷: `wireJson`은 `rt`/`src`만 뺌 → `state.fieldEvent`와 `eventTag`가 그대로 감 (`tests/review/wire-determinism.test.ts` KEYS). 행동 상태(`rt.eventAi`)는 서버에만.
+- 테스트: `tests/sim/field-events.test.ts`(일정·켬/끔 같은 세계·7종 성공/실패·보상·타겟 규칙·안전장치·정리·봇만 12시드 무정지), `tests/ui/field-event-hud.test.ts`, 렌더러·퍼즈·검증·와이어 테스트에 추가, e2e `smoke.spec.ts` 「돌발 괴담」(실제 드래그로 두꺼비 고정 → 성공 토스트·궁극기 깜빡임, 비상등 금색 화살표). 화면: `docs/screenshots/combat-event.png`, `combat-event-success.png`, `combat-event-lamps.png`.
+- 벤치: `tests/review/critic-20f.ts`에 `FIELD_EVENTS=off|on|forced:<id>`와 `FE_SEAT=play|ignore`, 출력 `fieldEvents`(이벤트별 수·성공률·걸린 시간, 이벤트 층 클리어 시간, 시간 초과, 다음 층 사망, 20층).
+
+## 12차: 새 캐릭터 · 힐러 역할 · 펫 쿨 (2026-10-05)
+
+설계 [`new-characters.md`](new-characters.md), 측정 [`balance.md`](balance.md) 11장 (11-1~11-4).
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/types.ts` | `Role`에 'healer', 상태 `drain`(흡혼 표식, 디버프), 효과 `benchHeal`·`reviveReduce`(행동당 한 번, `allPlayers`면 관전 아닌 모든 플레이어), 시전 중심 `woundedAlly`, 소환 `inherit`(시전자 HP·공격력 비율), 패시브 `benchRegen`, 몬스터 `inert`, 이벤트 `benchHeal`, 회복 이벤트 `from`(흡혼한 적) |
+| `src/data/characters.ts`·`pets.ts`·`monsters.ts`·`index.ts` | 15명(힐러 열: 클레릭·메딕·퇴마사, 서포터 열: 바드·크로노·퍼펫티어), 펫 쿨 ×0.8(28/32/32/28/36/32/36/40), 아군 소환물 `paper_doll`(웨이브 풀에는 없음), `ROLE_LABEL.healer = '힐러'` |
+| `src/sim/bench.ts` (새) | `benchHeal`(필드 아닌 살아 있는 카드, 방금 나간 카드 포함), `reduceRevive`, `effectPlayers`, `tickBenchRegen`(메딕이 필드에 있을 때만, `tickPlayers`에서) — 기획 8장 "대기 중 HP 회복 없음"의 유일한 예외 |
+| `src/sim/ctx.ts`·`skills.ts` | `isWoundedAllyCandidate`(아군 캐릭터 + 돌발 괴담 환자), `findWoundedAlly`(사거리 안 HP 90% 미만 중 비율이 가장 낮은 아군, 같으면 가까운 쪽), 소환물 `inherit`·`summonSlot`(인형 피해는 드래그 몫) |
+| `src/sim/combat.ts` | 흡혼: 표식 붙은 적에게 준 피해 × 값만큼 때린 아군 캐릭터 회복(펫·장판 피해면 그 플레이어의 필드 캐릭터), 보스·중형보스는 ×0.5 (`DRAIN_BOSS_MULT`) |
+| `src/sim/units.ts` | `inert` 유닛은 움직이지도 때리지도 않음(가장 가까운 대상 규칙으로 적이 인형을 침), 아군 소환물이 시간이 다 돼도 `onDeath` 폭발, `woundedAlly` 일반스킬은 대상이 없으면 쓰지 않고 쿨 유지 |
+| `src/sim/bot.ts` | `emergencyCard`(위급 교체: 메딕 → 퍼펫티어 → 가장 건강한 카드), `periodicCard`(대기 카드가 다쳤으면 메딕). 봇 기본 편성은 그대로 |
+| `src/ui/preset.ts`·`dom.ts`·`format.ts`·`styles.css`·`skillinfo.ts`·`hud.ts` | 편성 5열 × 3행, 힐러 아이콘(의료 십자)·글자 「힐」·금빛, 서포터 새 반짝임 아이콘·연보라, 흡혼 표식 이름·글자 「혼」, 스킬 정보 문구, 대기 카드 회복 '+N' 초록 빛, 메딕을 끄는 동안 대기 카드에 '+N%' |
+| `src/render/look.ts`·`castfx.ts`·`creatures.ts`·`index.ts`·`vfx.ts` | 세 캐릭터의 장신구·투사체·드래그/일반/궁극기 연출, 흡혼 붉은 기운(적 → 회복한 아군), 종이 인형 모습 |
+
+- 같은 시드에서 새 캐릭터가 없는 판은 이전과 비트 단위로 같음 (`tests/sim/healers.test.ts` 골든).
+- 테스트: `tests/sim/healers.test.ts`(대기 회복·부활 단축·메딕 패시브·`woundedAlly`·흡혼·인형·봇 위급 교체·골든), 로스터·설명 숫자·펫 테스트 갱신, e2e `multi.spec.ts` 「3 players (기획 12차)」(편성 화면에서 메딕을 실제 탭으로 고름 → 서버 파티에 반영, 강제한 금두꺼비가 세 화면에 같은 id·자리·개체로 뜸 → 실제 터치 드롭으로 잡음 → 세 화면 모두 성공 이벤트, 모든 플레이어 궁극기 +40%, 기여 1회). 화면 `docs/screenshots/preset.png`, `combat-event-multi.png`, `combat-event-multi-success.png`, `skill-<캐릭터>-drag.png`·`skill-<캐릭터>-ult.png`.
+- 벤치: `tests/playtest/drag-bench.ts`에 `BENCH_PARTY=same|mixed1|mixed2`와 가치 항목 `benchHealHp`·`drainHealHp`·`decoyHp`·`atkDownHp`, `tests/review/critic-20f.ts` 파티 `h_cleric`…`h_chrono`, `healers2`, `nohealer`.

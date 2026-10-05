@@ -55,6 +55,7 @@ function stats(): ContributionStats {
     damageBySource: { basic: 0, passive: 0, normal: 0, drag: 0, ult: 0, pet: 0, relic: 0, zone: 0, summon: 0 },
     ultDelayTotal: 0,
     ultDelayCount: 0,
+    fieldEvents: 0,
   };
 }
 
@@ -189,6 +190,7 @@ function emptyState(floor: number, kind: 'normal' | 'boss', w: number, h: number
     rewardOffers: null,
     rewardOffersByPlayer: [],
     goedam: null,
+    fieldEvent: null,
     runResult: null,
   };
 }

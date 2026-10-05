@@ -1,12 +1,14 @@
 // Shared skill-action executor (drag / normal / ult / pet / monster skills):
 // center → area → targets → effects, with telegraphed delays, multi-hits, zones and summons.
 
-import { DEBUFFS, type Affects, type AreaShape, type Dir, type Effect, type SkillAction, type Team, type Telegraph, type Vec2 } from '../types';
+import { DEBUFFS, type Affects, type AreaShape, type Dir, type Effect, type MonsterDef, type SkillAction, type Team, type Telegraph, type Vec2 } from '../types';
 import { getMonster } from '../data';
 import { ARENA_MARGIN, SUMMON_SPREAD } from './constants';
+import { benchHeal, effectPlayers, reduceRevive } from './bench';
 import { addShield, heal, hitDamage, reduceBenchSwapCd } from './combat';
 import { clampUnit, createUnit } from './entities';
 import { DASH_DEFAULT_DURATION, DIR_VEC, aimDir, areaExtent, chargeEnd, dashEnd, hitsArea, scaleArea, scaleDash } from './geometry';
+import { effStats } from './stats';
 import { applyStatus, cleanse } from './status';
 import {
   arena,
@@ -40,6 +42,11 @@ export function castSkill(w: World, ctx: CastCtx, actions: readonly SkillAction[
 
 export function resolveCenter(w: World, ctx: CastCtx, which: SkillAction['center']): Vec2 {
   if (which === 'point' && ctx.point) return copy(ctx.point);
+  if (which === 'woundedAlly') {
+    // 기획 12차 (메딕 응급 주사): the ally picked at cast time (ctx.ts), else the caster itself
+    const a = getEntity(w, ctx.allyTargetId) ?? getEntity(w, ctx.selfId);
+    return copy(a ? a.pos : ctx.origin);
+  }
   if (which === 'self') {
     const s = getEntity(w, ctx.selfId);
     if (s) return copy(s.pos);
@@ -282,7 +289,8 @@ export function collectTargets(
   const pool: SimEntity[] = [];
   for (const e of w.state.entities) if (e.team === team && isAlive(e)) pool.push(e);
   if (area.shape === 'single') {
-    const pref = affects === 'enemies' ? getEntity(w, ctx.targetId) : getEntity(w, ctx.selfId);
+    // 기획 12차: an ally 'single' prefers the woundedAlly pick (메딕 응급 주사), else the caster
+    const pref = affects === 'enemies' ? getEntity(w, ctx.targetId) : (getEntity(w, ctx.allyTargetId) ?? getEntity(w, ctx.selfId));
     if (pref && pref.team === team) return [pref];
     let best: SimEntity | null = null;
     let bd = Infinity;
@@ -308,6 +316,9 @@ export function applyEffects(w: World, ctx: CastCtx, action: SkillAction, center
   if (ctx.player != null) {
     for (const eff of action.effects) {
       if (eff.kind === 'swapCooldownReduce') reduceBenchSwapCd(w.state.players[ctx.player], eff.seconds);
+      // 기획 12차 (메딕): bench heal / revive cut — once per action, on the caster player or every non-out player
+      if (eff.kind === 'benchHeal') for (const p of effectPlayers(w, ctx.player, eff.allPlayers)) benchHeal(w, p, eff.amount, ctx.healMult, ctx.player);
+      if (eff.kind === 'reviveReduce') for (const p of effectPlayers(w, ctx.player, eff.allPlayers)) reduceRevive(p, eff.seconds);
     }
   }
   const targets = collectTargets(w, ctx, action.affects, center, origin, area);
@@ -348,6 +359,8 @@ function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: 
       cleanse(t.statuses);
       break;
     case 'swapCooldownReduce':
+    case 'benchHeal':
+    case 'reviveReduce':
       break; // applied once per action in applyEffects
   }
 }
@@ -450,13 +463,30 @@ function spawnSummons(w: World, ctx: CastCtx, summon: NonNullable<SkillAction['s
     const ang = (i / count) * Math.PI * 2 + w.rng.range(0, 0.6);
     const r = count === 1 ? 0 : SUMMON_SPREAD;
     const pos = clampToArena(w, { x: center.x + Math.cos(ang) * r, y: center.y + Math.sin(ang) * r });
+    const inherit = enemy ? null : inheritMults(w, ctx, summon, def);
     const e = createUnit(w, def, pos, ctx.team, {
       kind: 'summon',
       ownerPlayer: enemy ? null : ctx.player,
       expiresIn: summon.duration > 0 ? summon.duration : null,
-      hpMult: enemy ? s.plan.statMult * w.tunables.monsterHpMult : 1,
-      atkMult: enemy ? s.plan.statMult : 1,
+      hpMult: enemy ? s.plan.statMult * w.tunables.monsterHpMult : (inherit?.hp ?? 1),
+      atkMult: enemy ? s.plan.statMult : (inherit?.atk ?? 1),
     });
+    if (!enemy && ctx.slot !== 'monster') e.rt.summonSlot = ctx.slot;
     emit(w, { type: 'spawn', entityId: e.id, pos: copy(e.pos), tier: e.tier as Exclude<typeof e.tier, 'character'> });
   }
+}
+
+/**
+ * 기획 12차 (종이 인형): SkillAction.summon.inherit → hp/atk multipliers so the summon gets inherit.hp × the caster's
+ * effective max HP and inherit.atk × its atk. Null when not inheriting or the caster is gone.
+ */
+function inheritMults(w: World, ctx: CastCtx, summon: NonNullable<SkillAction['summon']>, def: MonsterDef): { hp: number; atk: number } | null {
+  if (!summon.inherit) return null;
+  const caster = getEntity(w, ctx.casterId ?? ctx.selfId);
+  if (!caster) return null;
+  const st = effStats(w, caster);
+  return {
+    hp: (st.maxHp * summon.inherit.hp) / Math.max(1, def.stats.maxHp),
+    atk: def.stats.atk > 0 ? (st.atk * summon.inherit.atk) / def.stats.atk : 1,
+  };
 }

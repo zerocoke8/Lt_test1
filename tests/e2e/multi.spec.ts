@@ -5,7 +5,8 @@
 // rewards (all three must choose) → B's page closes (slot → BOT) → B opens the link again on the same device (back in
 // its seat, in control) → a member quits → the host ends the run → result → room → the host leaves the room (host
 // handoff: the next member can start). Plus: a 괴담 room (기획 10차: two pick, one idles until the server's room deadline),
-// a 1-human room (host + 2 bots, reload mid-game).
+// a 1-human room (host + 2 bots, reload mid-game). 기획 12차: a new healer picked on the preset screen reaches the server's
+// party; a forced 돌발 괴담 shows the same event at the same place on all three screens and a real drop wins the party reward.
 // Screenshots: docs/screenshots/multi-*.png (phone, @3x).
 
 import { expect, test, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test';
@@ -530,6 +531,144 @@ test('3 players: 괴담 room (기획 10차) — two choose, one idles → room d
     for (const p of all) await waitPhase(p.page, 'result', 15_000);
     await expect(C.page.locator('.rs-goedam-row')).toHaveText(['1½층 고장 난 자판기 — 그냥 지나갔다']);
     await expect(A.page.locator('.rs-goedam-row')).toHaveText([/^1½층 고장 난 자판기 — 버튼을 눌렀다/]);
+
+    const errors = all.flatMap(p => p.errors);
+    expect(errors, errors.join('\n')).toEqual([]);
+  } finally {
+    for (const p of all) await p.ctx.close().catch(() => {});
+  }
+});
+
+type FeEv = Extract<GameEvent, { type: 'fieldEventWarn' | 'fieldEventStart' | 'fieldEventEnd' }>;
+
+/** Record the 돌발 괴담 warn/start/end events this client receives (wraps the live game's drainEvents). */
+async function recordFieldEvents(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __fe: GameEvent[] };
+    w.__fe = [];
+    const g = window.__proto!.game!;
+    const orig = g.drainEvents.bind(g);
+    g.drainEvents = () => {
+      const evs = orig();
+      for (const e of evs) if (e.type === 'fieldEventWarn' || e.type === 'fieldEventStart' || e.type === 'fieldEventEnd') w.__fe.push(e);
+      return evs;
+    };
+  });
+}
+
+/** The same event as every screen sees it: id, spawn point, units, goal (positions of moving units are compared apart). */
+const eventView = (page: Page) =>
+  state<string>(page, `JSON.stringify(s.fieldEvent && { id: s.fieldEvent.id, pos: s.fieldEvent.pos, ids: s.fieldEvent.entityIds, total: s.fieldEvent.total, goal: s.fieldEvent.goal })`);
+
+/** Finger (client px) of a drop 1 unit left of the toad, when that spot is on this phone's field; else null. */
+const toadFinger = (page: Page) =>
+  page.evaluate(() => {
+    const api = window.__proto!;
+    const s = api.game!.state;
+    const toad = s.fieldEvent && s.entities.find(e => e.id === s.fieldEvent!.entityIds[0]);
+    if (!toad) return null;
+    const f = api.ui.fingerFor({ x: toad.pos.x - 1, y: toad.pos.y });
+    const canvas = document.querySelector('canvas.stage-canvas');
+    return document.elementFromPoint(f.x, f.y) === canvas && f.x > 40 && f.x < window.innerWidth - 40 ? f : null;
+  });
+
+test('3 players (기획 12차): B picks 메딕 on the preset screen; a forced 돌발 괴담 is the same on all three screens, a real drop catches it, every player gets the party reward', async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const A = await openPlayer(browser, 'A');
+  const B = await openPlayer(browser, 'B');
+  const C = await openPlayer(browser, 'C', { characters: ['exorcist', 'puppeteer', 'guardian'], pets: ['golem_turret', 'fairy_heal', 'drum_raccoon'] });
+  const all = [A, B, C];
+  try {
+    // ── B: swap the third character for the new healer 메딕 (real taps on the 5×3 preset grid) ──
+    await expect(B.page.locator('.ps-char')).toHaveCount(15);
+    await expect(B.page.locator('.ps-role-head')).toHaveText(['탱커', '근접딜러', '원거리딜러', '힐러', '서포터']);
+    await tap(B, '.ps-slot-row >> nth=0 >> .slot-chip >> nth=2'); // the chip removes that pick
+    await expect(B.page.locator('.ps-char.is-picked')).toHaveCount(2);
+    await tap(B, '.ps-char[aria-label^="메딕 · 힐러"]');
+    await expect(B.page.locator('.ps-char[aria-label^="메딕 · 힐러"]')).toHaveClass(/is-picked/);
+    await expect(B.page.locator('.ps-slot-row >> nth=0 >> .slot-name >> nth=2')).toHaveText('메딕');
+    const pickedB = await B.page.evaluate(() => JSON.parse(localStorage.getItem('swapTower.preset.v1') ?? 'null')?.characters ?? null);
+
+    await toLobby(A, '에이');
+    await tap(A, '.lb-create');
+    await waitPhase(A.page, 'room');
+    const code = (await A.page.evaluate(() => window.__proto!.net.roomCode))!;
+    for (const [p, nick] of [[B, '비'], [C, '씨']] as const) {
+      await toLobby(p, nick);
+      await p.page.locator('.lb-code-input').fill(code);
+      await tap(p, '.lb-join');
+      await waitPhase(p.page, 'room');
+    }
+    await tap(A, '.lb-start');
+    for (const p of all) await waitPhase(p.page, 'combat', 20_000);
+    // the server built the parties from each phone's preset: B carries 메딕, C the 퇴마사 + 퍼펫티어
+    const parties = await state<string[][]>(A.page, 's.players.map(p => p.party.map(m => m.defId))');
+    expect(parties[1][2]).toBe('medic');
+    if (pickedB) expect(parties[1]).toEqual(pickedB);
+    expect(parties[2]).toEqual(['exorcist', 'puppeteer', 'guardian']);
+
+    // host: only the forced event runs; a soft toad and no deaths so the catch never depends on real-time luck
+    const dbg = (action: object) => A.page.evaluate(a => window.__proto!.game!.dispatch({ type: 'debug', action: a as never }), action);
+    const tune = (patch: object) => A.page.evaluate(pa => window.__proto!.game!.dispatch({ type: 'tunables', patch: pa as never }), patch);
+    expect((await tune({ fieldEventChance: 0, invincible: true, monsterHpMult: 0.3 })).ok).toBe(true);
+    await B.page.waitForFunction(() => window.__proto!.game!.tunables.monsterHpMult === 0.3, undefined, { timeout: 5000 });
+    await sleep(800);
+    for (const p of all) await recordFieldEvents(p.page);
+    const ult0 = await state<number[]>(A.page, 's.players.map(p => p.ult.charge)');
+    expect((await dbg({ kind: 'fieldEventNext', id: 'lucky_toad' })).ok).toBe(true);
+
+    // ── the same event, at the same place, on all three screens ──
+    for (const p of all) await expect(p.page.locator('.fe-pill .fe-prog')).toHaveText('도망치는 금두꺼비');
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.fieldEvent?.stage === 'active', undefined, { timeout: 5000 });
+    for (const p of all) await expect(p.page.locator('.banner-event .banner-big')).toContainText('도망치는 금두꺼비');
+    const views = await Promise.all(all.map(p => eventView(p.page)));
+    expect(views[0]).not.toBe('null');
+    expect(views[1]).toBe(views[0]);
+    expect(views[2]).toBe(views[0]);
+    const starts = await Promise.all(all.map(p => p.page.evaluate(() => (window as unknown as { __fe: FeEv[] }).__fe.filter(e => e.type === 'fieldEventStart'))));
+    for (const s of starts) expect(s).toEqual([starts[0][0]]);
+    // the toad itself: one unit, tagged as a target, within a hop of the same spot on every screen (snapshots differ by ticks)
+    const toads = await Promise.all(
+      all.map(p => state<{ pos: { x: number; y: number }; eventTag: string }>(p.page, `(() => { const e = s.entities.find(x => x.id === s.fieldEvent.entityIds[0]); return { pos: e.pos, eventTag: e.eventTag }; })()`)),
+    );
+    for (const t of toads) {
+      expect(t.eventTag).toBe('target');
+      expect(Math.hypot(t.pos.x - toads[0].pos.x, t.pos.y - toads[0].pos.y)).toBeLessThan(3.5);
+    }
+    await shot(B, 'combat-event-multi');
+
+    // ── a real touch drop next to the toad by whoever has it on screen (repeat with the next ready card if it got away) ──
+    const deadline = Date.now() + 22_000;
+    while (Date.now() < deadline && (await state<boolean>(A.page, 's.fieldEvent !== null'))) {
+      for (const p of all) {
+        const finger = await toadFinger(p.page);
+        const idx = await p.page.evaluate(() => {
+          const api = window.__proto!;
+          const me = api.game!.state.players[api.localPlayer];
+          return [0, 1, 2].find(i => i !== me.activeIndex && api.game!.canSwap(api.localPlayer, i).ok) ?? null;
+        });
+        if (!finger || idx == null) continue;
+        await touchDrag(p, await center(p.page, `.ccard[data-idx="${idx}"]`), finger);
+        break;
+      }
+      await sleep(1500);
+    }
+
+    // ── success reached every phone, and every (not-out) player got ult +40% ──
+    for (const p of all) {
+      const end = await p.page.waitForFunction(() => (window as unknown as { __fe: FeEv[] }).__fe.find(e => e.type === 'fieldEventEnd') || null, undefined, { timeout: 10_000 });
+      expect(((await end.jsonValue()) as Extract<FeEv, { type: 'fieldEventEnd' }>).success).toBe(true);
+    }
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.fieldEvent === null, undefined, { timeout: 5000 });
+    const after = await Promise.all(all.map(p => state<{ ult: number[]; credits: number }>(p.page, `({ ult: s.players.map(p => p.ult.charge), credits: s.players.reduce((n, p) => n + p.stats.fieldEvents, 0) })`)));
+    for (const a of after) {
+      // humans never fire the ult by themselves, so each gauge holds the reward
+      a.ult.forEach((u, i) => expect(u).toBeGreaterThanOrEqual(Math.min(1, ult0[i] + 0.4) - 1e-6));
+      expect(a.credits).toBe(1);
+    }
+    await shot(A, 'combat-event-multi-success');
 
     const errors = all.flatMap(p => p.errors);
     expect(errors, errors.join('\n')).toEqual([]);

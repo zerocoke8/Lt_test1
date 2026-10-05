@@ -31,8 +31,9 @@ export function makeGame(opts: { seed?: number; players?: PlayerSetup[]; tunable
   const { game, world } = createGameWithWorld({
     seed: opts.seed ?? 1234,
     players: opts.players ?? [HUMAN],
-    // 기획 10차: 괴담 rooms off unless a test turns them on (most tests cross floors 2–4 and expect the next floor)
-    tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, ...(opts.tunables ?? {}) },
+    // 기획 10차: 괴담 rooms off unless a test turns them on (most tests cross floors 2–4 and expect the next floor);
+    // 기획 12차: 돌발 괴담 off too (explicit, like the rooms) — tests/sim/field-events.test.ts turns them on
+    tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, fieldEventChance: 0, ...(opts.tunables ?? {}) },
     startFloor: opts.startFloor,
   });
   const tg: TestGame = { game, w: world, events: [] };

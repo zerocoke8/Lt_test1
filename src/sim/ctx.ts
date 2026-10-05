@@ -1,10 +1,10 @@
 // Cast-context factories: snapshot caster stats + reward/relic multipliers at cast time.
 
-import type { BossDef, PetDef, SkillSlot, Vec2 } from '../types';
+import type { BossDef, DamageSource, PetDef, SkillDef, SkillSlot, Vec2 } from '../types';
 import { TURRET_POWER } from './constants';
 import { hasRelic, relicParam, skillMod } from './modifiers';
 import { effStats, petPower } from './stats';
-import { copy, getEntity, type CastCtx, type SimEntity, type SimPlayer, type World } from './world';
+import { copy, dist, getEntity, isAlive, type CastCtx, type SimEntity, type SimPlayer, type World } from './world';
 
 type RewardSlot = 'normal' | 'drag' | 'ult' | 'basic';
 const REWARD_SLOTS: readonly SkillSlot[] = ['normal', 'drag', 'ult', 'basic'];
@@ -37,10 +37,66 @@ export function charCtx(w: World, e: SimEntity, slot: SkillSlot, skill: { id: st
     point: null,
     targetId: t?.id ?? null,
     targetPos: t ? copy(t.pos) : null,
+    allyTargetId: woundedAllyFor(w, e, slot),
     origin: copy(e.pos),
     isDrag: slot === 'drag',
     summonMult: 1,
   };
+}
+
+// ─────────────────────────── 기획 12차: woundedAlly (메딕 응급 주사) ───────────────────────────
+
+/** Only allies below this HP ratio are worth a woundedAlly cast (else the normal skill keeps its cooldown). */
+export const WOUNDED_ALLY_HP_FRAC = 0.9;
+
+/** Who a woundedAlly skill may pick: ally characters of every player, and (기획 12차 돌발 괴담) the sleeping patient. */
+export function isWoundedAllyCandidate(e: SimEntity): boolean {
+  return e.team === 'ally' && (e.kind === 'character' || (e.eventTag === 'ward' && e.defId === PATIENT_UNIT));
+}
+
+/** 기획 12차: the 깨어나지 않는 환자 unit (src/data/fieldEvents.ts FIELD_EVENT_UNIT.sleeping_patient). */
+const PATIENT_UNIT = 'fe_patient';
+
+/** The ally with the lowest hp/maxHp below 90 % within castRange (edge distance) of the caster; ties → nearer. */
+export function findWoundedAlly(w: World, caster: SimEntity, castRange: number): SimEntity | null {
+  let best: SimEntity | null = null;
+  let bestRatio = Infinity;
+  let bestD = Infinity;
+  for (const e of w.state.entities) {
+    if (!isAlive(e) || e.team !== caster.team || !isWoundedAllyCandidate(e)) continue;
+    if (!(e.hp < WOUNDED_ALLY_HP_FRAC * e.maxHp)) continue;
+    const d = dist(caster.pos, e.pos) - e.radius;
+    if (d > castRange) continue;
+    const ratio = e.hp / e.maxHp;
+    if (ratio < bestRatio - 1e-9 || (Math.abs(ratio - bestRatio) <= 1e-9 && d < bestD)) {
+      best = e;
+      bestRatio = ratio;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/** The skill of `slot` has a woundedAlly action (only those look for an ally at cast time). */
+export function usesWoundedAlly(skill: SkillDef | null | undefined): boolean {
+  return !!skill && skill.actions.some(a => a.center === 'woundedAlly');
+}
+
+function woundedAllyFor(w: World, e: SimEntity, slot: SkillSlot): number | null {
+  const def = e.rt.charDef;
+  if (!def || (slot !== 'normal' && slot !== 'drag' && slot !== 'ult')) return null;
+  const skill = def[slot];
+  if (!usesWoundedAlly(skill)) return null;
+  return findWoundedAlly(w, e, skill.castRange ?? 99)?.id ?? null;
+}
+
+/**
+ * 기획 12차: what an ally summon's hits count as. A summon left by a character skill (종이 인형 from 대역 인형) counts
+ * under that skill's slot (its burst is part of the drag skill's value); pet turrets and the rest stay 'summon'.
+ */
+function summonSource(e: SimEntity): DamageSource {
+  const slot = e.rt.summonSlot;
+  return slot === 'normal' || slot === 'drag' || slot === 'ult' ? slot : 'summon';
 }
 
 /** Monsters, bosses and ally summons. */
@@ -65,7 +121,7 @@ export function unitCtx(w: World, e: SimEntity, skillId: string, name: string): 
     player: e.team === 'ally' ? e.ownerPlayer : null,
     partyIndex: null,
     slot: 'monster',
-    source: e.team === 'ally' ? 'summon' : 'basic',
+    source: e.team === 'ally' ? summonSource(e) : 'basic',
     skillId,
     name,
     atk,
@@ -78,6 +134,7 @@ export function unitCtx(w: World, e: SimEntity, skillId: string, name: string): 
     point: null,
     targetId: t?.id ?? null,
     targetPos: t ? copy(t.pos) : null,
+    allyTargetId: null,
     origin: copy(e.pos),
     isDrag: false,
     summonMult,
@@ -107,6 +164,7 @@ export function petCtx(w: World, p: SimPlayer, def: PetDef, point: Vec2): CastCt
     point: copy(point),
     targetId: null,
     targetPos: null,
+    allyTargetId: null,
     origin: copy(point),
     isDrag: false,
     summonMult: 1,

@@ -160,6 +160,8 @@ interface DashFx {
 }
 
 export { DASH_LAND };
+/** 기획 12차: min seconds between two 흡혼 wisps from the same enemy. */
+const DRAIN_WISP_GAP = 0.3;
 const DASH_TRAIL_FADE = 0.5;
 
 /** A character dropping in (swap): touchdown visuals at `land`; my drag landing also kicks (hit-stop + shake) at `impact`. */
@@ -290,6 +292,8 @@ export class Vfx implements FxHost {
   /** Last number spawned per target (any kind): a near-simultaneous one is stacked above it. */
   private lastSpawn = new Map<number, Floater>();
   private heals = new Map<number, HealAcc>();
+  /** 기획 12차 흡혼: last red wisp per marked enemy (clock), at most one per DRAIN_WISP_GAP. */
+  private drainWisps = new Map<number, number>();
   private teles = new Map<number, TeleSnap>();
   private teleStamp = 0;
 
@@ -350,6 +354,7 @@ export class Vfx implements FxHost {
           this.healMotes(ev.pos.x, ev.pos.y, c.memos.get(ev.targetId)!);
           break;
         }
+        if (ev.from != null) this.drainWisp(ev.from, ev.targetId, c);
         const acc = this.heals.get(ev.targetId);
         if (acc) {
           acc.amount += ev.amount;
@@ -877,6 +882,21 @@ export class Vfx implements FxHost {
   }
 
   /** Green motes rising off a healed monster (+ a tiny cross sparkle). */
+  /** 기획 12차 흡혼 표식: a red soul-wisp from the marked enemy to the ally it healed (throttled per enemy). */
+  private drainWisp(fromId: number, toId: number, c: VfxContext): void {
+    const from = c.memos.get(fromId);
+    const to = c.memos.get(toId);
+    if (!from || !to) return;
+    const last = this.drainWisps.get(fromId);
+    if (last != null && this.clock - last < DRAIN_WISP_GAP) return;
+    this.drainWisps.set(fromId, this.clock);
+    if (this.drainWisps.size > 64) this.drainWisps.clear();
+    const o = this.sfx.add(Fx.Orb, from.x, from.y, 0.32, '#e5383b', 0.75);
+    o.x2 = to.x;
+    o.y2 = to.y;
+    o.z = 0.7;
+  }
+
   private healMotes(x: number, y: number, m: UnitMemo): void {
     const z = bodyHeight(m.look, m.radius) / PX_PER_UNIT_Z;
     for (let i = 0; i < 5; i++) {

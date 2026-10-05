@@ -61,7 +61,7 @@ function stats(): ContributionStats {
   return {
     damageDealt: 0, damageToBoss: 0, damageTaken: 0, healing: 0, kills: 0, swaps: 0, ultsUsed: 0, petsUsed: 0,
     damageBySource: { basic: 0, passive: 0, normal: 0, drag: 0, ult: 0, pet: 0, relic: 0, zone: 0, summon: 0 },
-    ultDelayTotal: 0, ultDelayCount: 0,
+    ultDelayTotal: 0, ultDelayCount: 0, fieldEvents: 0,
   };
 }
 
@@ -97,7 +97,7 @@ function baseState(floor: number, kind: 'normal' | 'boss', w: number, theme: Flo
     seed: 7, tick: 1, time: 10, phase: 'combat', floor,
     plan: { floor, kind, timeLimit: 120, arena: { width: w, height: 12 }, statMult: 1, waves: [], theme, ...(bossId ? { bossId } : {}) },
     floorTime: 10, timeRemaining: 100, entities: [], players: [], telegraphs: [], zones: [], projectiles: [], bossId: null,
-    bossEnraged: false, wavesRemaining: 1, monstersAlive: 0, midBossSpawned: true, rewardOffers: null, rewardOffersByPlayer: [], goedam: null, runResult: null,
+    bossEnraged: false, wavesRemaining: 1, monstersAlive: 0, midBossSpawned: true, rewardOffers: null, rewardOffersByPlayer: [], goedam: null, fieldEvent: null, runResult: null,
   };
 }
 

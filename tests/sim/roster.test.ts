@@ -5,23 +5,25 @@ import { hitsArea, scaleArea } from '../../src/sim/geometry';
 import { advance, makeGame, quietFloor, spawnAt } from './helpers';
 
 const OLD = ['guardian', 'blade', 'berserker', 'ranger', 'mage', 'cleric'];
-const NEW = ['paladin', 'warden', 'shadow', 'gunner', 'bard', 'chrono'];
+const NEW = ['paladin', 'warden', 'shadow', 'gunner', 'bard', 'chrono', 'medic', 'exorcist', 'puppeteer'];
 const HANGUL = /[가-힣]/;
 
 function enemyActions(a: readonly SkillAction[]): SkillAction[] {
   return a.filter(x => x.affects === 'enemies');
 }
 
-describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
-  it('exactly the 12 ids, unique, 3 per role, ordered by role', () => {
-    expect(CHARACTERS).toHaveLength(12);
+describe('R25 roster: 15 characters, 3 per role (기획 3차 1, 기획 12차: 5 roles)', () => {
+  it('exactly the 15 ids, unique, 3 per role, ordered by role', () => {
+    expect(CHARACTERS).toHaveLength(15);
     const ids = CHARACTERS.map(c => c.id);
-    expect(new Set(ids).size).toBe(12);
+    expect(new Set(ids).size).toBe(15);
     expect([...ids].sort()).toEqual([...OLD, ...NEW].sort());
-    const per: Record<Role, number> = { tank: 0, melee: 0, ranged: 0, support: 0 };
+    const per: Record<Role, number> = { tank: 0, melee: 0, ranged: 0, healer: 0, support: 0 };
     for (const c of CHARACTERS) per[c.role]++;
-    expect(per).toEqual({ tank: 3, melee: 3, ranged: 3, support: 3 });
-    const order: Role[] = ['tank', 'melee', 'ranged', 'support'];
+    expect(per).toEqual({ tank: 3, melee: 3, ranged: 3, healer: 3, support: 3 });
+    expect(CHARACTERS.filter(c => c.role === 'healer').map(c => c.id)).toEqual(['cleric', 'medic', 'exorcist']);
+    expect(CHARACTERS.filter(c => c.role === 'support').map(c => c.id)).toEqual(['bard', 'chrono', 'puppeteer']);
+    const order: Role[] = ['tank', 'melee', 'ranged', 'healer', 'support'];
     const roles = CHARACTERS.map(c => order.indexOf(c.role));
     expect(roles).toEqual([...roles].sort((a, b) => a - b));
   });
@@ -49,7 +51,7 @@ describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
       colors.add(c.color.toLowerCase());
       for (const a of c.drag.actions) expect(['point', 'self']).toContain(a.center);
     }
-    expect(colors.size).toBe(12);
+    expect(colors.size).toBe(15);
   });
 
   it('every drag skill has a non-circle shape, except cleric (circle heal zone) and mage (multi-circle meteors)', () => {
@@ -58,7 +60,7 @@ describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
       if (c.id === 'cleric') {
         expect(shapes.every(s => s === 'circle')).toBe(true);
         expect(c.drag.actions.some(a => a.zone)).toBe(true);
-      } else if (c.id === 'mage' || c.id === 'shadow') {
+      } else if (c.id === 'mage' || c.id === 'shadow' || c.id === 'puppeteer') {
         // several circles at fixed offsets / delays
         const offs = c.drag.actions.map(a => `${a.offset?.x ?? 0},${a.offset?.y ?? 0}`);
         expect(new Set(offs).size).toBe(c.drag.actions.length);
@@ -105,7 +107,11 @@ describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
     expect(getCharacter('chrono').drag.actions.some(a => a.effects.some(e => e.kind === 'swapCooldownReduce' && e.seconds > 0))).toBe(true);
     // cooldowns after the drag-skill balance pass (docs/balance.md: stronger per cast → longer cooldown)
     const cds = Object.fromEntries(CHARACTERS.map(c => [c.id, c.swapCooldown]));
-    expect(cds).toEqual({ guardian: 10, paladin: 11, warden: 10, blade: 10, berserker: 11, shadow: 9, ranger: 10, mage: 12, gunner: 10, cleric: 9, bard: 9, chrono: 9 });
+    expect(cds).toEqual({ guardian: 10, paladin: 11, warden: 10, blade: 10, berserker: 11, shadow: 9, ranger: 10, mage: 12, gunner: 10, cleric: 9, medic: 9, exorcist: 10, bard: 9, chrono: 9, puppeteer: 11 });
+    // 기획 12차
+    expect(first('medic')).toEqual({ shape: 'cross', length: 3.5, width: 1.6 });
+    expect(first('exorcist')).toEqual({ shape: 'ring', inner: 0.8, outer: 3.5 });
+    expect(getCharacter('puppeteer').drag.actions.map(a => a.offset)).toEqual([{ x: -2.5, y: 0 }, { x: 2.5, y: 0 }]);
   });
 
   it('directional drag descriptions name their direction', () => {
@@ -121,6 +127,9 @@ describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
       chrono: /X자|대각선/,
       warden: /고리/,
       mage: /다섯/,
+      medic: /십자|\+/,
+      exorcist: /고리/,
+      puppeteer: /좌우/,
     };
     for (const [id, re] of Object.entries(word)) expect(getCharacter(id).drag.description).toMatch(re);
   });
@@ -129,7 +138,7 @@ describe('R25 roster: 12 characters, 3 per role (기획 3차 1)', () => {
     const ids = CHARACTERS.map(c => c.id);
     const tg = makeGame({
       seed: 77,
-      players: [0, 1, 2, 3].map(i => ({ name: `P${i}`, isBot: false, characters: ids.slice(i * 3, i * 3 + 3), pets: ['frog_bomb', 'owl_frost', 'fairy_heal'] })),
+      players: [0, 1, 2, 3, 4].map(i => ({ name: `P${i}`, isBot: false, characters: ids.slice(i * 3, i * 3 + 3), pets: ['frog_bomb', 'owl_frost', 'fairy_heal'] })),
       tunables: { invincible: true },
     });
     quietFloor(tg);

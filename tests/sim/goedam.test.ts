@@ -609,13 +609,17 @@ describe('goedam baseline', () => {
     const tg = makeGame({ seed: 31337, players: [HUMAN, BOT1], tunables: { goedamRoomsPerZone, maxFloor: 12, monsterHpMult: 0.15 } });
     const s = tg.w.state;
     let rooms = 0;
-    for (let t = 0; t < 30 * 60 * 8 && s.phase !== 'runOver'; t++) {
+    // the budget counts combat ticks only (a room handled in one loop step must not cost the 'on' run a tick)
+    for (let t = 0; t < 30 * 60 * 8 && s.phase !== 'runOver'; ) {
       if (s.phase === 'reward') pickRewards(tg);
       else if (s.phase === 'goedam') {
         rooms++;
         pick(tg, 0, 'leave');
         pick(tg, 0, 'continue');
-      } else tick(tg.w);
+      } else {
+        tick(tg.w);
+        t++;
+      }
       tg.game.drainEvents();
     }
     const state = JSON.stringify(s, (k, v) => (k === 'rt' || k === 'goedamLog' ? undefined : v));

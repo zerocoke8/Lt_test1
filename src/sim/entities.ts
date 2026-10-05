@@ -4,6 +4,7 @@ import type { MonsterDef, Team, Vec2 } from '../types';
 import { getCharacter } from '../data';
 import { ARENA_MARGIN, CHAR_RADIUS, SKILL_START_JITTER } from './constants';
 import { benchMaxHp, effStats } from './stats';
+import type { Rng } from './rng';
 import { addEntity, arena, clamp, copy, newId, type SimEntity, type SimPlayer, type World } from './world';
 
 const FAR = 1e9;
@@ -13,15 +14,17 @@ export function createUnit(
   def: MonsterDef,
   pos: Vec2,
   team: Team,
-  opts: { kind: 'monster' | 'summon'; ownerPlayer: number | null; expiresIn: number | null; hpMult: number; atkMult: number },
+  opts: { kind: 'monster' | 'summon'; ownerPlayer: number | null; expiresIn: number | null; hpMult: number; atkMult: number; rng?: Rng },
 ): SimEntity {
   const base = { ...def.stats, maxHp: def.stats.maxHp * opts.hpMult, atk: def.stats.atk * opts.atkMult };
-  const attackCd = w.rng.range(0.2, 0.8);
+  // 기획 12차: 돌발 괴담 units roll on the event's own stream (opts.rng) so the run rng keeps its order
+  const rng = opts.rng ?? w.rng;
+  const attackCd = rng.range(0.2, 0.8);
   // 기획 8차 리뷰: normal monsters that spawn together (a wave group, a summon) would cast in lockstep forever (two
   // eye-stalk fans with identical timers → one red blob). Their first cast comes up to SKILL_START_JITTER later.
   const skillCds = (def.skills ?? []).map(s => s.initialDelay ?? s.cooldown);
   if (def.tier === 'normal') {
-    for (let i = 0; i < skillCds.length; i++) skillCds[i] += w.rng.range(0, Math.min(SKILL_START_JITTER, 0.35 * def.skills![i].cooldown));
+    for (let i = 0; i < skillCds.length; i++) skillCds[i] += rng.range(0, Math.min(SKILL_START_JITTER, 0.35 * def.skills![i].cooldown));
   }
   const e: SimEntity = {
     id: newId(w),

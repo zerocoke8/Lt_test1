@@ -4,11 +4,13 @@ import { PETS } from './pets';
 import { BOSSES, MONSTERS } from './monsters';
 import { REWARDS } from './rewards';
 import { RELICS } from './relics';
+import { FIELD_EVENT_UNITS } from './fieldEvents';
 
 export { CHARACTERS, PETS, MONSTERS, BOSSES, REWARDS, RELICS };
 export { NORMAL_MONSTER_IDS, MID_BOSS_IDS, BOSS_IDS } from './monsters';
 export { RARITY_WEIGHTS, RARITY_LABEL, RARITY_COLOR } from './rewards';
 export * from './goedam';
+export * from './fieldEvents';
 
 function index<T extends { id: string }>(list: T[], what: string): (id: string) => T {
   const map = new Map(list.map(x => [x.id, x]));
@@ -23,7 +25,8 @@ export const getCharacter = index<CharacterDef>(CHARACTERS, 'character');
 export const getPet = index<PetDef>(PETS, 'pet');
 export const getReward = index<RewardDef>(REWARDS, 'reward');
 export const getRelic = index<RelicDef>(RELICS, 'relic');
-const monsterOrBoss = index<MonsterDef>([...MONSTERS, ...BOSSES], 'monster');
+// 기획 12차: 돌발 괴담 units resolve by id too (they are not in MONSTERS, so wave pools / roster tests never see them)
+const monsterOrBoss = index<MonsterDef>([...MONSTERS, ...BOSSES, ...FIELD_EVENT_UNITS], 'monster');
 export const getMonster = (id: string): MonsterDef => monsterOrBoss(id);
 export const getBoss = index<BossDef>(BOSSES, 'boss');
 
@@ -31,5 +34,6 @@ export const ROLE_LABEL: Record<CharacterDef['role'], string> = {
   tank: '탱커',
   melee: '근접딜러',
   ranged: '원거리딜러',
+  healer: '힐러', // 기획 12차
   support: '서포터',
 };

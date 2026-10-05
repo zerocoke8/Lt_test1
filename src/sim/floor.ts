@@ -6,6 +6,7 @@ import { getBoss, getMonster } from '../data';
 import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVES } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
+import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvents';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { revive, syncMembers } from './players';
 import { applyOffer, rollOffers } from './rewards';
@@ -99,6 +100,8 @@ function makeSpawnPoints(w: World): Vec2[] {
  */
 export function startFloor(w: World, n: number, reappear: boolean): void {
   const s = w.state;
+  // 기획 12차: a leftover 돌발 괴담 (debug jump) fails quietly, logged under the floor it was on
+  closeFieldEvent(w);
   for (const e of s.entities) if (e.kind !== 'character') e.rt.gone = true;
   compactEntities(w);
   s.telegraphs.length = 0;
@@ -119,6 +122,8 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   w.enragedEmptyTime = 0;
   s.phase = 'combat';
   w.spawner = { points: s.plan.kind === 'normal' ? makeSpawnPoints(w) : [], nextWave: 0, pending: [], kills: 0, midTriggered: false, deferred: [] };
+  // 기획 12차: this floor's 돌발 괴담 is planned on its own stream
+  startFloorFieldEvent(w);
 
   for (const p of s.players) {
     if (p.rt.rejoinNextFloor) {
@@ -177,6 +182,7 @@ function spawnPending(w: World, ps: PendingSpawn): void {
     atkMult: s.plan.statMult,
   });
   if (ps.mid) s.midBossSpawned = true;
+  if (ps.printed) notePrinted(w, e);
   emit(w, { type: 'spawn', entityId: e.id, pos: copy(e.pos), tier: def.tier === 'mid' ? 'mid' : 'normal' });
 }
 
@@ -316,6 +322,8 @@ export function floorClear(w: World): void {
   s.zones.length = 0;
   s.zones.push(...zones);
   for (const e of s.entities) if (e.team === 'enemy') e.rt.gone = true;
+  // 기획 12차: an unfinished 돌발 괴담 fails quietly; its units (also the ally-side patient / child) go
+  closeFieldEvent(w);
   compactEntities(w);
   s.monstersAlive = 0;
   s.wavesRemaining = 0;

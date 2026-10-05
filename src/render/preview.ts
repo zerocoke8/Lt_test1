@@ -3,8 +3,9 @@
 // arrows / chevrons along fixed directions, a start→end arrow for dashes, numbered order for delayed multi-hits.
 // Pure drawing over (DragPreview, arena); geometry comes from sim/geometry so the picture equals the hit test.
 
-import type { AreaShape, DragPreview, PreviewPart, Vec2 } from '../types';
+import type { AreaShape, DragPreview, GameState, PreviewPart, Vec2 } from '../types';
 import { DIR_VEC, areaCentroid, dashEnd, rectFrame } from '../sim/geometry';
+import { dropOutcome } from '../sim/fieldEventPreview';
 import { Camera } from './camera';
 import { boldFont } from './look';
 import { TAU, addAreaPath, drawGroundArrow, drawGroundChevrons, fanFrame, groundEllipse, pathArea } from './shapes';
@@ -317,4 +318,69 @@ export function drawPreviewBadges(ctx: CanvasRenderingContext2D, cam: Camera, dp
 export function pathPreviewUnion(ctx: CanvasRenderingContext2D, cam: Camera, dp: DragPreview): void {
   ctx.beginPath();
   for (const p of previewDrawParts(dp)) addAreaPath(ctx, cam, p.center, null, p.part.area, 1);
+}
+
+// ─────────────────────────── 기획 12차: 돌발 괴담 drop highlights ───────────────────────────
+// What this drop would do to the running event, from the same pure function the sim runs when it lands
+// (sim/fieldEventPreview.ts dropOutcome): lock-on target glow + check, lamp '켜기', the child blinking red '깨요!',
+// the shaft's rim lighting up under a pull / push. The dragger's own screen only (like the rest of the preview).
+
+const FE_GOLD = '#ffd166';
+
+export function drawFieldEventPreview(ctx: CanvasRenderingContext2D, cam: Camera, state: GameState, dp: DragPreview, player: number, time: number): void {
+  if (!state.fieldEvent || state.fieldEvent.stage !== 'active' || dp.index == null || !dp.valid) return;
+  const out = dropOutcome(state, player, dp.kind, dp.index, dp.pos);
+  if (!out) return;
+  const ev = state.fieldEvent;
+  const pulse = 0.6 + 0.4 * Math.sin(time * 10);
+  const unit = (id: number) => state.entities.find(e => e.id === id && e.hp > 0);
+  const lockIds = new Set(out.hitTargetIds);
+  if (out.lockTargetId != null) lockIds.add(out.lockTargetId);
+  for (const id of lockIds) {
+    const t = unit(id);
+    if (!t) continue;
+    feRing(ctx, cam, t.pos, t.radius + 0.7, FE_GOLD, pulse, 5);
+    feLabel(ctx, cam.sx(t.pos.x), cam.sy(t.pos.y) + 26, out.lockTargetId === id ? '✓ 잡기' : '✓ 약점', FE_GOLD);
+  }
+  for (const i of out.lamps) {
+    const m = ev.marks[i];
+    if (!m) continue;
+    feRing(ctx, cam, m.pos, m.radius, '#fff3b0', pulse, 5);
+    feLabel(ctx, cam.sx(m.pos.x), cam.sy(m.pos.y) + 24, '켜기', FE_GOLD);
+  }
+  if (out.startle) {
+    const ch = unit(ev.entityIds[0]);
+    if (ch && Math.sin(time * 18) > -0.2) {
+      feRing(ctx, cam, ch.pos, ch.radius + 0.6, '#ff4d4d', 1, 5);
+      feLabel(ctx, cam.sx(ch.pos.x), cam.sy(ch.pos.y) + 24, '깨요!', '#ff6b6b');
+    }
+  }
+  if (out.holeCovered && ev.marks[0]) feRing(ctx, cam, ev.marks[0].pos, ev.marks[0].radius, '#ffffff', pulse, 6);
+  ctx.globalAlpha = 1;
+}
+
+function feRing(ctx: CanvasRenderingContext2D, cam: Camera, p: Vec2, r: number, color: string, alpha: number, width: number): void {
+  if (!cam.visibleX(p.x, r + 1)) return;
+  ctx.beginPath();
+  groundEllipse(ctx, cam, p.x, p.y, r);
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = width + 3;
+  ctx.strokeStyle = '#05060a';
+  ctx.stroke();
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function feLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string): void {
+  ctx.font = boldFont(22);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#05060a';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
 }

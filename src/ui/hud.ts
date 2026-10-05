@@ -27,6 +27,7 @@ import { ultChargeTimeFor } from '../sim/players';
 import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
+import { FieldEventHud } from './fieldEventHud';
 
 /** Solo runs: the human is player 0. Multiplayer passes the server slot as HudOptions.localPlayer. */
 export const LOCAL_PLAYER = 0;
@@ -50,6 +51,9 @@ const TIP_MS = 9000;
 const CUT_MIN = 0.4;
 /** HUD trace chips shown before '+n' (기획 10차 5-2). */
 const TRACE_CHIPS = 4;
+
+/** 기획 12차: bench heals below this many HP (메딕 대기실 간호 ticks) only glow, no '+N'. */
+const BENCH_HEAL_POP_MIN = 10;
 
 interface SheetRow {
   kind: SkillRowKind;
@@ -265,6 +269,8 @@ export class Hud {
   private tracesKey = '';
   private covered = false;
   private readonly pendingToasts: string[] = [];
+  /** 기획 12차: 돌발 괴담 pill / banner / toasts / reward pulses (ui/fieldEventHud.ts). */
+  private fieldEvent!: FieldEventHud;
 
   constructor(layer: HTMLElement, game: Game, cb: HudCallbacks, opts: HudOptions = {}) {
     this.game = game;
@@ -437,6 +443,12 @@ export class Hud {
 
     this.toaster = createToaster(this.root, 'toasts-hud');
     this.prevDead = me.party.map(m => m.dead);
+    // 기획 12차: the 돌발 괴담 pill sits under the floor box (inside hud-tc)
+    this.fieldEvent = new FieldEventHud(tc, this.bannerBox, {
+      localPlayer: this.localPlayer,
+      toast: (text, kind) => this.toast(text, kind),
+      pulseTargets: () => ({ ult: this.ult, pets: this.petCards.map(c => c.el), chars: this.charCards.map(c => c.el), traces: this.traces }),
+    });
   }
 
   destroy(): void {
@@ -668,6 +680,18 @@ export class Hud {
     this.charCards.forEach((c, i) => c.el.classList.toggle('is-dragging', kind === 'swap' && i === index));
     this.petCards.forEach((c, i) => c.el.classList.toggle('is-dragging', kind === 'pet' && i === index));
     this.root.classList.toggle('is-drag', !!kind);
+    this.benchHealChips(kind === 'swap' ? index : null);
+  }
+
+  /** 기획 12차 (메딕): while a bench-healing card is dragged, the other cards (= the bench after the swap) show '+N%'. */
+  private benchHealChips(dragged: number | null): void {
+    const def = dragged != null ? this.charCards[dragged]?.def : undefined;
+    const eff = def?.drag.actions.flatMap(a => a.effects).find(e => e.kind === 'benchHeal');
+    const text = eff?.kind === 'benchHeal' ? `+${Math.round(eff.amount * 100)}%` : '';
+    this.charCards.forEach((c, i) => {
+      if (text && i !== dragged) c.el.dataset.benchHeal = text;
+      else delete c.el.dataset.benchHeal;
+    });
   }
 
   // ─────────────────────────── events ───────────────────────────
@@ -758,6 +782,10 @@ export class Hud {
             else this.toast(text, 'info');
           }
           break;
+        case 'benchHeal':
+          // 기획 12차 (메딕): my bench card got healed — portrait glows green, '+N' floats up (small regen ticks: glow only)
+          if (e.player === this.localPlayer) this.benchHealPop(e.partyIndex, e.amount);
+          break;
         case 'playerOut':
           if (e.player !== this.localPlayer) this.toast(`${s.players[e.player]?.name ?? '플레이어'} 사망 · 관전 중`, 'warn');
           break;
@@ -775,6 +803,16 @@ export class Hud {
           break;
       }
     }
+  }
+
+  /** 기획 12차: a bench card healed by 메딕 (no entity on the field, so the card itself shows it). */
+  private benchHealPop(idx: number, amount: number): void {
+    const card = this.charCards[idx];
+    if (!card) return;
+    replayClass(card.por, 'is-bench-heal');
+    if (amount < BENCH_HEAL_POP_MIN) return;
+    const pop = h('span', 'cc-heal-pop', card.el, `+${Math.round(amount)}`);
+    setTimeout(() => pop.remove(), 900);
   }
 
   // ─────────────────────────── per-frame ───────────────────────────
@@ -799,6 +837,7 @@ export class Hud {
       }
       this.prevDead[i] = m.dead;
     });
+    this.fieldEvent.update(s, events); // 기획 12차
     const now = performance.now();
     if (!force && now - this.lastDom < DOM_INTERVAL_MS) return;
     const dt = Math.min(0.2, (now - this.lastDom) / 1000);
