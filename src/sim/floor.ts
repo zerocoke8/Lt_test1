@@ -6,6 +6,7 @@ import { getBoss, getMonster } from '../data';
 import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVES } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
+import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { revive, syncMembers } from './players';
 import { applyOffer, rollOffers } from './rewards';
 import type { Rng } from './rng';
@@ -113,6 +114,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   s.midBossSpawned = false;
   s.wavesRemaining = s.plan.waves.length;
   clearRewardOffers(w);
+  s.goedam = null;
   w.bossRetreat = false;
   w.enragedEmptyTime = 0;
   s.phase = 'combat';
@@ -318,6 +320,9 @@ export function floorClear(w: World): void {
   s.monstersAlive = 0;
   s.wavesRemaining = 0;
 
+  // 기획 10차: timed 괴담 traces run out before the heal, so it reaches the max HP they gave back.
+  expireGoedamTraces(w);
+
   // R19: alive members (field + bench) heal floorHealFrac × maxHp; dead keep their revive timer.
   const frac = w.tunables.floorHealFrac;
   for (const p of s.players) {
@@ -390,12 +395,26 @@ function syncRewardCompat(w: World): void {
   w.humanOffers = mine ? { player: 0, offers: mine } : null;
 }
 
-/** Reward phase over once nobody has a pending choice → next floor. */
+/** Reward phase over once nobody has a pending choice → the floor's 괴담 room (기획 10차), if any → next floor. */
 function finishRewardIfDone(w: World): void {
   const s = w.state;
   if (s.phase !== 'reward') return;
   if (s.rewardOffersByPlayer.some(o => o != null)) return;
+  if (openGoedamRoom(w)) return;
   startFloor(w, s.floor + 1, true);
+}
+
+/** 기획 10차: the room is over once every player pressed 계속 (bots and auto-leaves are done at once) → next floor. */
+function finishGoedamIfDone(w: World): void {
+  const s = w.state;
+  if (s.phase === 'goedam' && goedamAllDone(s)) startFloor(w, s.floor + 1, true);
+}
+
+/** Command 'goedam' (기획 10차): pick an option by id, or 'continue'. */
+export function goedamCommand(w: World, pi: number, option: string): CommandResult {
+  const r = chooseGoedam(w, pi, option);
+  if (r.ok) finishGoedamIfDone(w);
+  return r;
 }
 
 export function chooseReward(w: World, pi: number, offerIndex: number): CommandResult {
@@ -415,7 +434,7 @@ export function chooseReward(w: World, pi: number, offerIndex: number): CommandR
 
 /**
  * R34: hand a player slot to the bot (multiplayer disconnect / leave) or back to its human.
- * A slot that becomes a bot during the reward phase picks its pending reward at random right away.
+ * A slot that becomes a bot during the reward phase picks its pending reward at random right away; in a 괴담 room it leaves.
  */
 export function setPlayerBot(w: World, pi: number, isBot: boolean): void {
   const s = w.state;
@@ -431,6 +450,11 @@ export function setPlayerBot(w: World, pi: number, isBot: boolean): void {
     b.reactAt = null;
     b.ultAt = null;
     b.nextSwapAt = s.time + BOT.periodicSwap[0];
+  }
+  if (isBot && s.phase === 'goedam') {
+    // 기획 10차: a slot that drops in a 괴담 room leaves it ('지나간다', then 계속) — the room never waits on it
+    autoResolveGoedam(w, pi);
+    finishGoedamIfDone(w);
   }
   if (isBot && s.phase === 'reward') {
     const offers = s.rewardOffersByPlayer[pi];

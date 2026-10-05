@@ -1,7 +1,8 @@
 // Pure display helpers (no DOM). Unit-tested in tests/ui.
 
 import { BOSS_ENRAGED_EMPTY_FIELD_FAIL } from '../config';
-import type { BasicAttack, CommandResult, DamageSource, Role, RunResult, StatusId } from '../types';
+import { getGoedamOption, goedamResultView, type GoedamOptionView } from '../data';
+import type { BasicAttack, CommandResult, DamageSource, GoedamProgress, GoedamStage, GoedamTag, PlayerState, Role, RunResult, StatusId } from '../types';
 
 /** 75.2 → "01:16" (ceil so the timer reads 00:01 until it really hits 0). */
 export function formatClock(seconds: number): string {
@@ -128,4 +129,39 @@ export function resultReason(r: RunResult, quitWhileOut: boolean, bossFloor = fa
     case 'quit':
       return quitWhileOut ? '내 캐릭터 전멸 후 관전 종료' : '런 포기';
   }
+}
+
+// ─────────────────────────── 괴담 방 (기획 10차) ───────────────────────────
+
+const GOEDAM_TAG_LABEL: Record<GoedamTag, string> = { safe: '안전', cost: '대가', gamble: '도박', observe: '관찰', permanent: '영구' };
+
+/** Risk chip text: '도박'. */
+export function goedamTagLabel(t: GoedamTag): string {
+  return GOEDAM_TAG_LABEL[t];
+}
+
+/** Button size class: rolls (도박·관찰) are tall, sure deals medium, 지나간다 small. */
+export function goedamOptionKind(v: Pick<GoedamOptionView, 'id' | 'tags'>): 'leave' | 'gamble' | 'cost' {
+  if (v.id === 'leave') return 'leave';
+  return v.tags.includes('gamble') || v.tags.includes('observe') ? 'gamble' : 'cost';
+}
+
+/** Room deadline line (multiplayer): what happens when it runs out at my stage. */
+export function goedamTimerText(left: number, stage: GoedamStage): string {
+  if (stage === 'choosing') return `${left}초 · 안 고르면 '그냥 지나간다'`;
+  return stage === 'result' ? `${left}초 뒤 자동으로 계속` : `${left}초 안에 다음 층`;
+}
+
+/** '다른 플레이어 기다리는 중 (2/3)'. */
+export function goedamWaitText(done: number, total: number): string {
+  return `다른 플레이어 기다리는 중 (${done}/${total})`;
+}
+
+/** Wait-panel row of another player: '하늘 — 동전을 넣는다 → 덜컹!' / '민지 — 고르는 중…' / 'BOT 1 — (봇) 그냥 지나갔다'. */
+export function goedamOtherRow(p: Pick<PlayerState, 'name' | 'isBot' | 'party'>, roomId: string, pr: GoedamProgress | undefined): string {
+  if (!pr || pr.stage === 'choosing' || !pr.choice || !pr.outcome) return `${p.name} — 고르는 중…`;
+  const o = getGoedamOption(roomId, pr.choice);
+  if (p.isBot) return `${p.name} — (봇) ${o?.done ?? pr.choice}`;
+  const rv = goedamResultView(roomId, pr.choice, pr.outcome, pr.params, p.party);
+  return `${p.name} — ${o?.label ?? pr.choice} → ${rv.title}`;
 }

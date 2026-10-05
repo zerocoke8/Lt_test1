@@ -1,6 +1,6 @@
 // Entry point (bundled to dist-server/index.js): `PORT=8080 node dist-server/index.js`.
 // Env: PORT (default 8080), HOST (0.0.0.0), STATIC_DIR (default: ../dist next to this file),
-//      DEBUG_NET=1 (log snapshot sizes), REWARD_TIMEOUT_SEC, END_LINGER_MS (tests),
+//      DEBUG_NET=1 (log snapshot sizes), REWARD_TIMEOUT_SEC, GOEDAM_TIMEOUT_SEC, END_LINGER_MS (tests),
 //      MAX_GAMES (games running at once), MAX_CONNECTIONS, MAX_CONNECTIONS_PER_IP,
 //      TRUST_PROXY=1 (behind Render's proxy: the per-IP limit reads X-Forwarded-For) or TRUST_PROXY=fly (Fly.io: Fly-Client-IP).
 
@@ -18,6 +18,7 @@ startServer({
   staticDir,
   debug: env.DEBUG_NET === '1',
   ...(num(env.REWARD_TIMEOUT_SEC) != null ? { rewardTimeoutSec: num(env.REWARD_TIMEOUT_SEC)! } : {}),
+  ...(num(env.GOEDAM_TIMEOUT_SEC) != null ? { goedamTimeoutSec: num(env.GOEDAM_TIMEOUT_SEC)! } : {}),
   ...(num(env.END_LINGER_MS) != null ? { endLingerMs: num(env.END_LINGER_MS)! } : {}),
   ...(num(env.MAX_GAMES) != null ? { maxPlayingRooms: num(env.MAX_GAMES)! } : {}),
   ...(num(env.MAX_CONNECTIONS) != null ? { maxConnections: num(env.MAX_CONNECTIONS)! } : {}),

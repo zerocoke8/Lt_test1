@@ -33,3 +33,18 @@ export class Rng {
     return arr[arr.length - 1];
   }
 }
+
+/**
+ * Mix numbers into one 32-bit seed for a derived stream (기획 10차: 괴담 rooms roll on seed + floor + player and never
+ * touch the run rng, so leaving every room keeps a run bit-identical).
+ */
+export function mixSeed(...parts: number[]): number {
+  let h = 0x9e3779b9;
+  for (const p of parts) {
+    h = Math.imul(h ^ (p >>> 0), 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+  }
+  return h >>> 0;
+}

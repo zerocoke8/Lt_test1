@@ -3,7 +3,7 @@
 import type { DamageSource, StatusId, Team, Vec2 } from '../types';
 import { PROJECTILE_MAX_LIFE } from './constants';
 import { unitCtx } from './ctx';
-import { hasRelic, relicParam } from './modifiers';
+import { damageTakenMult, hasRelic, relicParam } from './modifiers';
 import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
 import { benchMaxHp, effStats } from './stats';
@@ -67,6 +67,8 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     }
   }
   dmg *= 1 - effStats(w, target).def;
+  // 기획 10차: 괴담 traces change the damage my characters take (once per hit)
+  if (target.kind === 'character' && target.ownerPlayer != null) dmg *= damageTakenMult(w.state.players[target.ownerPlayer]);
   if (!(dmg > 0)) return 0;
   const hpBefore = Math.max(0, target.hp);
   const absorbed = Math.min(target.shield, dmg);

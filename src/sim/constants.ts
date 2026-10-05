@@ -32,6 +32,8 @@ export const MONSTER_SKILL_GAP = 1.5;
 export const SKILL_START_JITTER = 1.5;
 /** Projectiles that never arrive are dropped after this many seconds. */
 export const PROJECTILE_MAX_LIFE = 4;
+/** 기획 10차: max HP never goes below this fraction of the base, however many 괴담 curses stack. */
+export const MIN_MAX_HP_FRAC = 0.3;
 /** Game events buffer cap when nobody drains (headless). */
 export const MAX_EVENTS = 5000;
 

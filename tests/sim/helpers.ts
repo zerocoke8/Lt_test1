@@ -31,7 +31,8 @@ export function makeGame(opts: { seed?: number; players?: PlayerSetup[]; tunable
   const { game, world } = createGameWithWorld({
     seed: opts.seed ?? 1234,
     players: opts.players ?? [HUMAN],
-    tunables: { ...DEFAULT_TUNABLES, ...(opts.tunables ?? {}) },
+    // 기획 10차: 괴담 rooms off unless a test turns them on (most tests cross floors 2–4 and expect the next floor)
+    tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, ...(opts.tunables ?? {}) },
     startFloor: opts.startFloor,
   });
   const tg: TestGame = { game, w: world, events: [] };

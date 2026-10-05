@@ -2,12 +2,12 @@
 
 import type { AreaShape, Command, CommandResult, DebugAction, Game, GameEvent, GameSetup, Vec2 } from '../types';
 import { PLAYER_COLORS, TICK_DT } from '../config';
-import { getCharacter, getPet } from '../data';
+import { GOEDAM_ROOMS, getCharacter, getPet } from '../data';
 import { BOT } from './constants';
 import { tickBots } from './bot';
 import { killEntity, tickProjectiles } from './combat';
 import { createCharacterEntity } from './entities';
-import { chooseReward, clearRewardOffers, enrage, floorClear, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
+import { chooseReward, clearRewardOffers, enrage, floorClear, goedamCommand, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
 import { skillMod } from './modifiers';
 import { previewPartsFor } from './preview';
 import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } from './players';
@@ -55,6 +55,7 @@ export function createWorld(setup: GameSetup): World {
     midBossSpawned: false,
     rewardOffers: null,
     rewardOffersByPlayer: [],
+    goedam: null,
     runResult: null,
   };
   const w: World = {
@@ -71,6 +72,7 @@ export function createWorld(setup: GameSetup): World {
     enragedEmptyTime: 0,
     byId: new Map(),
     humanOffers: null,
+    goedam: { forced: null, seen: [] },
   };
 
   const n = setup.players.length;
@@ -109,6 +111,8 @@ export function createWorld(setup: GameSetup): World {
       relics: [],
       rewards: [],
       stats: emptyContribution(),
+      goedamTraces: [],
+      goedamLog: [],
       rt: {
         bot: {
           thinkIn: (BOT.thinkInterval * (i + 1)) / (n + 1),
@@ -140,6 +144,8 @@ export function createWorld(setup: GameSetup): World {
 
 export function tick(w: World): void {
   const s = w.state;
+  // time is frozen outside combat (reward, 괴담 room, run over) — 기획 10차 guard; callers only tick in combat
+  if (s.phase !== 'combat') return;
   const dt = TICK_DT;
   s.tick++;
   s.time += dt;
@@ -190,6 +196,9 @@ export function dispatch(w: World, cmd: Command): CommandResult {
       break;
     case 'chooseReward':
       r = chooseReward(w, cmd.player, cmd.offerIndex);
+      break;
+    case 'goedam':
+      r = goedamCommand(w, cmd.player, cmd.option);
       break;
     case 'quit':
       if (s.phase === 'runOver') r = { ok: false, reason: '이미 끝남' };
@@ -252,6 +261,10 @@ function debug(w: World, a: DebugAction): CommandResult {
     case 'forceEnrage':
       if (s.phase !== 'combat' || s.plan.kind !== 'boss' || s.bossEnraged) return { ok: false, reason: '광폭화 불가' };
       enrage(w);
+      return { ok: true };
+    case 'goedamNext':
+      if (a.room != null && !GOEDAM_ROOMS.some(r => r.id === a.room)) return { ok: false, reason: '알 수 없는 방' };
+      w.goedam.forced = a.room ?? '';
       return { ok: true };
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };

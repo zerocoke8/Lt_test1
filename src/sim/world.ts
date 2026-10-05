@@ -197,6 +197,14 @@ export interface SimState extends GameState {
   projectiles: SimProjectile[];
 }
 
+/** 기획 10차: run-long 괴담 room bookkeeping (the open room itself is state.goedam). */
+export interface GoedamRt {
+  /** Debug 'goedamNext': open a room after the next floor clear (a room id, or '' = one that fits that floor). */
+  forced: string | null;
+  /** Rooms opened this run (a room never comes twice). */
+  seen: string[];
+}
+
 export interface World {
   state: SimState;
   tunables: Tunables;
@@ -213,6 +221,7 @@ export interface World {
   byId: Map<number, SimEntity>;
   /** Offers waiting for player 0's choice during 'reward'. */
   humanOffers: { player: number; offers: RewardOffer[] } | null;
+  goedam: GoedamRt;
 }
 
 // ─────────────────────────── Helpers ───────────────────────────
@@ -317,6 +326,7 @@ export function endRun(w: World, outcome: RunResult['outcome'], reason: RunResul
   s.phase = 'runOver';
   s.rewardOffers = null;
   w.humanOffers = null;
+  s.goedam = null;
   s.runResult = { outcome, reason, floorReached: s.floor, duration: s.time };
   emit(w, { type: 'runOver', result: s.runResult });
 }

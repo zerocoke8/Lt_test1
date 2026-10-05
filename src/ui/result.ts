@@ -1,8 +1,9 @@
-// 결과 화면 (R22): outcome/reason/floor/duration, per-player contribution (my row highlighted), my tuning log.
+// 결과 화면 (R22): outcome/reason/floor/duration, per-player contribution (my row highlighted), my tuning log,
+// and (기획 10차) my 괴담 수첩 — one line per room I went through.
 // Solo: 프리셋으로 / 다시 하기. Multiplayer: 방 나가기 / 방으로 (the room stays; the host can start again).
 
 import type { DamageSource, Game, PlayerState, RunResult } from '../types';
-import { getCharacter } from '../data';
+import { getCharacter, goedamLogText } from '../data';
 import { button, h } from './dom';
 import { SOURCE_COLOR, SOURCE_LABEL, formatClock, formatNumber, resultReason, resultTitle } from './format';
 import { showsBotTag } from './hud';
@@ -105,6 +106,12 @@ export function createResultScreen(
     };
     kvRow('분당 교체', `${t.swapsPerMinute.toFixed(1)}회`);
     kvRow('궁극기 대기 평균', me && me.stats.ultDelayCount > 0 ? `${t.avgUltDelay.toFixed(1)}초` : '사용 안 함');
+    const log = me?.goedamLog ?? [];
+    if (log.length) {
+      h('div', 'rs-sub', right, '괴담 수첩');
+      const book = h('div', 'rs-goedam', right);
+      for (const e of log) h('div', `rs-goedam-row${e.auto ? ' is-auto' : ''}`, book, goedamLogText(e));
+    }
     h('div', 'rs-sub', right, '스킬별 피해 비중');
     const bars = h('div', 'rs-bars', right);
     const shares = (Object.keys(t.damageShareBySource) as DamageSource[])

@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import type { IncomingMessage } from 'node:http';
-import { MAX_COMMAND_AGE_MS, REWARD_TIMEOUT_SEC, SNAPSHOT_HZ } from '../src/net/protocol';
+import { GOEDAM_TIMEOUT_SEC, MAX_COMMAND_AGE_MS, REWARD_TIMEOUT_SEC, SNAPSHOT_HZ } from '../src/net/protocol';
 import { TICK_RATE } from '../src/config';
 import { createStaticHandler } from './http';
 import { Hub } from './hub';
@@ -19,6 +19,7 @@ export const DEFAULT_OPTIONS: ServerOptions = {
   tickHz: TICK_RATE,
   snapshotHz: SNAPSHOT_HZ,
   rewardTimeoutSec: REWARD_TIMEOUT_SEC,
+  goedamTimeoutSec: GOEDAM_TIMEOUT_SEC,
   endLingerMs: 5000,
   lobbyGraceMs: 15_000,
   abandonMs: 60_000,

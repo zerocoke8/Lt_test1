@@ -51,6 +51,16 @@ describe('parseClientMsg', () => {
     expect(parseCommand({ type: 'tunables', patch: { gameSpeed: 2, nope: 'x', invincible: true } })).toEqual({ type: 'tunables', patch: { gameSpeed: 2, invincible: true } });
     expect(parseCommand({ type: 'quit', player: 1 })).toEqual({ type: 'quit' });
     expect(parseCommand({ type: 'teleport' })).toBeNull();
+    // 기획 10차: 괴담 option ids (player is a placeholder the room overwrites); bounded, snake_case only
+    expect(parseCommand({ type: 'goedam', player: 2, option: 'leave', x: 1 })).toEqual({ type: 'goedam', player: 0, option: 'leave' });
+    expect(parseCommand({ type: 'goedam', option: 'continue' })).toEqual({ type: 'goedam', player: 0, option: 'continue' });
+    for (const option of [undefined, 3, '', 'x'.repeat(33), 'Leave', 'le ave', '__proto__!', ['leave']]) {
+      expect(parseCommand({ type: 'goedam', option }), String(option)).toBeNull();
+    }
+    expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext' } })).toEqual({ type: 'debug', action: { kind: 'goedamNext' } });
+    expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext', room: 'copier' } })).toEqual({ type: 'debug', action: { kind: 'goedamNext', room: 'copier' } });
+    expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext', room: '<script>' } })).toBeNull();
+    expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext', room: null } })).toBeNull();
     expect(parsePreset({ characters: ['blade', 'mage', 'nobody'], pets: PRESET_A.pets })).toBeNull();
     // the same character twice across players is allowed; within a preset the client prevents it
     expect(parsePreset(PRESET_A)).toEqual(PRESET_A);

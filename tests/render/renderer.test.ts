@@ -92,6 +92,8 @@ function player(id: number, chars: string[], active: number | null, entityId: nu
     appearLock: 0,
     relics: [],
     rewards: [],
+    goedamTraces: [],
+    goedamLog: [],
     stats: {
       damageDealt: 0,
       damageToBoss: 0,
@@ -155,6 +157,7 @@ function makeState(kind: 'normal' | 'boss', localX: number, floor = 1): GameStat
     midBossSpawned: true,
     rewardOffers: null,
     rewardOffersByPlayer: [],
+    goedam: null,
     runResult: null,
   };
 }

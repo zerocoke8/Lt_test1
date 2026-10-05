@@ -2,6 +2,7 @@
 // Returned objects are rebuilt from scratch: no extra fields, no prototype tricks reach the sim.
 
 import type { ClientMsg, PresetChoice } from '../src/net/protocol';
+import { GOEDAM_OPTION_RE } from '../src/net/protocol';
 import type { Command, DebugAction, Vec2 } from '../src/types';
 import { CHARACTERS, PETS } from '../src/data';
 
@@ -11,6 +12,8 @@ const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.i
 const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const str = (v: unknown, max: number): string | null => (typeof v === 'string' && v.length <= max ? v : null);
+/** 괴담 option / room id: short snake_case only (the sim checks it against the room). */
+const goedamId = (v: unknown): v is string => typeof v === 'string' && GOEDAM_OPTION_RE.test(v);
 
 let charIds: Set<string> | null = null;
 let petIds: Set<string> | null = null;
@@ -46,6 +49,9 @@ function parseDebug(v: unknown): DebugAction | null {
       return { kind: v.kind };
     case 'jumpFloor':
       return isInt(v.floor, 1, 1000) ? { kind: 'jumpFloor', floor: v.floor } : null;
+    case 'goedamNext':
+      if (v.room === undefined) return { kind: 'goedamNext' };
+      return goedamId(v.room) ? { kind: 'goedamNext', room: v.room } : null;
   }
   return null;
 }
@@ -66,6 +72,9 @@ export function parseCommand(v: unknown): Command | null {
       return { type: 'ult', player: 0 };
     case 'chooseReward':
       return isInt(v.offerIndex, 0, 9) ? { type: 'chooseReward', player: 0, offerIndex: v.offerIndex } : null;
+    case 'goedam':
+      // 기획 10차: an option id or 'continue'; the room decides whether it is valid for this slot
+      return goedamId(v.option) ? { type: 'goedam', player: 0, option: v.option } : null;
     case 'quit':
       return { type: 'quit' };
     case 'debug': {

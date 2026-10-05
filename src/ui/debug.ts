@@ -3,6 +3,7 @@
 
 import type { CommandResult, DebugAction, Game, Tunables } from '../types';
 import { DEFAULT_TUNABLES } from '../config';
+import { GOEDAM_ROOMS } from '../data';
 import { button, h } from './dom';
 import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tunables';
 import type { ToastKind } from './toast';
@@ -39,6 +40,9 @@ export class DebugPanel {
   private readonly floorInput: HTMLElement;
   private readonly juiceRows: { key: keyof JuiceSettings; input: HTMLInputElement; value: HTMLElement; row: HTMLElement; fmt: (v: number) => string }[] = [];
   private jumpTo = 2;
+  /** 기획 10차 '다음 클리어에 괴담 방': -1 = any room that fits the floor, else an index into GOEDAM_ROOMS. */
+  private roomPick = -1;
+  private readonly roomLabel: HTMLElement;
   private collapsed = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -76,6 +80,16 @@ export class DebugPanel {
     this.floorInput = h('span', 'dbg-floor', jump, '2층');
     button('dbg-btn dbg-step', '+', jump, () => this.bumpFloor(1));
     button('dbg-btn dbg-go', '층 이동', jump, () => this.run({ kind: 'jumpFloor', floor: this.jumpTo }, `${this.jumpTo}층 이동`));
+    // 기획 10차: open a 괴담 room after the next floor clear (any floor, even with the slider at 0)
+    const gd = h('div', 'dbg-jump dbg-goedam', act);
+    button('dbg-btn dbg-step', '◀', gd, () => this.bumpRoom(-1));
+    this.roomLabel = h('span', 'dbg-floor dbg-room', gd);
+    button('dbg-btn dbg-step', '▶', gd, () => this.bumpRoom(1));
+    button('dbg-btn dbg-go', '다음 클리어에 괴담 방', h('div', 'dbg-btnrow', act), () => {
+      const room = GOEDAM_ROOMS[this.roomPick];
+      this.run(room ? { kind: 'goedamNext', room: room.id } : { kind: 'goedamNext' }, `다음 클리어에 괴담 방 (${room ? room.name : '아무 방'})`);
+    });
+    this.bumpRoom(0);
 
     // render-only feel (this device): applied right away, saved locally — works in solo and multiplayer
     Object.assign(JUICE, loadJuice());
@@ -187,6 +201,12 @@ export class DebugPanel {
     const max = g ? Math.max(1, g.tunables.maxFloor) : 20;
     this.jumpTo = Math.max(1, Math.min(max, this.jumpTo + d));
     this.floorInput.textContent = `${this.jumpTo}층`;
+  }
+
+  private bumpRoom(d: number): void {
+    const n = GOEDAM_ROOMS.length + 1;
+    this.roomPick = ((this.roomPick + 1 + d + n) % n) - 1;
+    this.roomLabel.textContent = GOEDAM_ROOMS[this.roomPick]?.name ?? '아무 방';
   }
 
   private run(a: DebugAction, label: string): void {

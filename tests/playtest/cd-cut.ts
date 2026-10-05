@@ -1,7 +1,7 @@
 // What cutting bench swap cooldowns is worth in casts (docs/balance.md 3장 크로노 쿨 감소, 0-2 기획 6차 쿨 시작 시점).
 // Run: npx vite-node tests/playtest/cd-cut.ts
 //   env: CUT_SEEDS=24 CUT_SEED0=0 CUT_FLOORS=3 CUT_PARTY=chrono,blade,mage CUT_RHYTHMS=4,3,2,0
-//        CUT_VARIANTS=full,noDragCut,swapcd2,rabbit,hunter  CUT_OUT=path.json
+//        CUT_VARIANTS=full,noDragCut,swapcd2,rabbit,hunter  CUT_OUT=path.json  GOEDAM=leave (기획 10차 괴담 rooms, goedam-policy.ts)
 //
 // Player 0 = CUT_PARTY, swaps to the next ready card (rotation) every R s (R = 0: as soon as one is ready), bot aim,
 // ult 0.5 s after full, drag-neutral floor rewards (like drag-bench.ts). Players 1–2 = stock bots. Variants (paired
@@ -21,12 +21,14 @@
 
 import fs from 'node:fs';
 import { BOT_PRESETS, DEFAULT_TUNABLES, TICK_RATE } from '../../src/config';
-import { getCharacter, getReward } from '../../src/data';
+import { getCharacter } from '../../src/data';
 import { bestDropPoint } from '../../src/sim/bot';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { canSwap, canUsePet } from '../../src/sim/players';
 import { activeEntity, isAlive } from '../../src/sim/world';
-import type { PlayerSetup, RewardEffect } from '../../src/types';
+import type { PlayerSetup } from '../../src/types';
+import { dragNeutralPick } from './drag-value';
+import { goedamPilot, goedamTunables, parseGoedamPolicy } from './goedam-policy';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 const SEEDS = Number(env.CUT_SEEDS ?? 24);
@@ -36,21 +38,7 @@ const PARTY = (env.CUT_PARTY ?? 'chrono,blade,mage').split(',');
 const RHYTHMS = (env.CUT_RHYTHMS ?? '4,3,2,0').split(',').map(Number);
 const VARIANTS = (env.CUT_VARIANTS ?? 'full,noDragCut,swapcd2,rabbit,hunter').split(',');
 const DT = 1 / TICK_RATE;
-
-function rewardRank(eff: RewardEffect): number {
-  switch (eff.kind) {
-    case 'petCooldown':
-      return 0;
-    case 'skill':
-      return eff.slot === 'normal' ? 1 : eff.slot === 'ult' ? 2 : eff.slot === 'basic' ? 3 : 20;
-    case 'stat':
-      return eff.mods.defFlat ? 4 : eff.mods.hpPct ? 5 : eff.mods.atkSpeedPct ? 6 : eff.mods.critChance ? 7 : 8;
-    case 'appearShield':
-      return 15;
-    case 'swapCooldown':
-      return 16;
-  }
-}
+const GOEDAM = parseGoedamPolicy(env.GOEDAM);
 
 interface Acc {
   runs: number;
@@ -78,9 +66,10 @@ function runOne(variant: string, rhythm: number, seed: number, acc: Acc): void {
   const pets = variant === 'rabbit' ? ['rabbit_time', 'frog_bomb', 'fairy_heal'] : ['frog_bomb', 'fairy_heal', 'cat_void'];
   const human: PlayerSetup = { name: '나', isBot: false, characters: [...PARTY], pets };
   const players: PlayerSetup[] = [human, ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] }))];
-  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES } });
+  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES, ...goedamTunables(GOEDAM) } });
   const s = w.state;
   const p = s.players[0];
+  const pilot = goedamPilot(w, GOEDAM);
   if (variant === 'swapcd2') for (let i = 0; i < p.party.length; i++) p.rewards.push({ rewardId: 'swapcd_rare', partyIndex: i });
   if (variant === 'hunter') p.relics.push('hunter_mark');
   let lastSwap = -99;
@@ -92,12 +81,7 @@ function runOne(variant: string, rhythm: number, seed: number, acc: Acc): void {
     if (s.floor > FLOORS) break;
     if (s.phase === 'reward') {
       if (s.floor >= FLOORS) break;
-      const offers = s.rewardOffersByPlayer[0] ?? s.rewardOffers ?? [];
-      let pick = 0;
-      offers.forEach((o, i) => {
-        if (!o.isRelic && rewardRank(getReward(o.rewardId).effect) < rewardRank(getReward(offers[pick].rewardId).effect)) pick = i;
-      });
-      dispatch(w, { type: 'chooseReward', player: 0, offerIndex: pick });
+      pilot.settle([0], dragNeutralPick);
       lastSwap = -99;
       continue;
     }

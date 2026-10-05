@@ -8,12 +8,12 @@ import type { Command, GameState } from '../../src/types';
 import { makeGame, type TestGame } from '../sim/helpers';
 
 const KEYS: Record<string, string[]> = {
-  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'runResult'],
+  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'runResult'],
   plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'bossId', 'theme'],
   wave: ['at', 'spawns'],
   entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged'],
   status: ['id', 'remaining', 'total', 'value', 'sourcePlayer'],
-  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats'],
+  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog'],
   member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId'],
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
@@ -23,6 +23,12 @@ const KEYS: Record<string, string[]> = {
   projectile: ['id', 'team', 'pos', 'targetId', 'targetPos', 'speed', 'color'],
   offer: ['rewardId', 'partyIndex', 'name', 'description', 'rarity', 'isRelic'],
   applied: ['rewardId', 'partyIndex'],
+  goedam: ['roomId', 'floor', 'label', 'players'],
+  goedamProgress: ['stage', 'options', 'params', 'choice', 'outcome'],
+  goedamParams: ['relicId', 'copy', 'anomaly'],
+  goedamOutcome: ['id', 'reward', 'relicId', 'traces'],
+  goedamTrace: ['id', 'floorsLeft'],
+  goedamLog: ['floor', 'label', 'roomId', 'optionId', 'outcome', 'auto'],
 };
 
 function extra(kind: string, o: object | null): string[] {
@@ -46,6 +52,13 @@ function audit(s: GameState, seen: Set<string>): string[] {
     }
     for (const pt of p.pets) bad.push(...extra('pet', pt));
     for (const r of p.rewards) (seen.add('reward'), bad.push(...extra('applied', r)));
+    for (const t of p.goedamTraces) (seen.add('goedamTrace'), bad.push(...extra('goedamTrace', t)));
+    for (const e of p.goedamLog) (seen.add('goedamLog'), bad.push(...extra('goedamLog', e), ...extra('goedamOutcome', e.outcome)));
+  }
+  if (s.goedam) {
+    seen.add('goedam');
+    bad.push(...extra('goedam', s.goedam));
+    for (const pr of s.goedam.players) bad.push(...extra('goedamProgress', pr), ...extra('goedamParams', pr.params), ...extra('goedamOutcome', pr.outcome));
   }
   for (const t of s.telegraphs) (seen.add('telegraph'), bad.push(...extra('telegraph', t)));
   for (const z of s.zones) (seen.add('zone'), bad.push(...extra('zone', z)));
@@ -63,7 +76,7 @@ function scripted(seed: number, observe: (tg: TestGame) => void): string {
       { name: '봇1', isBot: true, characters: ['gunner', 'warden', 'bard'], pets: ['owl_frost', 'turtle_guard', 'frog_bomb'] },
       { name: '봇2', isBot: true, characters: ['chrono', 'paladin', 'shadow'], pets: ['frog_bomb', 'owl_frost', 'fairy_heal'] },
     ],
-    tunables: { invincible: true },
+    tunables: { invincible: true, goedamRoomsPerZone: 2 },
   });
   const s = tg.w.state;
   s.players[0].relics.push('echo_seal');
@@ -76,6 +89,13 @@ function scripted(seed: number, observe: (tg: TestGame) => void): string {
   for (let t = 0; t < 30 * 240; t++) {
     if (s.phase === 'reward') {
       tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: t % 3 });
+      continue;
+    }
+    if (s.phase === 'goedam') {
+      const pr = s.goedam!.players[0];
+      const opts = pr.options.filter(o => !o.hidden);
+      tg.game.dispatch({ type: 'goedam', player: 0, option: pr.stage === 'choosing' ? opts[t % opts.length].id : 'continue' });
+      observe(tg);
       continue;
     }
     if (s.phase !== 'combat') break;
@@ -102,7 +122,7 @@ describe('wire snapshot = contract only', () => {
     });
     expect([...bad]).toEqual([]);
     // the run really exercised every kind
-    for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward']) expect(seen.has(k), k).toBe(true);
+    for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog']) expect(seen.has(k), k).toBe(true);
   });
 });
 

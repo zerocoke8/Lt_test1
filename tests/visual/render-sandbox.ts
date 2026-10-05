@@ -143,6 +143,8 @@ function player(id: number, name: string, isBot: boolean, chars: string[], activ
     relics: [],
     rewards: [],
     stats: stats(),
+    goedamTraces: [],
+    goedamLog: [],
   };
 }
 
@@ -186,6 +188,7 @@ function emptyState(floor: number, kind: 'normal' | 'boss', w: number, h: number
     midBossSpawned: true,
     rewardOffers: null,
     rewardOffersByPlayer: [],
+    goedam: null,
     runResult: null,
   };
 }

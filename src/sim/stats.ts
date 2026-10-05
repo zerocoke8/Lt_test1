@@ -2,6 +2,7 @@
 
 import type { BossDef, StatBlock, StatMods } from '../types';
 import { getCharacter } from '../data';
+import { MIN_MAX_HP_FRAC } from './constants';
 import { addMods, hasRelic, partyStatMods, relicParam } from './modifiers';
 import { clamp, getEntity, type SimEntity, type SimPlayer, type World } from './world';
 
@@ -39,7 +40,7 @@ export function effStats(w: World, e: SimEntity): StatBlock {
         break;
     }
   }
-  const maxHp = b.maxHp * (1 + m.hpPct);
+  const maxHp = b.maxHp * maxHpFactor(m.hpPct);
   if (cdef?.passive.lowHpAtkBonus) {
     const frac = clamp(e.hp / Math.max(1, maxHp), 0, 1);
     m.atkPct += cdef.passive.lowHpAtkBonus * (1 - frac);
@@ -70,7 +71,12 @@ export function effStats(w: World, e: SimEntity): StatBlock {
 /** Max HP of a party member while on the bench (no passive). */
 export function benchMaxHp(p: SimPlayer, idx: number): number {
   const def = getCharacter(p.party[idx].defId);
-  return def.stats.maxHp * (1 + partyStatMods(p).hpPct);
+  return def.stats.maxHp * maxHpFactor(partyStatMods(p).hpPct);
+}
+
+/** 기획 10차: however many curses stack, max HP never drops below MIN_MAX_HP_FRAC of the base. */
+function maxHpFactor(hpPct: number): number {
+  return Math.max(MIN_MAX_HP_FRAC, 1 + hpPct);
 }
 
 /** Pet power: owner's active character effective atk, else highest base atk in the party. */

@@ -4,12 +4,17 @@
 
 import type { Command, GameEvent, GameState, Telemetry, Tunables } from '../types';
 
-export const PROTOCOL_VERSION = 1;
+/** 2 = 기획 10차 (괴담 방: 'goedam' command, phase and snapshot deadline). */
+export const PROTOCOL_VERSION = 2;
 export const MAX_ROOM_PLAYERS = 3;
 /** Snapshot broadcast rate (Hz). The server sim still ticks at 30 Hz. */
 export const SNAPSHOT_HZ = 15;
 /** Real seconds each human gets to pick a floor reward before the server picks at random. */
 export const REWARD_TIMEOUT_SEC = 20;
+/** 기획 10차: real seconds for the whole 괴담 room (fresh when it opens); then 'leave' for the unchosen, 'continue' for the rest. */
+export const GOEDAM_TIMEOUT_SEC = 25;
+/** A 괴담 option id on the wire ('leave', 'press', … or 'continue'). */
+export const GOEDAM_OPTION_RE = /^[a-z0-9_]{1,32}$/;
 /** A positional command (swap/pet) based on a snapshot sent longer ago than this (ms) is refused as stale. */
 export const MAX_COMMAND_AGE_MS = 2000;
 /** Room codes: 4 chars from this alphabet (no 0/O/1/I). */
@@ -89,6 +94,7 @@ export type ServerMsg =
    * Authoritative state at SNAPSHOT_HZ. `state` is a plain GameState (no sim-internal fields).
    * `events` = everything emitted since the previous snapshot (oldest first).
    * `rewardDeadline` = server ms timestamp when unchosen rewards are auto-picked (null outside the reward phase).
+   * `goedamDeadline` = server ms timestamp when the 괴담 room is auto-finished (null outside the 'goedam' phase).
    * `tunables` = only when they changed, on the first snapshot (start / reconnect) and about once a second.
    * `telemetry` = the receiving player's tuning log, only once `state.phase` is 'runOver' (the result screen reads it).
    */
@@ -101,6 +107,7 @@ export type ServerMsg =
       tunables?: Tunables;
       hostPlayerIndex: number;
       rewardDeadline: number | null;
+      goedamDeadline: number | null;
       telemetry?: Telemetry;
     }
   | { t: 'cmdResult'; seq: number; ok: boolean; reason?: string }

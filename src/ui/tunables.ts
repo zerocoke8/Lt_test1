@@ -38,6 +38,7 @@ export const SLIDERS: SliderSpec[] = [
   { group: '층 구성', key: 'maxFloor', label: '최고층', min: 1, max: 50, step: 1, unit: '층' },
   { group: '층 구성', key: 'midBossKillTrigger', label: '중형보스 등장 처치 수', min: 0, max: 40, step: 1, unit: '마리' },
   { group: '층 구성', key: 'midBossTimeTrigger', label: '중형보스 강제 등장', min: 5, max: 120, step: 5, unit: '초' },
+  { group: '층 구성', key: 'goedamRoomsPerZone', label: '괴담 방 (구역당)', min: 0, max: 2, step: 1, unit: '개' },
   { group: '진행', key: 'gameSpeed', label: '게임 속도', min: 0.25, max: 4, step: 0.25, unit: '×' },
 ];
 

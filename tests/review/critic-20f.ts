@@ -2,11 +2,13 @@
 // Run: npx vite-node tests/review/critic-20f.ts   (all knobs via env, output = one JSON object on stdout)
 //
 //   RUNS=40 FLOORS=20 START=1 SEED0=1000
-//   POLICY=active|dodge|dodgeonly|bot|idle    player-0 (or every human, HUMANS=n) behaviour
+//   POLICY=active|dodge|dodgeonly|bot|botseat|idle    player-0 (or every human, HUMANS=n) behaviour
 //       active = balance.ts "직접 교체": swap every ~4 s to the best drag spot, pets on clusters, ult 0.5 s after full
 //       dodge  = active + swaps OUT of an enemy telegraph about to land on the field character (only telegraphs that
 //                were visible ≥ REACT s — a skilled phone player; tells which damage is avoidable at all)
 //       dodgeonly = dodge without the 4 s rhythm (swaps only to dodge / at low HP / empty field): avoidability ceiling
+//       botseat = a human seat (the harness picks its rewards — random like a bot — and its 괴담 rooms) whose swaps,
+//                pets and ult come from the stock bot AI: the bot-style player for room policies ('bot' always leaves)
 //   REACT=0.6                       dodge reaction time (s)
 //   COMP=default|melee|ranged|support|notank|tank   party compositions (all 3 players, see COMPS)
 //   HCOMP=ranger,mage,gunner        player 0 only (others keep COMP) — solo player picking a party
@@ -16,6 +18,9 @@
 //                                   data edits applied before the run (value "*x" multiplies); first segment = a
 //                                   monster/boss/character id, or ZONES / LATE (LATE_STAT_GROWTH) / WAVES (FLOOR_WAVES)
 //   DETAIL=1                        also print per-floor top damage sources / killers
+//   GOEDAM=leave                    기획 10차 괴담 room policy for the humans: off|leave|random|first|greedy|forced:<room>:<opt>
+//                                   (tests/playtest/goedam-policy.ts; START > 1 forces off). Output 'goedam' = room report.
+//   GOEDAM_DUMP=/path.json          also write one row per run (seed, victory, death floor, player 0's 수첩)
 //
 // Same seeds + same 'active' policy as tests/playtest/balance.ts (SEED0 + k × 7919) → identical runs (cross-check).
 // Damage attribution: every monster/boss skill effect amount (damage/heal) is wrapped in a getter that marks the
@@ -27,15 +32,17 @@
 
 import { BOT_PRESETS, DEFAULT_TUNABLES, FLOOR_WAVES, LATE_STAT_GROWTH, TICK_RATE, ZONES } from '../../src/config';
 import { BOSSES, CHARACTERS, MONSTERS, getPet } from '../../src/data';
-import { bestDropPoint } from '../../src/sim/bot';
+import fs from 'node:fs';
+import { bestDropPoint, tickBots } from '../../src/sim/bot';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { hitsArea } from '../../src/sim/geometry';
 import { canSwap, canUsePet } from '../../src/sim/players';
 import { applyOffer, rollOffers } from '../../src/sim/rewards';
 import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import type { BossDef, Effect, GameEvent, MonsterDef, PlayerSetup, SimPhase, SkillAction, Tunables, Vec2 } from '../../src/types';
+import { goedamPilot, goedamRunRec, goedamSummary, goedamTunables, parseGoedamPolicy, type GoedamRunRec, type RewardPick } from '../playtest/goedam-policy';
 
-type Policy = 'idle' | 'bot' | 'active' | 'dodge' | 'dodgeonly';
+type Policy = 'idle' | 'bot' | 'botseat' | 'active' | 'dodge' | 'dodgeonly';
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const RUNS = Number(env.RUNS ?? 40);
 const FLOORS = Number(env.FLOORS ?? 20);
@@ -51,6 +58,7 @@ const HUMANS = Math.max(0, Math.min(3, Number(env.HUMANS ?? 1)));
 const TUN: Partial<Tunables> = env.TUN ? JSON.parse(env.TUN) : {};
 const PATCH: [string, number | string | boolean][] = env.PATCH ? JSON.parse(env.PATCH) : [];
 const DETAIL = env.DETAIL === '1';
+const GOEDAM = parseGoedamPolicy(env.GOEDAM, START);
 
 const PETS_DEFAULT = [
   ['frog_bomb', 'fairy_heal', 'cat_void'],
@@ -184,6 +192,8 @@ interface RunRec {
   combatSec: number;
   endFloor: number;
   victory: boolean;
+  seed: number;
+  goedam: GoedamRunRec;
 }
 
 function petTarget(w: World, pi: number, petIdx: number): Vec2 | null {
@@ -275,15 +285,26 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
   }
 }
 
+/** 'botseat': player 0's combat turn by the stock bot AI while the sim still treats the seat as human. */
+function botSeatThink(w: World): void {
+  const ps = w.state.players;
+  const was = ps.map(p => p.isBot);
+  ps.forEach((p, i) => (p.isBot = i === 0));
+  tickBots(w, 1 / TICK_RATE, cmd => dispatch(w, cmd));
+  ps.forEach((p, i) => (p.isBot = was[i]));
+}
+/** Floor reward: the first offer (human), or a random one for the bot-style seat (like the sim's bots). */
+const rewardPick: RewardPick = POLICY === 'botseat' ? (offers, _pi, w) => w.rng.int(0, offers.length - 1) : () => 0;
+
 const inc = (o: Record<string, number>, k: string, v = 1) => {
   o[k] = (o[k] ?? 0) + v;
 };
 
 function runOnce(seed: number): RunRec {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...TUN };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...TUN, ...goedamTunables(GOEDAM) };
   const comp = COMPS[COMP];
   if (!comp) throw new Error(`unknown COMP ${COMP}`);
-  const humanCount = POLICY === 'bot' || POLICY === 'idle' ? Math.max(1, HUMANS) : HUMANS;
+  const humanCount = POLICY === 'bot' || POLICY === 'idle' || POLICY === 'botseat' ? Math.max(1, HUMANS) : HUMANS;
   const players: PlayerSetup[] = comp.map((chars, i) => ({
     name: i === 0 ? '나' : `P${i}`,
     isBot: i >= humanCount || POLICY === 'bot',
@@ -300,6 +321,7 @@ function runOnce(seed: number): RunRec {
   }
   game.drainEvents();
   const humans = s.players.filter(p => !p.isBot).map(p => p.id);
+  const pilot = goedamPilot(w, GOEDAM);
   const thinkers = POLICY === 'active' || POLICY === 'dodge' || POLICY === 'dodgeonly' ? humans : [];
   const brains = new Map<number, Brain>(thinkers.map(pi => [pi, { lastSwap: -99, ultAt: null, react: null, dodgedTele: new Set() }]));
   const seen = new Map<number, number>();
@@ -371,8 +393,8 @@ function runOnce(seed: number): RunRec {
 
   const maxTicks = TICK_RATE * 60 * 60;
   for (let t = 0; t < maxTicks; t++) {
-    if (s.phase === 'reward') {
-      for (const pi of humans) if (s.rewardOffersByPlayer[pi]) dispatch(w, { type: 'chooseReward', player: pi, offerIndex: 0 });
+    if (s.phase === 'reward' || s.phase === 'goedam') {
+      pilot.settle(humans, rewardPick);
       continue;
     }
     if (s.phase === 'runOver') break;
@@ -384,6 +406,7 @@ function runOnce(seed: number): RunRec {
         for (const pi of thinkers) humanThink(w, pi, brains.get(pi)!, POLICY, seen, rec);
       }
     }
+    if (POLICY === 'botseat' && s.phase === 'combat') botSeatThink(w);
     for (const e of s.entities) {
       if (!info.has(e.id)) info.set(e.id, { defId: e.defId, kind: e.kind, tier: e.tier, team: e.team, maxHp: e.maxHp });
     }
@@ -587,9 +610,7 @@ function runOnce(seed: number): RunRec {
       const ft = w.floorTimes[w.floorTimes.length - 1];
       finish('clear', ft?.seconds ?? rec.seconds);
       if (floors.length >= FLOORS) break;
-      if (phaseAfter === 'reward') {
-        for (const pi of humans) if (s.rewardOffersByPlayer[pi]) dispatch(w, { type: 'chooseReward', player: pi, offerIndex: 0 });
-      }
+      if (phaseAfter === 'reward') pilot.settle(humans, rewardPick);
       rec = newRec();
       midId = null;
       lastKey.clear();
@@ -601,7 +622,9 @@ function runOnce(seed: number): RunRec {
     }
   }
   const lastF = floors[floors.length - 1];
-  return { floors, combatSec, endFloor: lastF?.floor ?? START, victory: !!lastF && lastF.outcome === 'clear' && lastF.floor >= LAST };
+  const endFloor = lastF?.floor ?? START;
+  const victory = !!lastF && lastF.outcome === 'clear' && lastF.floor >= LAST;
+  return { floors, combatSec, endFloor, victory, seed, goedam: goedamRunRec(w, victory, endFloor) };
 }
 
 // ─────────────────────────── aggregate ───────────────────────────
@@ -753,7 +776,7 @@ for (const r of runs) {
 }
 const vict = runs.filter(r => r.victory);
 const out = {
-  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH },
+  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name },
   runs: {
     victories: vict.length,
     victoryPct: r1((vict.length / runs.length) * 100),
@@ -766,6 +789,8 @@ const out = {
   },
   skillTable,
   monsterHeal: top(gHeal, 10, runs.length),
+  goedam: goedamSummary(GOEDAM, runs.map(r => r.goedam)),
   perFloor,
 };
+if (env.GOEDAM_DUMP) fs.writeFileSync(env.GOEDAM_DUMP, JSON.stringify(runs.map(r => ({ seed: r.seed, ...r.goedam }))));
 console.log(JSON.stringify(out, null, 1));

@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TICK_RATE } from '../../src/config';
+import { GOEDAM_ROOMS } from '../../src/data';
 import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
 import type { Command } from '../../src/types';
@@ -44,10 +45,23 @@ function check(tg: TestGame, where: string): string[] {
     if (!human.out && !s.rewardOffers) bad('reward phase without offers for the living human');
     if (s.entities.some(e => e.team === 'enemy')) bad('enemies alive during reward');
   }
+  // 기획 10차: the 괴담 room is its own phase (after 'reward'), with room state only while it is open
+  if ((s.phase === 'goedam') !== (s.goedam != null)) bad(`phase ${s.phase} with goedam ${s.goedam ? 'open' : 'null'}`);
+  if (s.phase === 'goedam') {
+    if (s.entities.some(e => e.team === 'enemy')) bad('enemies alive during goedam');
+    if (s.goedam!.players.every(pr => pr.stage === 'done')) bad('goedam room open with everyone done');
+    s.goedam!.players.forEach((pr, i) => {
+      if (s.players[i].isBot && pr.stage !== 'done') bad(`bot p${i} still in the room (${pr.stage})`);
+      if ((pr.stage === 'choosing') !== (pr.choice == null)) bad(`p${i} stage ${pr.stage} choice ${pr.choice}`);
+    });
+  }
   if (s.phase === 'combat' && s.plan.kind === 'boss' && s.bossId == null) bad('boss floor without boss');
   if (s.phase === 'combat' && s.plan.kind === 'normal' && s.floorTime > s.plan.timeLimit + 1e-6) bad('normal floor past time limit still in combat');
   return errs;
 }
+
+/** Every option id of every room, plus 'continue' (invalid ones for the open room are refused). */
+const GOEDAM_PICKS = [...new Set(GOEDAM_ROOMS.flatMap(room => room.options.map(o => o.id))), 'continue', 'continue'];
 
 function randomCommand(r: Rng, n: number): Command {
   const k = r.next();
@@ -57,10 +71,11 @@ function randomCommand(r: Rng, n: number): Command {
   if (k < 0.45) return { type: 'swap', player, partyIndex: garbage ? r.pick([-1, 3, 1.5]) : r.int(0, 2), pos };
   if (k < 0.65) return { type: 'pet', player, petIndex: garbage ? r.pick([-1, 9]) : r.int(0, 2), pos };
   if (k < 0.8) return { type: 'ult', player };
-  if (k < 0.97) return { type: 'chooseReward', player, offerIndex: garbage ? r.pick([-1, 5, 1.2]) : r.int(0, 2) };
+  if (k < 0.9) return { type: 'chooseReward', player, offerIndex: garbage ? r.pick([-1, 5, 1.2]) : r.int(0, 2) };
+  if (k < 0.97) return { type: 'goedam', player, option: r.pick(garbage ? ['', 'nope', '__proto__', 'constructor'] : GOEDAM_PICKS) };
   return {
     type: 'debug',
-    action: r.pick([{ kind: 'killAll' }, { kind: 'chargeUlt' }, { kind: 'resetCooldowns' }, { kind: 'forceEnrage' }, { kind: 'skipFloor' }] as const),
+    action: r.pick([{ kind: 'killAll' }, { kind: 'chargeUlt' }, { kind: 'resetCooldowns' }, { kind: 'forceEnrage' }, { kind: 'skipFloor' }, { kind: 'goedamNext' }] as const),
   };
 }
 
@@ -70,12 +85,16 @@ describe('invariants under random commands', () => {
     { seed: 2, t: { maxFloor: 12, reviveTime: 8 } },
     { seed: 3, t: { maxFloor: 12, reviveTime: 20, monsterDmgMult: 4 } },
     { seed: 4, t: { maxFloor: 12, reviveTime: 30, monsterDmgMult: 6, bossFloorTime: 30 } },
+    // 기획 10차: 괴담 rooms on (2 per zone), random picks / continues / garbage ids, fast floors so several rooms open
+    { seed: 5, t: { maxFloor: 20, reviveTime: 8, goedamRoomsPerZone: 2, monsterHpMult: 0.2 } },
+    { seed: 6, t: { maxFloor: 20, reviveTime: 20, goedamRoomsPerZone: 1, monsterHpMult: 0.3, monsterDmgMult: 3 } },
   ];
   for (const { seed, t } of cases) {
     it(`seed ${seed} ${JSON.stringify(t)}: 6 sim minutes, no broken invariant`, () => {
       const tg = makeGame({ seed, players: [HUMAN, BOT1, BOT2], tunables: t });
       const r = new Rng(seed * 7919);
       const errs: string[] = [];
+      let rooms = 0;
       const s = tg.w.state;
       for (let i = 0; i < 6 * 60 * TICK_RATE && s.phase !== 'runOver'; i++) {
         if (s.phase === 'combat') tick(tg.w);
@@ -86,10 +105,17 @@ describe('invariants under random commands', () => {
           errs.push(...check(tg, `after ${JSON.stringify(cmd)}`));
         }
         if (s.phase === 'reward' && r.chance(0.2)) tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: r.int(0, 2) });
-        tg.game.drainEvents();
+        if (s.phase === 'goedam' && r.chance(0.2)) {
+          const pr = s.goedam!.players[0];
+          const opts = pr.options.filter(o => !o.hidden);
+          tg.game.dispatch({ type: 'goedam', player: 0, option: pr.stage === 'choosing' ? r.pick(opts).id : 'continue' });
+          errs.push(...check(tg, 'after goedam pick'));
+        }
+        rooms += tg.game.drainEvents().filter(e => e.type === 'goedamOpen').length;
         if (errs.length > 20) break;
       }
       expect(errs.slice(0, 20)).toEqual([]);
+      if ((t as { goedamRoomsPerZone?: number }).goedamRoomsPerZone) expect(rooms).toBeGreaterThan(0);
     });
   }
 });

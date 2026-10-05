@@ -2,14 +2,28 @@
 //  좌상단: 다른 플레이어 2명 (사람 이름 또는 BOT) · 상단 중앙: 보스 바 / 층 정보 · 우상단: 타이머 + 설정
 //  좌하단: 내 캐릭터 카드 3장 (카드마다 일반스킬 쿨 마름모) · 하단 중앙: 궁극기 게이지 · 우하단: 펫 카드 3장
 //  중앙: 배너(층 시작/클리어/광폭화), 필드 비었을 때 안내, 관전 안내
+//  기획 10차: 우상단 타이머 아래 흔적 칩 (아이콘 + 남은 층, 최대 4개 + '+n'), 층 시작 배너의 흔적 한 줄, 흔적 만료 토스트
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
-import { ROLE_LABEL, getBoss, getCharacter, getMonster, getPet } from '../data';
+import {
+  ROLE_LABEL,
+  getBoss,
+  getCharacter,
+  getGoedamTrace,
+  getMonster,
+  getPet,
+  goedamTraceBanner,
+  goedamTraceDuration,
+  goedamTraceEffectText,
+  goedamTraceExpiredText,
+  goedamTraceKind,
+} from '../data';
 import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
 import { petIcon, portrait } from './preset';
 import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
+import { ultChargeTimeFor } from '../sim/players';
 import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
@@ -34,6 +48,8 @@ const TIP_ID = 'skillSheet';
 const TIP_MS = 9000;
 /** A bench card's cooldown dropping this much faster than time passes = a cooldown cut (크로노 …): "-N초" pop. */
 const CUT_MIN = 0.4;
+/** HUD trace chips shown before '+n' (기획 10차 5-2). */
+const TRACE_CHIPS = 4;
 
 interface SheetRow {
   kind: SkillRowKind;
@@ -244,6 +260,11 @@ export class Hud {
   /** Bench cooldowns as last seen (sim time), to spot cuts. */
   private readonly prevSwapRem: number[] = [];
   private prevSimTime = -1;
+  /** 기획 10차: trace chips under the timer, and expiry toasts held while a screen covers the HUD. */
+  private readonly traces: HTMLElement;
+  private tracesKey = '';
+  private covered = false;
+  private readonly pendingToasts: string[] = [];
 
   constructor(layer: HTMLElement, game: Game, cb: HudCallbacks, opts: HudOptions = {}) {
     this.game = game;
@@ -319,6 +340,8 @@ export class Hud {
     const gear = button('icon-btn hud-block', '', tr, () => cb.onPause());
     gear.innerHTML = ICON_GEAR;
     gear.setAttribute('aria-label', '일시정지');
+    // 기획 10차: 흔적 chips at the top (not under the ult: no room there, and a mis-tap would fire it)
+    this.traces = h('div', 'hud-traces is-hidden', this.root);
 
     // ── bottom-left: my character cards ──
     const bl = h('div', 'hud-bl', this.root);
@@ -525,7 +548,7 @@ export class Hud {
     h('span', 'ss-hint', head, '평타·일반스킬은 자동 · 드래그스킬은 교체할 때');
     // what this card gets when it is next swapped out (기획 6차), with its rewards and the multiplier as of now
     const dragCd = swapCooldownOf(this.game.tunables, me, i);
-    const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ult: this.game.tunables.ultChargeTime });
+    const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ult: ultChargeTimeFor(this.game.tunables, me) });
     // two lines per skill: type · name · trigger · live, then the whole effect line (wraps, never cut off)
     this.sheetRows = rows.map(r => {
       const row = h('div', `ss-row ss-${r.kind}`, this.sheet);
@@ -628,6 +651,9 @@ export class Hud {
   /** A full-stage overlay (reward) is up: hide banners/hints/toasts underneath. */
   setCovered(on: boolean): void {
     setClass(this.root, 'is-covered', on);
+    this.covered = on;
+    // trace expiry happens at the floor clear, under the reward screen: say it once the field is visible again
+    if (!on) for (const t of this.pendingToasts.splice(0)) this.toast(t, 'info');
   }
 
   setDragging(kind: 'swap' | 'pet' | null, index: number): void {
@@ -646,7 +672,7 @@ export class Hud {
 
   // ─────────────────────────── events ───────────────────────────
 
-  private banner(big: string, sub: string, kind: string, lore = ''): void {
+  private banner(big: string, sub: string, kind: string, lore = '', trace = ''): void {
     this.bannerBox.replaceChildren();
     // 기획 8차 리뷰: mid-fight boss banners (phase change, enrage) must not cover the fight at the boss's feet, where
     // the new phase's first pattern lands right away → a smaller, shorter strip low over the arena's front edge
@@ -656,6 +682,7 @@ export class Hud {
     h('div', 'banner-big', b, big);
     if (lore) h('div', 'banner-lore', b, lore);
     if (sub) h('div', 'banner-sub', b, sub);
+    if (trace) h('div', 'banner-trace', b, trace);
     setTimeout(() => b.remove(), low ? 1500 : 2300);
   }
 
@@ -667,12 +694,18 @@ export class Hud {
         case 'floorStart':
           if (e.kind === 'boss') {
             const name = bossName(s.plan.bossId);
-            this.banner(`${e.floor}층 · 보스`, `${name} — HP를 0으로 만들면 퇴각해요`, 'boss');
+            this.banner(`${e.floor}층 · 보스`, `${name} — HP를 0으로 만들면 퇴각해요`, 'boss', '', traceBannerLine(s.players[this.localPlayer]));
           } else {
             const zone = zoneName(s.plan.theme, e.floor);
             // 기획 8차 리뷰: entering a new zone (1·6·11·16층) opens with its 괴담 line
             const lore = zoneLore(s.plan.theme, e.floor);
-            this.banner(zone ? `${e.floor}층 · ${zone}` : `${e.floor}층`, `몬스터를 모두 처치하세요 · 제한시간 ${formatClock(s.plan.timeLimit)}`, 'floor', lore);
+            this.banner(
+              zone ? `${e.floor}층 · ${zone}` : `${e.floor}층`,
+              `몬스터를 모두 처치하세요 · 제한시간 ${formatClock(s.plan.timeLimit)}`,
+              'floor',
+              lore,
+              traceBannerLine(s.players[this.localPlayer]),
+            );
           }
           if (e.floor === 1 && !tipSeen(TIP_ID)) {
             this.tipUntil = performance.now() + TIP_MS;
@@ -716,6 +749,14 @@ export class Hud {
           break;
         case 'runOver':
           this.banner(e.result.outcome === 'victory' ? '승리!' : '런 실패', '', e.result.outcome === 'victory' ? 'clear' : 'enrage');
+          break;
+        case 'goedamTraceExpired':
+          if (e.player === this.localPlayer) {
+            const text = goedamTraceExpiredText(e.traceId);
+            // the clear opens the reward screen in the same frame: hold it until the field shows again
+            if (this.covered || s.phase !== 'combat') this.pendingToasts.push(text);
+            else this.toast(text, 'info');
+          }
           break;
         case 'playerOut':
           if (e.player !== this.localPlayer) this.toast(`${s.players[e.player]?.name ?? '플레이어'} 사망 · 관전 중`, 'warn');
@@ -769,10 +810,31 @@ export class Hud {
     this.updatePets(s, me);
     this.updateCenter(s, me);
     this.updateSheet(s, me);
+    this.updateTraces(me);
     if (this.tipUntil > 0 && (now > this.tipUntil || s.phase !== 'combat')) {
       this.tipUntil = 0;
       show(this.tip, false);
     }
+  }
+
+  /** 흔적 chips: icon + floors left ('∞' = until the run ends); timed ones first, max TRACE_CHIPS then '+n'. */
+  private updateTraces(me: PlayerState): void {
+    const list = me.goedamTraces ?? [];
+    const key = list.map(t => `${t.id}:${t.floorsLeft}`).join(',');
+    if (key === this.tracesKey) return;
+    this.tracesKey = key;
+    this.traces.replaceChildren();
+    show(this.traces, list.length > 0);
+    const sorted = [...list].sort((a, b) => (a.floorsLeft ?? Infinity) - (b.floorsLeft ?? Infinity));
+    for (const slot of sorted.slice(0, TRACE_CHIPS)) {
+      const t = getGoedamTrace(slot.id);
+      const chip = h('span', `hud-trace kind-${goedamTraceKind(t)}`, this.traces);
+      chip.dataset.trace = t.id;
+      h('span', 'ht-icon', chip, t.icon);
+      h('span', 'ht-n', chip, slot.floorsLeft == null ? '∞' : String(slot.floorsLeft));
+      chip.title = `${t.name} · ${goedamTraceEffectText(t)} · ${goedamTraceDuration(slot.floorsLeft)}`;
+    }
+    if (sorted.length > TRACE_CHIPS) h('span', 'hud-trace is-more', this.traces, `+${sorted.length - TRACE_CHIPS}`);
   }
 
   private updateBots(s: GameState): void {
@@ -980,8 +1042,8 @@ export class Hud {
     setClass(this.ult, 'is-charged', full);
     setClass(this.ult, 'is-disabled', !activeDef || me.out);
     setText(this.ultPct, me.out ? '—' : full ? (usable ? '탭!' : '100%') : `${Math.floor(charge * 100)}%`);
-    // charge is time-only (R9): seconds until full = what's left × ultChargeTime
-    const left = (1 - charge) * Math.max(0, this.game.tunables.ultChargeTime);
+    // charge is time-only (R9): seconds until full = what's left × charge time (기획 10차: traces change its speed)
+    const left = (1 - charge) * ultChargeTimeFor(this.game.tunables, me);
     setText(this.ultSub, me.out ? '관전 중' : full ? (activeDef ? '궁극기 준비' : '필드 비었음') : `${countdown(left)}초 후`);
     setText(this.ultName, activeDef ? activeDef.ult.name : '—');
     setStyle(this.ultName, 'color', activeDef ? activeDef.color : '');
@@ -1044,6 +1106,14 @@ export function zoneName(theme: GameState['plan']['theme'], floor: number): stri
 export function zoneLore(theme: GameState['plan']['theme'], floor: number): string {
   const z = ZONES.find(x => floor >= x.from && floor <= x.to && (!theme || x.theme === theme));
   return z && z.from === floor ? z.lore : '';
+}
+
+/** Floor-start banner line for my traces: the newest one ('동승자가 따라 내렸다 — 받는 피해 +12%'), '외 n개' for more. */
+function traceBannerLine(me: PlayerState | undefined): string {
+  const list = me?.goedamTraces ?? [];
+  if (!list.length) return '';
+  const line = goedamTraceBanner(list[list.length - 1].id);
+  return list.length > 1 ? `${line} · 흔적 외 ${list.length - 1}개` : line;
 }
 
 /** A boss pattern's one-time tip (MonsterSkill.hint), phase patterns included. */

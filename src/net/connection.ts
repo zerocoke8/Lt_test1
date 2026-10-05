@@ -9,6 +9,8 @@
 //   backoff for a few minutes (status stays 'probing'); a static host that answers "not ok" is asked once only.
 // - Silent stall (socket open, nothing arrives — tunnel, elevator): a ping unanswered for STALL_RECONNECT_MS drops the
 //   socket and reconnects with the same token.
+// - 'bad_version' (this tab's build is older/newer than the server's protocol): offline 'badVersion' for good — only a
+//   page reload can fix it, so retryNow() does nothing and the matching screen shows a reload button (기획 10차).
 
 import type { ClientMsg, ServerMsg } from './protocol';
 import { PROTOCOL_VERSION } from './protocol';
@@ -28,8 +30,11 @@ export type NetStatus =
   /** another tab/window took over this session (close 4001): stopped until retryNow() */
   | 'replaced';
 
-/** Why the status is 'offline': no game server on this host (static/solo build) vs. a server that did not answer. */
-export type OfflineReason = 'noServer' | 'unreachable';
+/**
+ * Why the status is 'offline': no game server on this host (static/solo build), a server that did not answer, or a
+ * server that speaks another protocol version (stale tab after a deploy: reload).
+ */
+export type OfflineReason = 'noServer' | 'unreachable' | 'badVersion';
 
 type Msg<T extends ServerMsg['t']> = Extract<ServerMsg, { t: T }>;
 type Handler<T extends ServerMsg['t']> = (msg: Msg<T>) => void;
@@ -182,6 +187,7 @@ export class Connection {
    * waiting for its next try, probe right now.
    */
   retryNow(): void {
+    if (this.offlineReason === 'badVersion') return; // the same build would be refused again
     if (!this.wanted) {
       this.start();
       return;
@@ -425,7 +431,7 @@ export class Connection {
       case 'error':
         if (msg.code === 'bad_version') {
           this.wanted = false;
-          this.goOffline('noServer');
+          this.goOffline('badVersion');
         }
         break;
     }

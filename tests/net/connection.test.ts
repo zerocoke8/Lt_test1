@@ -7,6 +7,8 @@ type Listener = ((ev: { data?: unknown; code?: number }) => void) | null;
 let sockets: FakeSocket[] = [];
 /** When false the fake server swallows everything (a silently dead link). */
 let answering = true;
+/** When false the fake server refuses hello with 'bad_version' and closes (another build deployed). */
+let versionOk = true;
 
 class FakeSocket {
   static readonly CONNECTING = 0;
@@ -29,6 +31,13 @@ class FakeSocket {
   send(data: string): void {
     const msg = JSON.parse(data) as { t: string; token?: string; at?: number };
     if (!answering) return;
+    if (msg.t === 'hello' && !versionOk) {
+      setTimeout(() => {
+        this.deliver({ t: 'error', code: 'bad_version', message: '게임 버전이 달라요 · 페이지를 새로고침해 주세요' });
+        this.serverClose(4002);
+      }, 5);
+      return;
+    }
     if (msg.t === 'hello') {
       this.hellos.push({ token: msg.token });
       setTimeout(() => this.deliver({ t: 'welcome', v: 1, sessionId: 'sid', token: msg.token ?? 'a'.repeat(32), name: '탭' }), 5);
@@ -78,6 +87,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   sockets = [];
   answering = true;
+  versionOk = true;
   fetches = 0;
   vi.stubGlobal('WebSocket', FakeSocket);
   vi.stubGlobal('location', { protocol: 'http:', host: 'game.test' });
@@ -175,6 +185,25 @@ describe('Connection', () => {
     c.retryNow();
     await vi.advanceTimersByTimeAsync(100);
     expect(c.status).toBe('online');
+    c.stop();
+  });
+
+  it("기획 10차 'bad_version' (stale tab): offline 'badVersion' for good — no reconnect, retryNow does nothing (only a reload helps)", async () => {
+    versionOk = false;
+    const { Connection } = await import('../../src/net/connection');
+    const c = new Connection({ name: () => 'A' });
+    c.start();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(c.status).toBe('offline');
+    expect(c.offlineReason).toBe('badVersion');
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(sockets).toHaveLength(1);
+    expect(fetches).toBe(1);
+    c.retryNow();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sockets).toHaveLength(1);
+    expect(fetches).toBe(1);
+    expect(c.status).toBe('offline');
     c.stop();
   });
 });

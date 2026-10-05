@@ -51,6 +51,7 @@ function snapOf(game: Game, extra: Partial<Snap> = {}): Snap {
     tunables: { ...game.tunables },
     hostPlayerIndex: 0,
     rewardDeadline: null,
+    goedamDeadline: null,
     telemetry: game.telemetry(1),
     ...extra,
   };
@@ -153,6 +154,48 @@ describe('RemoteGame', () => {
     conn.emit({ t: 'cmdResult', seq, ok: false, reason: '보상 단계가 아님' });
     conn.emit(snapOf(tg.game));
     expect(rg.state.rewardOffersByPlayer[1]).toHaveLength(3);
+  });
+
+  it('기획 10차 괴담 room: the sim\'s own checks, sent for my slot, a double tap waits for the snapshot; the deadline rides along', () => {
+    const { tg, conn, rg, rejected } = setup();
+    conn.emit(snapOf(tg.game));
+    expect(rg.goedamDeadline).toBeNull();
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'leave' })).toEqual({ ok: false, reason: '괴담 방이 아님' });
+    tg.game.dispatch({ type: 'debug', action: { kind: 'goedamNext', room: 'broken_vending' } });
+    tg.game.dispatch({ type: 'debug', action: { kind: 'skipFloor' } });
+    for (const player of [0, 1]) tg.game.dispatch({ type: 'chooseReward', player, offerIndex: 0 });
+    expect(tg.game.state.phase).toBe('goedam');
+    const deadline = Date.now() + 25_000;
+    conn.emit(snapOf(tg.game, { goedamDeadline: deadline }));
+    expect(rg.goedamDeadline).toBe(deadline); // serverOffsetMs 0
+    // the same refusals as the sim, nothing sent
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'continue' })).toEqual({ ok: false, reason: '먼저 고르세요' });
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'nope' })).toEqual({ ok: false, reason: '잘못된 선택' });
+    expect(conn.cmds()).toHaveLength(0);
+    // another slot in the command is replaced by mine
+    expect(rg.dispatch({ type: 'goedam', player: 0, option: 'press' })).toEqual({ ok: true });
+    const sent = conn.cmds()[0];
+    expect(sent.cmd).toEqual({ type: 'goedam', player: 1, option: 'press' });
+    // double tap before the snapshot shows my choice: not sent twice
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'press' })).toEqual({ ok: false, reason: '이미 골랐음' });
+    expect(conn.cmds()).toHaveLength(1);
+    expect(tg.game.dispatch(sent.cmd).ok).toBe(true); // the server runs it
+    conn.emit({ t: 'cmdResult', seq: sent.seq, ok: true });
+    conn.emit(snapOf(tg.game, { goedamDeadline: deadline }));
+    expect(rg.state.goedam!.players[1].stage).toBe('result');
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'continue' })).toEqual({ ok: true });
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'continue' })).toEqual({ ok: false, reason: '이미 끝남' });
+    // a refusal frees the button at once
+    const cont = conn.cmds()[1];
+    conn.emit({ t: 'cmdResult', seq: cont.seq, ok: false, reason: '이미 끝남' });
+    expect(rejected.at(-1)).toEqual([cont.cmd, '이미 끝남']);
+    expect(rg.dispatch({ type: 'goedam', player: 1, option: 'continue' })).toEqual({ ok: true });
+    // room over → no deadline
+    tg.game.dispatch({ type: 'goedam', player: 0, option: 'leave' });
+    for (const player of [0, 1]) tg.game.dispatch({ type: 'goedam', player, option: 'continue' });
+    conn.emit(snapOf(tg.game));
+    expect(rg.state.phase).toBe('combat');
+    expect(rg.goedamDeadline).toBeNull();
   });
 
   it('host: debug-panel edits of game.tunables are diffed and sent; the server value wins afterwards', () => {

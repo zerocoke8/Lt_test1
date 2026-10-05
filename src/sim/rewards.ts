@@ -1,8 +1,9 @@
 // Floor rewards (R20): 3 distinct offers, rarity weights, relics on boss floors, bots pick at random.
 
-import type { Rarity, RewardDef, RewardOffer } from '../types';
+import type { AppliedReward, Rarity, RewardDef, RewardOffer } from '../types';
 import { getCharacter, getReward, RARITY_WEIGHTS, RELICS, REWARDS } from '../data';
 import { benchMaxHp, effStats } from './stats';
+import type { Rng } from './rng';
 import { getEntity, type SimPlayer, type World } from './world';
 
 const RARITIES: Rarity[] = ['common', 'rare', 'epic'];
@@ -50,8 +51,27 @@ export function applyOffer(w: World, p: SimPlayer, offer: RewardOffer): void {
     if (!p.relics.includes(offer.rewardId)) p.relics.push(offer.rewardId);
     return;
   }
-  const def = getReward(offer.rewardId);
-  p.rewards.push({ rewardId: def.id, partyIndex: offer.partyIndex });
+  grantReward(w, p, offer.rewardId, offer.partyIndex);
+}
+
+/**
+ * 기획 10차: one normal reward with the given rarity weights (bound to a random member when character-scoped), drawn
+ * with the caller's rng — the 괴담 room passes its own, so the run rng's order is untouched. Null when nothing fits.
+ */
+export function drawOne(rng: Rng, p: SimPlayer, weights: Record<Rarity, number>, filter?: (r: RewardDef) => boolean): AppliedReward | null {
+  const pool = REWARDS.filter(r => weights[r.rarity] > 0 && (!filter || filter(r)));
+  if (pool.length === 0) return null;
+  const rarities = RARITIES.filter(r => pool.some(x => x.rarity === r));
+  const rarity = rng.weighted(rarities, r => weights[r]);
+  const r = rng.pick(pool.filter(x => x.rarity === rarity));
+  const partyIndex = r.scope === 'character' ? rng.int(0, p.party.length - 1) : null;
+  return { rewardId: r.id, partyIndex };
+}
+
+/** Add a normal reward to the player (a max HP bonus also raises living members' current HP; HP stays ≥ 1). */
+export function grantReward(w: World, p: SimPlayer, rewardId: string, partyIndex: number | null): void {
+  const def = getReward(rewardId);
+  p.rewards.push({ rewardId: def.id, partyIndex });
   if (def.effect.kind === 'stat' && def.effect.mods.hpPct) {
     // Max HP bonus also raises current HP of living members by the same amount.
     p.party.forEach((m, idx) => {
@@ -59,12 +79,12 @@ export function applyOffer(w: World, p: SimPlayer, offer: RewardOffer): void {
       const e = getEntity(w, m.entityId);
       if (e) {
         e.maxHp = effStats(w, e).maxHp;
-        e.hp = Math.min(e.maxHp, e.hp + gain);
+        e.hp = Math.max(1, Math.min(e.maxHp, e.hp + gain));
         m.hp = e.hp;
         m.maxHp = e.maxHp;
       } else {
         m.maxHp = benchMaxHp(p, idx);
-        if (!m.dead) m.hp = Math.min(m.maxHp, m.hp + gain);
+        if (!m.dead) m.hp = Math.max(1, Math.min(m.maxHp, m.hp + gain));
       }
     });
   }
