@@ -10,11 +10,12 @@
 |---|---|---|
 | `src/types.ts` | **공용 계약**. GameState(읽기 모델), Command(입력), GameEvent(연출), Tunables, 모듈 API | — |
 | `src/config.ts` | 기본 튜닝값, 상수(틱, 아레나 크기, 봇 프리셋), 구역 표 `ZONES`(층 범위 · 몬스터 풀 가중치·해금 층 · 중형보스 순서 · 보스 · 웨이브 크기, 8차), 층별 몬스터 배율(`LATE_STAT_GROWTH`) | types |
-| `src/data/*` | 임시 콘텐츠: 캐릭터 12 (역할별 3), 펫 8, 일반몹 12 + 복사본, 중형보스 6, 보스 4 (8차 괴담 빌딩, [`content-20f.md`](content-20f.md)), 보상, 유물 | types |
+| `src/data/*` | 임시 콘텐츠: 캐릭터 12 (역할별 3), 펫 8, 일반몹 12 + 복사본, 중형보스 6, 보스 4 (8차 괴담 빌딩, [`content-20f.md`](content-20f.md)), 보상, 유물, 괴담 방 12 + 흔적 20과 그 버튼·결과 문구 함수 (`data/goedam.ts`, 10차) | types |
 | `src/sim/*` | 게임 규칙 전부. DOM/Canvas 접근 금지. 고정 틱(30Hz), 시드 랜덤(`Rng`) | types, config, data |
+| `src/sim/goedam.ts` | 괴담 방 (10차): 일정(`goedamSchedule`, 순수), 방 전용 랜덤(`goedamRng` = 시드 + 층 + 플레이어, `w.rng`는 안 씀), 방 열기·선택·계속·자동 처리, 흔적 추가·만료, 미리 검사 `canGoedamState`, 서버 마감용 `goedamTimeoutCommands` | types, config, data |
 | `src/sim/geometry.ts`, `src/sim/preview.ts` | 순수 함수: 형태 판정(circle/line/rect/cone/ring/cross/fan, 돌진·몬스터 돌진 끝점), 드래그 미리보기 파트(`previewPartsFor`) | types, data |
 | `src/render/*` | Canvas 쿼터뷰 렌더링. GameState를 읽기만 함 | types, config, data, sim의 순수 모듈 |
-| `src/ui/*` | DOM HUD, 드래그 입력, 화면(프리셋/매칭·방/보상/결과), 디버그 패널, 앱 루프 | types, config, data, sim(createGame + 순수 모듈), render(createRenderer), net |
+| `src/ui/*` | DOM HUD, 드래그 입력, 화면(프리셋/매칭·방/보상/괴담 방 `ui/goedam.ts`/결과), 디버그 패널, 앱 루프 | types, config, data, sim(createGame + 순수 모듈), render(createRenderer), net |
 | `src/net/*` | 멀티플레이 클라이언트: 연결, 로비, `RemoteGame`(서버 스냅샷 → `Game` 인터페이스) | types, config, sim의 순수 모듈 |
 | `server/*` | Node 게임 서버 (방, 서버 권위 sim, 스냅샷) → `dist-server/index.js` | types, config, data, sim, net/protocol |
 | `src/main.ts` | 진입점 → `ui/app.ts`의 `startApp()` | ui |
@@ -24,7 +25,7 @@
 - 연출(데미지 숫자, 스킬 이펙트)은 `game.drainEvents()`의 GameEvent로 전달.
 - 봇은 플레이어 슬롯의 조작 주체만 다름 (`PlayerState.isBot`). 봇도 같은 Command를 dispatch (sim 내부 `bot.ts`).
 - 숫자는 `Tunables`(디버그 슬라이더로 실시간 조절)나 `src/data`에 둠. 코드에 하드코딩하지 않음.
-- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`, `sim/cooldowns`의 `normalCooldownFor`(튜닝값 + PlayerState → 일반스킬 쿨 길이, 카드 마름모)·`swapCooldownOf`(→ 다음에 나갈 때 받을 재등장 쿨, 스킬 정보 "나가면 쿨 N초"). 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건·쿨 길이를 씀.
+- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`, `sim/cooldowns`의 `normalCooldownFor`(튜닝값 + PlayerState → 일반스킬 쿨 길이, 카드 마름모)·`swapCooldownOf`(→ 다음에 나갈 때 받을 재등장 쿨, 스킬 정보 "나가면 쿨 N초"), `sim/players`의 `ultChargeTimeFor`(흔적 배율까지 넣은 궁극기 충전 시간, HUD "N초 후"·스킬 정보), `sim/goedam`의 `canGoedamState`(괴담 명령 검사). 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건·쿨 길이를 씀.
 - `Zone.area`: 띠·고리·십자 등 원이 아닌 장판은 정확한 모양을 담음 (없으면 `radius` 원). 렌더러와 스냅샷이 그대로 사용.
 
 ## 화면 좌표
@@ -68,17 +69,17 @@
 
 | 명령 | 내용 |
 |---|---|
-| `npm test` (`npx vitest run`) | Vitest 41파일 435개: sim 규칙(R1–R46, 8차 부채꼴·돌진·순간이동·분열·보스 페이즈·1~20층 계획 `tests/sim/anomalies.test.ts`·`floor.test.ts`, 타격 멈춤·흔들림 `tests/render/juice.test.ts`, 형태 판정 = 미리보기, 12종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
+| `npm test` (`npx vitest run`) | Vitest 43파일 483개: sim 규칙(R1–R52, 10차 괴담 방 `tests/sim/goedam.test.ts`(일정·봇·절대 안 죽음·궁극기 규칙·흔적 만료·대체 처리·'지나간다' = 끔과 비트 단위로 같음·3인 순서 무관), 8차 부채꼴·돌진·순간이동·분열·보스 페이즈·1~20층 계획 `tests/sim/anomalies.test.ts`·`floor.test.ts`, 타격 멈춤·흔들림 `tests/render/juice.test.ts`, 형태 판정 = 미리보기, 12종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
 | `npx tsc --noEmit` / `npm run typecheck:server` | 타입 검사 (브라우저 + 테스트 / 서버) |
 | `npm run e2e` (`npx playwright test`) | Playwright 3개 프로젝트 (아래). 시작할 때 `vite build` → `vite preview :4173` |
 | `PERF=1 npx playwright test perf` | 실시간 프레임 측정 (40초 일반 플레이 + 몹 30마리·궁극기 스트레스) |
 
 Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/chromium`):
 - `phone` (844×390@3x, 터치) / `desktop` (1280×720, 마우스): 아래 솔로 스펙.
-  - `tests/e2e/smoke.spec.ts`: 프리셋 → 전투 → 실제 포인터 드래그로 교체/펫 → 궁극기 탭 → 1층 클리어·보상 → 5층 보스 광폭화·퇴각 → 유물 → 포기 → 결과. 콘솔 에러 0. 폰 스크린샷은 `docs/screenshots/*.png` (솔로 세트).
+  - `tests/e2e/smoke.spec.ts`: 프리셋 → 전투 → 실제 포인터 드래그로 교체/펫 → 궁극기 탭 → 1층 클리어·보상 → 괴담 방(강제한 엘리베이터 → 끝까지 탄다 → 결과 → 계속 → 2층, 흔적 칩·배너 줄·일시정지 목록) → 5층 보스 광폭화·퇴각 → 유물 → 포기 → 결과. 콘솔 에러 0. 폰 스크린샷은 `docs/screenshots/*.png` (솔로 세트).
   - `tests/e2e/flows.spec.ts`: 일반층 시간 초과 실패, 보스층 시간 초과 광폭화, 최고층 승리, 전멸 → 관전 → 결과 (관전 띠·멈춘 숫자 없음, `docs/screenshots/spectate.png`), 바닥 맨 아래 조준(손가락이 카드 줄 위여도 놓기 가능), 세로 화면 정지, PC 단축키.
   - `tests/e2e/artifact.spec.ts`: claude.ai Artifact 빌드(`scripts/make-artifact.mjs`)를 게임 서버 없는 정적 호스트에 올린 것처럼 띄움 → 페이지 말고는 요청 0개(/healthz·WebSocket 없음), 콘솔 에러 0, "혼자 하기 전용" 안내, 출발 → 혼자 하기. 일반 빌드는 같은 호스트에서 /healthz 한 번(404)만 묻고 재시도 없음.
-- `multi`: `tests/e2e/multi.spec.ts` — 빌드한 실제 게임 서버(`dist-server`) + 폰 브라우저 3개, 조용한 끊김(오프라인 폰), 탭 복제. 자세한 흐름은 `docs/multiplayer.md` 5장. 스크린샷 `docs/screenshots/multi-*.png`.
+- `multi`: `tests/e2e/multi.spec.ts` — 빌드한 실제 게임 서버(`dist-server`) + 폰 브라우저 3개, 괴담 방(둘이 고르고 한 명은 마감까지 가만히 → '지나간다' → 2층, 세 화면 상태 같음), 조용한 끊김(오프라인 폰), 탭 복제. 자세한 흐름은 `docs/multiplayer.md` 5장. 스크린샷 `docs/screenshots/multi-*.png`.
 - 리뷰용 멀티 UI 확인(2번 자리 플레이어, 메뉴 아래 Space 궁극기 없음): `npx playwright test -c tests/review/playwright.multi-review.config.ts`.
 - 다른 작업과 동시에 돌릴 때: `E2E_PORT=4191 E2E_OUT=<빌드 폴더> E2E_RESULTS=<결과 폴더> npx playwright test`.
 - 테스트용 훅: `window.__proto` (`game`, `phase`, `mode`, `localPlayer`, `net`, `startRun(overrides)`, `ui.dragTo`, `ui.fingerFor`, `ui.dragPreview`).
@@ -140,6 +141,18 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 | R46 | 드래그 착지 타격 멈춤·화면 흔들림은 화면 전용(sim·멀티 영향 없음), 기기별 설정 (아래 8차 연출) | 8차 1 |
 | R47 | 일반몹의 첫 스킬은 `initialDelay` + 시드 랜덤 0 ~ min(1.5초, 쿨의 35%) (`SKILL_START_JITTER`, `sim/entities.ts`): 같이 나온 무리가 영원히 같은 순간에 시전하지 않게. 중형보스·보스는 설계한 그대로 | 8차 리뷰, 가정 |
 | R48 | `MonsterSkill.hint`: 보스가 그 패턴을 처음 쓸 때 기기별 한 번 HUD 팁 (데이터만, sim 영향 없음) | 8차 리뷰 |
+
+## 규칙 체크리스트 추가 (10차: 층 사이 괴담 방 「이상한 방」)
+
+설계 [`docs/goedam-rooms.md`](goedam-rooms.md), 방·흔적 표 [`docs/content-20f.md`](content-20f.md) 8장, 멀티 [`docs/multiplayer.md`](multiplayer.md) 2장 5-1, 측정 [`docs/balance.md`](balance.md) 10장. 기획서가 말한 'R47'은 이미 8차 리뷰에서 써서 R49부터.
+
+| # | 규칙 | 근거 |
+|---|---|---|
+| R49 | 층 사이 괴담 방: 구역마다 `goedamRoomsPerZone`(기본 1, 0~2)개, 층은 시드로(1층·보스층·20층 뒤 제외, 연속 층 없음, 같은 방 한 번). 층 보상 **뒤에** 새 단계 `SimPhase 'goedam'` (보상 단계 안이 아님). 시간 정지(`tick()`은 전투에서만). `GameState.goedam`은 이 단계에서만 null이 아님, 다음 층 시작·디버그 층 이동·런 종료에서 지움. 흐름: 층 클리어 → 흔적 만료 → 20% 회복 → 보상 → 방(봇은 바로 '지나간다') → 사람마다 고르기 → 결과 → 계속 → 모두 끝나면 다음 층 | 10차 1·2·4·6 |
+| R50 | 방 전용 랜덤 `goedamRng(시드, 층, 플레이어)` — 전투·스폰·보상 화면의 `w.rng`를 건드리지 않음. 그래서 슬라이더 0이거나 모두 '지나간다'면 지금 런과 비트 단위로 같음 (수첩 기록만 다름, `tests/sim/goedam.test.ts` 'goedam baseline'). 선택은 화면 번호가 아니라 선택지 id(`'leave'` 등) | 10차, 기획서 7장 |
+| R51 | 방 효과는 절대 죽이지 않음(HP 최소 1), 내 파티·내 게이지·내 보상에만. 흔적 = 스탯·궁극기 충전 배율·받는 피해 배율 3종, N층 또는 영구, 같은 흔적은 기간만 갱신, 층 클리어 회복 **전에** 만료, 최대 HP는 원래의 30% 아래로 안 내려감. 궁극기 충전 시간은 `ultChargeTimeFor` 하나로 sim·HUD·스킬 정보가 같이 씀 | 10차 8, 기획서 5장 |
+| R52 | 멀티: 방 마감 25초(새로 시작, `goedamDeadline` 스냅샷), 지나면 `goedamTimeoutCommands` = 안 고른 사람 '지나간다' → 모두 '계속'. 접속 끊김(`setPlayerBot`)은 그 자리만 자동 처리, 재접속은 '끝남' 단계로. 다른 사람 결과는 내가 고른 뒤에만. 통신 버전 2 | 10차 5·10, 기획서 3장 |
+| R53 | 방 선택지 버튼은 방이 화면에 뜬 뒤 `ARM_MS`(0.45초)부터 탭을 받음 (`src/ui/goedam.ts`): 방은 마지막 보상을 고른 그 틱에 열려서, 보상 카드 더블탭이 읽지 않은 선택지를 고르던 것 막음. 흔적의 최대 HP 증가분은 현재 HP도 같이 올림(`refreshMaxHp(w, p, true)`, 보상의 최대 HP와 같은 방식). `GoedamOutcome.revived`(부활 효과가 있을 때만, 0이면 결과 카드에서 '부활' 줄 뺌). `goedamDeadline`은 방 단계에서만 스냅샷에 실음 | 10차 리뷰 |
 
 ## 3차 리뷰·플레이테스트 반영 (2026-10-04)
 
@@ -236,3 +249,22 @@ HUD (`src/ui/hud.ts`, `src/ui/skillinfo.ts`, `styles.css`):
 | 10 보스 그림이 HP 상자에 잘림 | 보스 4종을 24px 아래에 그림 (`BOSS_DROP`) | `render/bosses.ts`, `boss.ts` |
 
 성능 (헤드리스·GPU 없음, 폰 844×390@3x, 같은 시각 A/B: 리뷰 전 빌드 ↔ 지금): 광폭화 5층 35.6 → **53.2fps**, 20층 34.3 → **45fps** (CSS 비네트); 광폭화 전 보스층 59.5 ↔ 59.7fps 그대로. 타격 멈춤이 실제로 1프레임 이상 보인 착지: CPU 2× 감속 1/6 → **8/8**, 4× 1/8 → **8/8**. 무리 싸움(동시 16마리 상한, 웨이브 2.5초): 17층 51 → 52~58fps, 12층 60 → 52~54fps — 12층은 웨이브가 5~7마리로 늘고 시차가 생겨 화면의 예고가 평균 0.7 → 1.3개(돌진 줄·주사 고리)라서: 적 예고를 안 그리면 55~59fps, 겹침 클립을 꺼도 차이 없음(±1.5fps 잡음). 처음 시도한 오프스크린 레이어는 같은 장면 −10fps라 버림.
+
+## 10차: 층 사이 괴담 방 「이상한 방」 (2026-10-05)
+
+기획 답변 "추천대로" ([`game-design.md`](game-design.md) 23장). 설계 [`goedam-rooms.md`](goedam-rooms.md), 표 [`content-20f.md`](content-20f.md) 8장.
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/types.ts` | `SimPhase`에 `'goedam'`, `GameState.goedam`(방·사람마다 단계/선택지/결과), `PlayerState.goedamTraces`·`goedamLog`(괴담 수첩), 명령 `{type:'goedam', player, option}`(선택지 id 또는 `'continue'`), 디버그 `goedamNext`, 이벤트 `goedamOpen`·`goedamOutcome`·`goedamTrace`·`goedamTraceExpired`, `Telemetry.goedam`, 튜닝 `goedamRoomsPerZone` |
+| `src/data/goedam.ts` | 방 12 · 흔적 20 · 확률 · 문구 함수 (버튼 줄 `goedamOptionView`, 결과 카드 `goedamResultView`, 수첩 `goedamLogText` 등). 숫자는 이 파일에만 |
+| `src/sim/goedam.ts` | 일정, 방 랜덤, 열기/선택/계속/자동 처리, 흔적, `canGoedamState`, `goedamTimeoutCommands` |
+| `src/sim/players.ts`·`modifiers.ts`·`rewards.ts`·`combat.ts`·`floor.ts`·`game.ts` | 궁극기 게이지 설정·충전 시간 함수, 최대 HP 다시 계산, 흔적 스탯·받는 피해 배율, 등급을 정해 1장 뽑기·특정 보상 지급, 클리어 때 흔적 만료(회복 전), 보상 → 방 → 다음 층 |
+| `server/room.ts`·`validate.ts`, `src/net/protocol.ts`·`remoteGame.ts`·`connection.ts` | 명령 허용(선택지 id 1~32자 a-z0-9_), 보낸 사람 자리 강제, 방 마감 25초(`GOEDAM_TIMEOUT_SEC`), 통신 버전 2, 옛 탭 「게임 버전이 달라요 · 새로고침」 |
+| `src/ui/goedam.ts`, `app.ts`·`hud.ts`·`pause.ts`·`result.ts`·`debug.ts`·`tunables.ts` | 방 화면(고르기 → 0.6초 깜빡임 → 결과 카드 → 계속, 멀티 타이머·이름 칩·다른 사람 줄·대기 패널, 화면 안 빨간 거절 문구), 앱 단계 `'goedam'`, HUD 위쪽 흔적 칩(최대 4 + '+n'), 층 시작 배너 줄, 만료 토스트, 일시정지의 흔적·유물 목록, 결과 화면 괴담 수첩, 디버그 '다음 클리어에 괴담 방', 슬라이더 |
+| `tests/playtest/goedam-policy.ts` 외 벤치 | 공용 자동 선택기, 환경 변수 `GOEDAM` (off · leave · random · first · greedy · `forced:<방>:<선택>`) |
+
+**통합 확인 (2026-10-05)**: `tsc` · 서버 타입 검사 · Vitest 43파일 483개 · `build:all` · `build:artifact` · Playwright phone·desktop·multi 모두 통과 (아래 보고 참고).
+- 화면(폰 844×390@3x): `docs/screenshots/goedam.png`(고르기), `goedam-result.png`(결과 카드), `goedam-multi.png`(멀티 대기 패널 (2/3) + 다른 사람 줄 + 마감), `goedam-multi-idle.png`(아직 안 고른 사람: ✓ 칩만). 12개 방 모두와 결과 카드가 스크롤 없이 들어감(smoke). 흔적 칩 6개(4 + '+2')도 위쪽 줄에 들어감, 혼선이 걸리면 궁극기 "N초 후"도 그 속도로 셈.
+- 고친 것: 자판기 미믹 결과 카드에 「전원 HP 10% 잃음」이 두 번 나오던 것 → 두 번째는 「전원 HP 10% 더 잃음」.
+- 남은 화면 메모: 흔적 칩 줄은 오른쪽 위 벽 앞(논리 y 약 97~136)에 있어서, 캐릭터가 오른쪽 위 벽에 붙으면 머리 위 HP 바가 칩 뒤에 가려질 수 있음(위쪽 HUD 상자처럼 발밑으로 내리는 처리는 아직 없음).

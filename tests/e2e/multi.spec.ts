@@ -4,7 +4,8 @@
 // C: 거너 왼쪽 부채꼴): the drag preview is only on the dragger's screen, the dash/cast reaches everyone → per-player
 // rewards (all three must choose) → B's page closes (slot → BOT) → B opens the link again on the same device (back in
 // its seat, in control) → a member quits → the host ends the run → result → room → the host leaves the room (host
-// handoff: the next member can start). Plus a 1-human room (host + 2 bots, reload mid-game).
+// handoff: the next member can start). Plus: a 괴담 room (기획 10차: two pick, one idles until the server's room deadline),
+// a 1-human room (host + 2 bots, reload mid-game).
 // Screenshots: docs/screenshots/multi-*.png (phone, @3x).
 
 import { expect, test, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test';
@@ -425,6 +426,115 @@ test('3 players: lobby → room → start → directional drags seen by all → 
     expect(errors, errors.join('\n')).toEqual([]);
   } finally {
     for (const p of [...all, ...extra]) await p.ctx.close().catch(() => {});
+  }
+});
+
+/** Everything that must match on every screen after the room (desync check). */
+const syncView = (page: Page) =>
+  state<string>(
+    page,
+    `JSON.stringify({ floor: s.floor, phase: s.phase, goedam: s.goedam, logs: s.players.map(p => p.goedamLog.map(e => ({ ...e, outcome: { ...e.outcome } }))), traces: s.players.map(p => p.goedamTraces), rewards: s.players.map(p => p.rewards.length) })`,
+  );
+
+test('3 players: 괴담 room (기획 10차) — two choose, one idles → room deadline → 그냥 지나간다 → next floor, same state on every screen', async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const A = await openPlayer(browser, 'A');
+  const B = await openPlayer(browser, 'B', { characters: ['guardian', 'blade', 'gunner'], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] });
+  const C = await openPlayer(browser, 'C', { characters: ['warden', 'gunner', 'bard'], pets: ['owl_frost', 'turtle_guard', 'frog_bomb'] });
+  const all = [A, B, C];
+  try {
+    await toLobby(A, '에이');
+    await tap(A, '.lb-create');
+    await waitPhase(A.page, 'room');
+    const code = (await A.page.evaluate(() => window.__proto!.net.roomCode))!;
+    for (const [p, nick] of [[B, '비'], [C, '씨']] as const) {
+      await toLobby(p, nick);
+      await p.page.locator('.lb-code-input').fill(code);
+      await tap(p, '.lb-join');
+      await waitPhase(p.page, 'room');
+    }
+    await tap(A, '.lb-start');
+    for (const p of all) await waitPhase(p.page, 'combat', 20_000);
+
+    // host: force 고장 난 자판기 after this floor, clear it, everyone takes a reward
+    const dbg = (action: object) => A.page.evaluate(a => window.__proto!.game!.dispatch({ type: 'debug', action: a as never }), action);
+    expect((await dbg({ kind: 'goedamNext', room: 'broken_vending' })).ok).toBe(true);
+    expect((await dbg({ kind: 'skipFloor' })).ok).toBe(true);
+    for (const p of all) await waitPhase(p.page, 'reward');
+    for (const p of all) await tap(p, '.rw-card >> nth=0');
+
+    // ── the same room opens on all three screens, with a fresh 25 s deadline ──
+    for (const p of all) await waitPhase(p.page, 'goedam', 10_000);
+    const opened = Date.now();
+    for (const p of all) {
+      await expect(p.page.locator('.gd-name')).toHaveText('고장 난 자판기');
+      await expect(p.page.locator('.gd-floor')).toHaveText(/1½층.*로비·상가층/);
+      await expect(p.page.locator('.gd-timer')).toHaveText(/^\d+초 · 안 고르면 '그냥 지나간다'$/);
+      await expect(p.page.locator('.gd-pchip')).toHaveCount(2);
+    }
+    const left = Number((await A.page.locator('.gd-timer').textContent())!.match(/^(\d+)/)![1]);
+    expect(left).toBeGreaterThan(20);
+    expect(left).toBeLessThanOrEqual(25);
+    const deadlines = await Promise.all(all.map(p => p.page.evaluate(() => (window.__proto!.game as unknown as { goedamDeadline: number | null }).goedamDeadline)));
+    for (const d of deadlines) expect(Math.abs(d! - deadlines[0]!)).toBeLessThan(1500);
+
+    // A gambles on the button: result card; the others' rows say who is still choosing
+    for (const p of all) await expect(p.page.locator('.gd-options')).not.toHaveClass(/is-arming/); // taps count from ARM_MS
+    await tap(A, '.gd-opt[data-option="press"]');
+    await expect(A.page.locator('.gd-card')).toBeVisible();
+    const titleA = (await A.page.locator('.gd-card-title').textContent())!;
+    expect(['덜컹! 캔이 떨어졌다', '자판기 미믹이었다']).toContain(titleA);
+    await expect(A.page.locator('.gd-other-t')).toHaveText(['비 — 고르는 중…', '씨 — 고르는 중…']);
+    // C (has not chosen) sees only ✓ on A's chip, never what A got
+    await expect(C.page.locator('.gd-pchip.is-done')).toHaveCount(1);
+    await expect(C.page.locator('.gd-others')).toBeHidden();
+    expect(await C.page.locator('.goedam').innerText()).not.toContain(titleA);
+
+    // B puts a hand in the change slot; A sees B's pick and result
+    await tap(B, '.gd-opt[data-option="coin_slot"]');
+    await expect(B.page.locator('.gd-card')).toBeVisible();
+    const titleB = (await B.page.locator('.gd-card-title').textContent())!;
+    await expect(A.page.locator('.gd-other-t')).toHaveText([`비 — 거스름돈 구멍에 손을 넣는다 → ${titleB}`, '씨 — 고르는 중…']);
+
+    // 계속 → the wait panel counts who is done (n/3)
+    await tap(A, '.gd-continue');
+    await expect(A.page.locator('.gd-wait-text')).toHaveText('다른 플레이어 기다리는 중 (1/3)');
+    await expect(A.page.locator('.gd-timer')).toHaveText(/^\d+초 안에 다음 층$/);
+    await tap(B, '.gd-continue');
+    for (const p of [A, B]) await expect(p.page.locator('.gd-wait-text')).toHaveText('다른 플레이어 기다리는 중 (2/3)');
+    await expect(B.page.locator('.gd-other-t')).toHaveText([`에이 — 이름 없는 버튼을 누른다 → ${titleA}`, '씨 — 고르는 중…']);
+    expect(await state<string>(A.page, 's.phase')).toBe('goedam');
+    await shot(A, 'goedam-multi');
+    await shot(C, 'goedam-multi-idle');
+
+    // ── C never taps: at the deadline the server picks 'leave' for C and everyone goes on to floor 2 ──
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.floor === 2 && window.__proto!.phase === 'combat', undefined, { timeout: 40_000 });
+    const waited = Date.now() - opened;
+    expect(waited).toBeGreaterThan(15_000); // not before the deadline
+    for (const p of all) await expect(p.page.locator('.goedam')).toBeHidden();
+    const logs = await state<{ optionId: string; auto: boolean; roomId: string; label: string }[][]>(A.page, 's.players.map(p => p.goedamLog)');
+    expect(logs.map(l => l.map(e => [e.roomId, e.label, e.optionId, e.auto]))).toEqual([
+      [['broken_vending', '1½층', 'press', false]],
+      [['broken_vending', '1½층', 'coin_slot', false]],
+      [['broken_vending', '1½층', 'leave', false]], // a human's timeout is not a bot pick
+    ]);
+    // no desync: the same floor, phase, room logs, traces and rewards on all three screens
+    const views = await Promise.all(all.map(p => syncView(p.page)));
+    expect(views[1]).toBe(views[0]);
+    expect(views[2]).toBe(views[0]);
+
+    // the idle player's 괴담 수첩 on the result screen says it passed by
+    await openMenuAndLeave(A);
+    for (const p of all) await waitPhase(p.page, 'result', 15_000);
+    await expect(C.page.locator('.rs-goedam-row')).toHaveText(['1½층 고장 난 자판기 — 그냥 지나갔다']);
+    await expect(A.page.locator('.rs-goedam-row')).toHaveText([/^1½층 고장 난 자판기 — 버튼을 눌렀다/]);
+
+    const errors = all.flatMap(p => p.errors);
+    expect(errors, errors.join('\n')).toEqual([]);
+  } finally {
+    for (const p of all) await p.ctx.close().catch(() => {});
   }
 });
 

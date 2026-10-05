@@ -2,6 +2,9 @@
 // The bench (drag-bench.ts) MEASURES the components in real runs; this file only weighs them. Tweak the weights here
 // and re-run the bench — docs/balance.md explains each one.
 
+import { getReward } from '../../src/data';
+import type { RewardEffect, RewardOffer } from '../../src/types';
+
 /** Weights. 1.0 = "one point of this is worth one point of damage". */
 export const VALUE_WEIGHTS = {
   /**
@@ -95,4 +98,29 @@ export function valueOf(c: DragComponents, cdValuePerSec: number, wt = VALUE_WEI
   const support = wt.hp * (c.heal + c.shield + c.defHp) + wt.buff * c.buffDmg;
   const special = wt.cdSec * c.cdSec * cdValuePerSec;
   return { damage, cc, support, special, total: damage + cc + support + special };
+}
+
+/** Floor reward that leaves drag skills untouched (lower = preferred): pet cd > normal cd > ult > def > hp > … */
+function rewardRank(eff: RewardEffect): number {
+  switch (eff.kind) {
+    case 'petCooldown':
+      return 0;
+    case 'skill':
+      return eff.slot === 'normal' ? 1 : eff.slot === 'ult' ? 2 : eff.slot === 'basic' ? 3 : 20;
+    case 'stat':
+      return eff.mods.defFlat ? 4 : eff.mods.hpPct ? 5 : eff.mods.atkSpeedPct ? 6 : eff.mods.critChance ? 7 : 8;
+    case 'appearShield':
+      return 15;
+    case 'swapCooldown':
+      return 16;
+  }
+}
+
+/** The drag benches' floor-reward pick (drag-bench, cd-cut, drag-ablation): every character stays on its base numbers. */
+export function dragNeutralPick(offers: readonly RewardOffer[]): number {
+  let pick = 0;
+  offers.forEach((o, i) => {
+    if (!o.isRelic && rewardRank(getReward(o.rewardId).effect) < rewardRank(getReward(offers[pick].rewardId).effect)) pick = i;
+  });
+  return pick;
 }

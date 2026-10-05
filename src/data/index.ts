@@ -8,6 +8,7 @@ import { RELICS } from './relics';
 export { CHARACTERS, PETS, MONSTERS, BOSSES, REWARDS, RELICS };
 export { NORMAL_MONSTER_IDS, MID_BOSS_IDS, BOSS_IDS } from './monsters';
 export { RARITY_WEIGHTS, RARITY_LABEL, RARITY_COLOR } from './rewards';
+export * from './goedam';
 
 function index<T extends { id: string }>(list: T[], what: string): (id: string) => T {
   const map = new Map(list.map(x => [x.id, x]));

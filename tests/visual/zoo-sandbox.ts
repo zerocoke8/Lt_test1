@@ -88,7 +88,7 @@ function player(id: number, name: string, chars: string[], active: number, entit
       defId: c, hp: 500, maxHp: 500, shield: 0, statuses: [], dead: false, reviveRemaining: 0, swapCooldownRemaining: 0,
       swapCooldownTotal: 10, normalCooldownRemaining: 0, entityId: i === active ? entityId : null,
     })),
-    activeIndex: active, pets: [], ult: { charge: 0.5, fullSince: null }, out: false, appearLock: 0, relics: [], rewards: [], stats: stats(),
+    activeIndex: active, pets: [], ult: { charge: 0.5, fullSince: null }, out: false, appearLock: 0, relics: [], rewards: [], stats: stats(), goedamTraces: [], goedamLog: [],
   };
 }
 
@@ -97,7 +97,7 @@ function baseState(floor: number, kind: 'normal' | 'boss', w: number, theme: Flo
     seed: 7, tick: 1, time: 10, phase: 'combat', floor,
     plan: { floor, kind, timeLimit: 120, arena: { width: w, height: 12 }, statMult: 1, waves: [], theme, ...(bossId ? { bossId } : {}) },
     floorTime: 10, timeRemaining: 100, entities: [], players: [], telegraphs: [], zones: [], projectiles: [], bossId: null,
-    bossEnraged: false, wavesRemaining: 1, monstersAlive: 0, midBossSpawned: true, rewardOffers: null, rewardOffersByPlayer: [], runResult: null,
+    bossEnraged: false, wavesRemaining: 1, monstersAlive: 0, midBossSpawned: true, rewardOffers: null, rewardOffersByPlayer: [], goedam: null, runResult: null,
   };
 }
 

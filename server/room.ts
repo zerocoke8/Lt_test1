@@ -6,7 +6,7 @@ import type { PresetChoice, RoomInfo, RoomSummary, ServerMsg } from '../src/net/
 import { MAX_COMMAND_AGE_MS, MAX_ROOM_PLAYERS } from '../src/net/protocol';
 import type { Command, CommandResult, Game, GameEvent, GameSetup, PlayerSetup } from '../src/types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../src/config';
-import { createGame } from '../src/sim';
+import { createGame, goedamTimeoutCommands } from '../src/sim';
 import { wireJson } from './snapshot';
 import { randomSeed } from './util';
 
@@ -19,6 +19,8 @@ export interface ServerOptions {
   snapshotHz: number;
   /** R33: real seconds before unchosen rewards are picked at random. */
   rewardTimeoutSec: number;
+  /** 기획 10차: real seconds for a 괴담 room (fresh when it opens) before it is finished for whoever is still in it. */
+  goedamTimeoutSec: number;
   /** Snapshots keep flowing this long after runOver, then 'gameEnded'. */
   endLingerMs: number;
   /** Waiting room: a dropped member keeps the seat this long (page reload). */
@@ -106,6 +108,8 @@ export class Room {
   hostId: string;
   game: Game | null = null;
   rewardDeadline: number | null = null;
+  /** 기획 10차: server ms when the open 괴담 room is auto-finished (null outside phase 'goedam'). */
+  goedamDeadline: number | null = null;
   private readonly host: RoomHost;
   private loop: ReturnType<typeof setInterval> | null = null;
   private lastStep = 0;
@@ -265,6 +269,7 @@ export class Room {
     this.status = 'playing';
     this.rewardDeadline = null;
     this.rewardFloor = -1;
+    this.goedamDeadline = null;
     this.endAt = null;
     this.abandonSince = null;
     this.snapSeq = 0;
@@ -318,6 +323,7 @@ export class Room {
         break;
       case 'ult':
       case 'chooseReward':
+      case 'goedam':
         c = { ...cmd, player: pi };
         break;
       case 'debug':
@@ -371,8 +377,15 @@ export class Room {
   private checkPhase(): void {
     const g = this.game;
     if (!g) return;
-    const s = g.state;
     const now = Date.now();
+    this.checkReward(g, now);
+    // after the reward check: the last pick (or the reward timeout) may have just opened the room
+    this.checkGoedam(g, now);
+    if (g.state.phase === 'runOver' && this.endAt == null) this.endAt = now + this.host.opts.endLingerMs;
+  }
+
+  private checkReward(g: Game, now: number): void {
+    const s = g.state;
     if (s.phase === 'reward') {
       if (this.rewardDeadline == null || this.rewardFloor !== s.floor) {
         this.rewardFloor = s.floor;
@@ -389,7 +402,26 @@ export class Room {
       this.rewardDeadline = null;
       this.rewardFloor = -1;
     }
-    if (s.phase === 'runOver' && this.endAt == null) this.endAt = now + this.host.opts.endLingerMs;
+  }
+
+  /**
+   * 기획 10차: the 괴담 room gets its own deadline, started fresh when the room opens (nothing carried over from the
+   * reward phase). When it passes: 'leave' for whoever has not chosen (never a gamble), 'continue' for whoever is
+   * reading a result; the last of these starts the next floor. Disconnected slots were already resolved by the sim.
+   */
+  private checkGoedam(g: Game, now: number): void {
+    if (g.state.phase !== 'goedam') {
+      this.goedamDeadline = null;
+      return;
+    }
+    if (this.goedamDeadline == null) {
+      this.goedamDeadline = now + this.host.opts.goedamTimeoutSec * 1000;
+      return;
+    }
+    if (now < this.goedamDeadline) return;
+    for (const c of goedamTimeoutCommands(g.state)) g.dispatch(c);
+    this.collect();
+    if (g.state.phase !== 'goedam') this.goedamDeadline = null;
   }
 
   private tick(): void {
@@ -430,9 +462,12 @@ export class Room {
     if (!g || m.playerIndex == null) return null;
     const telemetry = g.state.phase === 'runOver' ? `,"telemetry":${wireJson(g.telemetry(m.playerIndex))}` : '';
     const tunables = tunablesJson != null ? `,"tunables":${tunablesJson}` : '';
+    // null outside the room: a disconnect can start the next floor before the next tick's checkGoedam clears it
+    const goedamDeadline = g.state.phase === 'goedam' ? this.goedamDeadline : null;
     return (
       `{"t":"snap","tick":${g.state.tick},"serverTime":${Date.now()},"state":${stateJson},"events":${eventsJson}` +
-      `${tunables},"hostPlayerIndex":${this.hostPlayerIndex},"rewardDeadline":${this.rewardDeadline ?? 'null'}${telemetry}}`
+      `${tunables},"hostPlayerIndex":${this.hostPlayerIndex},"rewardDeadline":${this.rewardDeadline ?? 'null'}` +
+      `,"goedamDeadline":${goedamDeadline ?? 'null'}${telemetry}}`
     );
   }
 
@@ -494,6 +529,7 @@ export class Room {
     this.events = [];
     this.status = 'waiting';
     this.rewardDeadline = null;
+    this.goedamDeadline = null;
     this.endAt = null;
     this.abandonSince = null;
     for (const m of this.members) m.playerIndex = null;

@@ -3,7 +3,7 @@
 //  방:   큰 방 코드 · 슬롯 3칸 (닉네임 + 캐릭터 3 + 펫 3, 빈자리 → 봇) · 방장 표시 · 시작(방장) · 나가기 · 프리셋 변경
 // Pure view: the app wires the callbacks to LobbyClient and calls update() whenever the lobby state changes.
 
-import type { NetStatus } from '../net/connection';
+import type { NetStatus, OfflineReason } from '../net/connection';
 import type { RoomInfo, RoomMember, RoomSummary } from '../net/protocol';
 import { MAX_ROOM_PLAYERS, ROOM_CODE_ALPHABET } from '../net/protocol';
 import { BOT_PRESETS } from '../config';
@@ -30,6 +30,8 @@ export interface LobbyCallbacks {
 export interface LobbyModel {
   status: NetStatus;
   latencyMs: number | null;
+  /** Why the status is 'offline' ('badVersion' → the fixed reload notice). */
+  offlineReason?: OfflineReason | null;
   /** Nickname shown in the input (local). */
   name: string;
   rooms: RoomSummary[];
@@ -43,6 +45,8 @@ export interface LobbyModel {
 export const OFFLINE_TEXT = '게임 서버에 연결할 수 없어요 — 혼자 하기만 가능';
 /** Another tab/window of this browser took over this session (R34, close 4001). */
 export const REPLACED_TEXT = '다른 탭에서 접속 중이에요';
+/** The server speaks another protocol version (stale tab after a deploy): only a reload helps (기획 10차). */
+export const BAD_VERSION_TEXT = '게임 버전이 달라요 · 새로고침';
 /** Solo-only build (claude.ai 링크): not an error, just how this page works. */
 export const SOLO_BUILD_TEXT = '혼자 하기 전용 링크 · 멀티는 게임 서버 주소에서';
 
@@ -193,7 +197,7 @@ export class LobbyScreen {
     this.joinBtn = button('btn btn-secondary lb-join is-disabled', '참가', codeRow, () => this.join());
     this.offlineBox = h('div', 'lb-offline is-hidden', left);
     this.offlineText = h('span', 'lb-offline-text', this.offlineBox, OFFLINE_TEXT);
-    this.retryBtn = button('lb-retry', '다시 시도', this.offlineBox, () => this.cb.onRetry());
+    this.retryBtn = button('lb-retry', '다시 시도', this.offlineBox, () => (this.badVersion ? location.reload() : this.cb.onRetry()));
 
     const right = h('div', 'lb-right', this.listView);
     const rhead = h('div', 'lb-rhead', right);
@@ -231,6 +235,10 @@ export class LobbyScreen {
     this.toaster = createToaster(this.el, 'toasts-lobby');
   }
 
+  private get badVersion(): boolean {
+    return this.model?.status === 'offline' && this.model.offlineReason === 'badVersion';
+  }
+
   get visible(): boolean {
     return !this.el.classList.contains('is-hidden');
   }
@@ -264,7 +272,8 @@ export class LobbyScreen {
     this.model = m;
     const online = m.status === 'online';
     const inRoom = !!m.room;
-    setText(this.statusPill, statusText(m.status, m.latencyMs));
+    const badVersion = this.badVersion;
+    setText(this.statusPill, badVersion ? '게임 버전이 달라요' : statusText(m.status, m.latencyMs));
     setClass(this.statusPill, 'is-online', online);
     setClass(this.statusPill, 'is-offline', m.status === 'offline' || m.status === 'replaced');
     show(this.listView, !inRoom);
@@ -279,12 +288,12 @@ export class LobbyScreen {
     const replaced = m.status === 'replaced';
     this.codeInput.disabled = m.status === 'offline' || replaced;
     show(this.offlineBox, m.status === 'offline' || replaced);
-    setText(this.offlineText, replaced ? `${REPLACED_TEXT} · 이 탭은 멈췄어요` : OFFLINE_TEXT);
-    // "여기서 계속" takes the seat back (the other tab stops instead)
-    setText(this.retryBtn, replaced ? '여기서 계속' : '다시 시도');
+    setText(this.offlineText, replaced ? `${REPLACED_TEXT} · 이 탭은 멈췄어요` : badVersion ? BAD_VERSION_TEXT : OFFLINE_TEXT);
+    // "여기서 계속" takes the seat back (the other tab stops instead); a version mismatch needs a page reload
+    setText(this.retryBtn, replaced ? '여기서 계속' : badVersion ? '새로고침' : '다시 시도');
 
     // re-render lists only when their content changed (inputs keep focus/caret)
-    const key = JSON.stringify([m.preset, m.rooms, m.room, m.myId, m.status]);
+    const key = JSON.stringify([m.preset, m.rooms, m.room, m.myId, m.status, badVersion]);
     if (key === this.renderedKey) return;
     this.renderedKey = key;
     this.myParty.replaceChildren();
@@ -299,6 +308,11 @@ export class LobbyScreen {
     setText(this.listCount, m.status === 'online' ? `${rooms.length}개` : '');
     if (m.status !== 'online') {
       const empty = h('div', 'lb-empty', this.roomList);
+      if (this.badVersion) {
+        h('div', 'lb-empty-big', empty, '게임 버전이 달라요');
+        h('div', 'lb-empty-sub', empty, '새로고침하면 서버와 같은 버전으로 들어가요 · 혼자 하기는 지금도 돼요');
+        return;
+      }
       const big = m.status === 'offline' ? '게임 서버에 연결할 수 없어요' : m.status === 'replaced' ? REPLACED_TEXT : '서버에 연결하는 중…';
       const sub =
         m.status === 'offline'

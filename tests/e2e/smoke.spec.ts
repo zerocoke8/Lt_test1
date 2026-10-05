@@ -123,6 +123,33 @@ async function canvasStats(page: Page): Promise<{ w: number; h: number; lit: num
   });
 }
 
+/**
+ * 괴담 방 layout check (기획 6장: no scroll at 1280×720 logical): every block of the room screen inside the stage, the right
+ * column not overflowing, option texts not clipped, nothing in the left and right columns overlapping. Returns problems.
+ */
+function goedamLayoutProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    const stage = document.querySelector('.stage')!.getBoundingClientRect();
+    const k = stage.width / 1280;
+    const visible = (el: Element) => (el as HTMLElement).offsetParent !== null;
+    const blocks = [...document.querySelectorAll('.goedam .gd-strip > *, .goedam .gd-left > *, .goedam .gd-head > *, .goedam .gd-opt, .goedam .gd-card > *, .goedam .gd-line > *')].filter(visible);
+    for (const el of blocks) {
+      const b = el.getBoundingClientRect();
+      const name = `${el.className} "${(el.textContent ?? '').slice(0, 16)}"`;
+      if (b.left < stage.left - 1 || b.right > stage.right + 1 || b.top < stage.top - 1 || b.bottom > stage.bottom - 6 * k) out.push(`outside the stage: ${name}`);
+    }
+    for (const el of [...document.querySelectorAll('.goedam .gd-right, .goedam .gd-opt, .goedam .gd-line, .goedam .gd-card')].filter(visible)) {
+      const h = el as HTMLElement;
+      if (h.scrollHeight > h.clientHeight + 2 || h.scrollWidth > h.clientWidth + 2) out.push(`overflows: ${h.className}`);
+    }
+    const left = document.querySelector('.goedam .gd-left')!.getBoundingClientRect();
+    const right = document.querySelector('.goedam .gd-right')!.getBoundingClientRect();
+    if (left.right > right.left + 1) out.push('columns overlap');
+    return out;
+  });
+}
+
 test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, retreat) → relic → quit → result', async ({ page, context }, testInfo: TestInfo) => {
   const phone = testInfo.project.name === 'phone';
   const errors: string[] = [];
@@ -137,6 +164,7 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
     const path = phone ? `${SHOT_DIR}/${name}.png` : testInfo.outputPath(`${testInfo.project.name}-${name}.png`);
     await page.screenshot({ path });
   };
+  const extraShot = (name: string) => page.screenshot({ path: testInfo.outputPath(`${testInfo.project.name}-${name}.png`) });
   const input = await makeInput(page, context, phone);
   // in-page helper: enemies currently on screen (stage area)
   await page.addInitScript(() => {
@@ -348,7 +376,8 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await sleep(350);
   await shot('ult');
 
-  // ── 1층 클리어: high game speed + 적 전멸 until the reward overlay ──
+  // ── 1층 클리어: high game speed + 적 전멸 until the reward overlay (기획 10차: a 괴담 room forced after it) ──
+  expect((await debug(page, { kind: 'goedamNext', room: 'elevator_whisper' })).ok).toBe(true);
   await inGame(page, g => {
     g.tunables.invincible = true;
     g.tunables.gameSpeed = 6;
@@ -367,8 +396,54 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await expect(page.locator('.rw-card')).toHaveCount(3);
   await sleep(400);
   await shot('reward');
-  await input.tap(await center(page, '.rw-card >> nth=1'));
+  const card = await center(page, '.rw-card >> nth=1');
+  await input.tap(card);
+  // a double-tap on the card must not pick the 괴담 option that opens under the finger on the same tick (ARM_MS)
+  await sleep(200);
+  await input.tap(card);
+
+  // ── 괴담 방: reward → room → pick → result card → 계속 → floor 2 ──
+  await waitPhase(page, 'goedam');
+  expect(await inGame(page, g => g.state.goedam!.players[0].stage)).toBe('choosing');
+  await expect(page.locator('.goedam')).toBeVisible();
+  await expect(page.locator('.hud')).toHaveClass(/is-covered/);
+  await expect(page.locator('.gd-floor')).toHaveText(/1½층.*로비·상가층/);
+  await expect(page.locator('.gd-name')).toHaveText('엘리베이터 속삭임');
+  await expect(page.locator('.gd-note')).toContainText('돌아보지 마');
+  expect(await page.locator('.gd-opt').evaluateAll(els => els.map(e => (e as HTMLElement).dataset.option))).toEqual(['ride', 'look_back', 'leave']);
+  await expect(page.locator('.gd-opt[data-option="look_back"] .gd-line.has-bar')).toHaveCount(2);
+  await expect(page.locator('.gd-opt[data-option="look_back"] .gd-tag')).toHaveText(['도박']);
+  await sleep(500);
+  expect(await goedamLayoutProblems(page)).toEqual([]);
+  await shot('goedam');
+  await input.tap(await center(page, '.gd-opt[data-option="ride"]'));
+  await expect(page.locator('.gd-opt[data-option="ride"]')).toHaveClass(/is-picked/);
+  await expect(page.locator('.gd-card')).toBeVisible();
+  await expect(page.locator('.gd-card-title')).toHaveText('문이 열린다. 누군가 같이 내린다');
+  await expect(page.locator('.gd-card .gd-trace')).toContainText('동승자');
+  const cont = (await page.locator('.gd-continue').boundingBox())!;
+  const scale = (await page.locator('.stage').boundingBox())!.width / 1280;
+  expect(cont.height / scale).toBeGreaterThanOrEqual(79.5);
+  expect(cont.width / scale).toBeGreaterThanOrEqual(239.5);
+  await sleep(1300);
+  expect(await goedamLayoutProblems(page)).toEqual([]);
+  await shot('goedam-result');
+  await input.tap(await center(page, '.gd-continue'));
   await waitPhase(page, 'combat');
+  await expect(page.locator('.goedam')).toBeHidden();
+  // 흔적 chip at the top (icon + floors left), the floor banner's trace line, then the pause list
+  await expect(page.locator('.hud-trace[data-trace="passenger"]')).toHaveText('👤1');
+  await expect(page.locator('.banner-trace')).toContainText('동승자가 따라 내렸다 — 받는 피해 +12%');
+  const chip = (await page.locator('.hud-trace').first().boundingBox())!;
+  expect(chip.height / scale).toBeGreaterThanOrEqual(30);
+  await sleep(300);
+  await extraShot('goedam-hud');
+  await input.tap(await center(page, '.hud-tr .icon-btn[aria-label="일시정지"]'));
+  await expect(page.locator('.pause-lists .pl-trace')).toContainText(['동승자']);
+  await expect(page.locator('.pause-lists .pl-trace .pl-left')).toHaveText(['1층']);
+  await extraShot('goedam-pause');
+  await input.tap(await center(page, '.pause-btns .btn-primary'));
+  expect(await page.evaluate(() => window.__proto!.paused)).toBe(false);
   const floor2 = await inGame(page, g => ({ floor: g.state.floor, rewards: g.state.players[0].rewards.length, times: g.telemetry().floorTimes }));
   expect(floor2.floor).toBe(2);
   expect(floor2.rewards).toBe(1);
@@ -435,8 +510,11 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await shot('relic');
   await input.tap(await center(page, '.rw-card >> nth=0'));
   await waitPhase(page, 'combat');
-  const floor6 = await inGame(page, g => ({ floor: g.state.floor, relics: g.state.players[0].relics.length }));
-  expect(floor6).toEqual({ floor: 6, relics: 1 });
+  const floor6 = await inGame(page, g => ({ floor: g.state.floor, relics: g.state.players[0].relics.length, traces: g.state.players[0].goedamTraces.length }));
+  expect(floor6).toEqual({ floor: 6, relics: 1, traces: 0 });
+  // the 동승자 trace ran out at the boss clear (under the relic screen): its toast shows once the field is back
+  await expect(page.locator('.toasts-hud .toast', { hasText: '동승자가 풀렸다' })).toHaveCount(1);
+  await expect(page.locator('.hud-traces')).toBeHidden();
 
   // ── 포기 → 결과 ──
   await sleep(1500);
@@ -449,10 +527,56 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await waitPhase(page, 'result', 10_000);
   await expect(page.locator('.result')).toBeVisible();
   await expect(page.locator('.rs-table tbody tr')).toHaveCount(3);
+  await expect(page.locator('.rs-goedam-row')).toHaveText(['1½층 엘리베이터 속삭임 — 끝까지 탔다 (동승자)']);
   const rr = await inGame(page, g => g.state.runResult);
   expect(rr).toMatchObject({ outcome: 'defeat', reason: 'quit', floorReached: 6 });
   await sleep(400);
   await shot('result');
 
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('괴담 방: all 12 rooms and a result card each fit the stage without scrolling', async ({ page }, testInfo: TestInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+  page.on('console', m => {
+    if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+  });
+  await page.goto('/');
+  await waitPhase(page, 'preset');
+  await page.evaluate(() => window.__proto!.startRun({ seed: 7, tunables: { invincible: true, goedamRoomsPerZone: 0 } }));
+  await waitPhase(page, 'combat');
+  // a floor of each room's zone (cursed_relic: any floor 6–19)
+  const ROOMS: [string, number][] = [
+    ['broken_vending', 2], ['elevator_whisper', 4], ['ringing_phone', 3], ['overtime_roster', 7], ['copier', 8], ['endless_corridor', 9],
+    ['red_blue_paper', 12], ['night_rounds', 13], ['iv_drip', 14], ['sky_eye', 17], ['red_mask', 18], ['cursed_relic', 11],
+  ];
+  const problems: string[] = [];
+  for (const [room, floor] of ROOMS) {
+    await page.evaluate(
+      ([r, f]) => {
+        const g = window.__proto!.game!;
+        g.dispatch({ type: 'debug', action: { kind: 'jumpFloor', floor: f as number } });
+        g.dispatch({ type: 'debug', action: { kind: 'goedamNext', room: r as string } });
+        g.dispatch({ type: 'debug', action: { kind: 'skipFloor' } });
+        g.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
+      },
+      [room, floor] as const,
+    );
+    await waitPhase(page, 'goedam');
+    await expect(page.locator('.gd-opt').first()).toBeVisible();
+    await sleep(450);
+    problems.push(...(await goedamLayoutProblems(page)).map(p => `${room}: ${p}`));
+    await page.screenshot({ path: testInfo.outputPath(`${testInfo.project.name}-room-${room}.png`) });
+    // the boldest option (first one offered), then the card
+    await page.locator('.gd-opt').first().click();
+    await expect(page.locator('.gd-card')).toBeVisible();
+    await sleep(900);
+    problems.push(...(await goedamLayoutProblems(page)).map(p => `${room} (result): ${p}`));
+    await page.screenshot({ path: testInfo.outputPath(`${testInfo.project.name}-room-${room}-result.png`) });
+    await page.locator('.gd-continue').click();
+    await waitPhase(page, 'combat');
+  }
+  expect(problems).toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);
 });

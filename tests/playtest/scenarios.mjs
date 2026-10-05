@@ -3,11 +3,13 @@
 //  force   — 5F at 1×, tap the debug "광폭화" button mid-fight, watch the enrage moment
 //  empty   — make my field empty while the other cards cool down (monsterDmgMult 3), then all dead → spectate
 //  swapdiag — 30 rapid real swaps at 2× with pointer/toast instrumentation (why do some drags not start?)
+// 기획 10차: boss/force/empty jump to 5F (earlier 괴담 rooms skipped → GOEDAM forced off, slider 0); swapdiag plays from
+// 1F and passes rooms with real taps by GOEDAM (lib.mjs goedamPolicy, default leave).
 
 import fs from 'node:fs';
 import {
-  BASE, center, clusterFinger, closePanel, frameStats, launch, now, readyCard, realSwap, setSpeedViaPanel, sleep, snap,
-  tapDebugAction, tapUlt, waitPhase,
+  BASE, armGoedam, center, clusterFinger, closePanel, frameStats, goedamPolicy, launch, now, passGoedam, readyCard, realSwap,
+  setSpeedViaPanel, sleep, snap, tapDebugAction, tapUlt, waitPhase,
 } from './lib.mjs';
 
 const profile = process.argv[2] ?? 'phone';
@@ -15,7 +17,8 @@ const which = process.argv[3] ?? 'all';
 const out = { profile };
 const L = (...a) => console.log(a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' '));
 
-async function boot(tag, seed) {
+/** startFloor > 1: the scenario jumps there, so its 괴담 policy is forced off (pt.goedam). */
+async function boot(tag, seed, startFloor = 1) {
   const pt = await launch(profile, { tag });
   await pt.page.goto(BASE);
   await waitPhase(pt.page, 'preset');
@@ -25,6 +28,8 @@ async function boot(tag, seed) {
     await pt.page.evaluate(s => window.__proto.startRun({ seed: s }), seed);
     await waitPhase(pt.page, 'combat');
   }
+  pt.goedam = goedamPolicy(undefined, startFloor);
+  await armGoedam(pt.page, pt.goedam);
   // instrumentation: toasts + pointer lifecycle on cards
   await pt.page.evaluate(() => {
     const w = window;
@@ -87,7 +92,7 @@ async function play(pt, { untilFn, maxRealMs, gapSimSec = 4, onTick, noSwap = fa
 }
 
 async function bossScenario() {
-  const pt = await boot(`${profile}-boss`, 777);
+  const pt = await boot(`${profile}-boss`, 777, 5);
   const { page } = pt;
   const rec = { telegraphs: [], deaths: [] };
   try {
@@ -171,7 +176,7 @@ async function bossScenario() {
 }
 
 async function forceScenario() {
-  const pt = await boot(`${profile}-force`, 4242);
+  const pt = await boot(`${profile}-force`, 4242, 5);
   const { page } = pt;
   const rec = {};
   try {
@@ -215,7 +220,7 @@ async function forceScenario() {
 }
 
 async function emptyScenario() {
-  const pt = await boot(`${profile}-empty`, 99);
+  const pt = await boot(`${profile}-empty`, 99, 5);
   const { page } = pt;
   const rec = {};
   try {
@@ -289,6 +294,11 @@ async function swapDiag() {
         const b = await page.locator('.rw-card').first().boundingBox();
         await pt.input.tap({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
         await sleep(400);
+        continue;
+      }
+      if (s.app === 'goedam') {
+        const room = await passGoedam(pt, pt.goedam);
+        L('goedam', room?.roomId, room?.optionId, '→', room?.outcome.id);
         continue;
       }
       const i = await readyCard(page, [0, 1, 2].filter(x => x !== s.me.active));

@@ -37,6 +37,7 @@ export function computeTelemetry(w: World, player = 0): Telemetry {
     damageShareBySource: share,
     avgUltDelay: st.ultDelayCount > 0 ? st.ultDelayTotal / st.ultDelayCount : 0,
     floorTimes: w.floorTimes.map(f => ({ ...f })),
+    goedam: p ? p.goedamLog.map(e => ({ ...e, outcome: { ...e.outcome, traces: [...e.outcome.traces] } })) : [],
   };
 }
 
@@ -67,6 +68,7 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   midBossTimeTrigger: [0, 3600],
   bossLockReleaseSec: [0, 600],
   petCooldownMult: [0, 10],
+  goedamRoomsPerZone: [0, 2, true],
 };
 
 /**

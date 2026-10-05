@@ -25,6 +25,8 @@ export const DEFAULT_TUNABLES: Tunables = {
   petCooldownMult: 1,
   invincible: false,
   instantCooldowns: false,
+  // 기획 10차: one 괴담 room per zone (4 per run); 0 turns them off
+  goedamRoomsPerZone: 1,
 };
 
 export const TICK_RATE = 30;

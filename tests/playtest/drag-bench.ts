@@ -3,6 +3,8 @@
 // Run: npx vite-node tests/playtest/drag-bench.ts
 //   env: BENCH_SEEDS=12 BENCH_SEED0=0 BENCH_FLOORS=5 BENCH_CHARS=blade,mage BENCH_POLICIES=designer,best,naive BENCH_SWAP_EVERY=4
 //        BENCH_OUT=path.json (machine-readable result)  BENCH_QUIET=1 (only the value table)
+//        GOEDAM=leave (기획 10차 괴담 rooms after floors 2–4: off|leave|random|first|greedy|forced:<room>:<opt>, see
+//        goedam-policy.ts; 'leave' = 'off' bit for bit, so the drag numbers stay on base values)
 //
 // Player 0 = a human-like player whose party is the SAME character 3 times (so every drag effect of player 0 belongs to
 // that character), swapping every 4 s when a card is ready, ult 0.5 s after full, no pets. 기획 6차 (a card's cooldown
@@ -27,7 +29,7 @@
 
 import fs from 'node:fs';
 import { BOT_PRESETS, DEFAULT_TUNABLES, TICK_RATE, VIEW_WIDTH_UNITS } from '../../src/config';
-import { CHARACTERS, getCharacter, getReward } from '../../src/data';
+import { CHARACTERS, getCharacter } from '../../src/data';
 import { bestDropPoint } from '../../src/sim/bot';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { hitsArea } from '../../src/sim/geometry';
@@ -35,12 +37,14 @@ import { canSwap } from '../../src/sim/players';
 import { previewPartsFor } from '../../src/sim/preview';
 import { effStats } from '../../src/sim/stats';
 import { activeEntity, clampToArena, edgeDist, getEntity, isAlive, type SimEntity, type SimStatus, type World } from '../../src/sim/world';
-import type { BossDef, PlayerSetup, PreviewPart, RewardEffect, Vec2 } from '../../src/types';
-import { VALUE_WEIGHTS, valueOf, zeroComponents, type DragComponents } from './drag-value';
+import type { BossDef, PlayerSetup, PreviewPart, Vec2 } from '../../src/types';
+import { VALUE_WEIGHTS, dragNeutralPick, valueOf, zeroComponents, type DragComponents } from './drag-value';
+import { goedamPilot, goedamTunables, parseGoedamPolicy } from './goedam-policy';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 const SEEDS = Number(env.BENCH_SEEDS ?? 12);
 const FLOORS = Number(env.BENCH_FLOORS ?? 5);
+const GOEDAM = parseGoedamPolicy(env.GOEDAM);
 const CHARS = env.BENCH_CHARS ? env.BENCH_CHARS.split(',') : CHARACTERS.map(c => c.id);
 const POLICIES = (env.BENCH_POLICIES ?? 'designer,best,naive').split(',') as Policy[];
 const SWAP_EVERY = Number(env.BENCH_SWAP_EVERY ?? 4);
@@ -127,22 +131,6 @@ function threatOn(w: World, e: SimEntity, t: SimEntity): number {
   return threat(w, e) * (1 - effStats(w, t).def);
 }
 
-/** Reward pick that leaves drag skills untouched (lower = preferred). */
-function rewardRank(eff: RewardEffect): number {
-  switch (eff.kind) {
-    case 'petCooldown':
-      return 0;
-    case 'skill':
-      return eff.slot === 'normal' ? 1 : eff.slot === 'ult' ? 2 : eff.slot === 'basic' ? 3 : 20;
-    case 'stat':
-      return eff.mods.defFlat ? 4 : eff.mods.hpPct ? 5 : eff.mods.atkSpeedPct ? 6 : eff.mods.critChance ? 7 : 8;
-    case 'appearShield':
-      return 15;
-    case 'swapCooldown':
-      return 16;
-  }
-}
-
 interface Acc {
   casts: number;
   totalDmg: number;
@@ -200,9 +188,10 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
   const def = getCharacter(charId);
   const human: PlayerSetup = { name: '나', isBot: false, characters: [charId, charId, charId], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] };
   const players: PlayerSetup[] = [human, ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] }))];
-  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES } });
+  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES, ...goedamTunables(GOEDAM) } });
   const s = w.state;
   const p = s.players[0];
+  const pilot = goedamPilot(w, GOEDAM);
   let lastSwap = -99;
   let ultAt: number | null = null;
   let think = 0;
@@ -235,12 +224,7 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
     if (s.floor > FLOORS) break;
     if (s.phase === 'reward') {
       if (s.floor >= FLOORS) break;
-      const offers = s.rewardOffersByPlayer[0] ?? s.rewardOffers ?? [];
-      let pick = 0;
-      offers.forEach((o, i) => {
-        if (!o.isRelic && rewardRank(getReward(o.rewardId).effect) < rewardRank(getReward(offers[pick].rewardId).effect)) pick = i;
-      });
-      dispatch(w, { type: 'chooseReward', player: 0, offerIndex: pick });
+      pilot.settle([0], dragNeutralPick);
       lastSwap = -99;
       continue;
     }

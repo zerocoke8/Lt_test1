@@ -25,6 +25,7 @@ export function startTestServer(opts: Partial<ServerOptions> = {}): Promise<Runn
     host: '127.0.0.1',
     staticDir: testStaticDir(),
     rewardTimeoutSec: 0.6,
+    goedamTimeoutSec: 0.6,
     endLingerMs: 300,
     lobbyGraceMs: 400,
     heartbeatMs: 60_000,

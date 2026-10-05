@@ -90,6 +90,22 @@ test('artifact build: solo only, no network probe, zero console errors, plays', 
   await page.waitForFunction(() => window.__proto!.game!.state.players[0].activeIndex === 1);
   await page.waitForTimeout(1500);
 
+  // 기획 10차: a forced 괴담 room (inline SVG art, no files) → pick → result card → 계속 → floor 2
+  await page.evaluate(() => {
+    const g = window.__proto!.game!;
+    g.dispatch({ type: 'debug', action: { kind: 'goedamNext', room: 'broken_vending' } });
+    g.dispatch({ type: 'debug', action: { kind: 'skipFloor' } });
+    g.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
+  });
+  await page.waitForFunction(() => window.__proto?.phase === 'goedam');
+  await expect(page.locator('.goedam .gd-art svg')).toBeVisible();
+  await page.locator('.gd-opt').first().click();
+  await expect(page.locator('.gd-card')).toBeVisible();
+  await page.locator('.gd-continue').click();
+  await page.waitForFunction(() => window.__proto?.phase === 'combat' && window.__proto.game!.state.floor === 2);
+  expect(await page.evaluate(() => window.__proto!.game!.state.players[0].goedamLog.length)).toBe(1);
+  await page.waitForTimeout(800);
+
   expect(w.errors, w.errors.join('\n')).toEqual([]);
   expect(w.requests).toEqual(['/']);
 });

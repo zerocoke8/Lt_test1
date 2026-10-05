@@ -5,6 +5,8 @@
 //   naive = finger right on the cluster, best = grid search over the visible field (what a perfect aimer gets).
 // Measures: drop→appear latency on the dropper's and the others' screens, snapshot gaps, interpolation stalls/jumps,
 // fps per page per floor, reward wait / auto-pick timing, offline → BOT → back, tab close → reopen, console errors.
+// 기획 10차 괴담 room (one in floors 2–4 at the default slider): A takes the top option, B follows GOEDAM (leave|first|
+// random, default leave), C walks away and the server's 25 s room deadline leaves for it; others' rows, wait text.
 //
 // Run (game server already up, e.g. PORT=8790 node dist-server/index.js):
 //   PT_BASE=http://127.0.0.1:8790/ PT_SET=1 PT_TAG=m1 npx vite-node tests/playtest/mp-play.ts
@@ -827,6 +829,7 @@ async function main(): Promise<void> {
           await rewardRound(devs, s.floor);
           if (s.floor >= MAX_FLOOR) break;
         }
+        if ((await gameSnap(A))?.phase === 'goedam') await goedamRound(devs);
         const s2 = await gameSnap(A);
         floor = s2?.floor ?? floor + 1;
         floorT0 = Date.now();
@@ -959,6 +962,59 @@ async function rewardRound(devs: Dev[], floor: number): Promise<void> {
   }
   await Promise.all(devs.map(d => d.page.waitForFunction(() => window.__proto?.game?.state.phase !== 'reward', undefined, { timeout: 30000 }).catch(() => L(d.key, 'stuck in reward'))));
   L(`reward floor ${floor} done in`, Date.now() - t0, 'ms');
+}
+
+/** The room's visible option ids for this page's player (null when the page is not in a 괴담 room). */
+function goedamOptionsOf(d: Dev): Promise<{ room: string; floor: number; options: string[] } | null> {
+  return d.page
+    .evaluate(() => {
+      const api = window.__proto!;
+      const g = api.game?.state.goedam;
+      const pr = g?.players[api.localPlayer];
+      return g && pr ? { room: g.roomId, floor: g.floor, options: pr.options.filter(o => !o.hidden).map(o => o.id) } : null;
+    })
+    .catch(() => null);
+}
+
+/** Tap option `id` (real input), then 계속 once the result card is up. */
+async function goedamPick(d: Dev, id: string): Promise<void> {
+  await d.page.waitForSelector('.gd-options:not(.is-arming) .gd-opt', { timeout: 15000 }); // option taps count from ARM_MS
+  await tap(d, `.gd-opt[data-option="${id}"]`);
+  await d.page.waitForSelector('.gd-continue', { state: 'visible', timeout: 15000 });
+  await sleep(600);
+  await tap(d, '.gd-continue');
+}
+
+/** 기획 10차: one 괴담 room with three humans — A bold, B by GOEDAM, C idle until the server's 25 s deadline. */
+async function goedamRound(devs: Dev[]): Promise<void> {
+  const [A, B, C] = devs;
+  const t0 = Date.now();
+  await Promise.all(devs.map(d => d.page.waitForSelector('.gd-opt', { timeout: 15000 }).catch(() => L(d.key, 'no room options'))));
+  const views = await Promise.all(devs.map(d => goedamOptionsOf(d)));
+  L('goedam room', views[0]?.room, 'after floor', views[0]?.floor, 'options on all after', Date.now() - t0, 'ms');
+  await sleep(700);
+  await Promise.all(devs.map(d => shot(d, 'goedam')));
+  const policy = env.GOEDAM ?? 'leave';
+  const bOpts = views[1]?.options ?? ['leave'];
+  const bPick = policy === 'first' ? bOpts[0] : policy === 'random' ? bOpts[Math.floor(Math.random() * bOpts.length)] : 'leave';
+  await goedamPick(A, views[0]?.options[0] ?? 'leave');
+  await sleep(400);
+  const others = await A.page.locator('.gd-other').allTextContents().catch(() => []);
+  L('A others rows after its pick', others);
+  await shot(A, 'goedam-result');
+  await goedamPick(B, bPick);
+  await sleep(500);
+  const waitTxt = await A.page.locator('.gd-wait-text').textContent().catch(() => null);
+  const timerTxt = await C.page.locator('.gd-timer').textContent().catch(() => null);
+  L('A wait text', waitTxt, '· C timer', timerTxt);
+  await shot(A, 'goedam-wait');
+  await shot(C, 'goedam-timer-c');
+  const tC = Date.now();
+  await C.page.waitForFunction(() => window.__proto?.game?.state.phase !== 'goedam', undefined, { timeout: 45000 }).catch(() => L('C never left the room'));
+  const cLog = await A.page.evaluate(() => window.__proto!.game!.state.players[2].goedamLog.at(-1) ?? null).catch(() => null);
+  L('goedam: C timed out after', Date.now() - tC, 'ms; C log', cLog, '; total', Date.now() - t0, 'ms');
+  report.goedam = { room: views[0]?.room, floor: views[0]?.floor, others, waitTxt, timerTxt, cTimeoutMs: Date.now() - tC, cLog, totalMs: Date.now() - t0 };
+  await Promise.all(devs.map(d => d.page.waitForFunction(() => window.__proto?.game?.state.phase !== 'goedam', undefined, { timeout: 10000 }).catch(() => L(d.key, 'stuck in goedam'))));
 }
 
 async function offlineTest(A: Dev, B: Dev, C: Dev): Promise<void> {

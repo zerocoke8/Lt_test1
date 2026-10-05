@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TUNABLES } from '../../src/config';
-import { CHARACTERS, PETS } from '../../src/data';
-import type { Tunables } from '../../src/types';
-import { countdown, formatClock, refusalText, resultReason } from '../../src/ui/format';
+import { CHARACTERS, GOEDAM_ROOMS, PETS, goedamOptionView } from '../../src/data';
+import type { GoedamProgress, Tunables } from '../../src/types';
+import {
+  countdown,
+  formatClock,
+  goedamOptionKind,
+  goedamOtherRow,
+  goedamTagLabel,
+  goedamTimerText,
+  goedamWaitText,
+  refusalText,
+  resultReason,
+} from '../../src/ui/format';
 import { clientToLogical, computeFit } from '../../src/ui/stage';
 import { DEFAULT_PRESET, sanitizePreset } from '../../src/ui/storage';
 import { SLIDERS, TOGGLES, diffFromDefaults, sanitizeOverrides } from '../../src/ui/tunables';
@@ -128,5 +138,41 @@ describe('기획 8차 zone label', () => {
     expect(zoneName(undefined, 3)).toBe('로비·상가층');
     expect(zoneName(undefined, 12)).toBe('폐병동층');
     expect(zoneName('rooftop', 20)).toBe('옥상·이계');
+  });
+});
+
+describe('기획 10차 괴담 방 text', () => {
+  const party = [{ defId: CHARACTERS[0].id }, { defId: CHARACTERS[1].id }, { defId: CHARACTERS[2].id }];
+
+  it('labels risk chips and sizes buttons by kind (도박·관찰 tall, 지나간다 small)', () => {
+    expect(['safe', 'cost', 'gamble', 'observe', 'permanent'].map(t => goedamTagLabel(t as never))).toEqual(['안전', '대가', '도박', '관찰', '영구']);
+    expect(goedamOptionKind({ id: 'leave', tags: ['safe'] })).toBe('leave');
+    expect(goedamOptionKind({ id: 'look_back', tags: ['gamble'] })).toBe('gamble');
+    expect(goedamOptionKind({ id: 'count', tags: ['observe'] })).toBe('gamble');
+    expect(goedamOptionKind({ id: 'ride', tags: ['cost'] })).toBe('cost');
+  });
+
+  it('every room keeps leave last and at most one tall option (fits ~470 px without scroll)', () => {
+    for (const room of GOEDAM_ROOMS) {
+      const kinds = room.options.map(o => goedamOptionKind(goedamOptionView(room.id, o.id, {}, party)));
+      expect(kinds[kinds.length - 1], room.id).toBe('leave');
+      expect(kinds.filter(k => k === 'leave'), room.id).toHaveLength(1);
+      expect(room.options.length, room.id).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('timer and wait lines', () => {
+    expect(goedamTimerText(25, 'choosing')).toBe("25초 · 안 고르면 '그냥 지나간다'");
+    expect(goedamTimerText(4, 'result')).toBe('4초 뒤 자동으로 계속');
+    expect(goedamWaitText(2, 3)).toBe('다른 플레이어 기다리는 중 (2/3)');
+  });
+
+  it("others' rows: ✓ only before the pick, bots say what they did, humans show pick → result", () => {
+    const choosing: GoedamProgress = { stage: 'choosing', options: [], params: {}, choice: null, outcome: null };
+    expect(goedamOtherRow({ name: '하늘', isBot: false, party }, 'elevator_whisper', choosing)).toBe('하늘 — 고르는 중…');
+    const left: GoedamProgress = { ...choosing, stage: 'done', choice: 'leave', outcome: { id: 'leave', reward: null, relicId: null, traces: [] } };
+    expect(goedamOtherRow({ name: 'BOT 1', isBot: true, party }, 'elevator_whisper', left)).toBe('BOT 1 — (봇) 바로 내렸다');
+    const rode: GoedamProgress = { ...choosing, stage: 'result', choice: 'ride', outcome: { id: 'ride', reward: null, relicId: null, traces: ['passenger'] } };
+    expect(goedamOtherRow({ name: '민지', isBot: false, party }, 'elevator_whisper', rode)).toBe('민지 — 속삭임대로 끝까지 탄다 → 문이 열린다. 누군가 같이 내린다');
   });
 });

@@ -1,16 +1,16 @@
 // Player-level rules: swap (R1–R4, R12), ult (R9), pets (R14), revive (R10), bench timers.
 
-import type { CommandResult, GameState, Vec2 } from '../types';
+import type { CommandResult, GameState, PlayerState, Tunables, Vec2 } from '../types';
 import { getCharacter, getPet } from '../data';
 import { APPEAR_SHIELD_DURATION } from './constants';
 import { addShield, hitDamage } from './combat';
 import { petCooldownFor, swapCooldownFor } from './cooldowns';
 import { charCtx, petCtx } from './ctx';
 import { benchActive, createCharacterEntity } from './entities';
-import { appearShieldFrac, hasRelic, relicParam } from './modifiers';
+import { appearShieldFrac, hasRelic, relicParam, ultChargeRate } from './modifiers';
 import { partsForActions } from './preview';
 import { addTelegraph, castSkill } from './skills';
-import { benchMaxHp } from './stats';
+import { benchMaxHp, effStats } from './stats';
 import { applyStatus, tickStatusTimers } from './status';
 import {
   activeEntity,
@@ -19,6 +19,7 @@ import {
   copy,
   dist,
   emit,
+  getEntity,
   type CastCtx,
   type SimPlayer,
   type World,
@@ -192,6 +193,28 @@ export function useUlt(w: World, pi: number): CommandResult {
   return ok;
 }
 
+/**
+ * Seconds for an empty gauge to fill (R9 time-only charge × 기획 10차 trace rate: 혼선 30 s → ~43 s). Pure (tunables +
+ * PlayerState): the sim charges with it and the HUD's 'N초 후' / skill sheet show it, also on a client's snapshot.
+ */
+export function ultChargeTimeFor(tunables: Pick<Tunables, 'ultChargeTime'>, p: PlayerState): number {
+  return Math.max(0.01, tunables.ultChargeTime) / ultChargeRate(p);
+}
+
+/** Set the ult gauge (0..1). Full: fullSince starts now + 'ultReady'; below full: fullSince cleared (기획 10차). */
+export function setUltCharge(w: World, p: SimPlayer, value: number): void {
+  // same near-full snap as tickPlayers: 0.7 of tick charge + 0.3 can land at 0.99999… (no ultReady otherwise)
+  p.ult.charge = value > 1 - 1e-9 ? 1 : Math.max(0, value);
+  if (p.ult.charge >= 1) {
+    if (p.ult.fullSince == null) {
+      p.ult.fullSince = w.state.time;
+      emit(w, { type: 'ultReady', player: p.id });
+    }
+  } else {
+    p.ult.fullSince = null;
+  }
+}
+
 // ─────────────────────────── Pets ───────────────────────────
 
 export function canUsePet(w: World, pi: number, petIndex: number): CommandResult {
@@ -227,7 +250,7 @@ export function tickPlayers(w: World, dt: number): void {
     p.appearLock = dec(p.appearLock, dt);
     // R9: time-only charge, per player
     if (p.ult.charge < 1) {
-      p.ult.charge = Math.min(1, p.ult.charge + dt / Math.max(0.01, t.ultChargeTime));
+      p.ult.charge = Math.min(1, p.ult.charge + dt / ultChargeTimeFor(t, p));
       if (p.ult.charge > 1 - 1e-9) p.ult.charge = 1;
     }
     if (p.ult.charge >= 1 && p.ult.fullSince == null) {
@@ -265,6 +288,28 @@ export function revive(w: World, p: SimPlayer, idx: number): void {
   m.maxHp = benchMaxHp(p, idx);
   m.hp = Math.max(1, m.maxHp * frac);
   emit(w, { type: 'revive', player: p.id, partyIndex: idx });
+}
+
+/**
+ * 기획 10차: re-derive every member's max HP after traces change (field: effective stats, bench: benchMaxHp) and keep
+ * living members' HP within [1, max]. Dead members only get the new cap.
+ */
+export function refreshMaxHp(w: World, p: SimPlayer, raiseHp = false): void {
+  // raiseHp: living members also gain the max HP added (like a +HP reward), so a heal before it stays a full heal
+  const gain = (before: number, after: number) => (raiseHp ? Math.max(0, after - before) : 0);
+  p.party.forEach((m, idx) => {
+    const e = getEntity(w, m.entityId);
+    if (e) {
+      const before = e.maxHp;
+      e.maxHp = effStats(w, e).maxHp;
+      e.hp = Math.min(e.maxHp, Math.max(1, e.hp + gain(before, e.maxHp)));
+      return;
+    }
+    const before = m.maxHp;
+    m.maxHp = benchMaxHp(p, idx);
+    if (!m.dead) m.hp = Math.min(m.maxHp, Math.max(1, m.hp + gain(before, m.maxHp)));
+  });
+  syncMembers(w);
 }
 
 /** Keep the active member's card (hp/shield) in sync with its entity. */

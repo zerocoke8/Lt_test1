@@ -17,11 +17,12 @@
 //
 // env: SEEDS=48 SEED0=5000 FLOORS=5 CHARS=guardian,cleric VARIANTS=full,noCC,noSup,none POLICY=designer|best
 //      PARTIES="blade,mage,cleric;guardian,ranger,bard" (pacing) OUT=path.json
+//      GOEDAM=leave (기획 10차 괴담 rooms after floors 2–4: off|leave|random|first|greedy|forced:<room>:<opt>)
 // Run: npx vite-node tests/review/drag-ablation.ts
 
 import fs from 'node:fs';
 import { BOT_PRESETS, DEFAULT_TUNABLES, TICK_RATE, VIEW_WIDTH_UNITS } from '../../src/config';
-import { CHARACTERS, getCharacter, getReward } from '../../src/data';
+import { CHARACTERS, getCharacter } from '../../src/data';
 import { bestDropPoint } from '../../src/sim/bot';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { canSwap } from '../../src/sim/players';
@@ -29,7 +30,9 @@ import { previewPartsFor } from '../../src/sim/preview';
 import { effStats } from '../../src/sim/stats';
 import { activeEntity, clampToArena, edgeDist, getEntity, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import { skillRows } from '../../src/ui/skillinfo';
-import type { CharacterDef, Effect as SkillEffect, PlayerSetup, RewardEffect, Vec2 } from '../../src/types';
+import type { CharacterDef, Effect as SkillEffect, PlayerSetup, Vec2 } from '../../src/types';
+import { dragNeutralPick } from '../playtest/drag-value';
+import { goedamPilot, goedamTunables, parseGoedamPolicy } from '../playtest/goedam-policy';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 const MODE = env.MODE ?? 'ablate';
@@ -39,6 +42,8 @@ const FLOORS = Number(env.FLOORS ?? 5);
 const CHARS = env.CHARS ? env.CHARS.split(',') : CHARACTERS.map(c => c.id);
 const VARIANTS = (env.VARIANTS ?? 'full,noCC,noSup,none').split(',');
 const POLICY = env.POLICY ?? 'designer';
+/** 기획 10차: 괴담 room policy (tests/playtest/goedam-policy.ts); 'leave' = 'off' bit for bit. */
+const GOEDAM = parseGoedamPolicy(env.GOEDAM);
 const DT = 1 / TICK_RATE;
 
 const AIM_OFFSET: Record<string, Vec2> = {
@@ -78,21 +83,6 @@ function viewOf(w: World, me: SimEntity | null | undefined): { lo: number; hi: n
   const x = me?.pos.x ?? a.width / 2;
   const cx = a.width <= VIEW_WIDTH_UNITS ? a.width / 2 : Math.min(a.width - half, Math.max(half, x));
   return { lo: cx - half, hi: cx + half };
-}
-
-function rewardRank(eff: RewardEffect): number {
-  switch (eff.kind) {
-    case 'petCooldown':
-      return 0;
-    case 'skill':
-      return eff.slot === 'normal' ? 1 : eff.slot === 'ult' ? 2 : eff.slot === 'basic' ? 3 : 20;
-    case 'stat':
-      return eff.mods.defFlat ? 4 : eff.mods.hpPct ? 5 : eff.mods.atkSpeedPct ? 6 : eff.mods.critChance ? 7 : 8;
-    case 'appearShield':
-      return 15;
-    case 'swapCooldown':
-      return 16;
-  }
 }
 
 // ─────────────────────────── drag-skill surgery (runtime only) ───────────────────────────
@@ -156,9 +146,10 @@ interface Outcome {
 function runOne(party: string[], seed: number, policy: string, aimChar: string | null, onTick?: (w: World) => void): Outcome {
   const human: PlayerSetup = { name: '나', isBot: false, characters: party, pets: ['frog_bomb', 'fairy_heal', 'cat_void'] };
   const players: PlayerSetup[] = [human, ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] }))];
-  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES } });
+  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES, ...goedamTunables(GOEDAM) } });
   const s = w.state;
   const p = s.players[0];
+  const pilot = goedamPilot(w, GOEDAM);
   let lastSwap = -99;
   let ultAt: number | null = null;
   let think = 0;
@@ -170,12 +161,7 @@ function runOne(party: string[], seed: number, policy: string, aimChar: string |
     if (s.floor > FLOORS) break;
     if (s.phase === 'reward') {
       if (s.floor >= FLOORS) break;
-      const offers = s.rewardOffersByPlayer[0] ?? s.rewardOffers ?? [];
-      let pick = 0;
-      offers.forEach((of, i) => {
-        if (!of.isRelic && rewardRank(getReward(of.rewardId).effect) < rewardRank(getReward(offers[pick].rewardId).effect)) pick = i;
-      });
-      dispatch(w, { type: 'chooseReward', player: 0, offerIndex: pick });
+      pilot.settle([0], dragNeutralPick);
       lastSwap = -99;
       continue;
     }

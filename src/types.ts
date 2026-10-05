@@ -284,6 +284,101 @@ export interface RewardDef {
   effect: RewardEffect;
 }
 
+// ─────────────────────────── 괴담 방 (기획 10차, docs/goedam-rooms.md) ───────────────────────────
+// Between-floor anomaly rooms: after the reward of a scheduled floor everyone enters the same room and each player picks
+// one option (by id). Numbers live in src/data/goedam.ts; every button/result text is generated from them.
+
+/** Risk chip on an option button (〔안전〕〔대가〕〔도박〕〔관찰〕〔영구〕). */
+export type GoedamTag = 'safe' | 'cost' | 'gamble' | 'observe' | 'permanent';
+
+/** 끝나지 않는 복도: the one thing that differs from the usual corridor. */
+export type GoedamAnomaly = 'clock' | 'door' | 'light';
+
+/** What an option does to the chooser's own party (never to other players, never to the next floor's monsters). */
+export type GoedamEffect =
+  /** Living members (field + bench): current HP × (1 − pct), never below 1. */
+  | { kind: 'hpLoss'; pct: number }
+  /** Living members heal pct × max HP (1 = full). */
+  | { kind: 'heal'; pct: number }
+  /** Dead members revive now with hpFrac × max HP (revive event as usual). */
+  | { kind: 'revive'; hpFrac: number }
+  /** Ult gauge set to value (0..1). */
+  | { kind: 'ultSet'; value: number }
+  | { kind: 'ultAdd'; value: number }
+  /** 모든 쿨 0 (swap + normal skill of every member, every pet) or 펫 쿨 0. */
+  | { kind: 'resetCooldowns'; petsOnly?: boolean }
+  /** One normal reward drawn with these rarity weights (percent). */
+  | { kind: 'reward'; weights: Record<Rarity, number> }
+  /** This exact reward (party scope). */
+  | { kind: 'rewardFixed'; rewardId: string }
+  /** Another copy of GoedamParams.copy (the most recent common/rare reward). */
+  | { kind: 'copyReward' }
+  /** GoedamParams.relicId; a player who owns every relic gets an epic reward instead. */
+  | { kind: 'relic' }
+  | { kind: 'trace'; traceId: string };
+
+export interface GoedamOutcomeDef {
+  id: string;
+  /** Probability 0..1 (an option's outcomes sum to 1). Absent when `when` decides. */
+  chance?: number;
+  /** 끝나지 않는 복도: happens when the corridor looked as usual ('normal') or not ('anomaly'). */
+  when?: 'normal' | 'anomaly';
+  /** Result card title. */
+  title: string;
+  tone: 'good' | 'bad' | 'neutral';
+  effects: GoedamEffect[];
+}
+
+export interface GoedamOptionDef {
+  /** Stable id; every room's last option is 'leave' (bots / timeout / disconnect pick it). */
+  id: string;
+  label: string;
+  /** Past tense for the 수첩 and the wait panel ('돌아봤다'). */
+  done: string;
+  tags: GoedamTag[];
+  /** Fixed cost paid before the roll. */
+  cost?: GoedamEffect[];
+  outcomes: GoedamOutcomeDef[];
+  /** 'copy': hidden for a player with no common/rare reward to copy. */
+  needs?: 'copy';
+}
+
+export interface GoedamRoomDef {
+  id: string;
+  name: string;
+  /** Zone it appears in ('any' = 저주받은 유물, floors 6–19). */
+  zone: FloorTheme | 'any';
+  /** Floors (cleared) it may follow, inclusive. Absent = the whole zone. */
+  floors?: { min: number; max: number };
+  weight: number;
+  /** Weight multiplier after specific floors (엘리베이터: ×2 after floor 4). */
+  floorWeight?: Record<number, number>;
+  /** Placeholder art glyph. */
+  icon: string;
+  /** Scene text; {n} = the floor just cleared. */
+  desc: string;
+  /** Rule note (규칙 쪽지), if the room has one. */
+  rule?: string;
+  options: GoedamOptionDef[];
+}
+
+/** 흔적: a timed (or run-long) curse/blessing. v1 traces only touch stats, ult charge rate and damage taken. */
+export interface GoedamTraceDef {
+  id: string;
+  name: string;
+  icon: string;
+  /** Floors it lasts (expires at the Nth floor clear, before the heal); null = until the run ends. */
+  floors: number | null;
+  /** Party stat mods (critChance only ever +). */
+  mods?: Pick<StatMods, 'atkPct' | 'hpPct' | 'atkSpeedPct' | 'moveSpeedPct' | 'critChance'>;
+  /** Extra damage taken by my characters (+0.12 = +12%, −0.1 = −10%). */
+  damageTaken?: number;
+  /** Ult charge speed (−0.3 = 30% slower: 30 s → ~43 s). */
+  ultCharge?: number;
+  /** Floor-start banner flavor ('동승자가 따라 내렸다'). */
+  banner: string;
+}
+
 export interface RelicDef {
   id: string;
   name: string;
@@ -416,6 +511,72 @@ export interface PlayerState {
   relics: string[];
   rewards: AppliedReward[];
   stats: ContributionStats;
+  /** 기획 10차: active 흔적 (traces), oldest first. */
+  goedamTraces: GoedamTraceSlot[];
+  /** 기획 10차: 괴담 수첩 — every room this player went through (result screen, benches). */
+  goedamLog: GoedamLogEntry[];
+}
+
+export interface GoedamTraceSlot {
+  id: string;
+  /** Floor clears left before it expires; null = until the run ends. */
+  floorsLeft: number | null;
+}
+
+/** What a player's pick did (state, log and result card all use it). */
+export interface GoedamOutcome {
+  /** GoedamOutcomeDef.id ('leave' for the 지나간다 option). */
+  id: string;
+  /** Reward granted (rolled, copied, fixed, or the relic fallback). */
+  reward: AppliedReward | null;
+  relicId: string | null;
+  /** Traces added or refreshed. */
+  traces: string[];
+  /** Members brought back by a 'revive' effect (set only when the outcome has one; 0 = nobody was down). */
+  revived?: number;
+}
+
+/** Per-player values fixed when the room opens (from that player's room rng / party). */
+export interface GoedamParams {
+  /** 저주받은 유물: a relic this player lacks (null = owns them all → an epic reward instead). */
+  relicId?: string | null;
+  /** 원본을 넣어 주세요: the reward the copier copies (null = nothing to copy → option hidden). */
+  copy?: AppliedReward | null;
+  /** 끝나지 않는 복도: what this player sees differ (null = all as usual). */
+  anomaly?: GoedamAnomaly | null;
+}
+
+export type GoedamStage = 'choosing' | 'result' | 'done';
+
+export interface GoedamProgress {
+  stage: GoedamStage;
+  /** The room's options in order; hidden ones are not offered to this player. */
+  options: { id: string; hidden: boolean }[];
+  params: GoedamParams;
+  /** Option id once chosen. */
+  choice: string | null;
+  outcome: GoedamOutcome | null;
+}
+
+/** The open room (SimPhase 'goedam'). Results are fixed by seed + floor + player, whatever the click order. */
+export interface GoedamState {
+  roomId: string;
+  /** The floor just cleared (the room sits between it and the next one). */
+  floor: number;
+  /** '3½층' */
+  label: string;
+  /** By player index. */
+  players: GoedamProgress[];
+}
+
+export interface GoedamLogEntry {
+  floor: number;
+  label: string;
+  roomId: string;
+  optionId: string;
+  outcome: GoedamOutcome;
+  /** Picked by the bot (bot slot or a disconnected human). */
+  auto: boolean;
 }
 
 export interface Telegraph {
@@ -466,7 +627,8 @@ export interface RewardOffer {
   isRelic: boolean;
 }
 
-export type SimPhase = 'combat' | 'reward' | 'runOver';
+/** 'goedam' (기획 10차): the 괴담 room after the reward phase, time frozen like 'reward'. */
+export type SimPhase = 'combat' | 'reward' | 'goedam' | 'runOver';
 
 export interface RunResult {
   outcome: 'victory' | 'defeat';
@@ -505,6 +667,8 @@ export interface GameState {
    * The reward phase lasts until every non-bot, non-out player has chosen (bots pick instantly).
    */
   rewardOffersByPlayer: (RewardOffer[] | null)[];
+  /** 기획 10차: the open 괴담 room (phase 'goedam'), else null. */
+  goedam: GoedamState | null;
   runResult: RunResult | null;
 }
 
@@ -517,13 +681,17 @@ export type DebugAction =
   | { kind: 'killAll' }
   | { kind: 'skipFloor' }
   | { kind: 'jumpFloor'; floor: number }
-  | { kind: 'forceEnrage' };
+  | { kind: 'forceEnrage' }
+  /** 기획 10차: open a 괴담 room after the next floor clear (room id, or a fitting one for that floor). */
+  | { kind: 'goedamNext'; room?: string };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
   | { type: 'pet'; player: number; petIndex: number; pos: Vec2 }
   | { type: 'ult'; player: number }
   | { type: 'chooseReward'; player: number; offerIndex: number }
+  /** 기획 10차: pick a 괴담 room option by id, or 'continue' after reading the result card. */
+  | { type: 'goedam'; player: number; option: string }
   | { type: 'quit' }
   | { type: 'debug'; action: DebugAction }
   /** Live tunables change (debug panel). In multiplayer only the room host may send it. */
@@ -586,7 +754,14 @@ export type GameEvent =
   | { type: 'floorClear'; floor: number }
   | { type: 'enrage' }
   | { type: 'bossRetreat' }
-  | { type: 'runOver'; result: RunResult };
+  | { type: 'runOver'; result: RunResult }
+  /** 기획 10차: a 괴담 room opened (state.goedam holds the rest). */
+  | { type: 'goedamOpen'; floor: number; roomId: string }
+  /** A player's pick resolved (bots and auto-leaves too). */
+  | { type: 'goedamOutcome'; player: number; optionId: string; outcomeId: string; tone: GoedamOutcomeDef['tone'] }
+  /** A trace was added or refreshed. */
+  | { type: 'goedamTrace'; player: number; traceId: string; floorsLeft: number | null }
+  | { type: 'goedamTraceExpired'; player: number; traceId: string };
 
 // ─────────────────────────── Tunables (debug sliders) ───────────────────────────
 
@@ -615,6 +790,8 @@ export interface Tunables {
   petCooldownMult: number;
   invincible: boolean;
   instantCooldowns: boolean;
+  /** 기획 10차: 괴담 rooms per zone (0 = off, 1 = default, 2 max). */
+  goedamRoomsPerZone: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────
@@ -665,6 +842,8 @@ export interface Telemetry {
   damageShareBySource: Record<DamageSource, number>;
   avgUltDelay: number;
   floorTimes: { floor: number; seconds: number; outcome: 'clear' | 'fail' }[];
+  /** 기획 10차: this player's 괴담 수첩 (absent on old snapshots). */
+  goedam?: GoedamLogEntry[];
 }
 
 /** One piece of a drag/pet skill footprint, relative to the drop point (for previews and bot aiming). */

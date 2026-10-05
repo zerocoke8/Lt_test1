@@ -1,11 +1,12 @@
 // Real-input playtest of a full run. Usage: node tests/playtest/play-run.mjs [phone|desktop] [fastSpeed=3] [seed]
 // Floor 1 at gameSpeed 1 (pacing), then floors 2+ at fastSpeed set through the debug panel's real buttons.
 // Swaps every ~4 s by dragging a ready card onto the densest enemy cluster, pets when a cluster is worth it, ult when full.
+// 기획 10차: 괴담 rooms are passed with real taps by GOEDAM=off|leave|random|first|forced:<room>:<opt> (default leave).
 
 import fs from 'node:fs';
 import {
-  BASE, center, clusterFinger, closePanel, frameStats, hudBoxes, launch, now, pickReward, readyCard, readyPet,
-  realPet, realSwap, setSpeedViaPanel, sleep, snap, tapUlt, waitPhase,
+  BASE, afterReward, armGoedam, center, clusterFinger, closePanel, frameStats, goedamPolicy, hudBoxes, launch, now, pickReward,
+  readyCard, readyPet, realPet, realSwap, setSpeedViaPanel, sleep, snap, tapUlt, waitPhase,
 } from './lib.mjs';
 
 const profile = process.argv[2] ?? 'phone';
@@ -20,7 +21,8 @@ const L = (...a) => {
   log.push(line);
   console.log(line);
 };
-const report = { profile, fastSpeed, floors: [], swaps: [], targetChecks: [], fps: [], shots: pt.shots, errors: pt.errors, log };
+const gdPol = goedamPolicy();
+const report = { profile, fastSpeed, goedam: gdPol.name, floors: [], swaps: [], targetChecks: [], fps: [], rooms: [], shots: pt.shots, errors: pt.errors, log };
 
 try {
   await page.goto(BASE);
@@ -38,6 +40,7 @@ try {
     await waitPhase(page, 'combat');
   }
   report.seed = await page.evaluate(() => window.__proto.game.state.seed);
+  await armGoedam(page, gdPol);
   await sleep(250);
   await pt.shot('floor1-start', 'floor 1 banner');
   report.hud = await hudBoxes(page);
@@ -81,6 +84,11 @@ try {
       await pt.shot(`reward-f${s.floor}`, s.kind === 'boss' ? 'relic offers' : 'reward offers');
       const offer = await pickReward(pt, 0);
       L('picked', offer?.name, offer?.rarity, offer?.isRelic ? 'relic' : '');
+      const room = await afterReward(pt, gdPol, { shot: report.rooms.length === 0 ? `goedam-f${s.floor}` : null });
+      if (room) {
+        report.rooms.push(room);
+        L('goedam', room.roomId, room.optionId, '→', room.outcome.id);
+      }
       await waitPhase(page, 'combat', 15000).catch(() => {});
       floorRealStart = Date.now();
       floorPerfStart = await now(page);

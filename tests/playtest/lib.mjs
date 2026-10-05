@@ -349,3 +349,88 @@ export function hudBoxes(page) {
     return out;
   });
 }
+
+// ─────────────────────────── 괴담 rooms (기획 10차) ───────────────────────────
+// GOEDAM=off|leave|random|first|forced:<room>:<option> (env, default leave). The headless benches have the same knob
+// plus 'greedy' (goedam-policy.ts); here 'greedy' falls back to 'leave'. A run that starts mid-way skips the earlier
+// rooms, so callers pass start > 1 to force 'off'.
+
+/** GOEDAM env → { kind, room?, option?, name }. */
+export function goedamPolicy(raw = process.env.GOEDAM, start = 1) {
+  const name = (raw ?? 'leave').trim() || 'leave';
+  if (start > 1 && name !== 'off') {
+    console.warn(`[goedam] start floor ${start}: earlier rooms are skipped, GOEDAM=${name} forced to 'off'`);
+    return { kind: 'off', name: 'off' };
+  }
+  if (name.startsWith('forced:')) {
+    const [, room, option] = name.split(':');
+    return { kind: 'forced', room, option, name };
+  }
+  if (name === 'greedy') console.warn("[goedam] GOEDAM=greedy is headless only (goedam-policy.ts): using 'leave'");
+  return { kind: ['off', 'random', 'first'].includes(name) ? name : 'leave', name };
+}
+
+/**
+ * Right after a run starts: 'off' moves the 괴담 slider to 0 (the same tunables command the debug slider sends);
+ * 'forced' also arms the room once (debug goedamNext → it opens after this floor's clear).
+ */
+export async function armGoedam(page, pol) {
+  if (pol.kind !== 'off' && pol.kind !== 'forced') return;
+  await page.evaluate(
+    p => {
+      const g = window.__proto.game;
+      g.dispatch({ type: 'tunables', patch: { goedamRoomsPerZone: 0 } });
+      if (p.kind === 'forced') g.dispatch({ type: 'debug', action: { kind: 'goedamNext', room: p.room } });
+    },
+    { kind: pol.kind, room: pol.room },
+  );
+}
+
+/** The option id the policy takes, from the visible options (random: fixed by seed + floor, like the headless one). */
+function goedamChoice(pol, st) {
+  const ids = st.options;
+  if (pol.kind === 'first') return ids[0];
+  if (pol.kind === 'random') return ids[Math.abs((st.seed * 31 + st.floor * 7) | 0) % ids.length];
+  if (pol.kind === 'forced' && st.roomId === pol.room && ids.includes(pol.option)) return pol.option;
+  return 'leave';
+}
+
+/**
+ * In a 괴담 room: tap the policy's option button, wait for the result card, tap 계속 (real taps). Solo returns once the
+ * next floor started; in multiplayer (`waitOthers` false) it returns at the wait panel. Returns the 수첩 entry.
+ */
+export async function passGoedam(pt, pol = goedamPolicy(), { shot = null, waitOthers = true } = {}) {
+  const { page, input } = pt;
+  await page.waitForSelector('.gd-options:not(.is-arming) .gd-opt', { timeout: 15000 }); // option taps count from ARM_MS
+  await sleep(400); // the room fades in
+  const st = await page.evaluate(() => {
+    const api = window.__proto;
+    const s = api.game.state;
+    const pr = s.goedam?.players[api.localPlayer];
+    return pr && { roomId: s.goedam.roomId, floor: s.goedam.floor, seed: s.seed, stage: pr.stage, options: pr.options.filter(o => !o.hidden).map(o => o.id) };
+  });
+  if (!st) return null;
+  if (shot) await pt.shot(`${shot}-room`, `괴담 room ${st.roomId}`);
+  if (st.stage === 'choosing') {
+    const option = goedamChoice(pol, st);
+    await input.tap(await center(page, `.gd-opt[data-option="${option}"]`));
+  }
+  await page.waitForSelector('.gd-continue', { state: 'visible', timeout: 15000 });
+  await sleep(500); // the card turns over
+  if (shot) await pt.shot(`${shot}-result`, '괴담 result card');
+  await input.tap(await center(page, '.gd-continue'));
+  if (waitOthers) await page.waitForFunction(() => window.__proto.game.state.phase !== 'goedam', undefined, { timeout: 40000 });
+  return page.evaluate(() => {
+    const api = window.__proto;
+    const log = api.game.state.players[api.localPlayer].goedamLog;
+    return log[log.length - 1] ?? null;
+  });
+}
+
+/** After a reward pick (solo): pass the floor's 괴담 room if one opened, then wait for combat. Returns the 수첩 entry or null. */
+export async function afterReward(pt, pol = goedamPolicy(), opts = {}) {
+  const { page } = pt;
+  await page.waitForFunction(() => ['combat', 'goedam', 'result', 'spectate'].includes(window.__proto.phase), undefined, { timeout: 15000 }).catch(() => {});
+  if ((await phase(page)) !== 'goedam') return null;
+  return passGoedam(pt, pol, opts);
+}

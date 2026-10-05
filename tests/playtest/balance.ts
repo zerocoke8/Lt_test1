@@ -5,6 +5,8 @@
 //   bot    — player 0 driven by the same bot AI as the 2 bots (swaps every 20–30 s)
 //   active — human-like: swap every ~4 s to the best drag-skill spot, pets on clusters, ult 0.5 s after full
 // Reports per floor: clear time, timeouts, my character deaths, player outs, boss enrage/retreat timing.
+// 기획 10차: GOEDAM=off|leave|random|first|greedy|forced:<room>:<opt> (env, default leave) — the human's 괴담 room policy
+// (tests/playtest/goedam-policy.ts); `<policy>_goedam` = room report. START > 1 forces off.
 
 import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE } from '../../src/config';
 import { BOSSES, MONSTERS, getPet } from '../../src/data';
@@ -15,6 +17,7 @@ import { canSwap, canUsePet } from '../../src/sim/players';
 import { applyOffer, rollOffers } from '../../src/sim/rewards';
 import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import type { PlayerSetup, SimPhase, Tunables, Vec2 } from '../../src/types';
+import { goedamPilot, goedamRunRec, goedamSummary, goedamTunables, parseGoedamPolicy, type GoedamRunRec } from './goedam-policy';
 
 type Policy = 'idle' | 'bot' | 'active';
 
@@ -65,6 +68,8 @@ const START = Math.max(1, Number((globalThis as { process?: { env: Record<string
 const LAST = START + FLOORS - 1;
 /** SEED0=n (env): first seed (default 1000), run k uses SEED0 + k × 7919. */
 const SEED0 = Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SEED0 ?? 1000);
+const GOEDAM = parseGoedamPolicy((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.GOEDAM, START);
+const runGoedam: GoedamRunRec[] = [];
 const runTele: { drag: number; ult: number; pet: number; basic: number; normal: number; myShare: number; spm: number }[] = [];
 
 const HUMAN: PlayerSetup = { name: '나', isBot: false, characters: ['blade', 'mage', 'cleric'], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] };
@@ -168,11 +173,13 @@ function teleOf(w: World): void {
 function runOnce(seed: number, policy: Policy, floors: number): FloorRec[] {
   const { recs, w } = runInner(seed, policy, floors);
   teleOf(w);
+  const last = recs[recs.length - 1];
+  runGoedam.push(goedamRunRec(w, !!last && last.outcome === 'clear' && last.floor >= LAST, last?.floor ?? START));
   return recs;
 }
 
 function runInner(seed: number, policy: Policy, floors: number): { recs: FloorRec[]; w: World } {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...OVERRIDES };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...OVERRIDES, ...goedamTunables(GOEDAM) };
   const players: PlayerSetup[] = [
     { ...HUMAN, isBot: policy === 'bot' },
     ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] })),
@@ -186,6 +193,8 @@ function runInner(seed: number, policy: Policy, floors: number): { recs: FloorRe
     }
   }
   game.drainEvents();
+  const humans = s.players.filter(p => !p.isBot).map(p => p.id);
+  const pilot = goedamPilot(w, GOEDAM);
   const recs: FloorRec[] = [];
   const st = { lastSwap: -99, ultAt: null as number | null, react: null as number | null };
   let thinkIn = 0;
@@ -197,11 +206,11 @@ function runInner(seed: number, policy: Policy, floors: number): { recs: FloorRe
   const maxTicks = TICK_RATE * 60 * 60;
   for (let t = 0; t < maxTicks; t++) {
     if (s.phase === 'reward') {
-      // human picks the first offer (deterministic)
+      // human picks the first offer (deterministic), then the 괴담 room by policy
       rec.mySwaps = s.players[0].stats.swaps - rec.mySwaps;
       recs.push(rec);
       if (recs.length >= floors) return { recs, w };
-      dispatch(w, { type: 'chooseReward', player: 0, offerIndex: 0 });
+      pilot.settle(humans);
       rec = newRec();
       st.lastSwap = -99;
       continue;
@@ -281,7 +290,7 @@ function pctl(xs: number[], q: number): number {
 const r1 = (x: number) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : x);
 
 const policies: Policy[] = ONLY ? [ONLY] : ['idle', 'bot', 'active'];
-const out: Record<string, unknown> = { runs: RUNS, start: START, seed0: SEED0, overrides: OVERRIDES, data: DATA, consts: CONSTS };
+const out: Record<string, unknown> = { runs: RUNS, start: START, seed0: SEED0, goedam: GOEDAM.name, overrides: OVERRIDES, data: DATA, consts: CONSTS };
 for (const pol of policies) {
   const all: FloorRec[][] = [];
   for (let k = 0; k < RUNS; k++) all.push(runOnce(SEED0 + k * 7919, pol, FLOORS));
@@ -332,5 +341,7 @@ for (const pol of policies) {
   const avg = (k: keyof (typeof runTele)[number]) => r1((runTele.reduce((a, t) => a + t[k], 0) / Math.max(1, runTele.length)) * (k === 'spm' ? 1 : 100));
   out[`${pol}_tele`] = { dragPct: avg('drag'), ultPct: avg('ult'), petPct: avg('pet'), basicPct: avg('basic'), normalPct: avg('normal'), myTeamSharePct: avg('myShare'), swapsPerMin: avg('spm') };
   runTele.length = 0;
+  out[`${pol}_goedam`] = goedamSummary(GOEDAM, runGoedam);
+  runGoedam.length = 0;
 }
 console.log(JSON.stringify(out, null, 1));

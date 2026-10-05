@@ -1,4 +1,4 @@
-// App shell: stage + screens (프리셋 → 매칭/방 → 전투(+보상) → 결과) + rAF loop.
+// App shell: stage + screens (프리셋 → 매칭/방 → 전투(+보상, 괴담 방) → 결과) + rAF loop.
 // Solo: the local sim (createGame). Multiplayer: RemoteGame (server snapshots, src/net) behind the same Game interface,
 // so the renderer, HUD, drag and overlays are shared; the only difference is localPlayer (solo 0, multi = server slot).
 // Loop: dt = min(0.1, …); if running: game.step(dt); events = game.drainEvents(); renderer.render(…); hud.update(…).
@@ -15,6 +15,7 @@ import { RemoteGame } from '../net/remoteGame';
 import { DebugPanel } from './debug';
 import { h } from './dom';
 import { DragController, LIFT, type DragKind } from './drag';
+import { GoedamScreen } from './goedam';
 import { Hud, type HudCallbacks } from './hud';
 import { LobbyScreen, OFFLINE_TEXT, SOLO_BUILD_TEXT } from './lobby';
 import { PauseMenu } from './pause';
@@ -32,7 +33,7 @@ import {
   type PresetSave,
 } from './storage';
 
-export type AppPhase = 'preset' | 'lobby' | 'room' | 'starting' | 'combat' | 'reward' | 'spectate' | 'result';
+export type AppPhase = 'preset' | 'lobby' | 'room' | 'starting' | 'combat' | 'reward' | 'goedam' | 'spectate' | 'result';
 export type RunMode = 'solo' | 'multi';
 
 /** startRun overrides: any GameSetup field; tunables may be partial (merged over defaults + saved debug tuning). */
@@ -144,6 +145,11 @@ export function startApp(root: HTMLElement): void {
     const r = game?.dispatch({ type: 'chooseReward', player: localPlayer, offerIndex: i });
     if (r && !r.ok) hud?.toast(r.reason ?? '선택할 수 없어요', 'warn');
   });
+  // 기획 10차: the 괴담 room sits right above the reward screen (pause / debug / result stack over it)
+  const goedam = new GoedamScreen(stage.screenLayer, {
+    onChoose: option => game?.dispatch({ type: 'goedam', player: localPlayer, option }) ?? { ok: false, reason: '게임 없음' },
+    onMenu: () => openMenu(),
+  });
   const debug = new DebugPanel(stage.screenLayer, {
     game: () => game,
     // multiplayer tuning belongs to the room (sent to the server), not to this device's solo overrides
@@ -253,6 +259,7 @@ export function startApp(root: HTMLElement): void {
     lobbyScreen.update({
       status: lobby.status,
       latencyMs: lobby.conn.latencyMs,
+      offlineReason: lobby.conn.offlineReason,
       name: nickname || lobby.conn.name,
       rooms: lobby.rooms,
       room: lobby.room,
@@ -276,7 +283,8 @@ export function startApp(root: HTMLElement): void {
   /**
    * Preset 출발: the 매칭 screen when a game server is (or may be) there; straight into solo only when this host has no
    * game server at all (static host / solo build). An unreachable server (sleeping free plan) opens the 매칭 screen,
-   * which probes again and offers 혼자 하기 meanwhile.
+   * which probes again and offers 혼자 하기 meanwhile. A server on another protocol version (stale tab, 기획 10차) also
+   * opens the 매칭 screen, with the fixed 「게임 버전이 달라요 · 새로고침」 notice instead of silently going solo.
    */
   async function goMatching(): Promise<void> {
     if (lobby.status === 'idle' || lobby.status === 'probing') {
@@ -293,7 +301,7 @@ export function startApp(root: HTMLElement): void {
       });
     }
     if (screen !== 'preset') return;
-    if (lobby.status === 'offline' && lobby.conn.offlineReason !== 'unreachable') startRun();
+    if (lobby.status === 'offline' && lobby.conn.offlineReason === 'noServer') startRun();
     else showLobby();
   }
 
@@ -302,6 +310,7 @@ export function startApp(root: HTMLElement): void {
     screen = 'lobby';
     preset.setVisible(false);
     result.hide();
+    goedam.hide();
     pause.hide();
     debug.close();
     lobbyScreen.setVisible(true);
@@ -328,7 +337,7 @@ export function startApp(root: HTMLElement): void {
     paused = on;
     if (on) {
       drag.cancel();
-      pause.show(game?.state ?? null, { multi: false, isHost: true });
+      pause.show(game?.state ?? null, { multi: false, isHost: true, localPlayer });
     } else pause.hide();
   }
 
@@ -340,7 +349,7 @@ export function startApp(root: HTMLElement): void {
     }
     menuOpen = true;
     drag.cancel();
-    pause.show(game.state, { multi: true, isHost: !!remote?.isHost });
+    pause.show(game.state, { multi: true, isHost: !!remote?.isHost, localPlayer });
   }
 
   function closeMenu(): void {
@@ -389,6 +398,7 @@ export function startApp(root: HTMLElement): void {
     resultAt = null;
     pause.hide();
     result.hide();
+    goedam.hide();
     preset.setVisible(false);
     hideLobby();
     stage.canvas.classList.remove('is-hidden');
@@ -448,6 +458,7 @@ export function startApp(root: HTMLElement): void {
     resultAt = null;
     pause.hide();
     result.hide();
+    goedam.hide();
     debug.close();
     preset.setVisible(false);
     hideLobby();
@@ -475,6 +486,7 @@ export function startApp(root: HTMLElement): void {
     pause.hide();
     debug.close();
     result.hide();
+    goedam.hide();
   }
 
   /** 나가기: a member leaves (their slot → bot); the host ends the run for everyone (R35). */
@@ -498,6 +510,7 @@ export function startApp(root: HTMLElement): void {
     if (!hud) return;
     if (cmd.type === 'swap') hud.refuse('swap', cmd.partyIndex, { ok: false, reason });
     else if (cmd.type === 'pet') hud.refuse('pet', cmd.petIndex, { ok: false, reason });
+    else if (cmd.type === 'goedam') goedam.refuse(reason); // the room covers the HUD: say it inside the room
     else if (cmd.type !== 'quit') hud.toast(`서버가 거절했어요 · ${reason}`, 'warn');
   }
 
@@ -515,6 +528,7 @@ export function startApp(root: HTMLElement): void {
     // HUD toasts/banners stack above the screen layer: hide them under the result screen
     hud?.setCovered(true);
     reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null });
+    goedam.hide();
     result.show(game, quitWhileOut, { localPlayer, multi: mode === 'multi', isHost: !!remote?.isHost });
   }
 
@@ -527,6 +541,7 @@ export function startApp(root: HTMLElement): void {
     screen = 'preset';
     paused = false;
     result.hide();
+    goedam.hide();
     pause.hide();
     debug.close();
     hideLobby();
@@ -541,6 +556,7 @@ export function startApp(root: HTMLElement): void {
     const s = game.state;
     const me = s.players[localPlayer];
     if (s.phase === 'reward' && me && !me.out && (mode === 'multi' || offersFor(s, localPlayer))) return 'reward';
+    if (s.phase === 'goedam' && me && s.goedam) return 'goedam';
     if (me?.out) return 'spectate';
     return 'combat';
   }
@@ -584,6 +600,13 @@ export function startApp(root: HTMLElement): void {
       lobbyScreen.toast('게임이 끝났어요', 'info');
       return;
     }
+    // multiplayer: the server was updated under this tab (bad_version: no reconnect will ever come) → the lobby's fixed
+    // '게임 버전이 달라요 · 새로고침' notice instead of a frozen game under '다시 연결하는 중…'
+    if (mode === 'multi' && remote && lobby.conn.offlineReason === 'badVersion') {
+      teardownMulti();
+      showLobby();
+      return;
+    }
     const running = !stage.portrait && (mode === 'multi' || !paused);
     if (running) game.step(dt);
     const events = game.drainEvents();
@@ -603,7 +626,8 @@ export function startApp(root: HTMLElement): void {
       if (!remote.isHost && debug.isOpen) debug.close();
     }
     reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.rewardDeadline ?? null });
-    hud?.setCovered(reward.visible || paused || menuOpen);
+    goedam.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.goedamDeadline ?? null });
+    hud?.setCovered(reward.visible || goedam.visible || paused || menuOpen);
     if (game.state.phase === 'runOver' && resultAt == null) resultAt = now + (quitRequested ? 0 : RESULT_DELAY_MS);
     if (resultAt != null && now >= resultAt) showResult();
   };

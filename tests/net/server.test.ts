@@ -1,7 +1,8 @@
 // Game server (server/*): HTTP, hello/sessions, rooms (create/join/full/host handoff), start fills bots, command
-// player override, host-only debug/tunables, reward timeout (R33), disconnect → bot → reconnect (R34), quit, robustness.
+// player override, host-only debug/tunables, reward timeout (R33), disconnect → bot → reconnect (R34), quit, robustness,
+// 괴담 방 (기획 10차): own fresh deadline, timeout = 'leave' then continue, disconnect / host drop / reconnect mid-room.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { RunningServer } from '../../server/server';
+import type { RunningServer, ServerOptions } from '../../server/server';
 import { PROTOCOL_VERSION } from '../../src/net/protocol';
 import { PRESET_A, PRESET_B, sleep, startTestServer, TestClient } from './helpers';
 
@@ -39,6 +40,25 @@ async function startGame(host: TestClient, ...others: TestClient[]) {
 beforeEach(async () => {
   srv = await startTestServer();
 });
+
+/** Same test server with other options (e.g. a longer 괴담 deadline). */
+async function restart(opts: Partial<ServerOptions>): Promise<void> {
+  await srv.close();
+  srv = await startTestServer(opts);
+}
+
+/** Host forces a 괴담 room after floor 1, clears it, every human picks reward 0 → the room is open. */
+async function openGoedamRoom(host: TestClient, ...others: TestClient[]) {
+  host.send({ t: 'cmd', seq: 901, cmd: { type: 'debug', action: { kind: 'goedamNext', room: 'broken_vending' } } });
+  expect((await host.next('cmdResult', m => m.seq === 901)).ok).toBe(true);
+  host.send({ t: 'cmd', seq: 902, cmd: { type: 'debug', action: { kind: 'skipFloor' } } });
+  await host.snap(m => m.state.phase === 'reward');
+  for (const c of [host, ...others]) c.send({ t: 'cmd', seq: 903, cmd: { type: 'chooseReward', player: 0, offerIndex: 0 } });
+  return host.snap(m => m.state.phase === 'goedam');
+}
+
+const goedamCmd = (c: TestClient, seq: number, option: string, player = 0) =>
+  c.send({ t: 'cmd', seq, cmd: { type: 'goedam', player, option } });
 
 afterEach(async () => {
   for (const c of clients.splice(0)) c.kill();
@@ -374,5 +394,109 @@ describe('game', () => {
     const bytes = Buffer.byteLength(JSON.stringify(s));
     console.log(`snapshot: ${s.state.entities.length} entities, ${(bytes / 1024).toFixed(1)} KB raw JSON`);
     expect(bytes).toBeLessThan(80 * 1024);
+  });
+});
+
+describe('괴담 방 (기획 10차)', () => {
+  it('the room deadline starts fresh after the reward timeout; an idle human gets "leave" and everyone moves on', async () => {
+    await restart({ rewardTimeoutSec: 0.6, goedamTimeoutSec: 1.2 });
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    a.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'goedamNext', room: 'broken_vending' } } });
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'debug', action: { kind: 'skipFloor' } } });
+    const rw = await a.snap(m => m.state.phase === 'reward');
+    expect(rw.goedamDeadline).toBeNull();
+    a.send({ t: 'cmd', seq: 3, cmd: { type: 'chooseReward', player: 0, offerIndex: 0 } });
+    // B never picks: the reward timeout picks for B and the room opens with a full deadline of its own
+    const room = await b.snap(m => m.state.phase === 'goedam', 3000);
+    expect(room.rewardDeadline).toBeNull();
+    expect(room.goedamDeadline! - room.serverTime).toBeGreaterThan(900);
+    expect(room.state.goedam).toMatchObject({ roomId: 'broken_vending', floor: 1 });
+    expect(room.state.goedam!.players[2]).toMatchObject({ stage: 'done', choice: 'leave' }); // the bot left at once
+    // A gambles and stays on the result card; B idles
+    goedamCmd(a, 4, 'press');
+    expect((await a.next('cmdResult', m => m.seq === 4)).ok).toBe(true);
+    const next = await b.snap(m => m.state.floor === 2 && m.state.phase === 'combat', 4000);
+    expect(next.goedamDeadline).toBeNull();
+    expect(next.state.goedam).toBeNull();
+    const logs = next.state.players.map(p => p.goedamLog.map(e => [e.optionId, e.outcome.id === 'leave', e.auto]));
+    // a human's timeout is not a bot pick (auto=false); A's gamble rolled a real outcome
+    expect(logs).toEqual([[['press', false, false]], [['leave', true, false]], [['leave', true, true]]]);
+  });
+
+  it("commands act for the sender's slot; refusals carry the sim's reasons; all done → next floor before the deadline", async () => {
+    await restart({ goedamTimeoutSec: 30 });
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    a.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'goedamNext', room: 'no_such_room' } } });
+    expect(await a.next('cmdResult', m => m.seq === 1)).toMatchObject({ ok: false, reason: '알 수 없는 방' });
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'goedamNext' } } });
+    expect(await b.next('cmdResult', m => m.seq === 1)).toMatchObject({ ok: false, reason: '방장만 할 수 있어요' });
+    goedamCmd(a, 2, 'leave');
+    expect(await a.next('cmdResult', m => m.seq === 2)).toMatchObject({ ok: false, reason: '괴담 방이 아님' });
+    const room = await openGoedamRoom(a, b);
+    expect(room.goedamDeadline! - room.serverTime).toBeGreaterThan(20_000);
+    goedamCmd(a, 10, 'press');
+    expect((await a.next('cmdResult', m => m.seq === 10)).ok).toBe(true);
+    // `player: 0` from B still means B: B has not chosen, so 'continue' is refused (A's slot would have taken it)
+    goedamCmd(b, 11, 'continue', 0);
+    expect(await b.next('cmdResult', m => m.seq === 11)).toMatchObject({ ok: false, reason: '먼저 고르세요' });
+    goedamCmd(b, 12, 'not_an_option');
+    expect(await b.next('cmdResult', m => m.seq === 12)).toMatchObject({ ok: false, reason: '잘못된 선택' });
+    goedamCmd(b, 13, 'coin_slot', 0);
+    expect((await b.next('cmdResult', m => m.seq === 13)).ok).toBe(true);
+    const mid = await a.snap(m => m.state.goedam?.players[1].stage === 'result');
+    expect(mid.state.goedam!.players.map(p => [p.stage, p.choice])).toEqual([
+      ['result', 'press'],
+      ['result', 'coin_slot'],
+      ['done', 'leave'],
+    ]);
+    goedamCmd(a, 14, 'press');
+    expect(await a.next('cmdResult', m => m.seq === 14)).toMatchObject({ ok: false, reason: '이미 골랐음' });
+    goedamCmd(a, 15, 'continue');
+    goedamCmd(b, 16, 'continue');
+    const next = await a.snap(m => m.state.floor === 2 && m.state.phase === 'combat', 3000);
+    expect(next.goedamDeadline).toBeNull();
+    goedamCmd(a, 17, 'continue');
+    expect(await a.next('cmdResult', m => m.seq === 17)).toMatchObject({ ok: false, reason: '괴담 방이 아님' });
+  });
+
+  it('host drop mid-room resolves only its slot; reconnect redraws the room (wait panel); a drop on the result card continues', async () => {
+    await restart({ goedamTimeoutSec: 30 });
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    const room = await openGoedamRoom(a, b);
+    goedamCmd(b, 10, 'press');
+    expect((await b.next('cmdResult', m => m.seq === 10)).ok).toBe(true);
+    const token = a.token;
+    b.mark();
+    a.kill(); // the host only drops: a normal disconnect, the room is not cleared
+    const dropped = await b.snap(m => m.state.players[0].isBot);
+    expect(dropped.state.phase).toBe('goedam');
+    expect(dropped.state.goedam!.players.map(p => [p.stage, p.choice])).toEqual([
+      ['done', 'leave'],
+      ['result', 'press'],
+      ['done', 'leave'],
+    ]);
+    expect(dropped.state.players[0].goedamLog.map(e => [e.optionId, e.auto])).toEqual([['leave', true]]);
+    expect(dropped.goedamDeadline).toBe(room.goedamDeadline); // nothing restarts the deadline
+    // back with the same token: the whole room is in the state, my slot is done → the client shows the wait panel
+    const a2 = await connect('A', token);
+    expect((await a2.next('start')).playerIndex).toBe(0);
+    const back = await a2.snap(m => !m.state.players[0].isBot);
+    expect(back.state.phase).toBe('goedam');
+    expect(back.state.goedam!.players[0].stage).toBe('done');
+    expect(back.state.goedam!.players[1].outcome).not.toBeNull();
+    expect(back.goedamDeadline).toBe(room.goedamDeadline);
+    goedamCmd(a2, 20, 'continue');
+    expect(await a2.next('cmdResult', m => m.seq === 20)).toMatchObject({ ok: false, reason: '이미 끝남' });
+    // B drops while reading the result: continued for B, the room never waits on it
+    b.kill();
+    const next = await a2.snap(m => m.state.floor === 2 && m.state.phase === 'combat', 3000);
+    expect(next.state.players[1].goedamLog.map(e => [e.optionId, e.auto])).toEqual([['press', false]]);
+    expect(next.goedamDeadline).toBeNull(); // never a stale room deadline outside the room
   });
 });

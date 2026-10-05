@@ -8,6 +8,7 @@
 //   shows the network banner and swap/pet/ult/reward are refused; after STALL_RECONNECT_MS the socket is replaced.
 // - dispatch(): validated locally with the same pure rules as the sim, sent as a Command, answered optimistically.
 //   Every command carries `atTick` (newest snapshot seen) so the server drops swaps/pets that arrive stale.
+// - 괴담 방 (기획 10차): 'goedam' is checked with the sim's own canGoedamState; the room deadline rides on snapshots.
 // - tunables: a live object the host's debug panel mutates; changes are diffed each frame and sent as 'tunables'.
 
 import type {
@@ -17,6 +18,7 @@ import type {
   Game,
   GameEvent,
   GameState,
+  GoedamStage,
   PreviewPart,
   Telemetry,
   Tunables,
@@ -26,6 +28,7 @@ import { DEFAULT_TUNABLES } from '../config';
 import { ARENA_MARGIN } from '../sim/constants';
 import { canSwapState, canUltState, canUsePetState } from '../sim/players';
 import { previewPartsFor } from '../sim/preview';
+import { canGoedamState } from '../sim/goedam';
 import { STALL_RECONNECT_MS, type Connection } from './connection';
 import type { ServerMsg } from './protocol';
 import { SNAPSHOT_HZ } from './protocol';
@@ -90,6 +93,9 @@ export class RemoteGame implements Game {
   private events: GameEvent[] = [];
   private telemetryLatest: Telemetry = EMPTY_TELEMETRY;
   private deadlineServer: number | null = null;
+  private goedamDeadlineServer: number | null = null;
+  /** 괴담 command sent while my slot was at this stage: a second tap waits until a snapshot shows the change. */
+  private goedamSent: { stage: GoedamStage; at: number } | null = null;
   private seq = 0;
   private readonly pending = new Map<number, { cmd: Command; at: number }>();
   private readonly ents = new Map<number, Sample[]>();
@@ -169,6 +175,11 @@ export class RemoteGame implements Game {
     return this.deadlineServer == null ? null : this.deadlineServer - this.conn.serverOffsetMs;
   }
 
+  /** 기획 10차: 괴담 room auto-finish deadline on the local clock (Date.now() ms), null outside the room. */
+  get goedamDeadline(): number | null {
+    return this.goedamDeadlineServer == null ? null : this.goedamDeadlineServer - this.conn.serverOffsetMs;
+  }
+
   dispose(): void {
     for (const u of this.unsub.splice(0)) u();
   }
@@ -225,6 +236,10 @@ export class RemoteGame implements Game {
         wire = { ...cmd, player: me };
         break;
       }
+      case 'goedam':
+        r = this.canGoedam(me, cmd.option);
+        wire = { ...cmd, player: me };
+        break;
       case 'debug':
       case 'tunables':
         r = this.isHost ? ok : fail('방장만 할 수 있어요');
@@ -239,6 +254,7 @@ export class RemoteGame implements Game {
     const seq = ++this.seq;
     if (!this.conn.send({ t: 'cmd', seq, cmd: wire, atTick: Math.max(0, this.snapTick) })) return fail('서버와 연결이 끊겼어요');
     this.pending.set(seq, { cmd: wire, at: performance.now() });
+    if (cmd.type === 'goedam') this.goedamSent = { stage: s.goedam!.players[me].stage, at: performance.now() };
     if (cmd.type === 'chooseReward') {
       this.localChoice = { floor: s.floor, until: performance.now() + 2500, confirmed: false };
       this.applyLocalChoice(s);
@@ -267,6 +283,20 @@ export class RemoteGame implements Game {
       if (p.cmd.type === 'pet' && p.cmd.petIndex === petIndex && performance.now() - p.at < OPTIMISTIC_LOCK_MS) return fail('쿨타임');
     }
     return r;
+  }
+
+  /** The sim's rule, plus: a tap already sent is not sent again before a snapshot shows it (double tap). */
+  private canGoedam(me: number, option: string): CommandResult {
+    const s = this.view!;
+    const r = canGoedamState(s, me, option);
+    const sent = this.goedamSent;
+    if (!r.ok || !sent) return r;
+    const stage = s.goedam!.players[me].stage;
+    if (stage !== sent.stage || performance.now() - sent.at > PENDING_TTL_MS) {
+      this.goedamSent = null;
+      return r;
+    }
+    return fail(stage === 'choosing' ? '이미 골랐음' : '이미 끝남');
   }
 
   previewParts(player: number, kind: 'swap' | 'pet', index: number): PreviewPart[] {
@@ -330,6 +360,7 @@ export class RemoteGame implements Game {
     }
     if (m.telemetry) this.telemetryLatest = m.telemetry; // sent once the run is over
     this.deadlineServer = m.rewardDeadline;
+    this.goedamDeadlineServer = m.goedamDeadline ?? null;
     this.hostPlayerIndex = m.hostPlayerIndex;
     this.mergeTunables(m.tunables, now);
   }
@@ -462,6 +493,7 @@ export class RemoteGame implements Game {
     const p = this.pending.get(seq);
     this.pending.delete(seq);
     if (!p) return;
+    if (p.cmd.type === 'goedam' && !okk) this.goedamSent = null; // refused: the button works again at once
     if (p.cmd.type === 'chooseReward' && this.localChoice) {
       if (okk) this.localChoice.confirmed = true;
       else this.localChoice = null;

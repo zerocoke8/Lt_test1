@@ -3,11 +3,13 @@
 //   PT_BASE=http://localhost:4195/ node tests/playtest/readability.mjs <preset A|B|C|D> [floors=3] [noCast]
 // Phone 844×390 @3x, real touch (CDP), real preset taps, real drags onto enemy clusters, ult taps, pet drags,
 // skill sheet by long-press / tap. Floors 1..N at gameSpeed 1.
+// 기획 10차: 괴담 rooms after floors 2–4 are passed with real taps by GOEDAM (lib.mjs goedamPolicy, default leave).
 // Output: /tmp/read-<preset>-NN-*.png (screenshots), /tmp/read-<preset>-clip-*.png (real-time frame sequences from
 // the CDP screencast, cropped around the cast), /tmp/read-<preset>-report.json.
 import fs from 'node:fs';
 import {
-  BASE, center, clusterFinger, frameStats, hudBoxes, launch, now, pickReward, readyCard, readyPet, realPet, sleep, snap, tapUlt, waitPhase,
+  BASE, afterReward, armGoedam, center, clusterFinger, frameStats, goedamPolicy, hudBoxes, launch, now, pickReward, readyCard, readyPet,
+  realPet, sleep, snap, tapUlt, waitPhase,
 } from './lib.mjs';
 
 const PRESETS = {
@@ -23,7 +25,8 @@ const names = PRESETS[key];
 const P = `/tmp/read-${key}`;
 const pt = await launch('phone', { tag: `read-${key}` });
 const { page, input, context } = pt;
-const report = { preset: key, names, floors: [], swaps: [], sheet: {}, fonts: null, clips: [], counts: {}, errors: pt.errors, notes: [] };
+const gdPol = goedamPolicy();
+const report = { preset: key, names, goedam: gdPol.name, floors: [], rooms: [], swaps: [], sheet: {}, fonts: null, clips: [], counts: {}, errors: pt.errors, notes: [] };
 const L = (...a) => console.log(`[${key}]`, ...a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))));
 
 let shotN = 0;
@@ -286,6 +289,7 @@ await shot('preset');
 report.presetPicked = await page.evaluate(() => [...document.querySelectorAll('.ps-slot-row .slot-chip:not(.is-empty)')].map(e => e.textContent));
 await input.tap(await center(page, '.btn-start'));
 await waitPhase(page, 'combat', 15000);
+await armGoedam(page, gdPol);
 // matching screen? (server not running → solo straight away)
 report.party = await page.evaluate(() => window.__proto.game.state.players[0].party.map(m => m.defId));
 L('party', report.party);
@@ -330,6 +334,8 @@ while (Date.now() - start < 14 * 60_000) {
     await shot(`reward-f${s.floor}`);
     if (s.floor >= FLOORS) break;
     await pickReward(pt, 0);
+    const room = await afterReward(pt, gdPol);
+    if (room) report.rooms.push(room);
     await waitPhase(page, 'combat', 15000).catch(() => {});
     floor = s.floor + 1;
     floorWall = Date.now();
