@@ -3,7 +3,7 @@
 
 import type { CommandResult, DebugAction, Game, Tunables } from '../types';
 import { DEFAULT_TUNABLES } from '../config';
-import { GOEDAM_ROOMS } from '../data';
+import { FIELD_EVENTS, GOEDAM_ROOMS } from '../data';
 import { button, h } from './dom';
 import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tunables';
 import type { ToastKind } from './toast';
@@ -43,6 +43,9 @@ export class DebugPanel {
   /** 기획 10차 '다음 클리어에 괴담 방': -1 = any room that fits the floor, else an index into GOEDAM_ROOMS. */
   private roomPick = -1;
   private readonly roomLabel: HTMLElement;
+  /** 기획 12차 '다음 돌발 괴담': -1 = any event that fits the floor, else an index into FIELD_EVENTS. */
+  private eventPick = -1;
+  private readonly eventLabel: HTMLElement;
   private collapsed = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -90,6 +93,16 @@ export class DebugPanel {
       this.run(room ? { kind: 'goedamNext', room: room.id } : { kind: 'goedamNext' }, `다음 클리어에 괴담 방 (${room ? room.name : '아무 방'})`);
     });
     this.bumpRoom(0);
+    // 기획 12차: start a 돌발 괴담 now (early in a normal floor) or 8 s into the next normal floor
+    const fe = h('div', 'dbg-jump dbg-goedam', act);
+    button('dbg-btn dbg-step', '◀', fe, () => this.bumpEvent(-1));
+    this.eventLabel = h('span', 'dbg-floor dbg-room', fe);
+    button('dbg-btn dbg-step', '▶', fe, () => this.bumpEvent(1));
+    button('dbg-btn dbg-go', '다음 돌발 괴담', h('div', 'dbg-btnrow', act), () => {
+      const ev = FIELD_EVENTS[this.eventPick];
+      this.run(ev ? { kind: 'fieldEventNext', id: ev.id } : { kind: 'fieldEventNext' }, `돌발 괴담 (${ev ? ev.name : '아무거나'})`);
+    });
+    this.bumpEvent(0);
 
     // render-only feel (this device): applied right away, saved locally — works in solo and multiplayer
     Object.assign(JUICE, loadJuice());
@@ -207,6 +220,13 @@ export class DebugPanel {
     const n = GOEDAM_ROOMS.length + 1;
     this.roomPick = ((this.roomPick + 1 + d + n) % n) - 1;
     this.roomLabel.textContent = GOEDAM_ROOMS[this.roomPick]?.name ?? '아무 방';
+  }
+
+  private bumpEvent(d: number): void {
+    const n = FIELD_EVENTS.length + 1;
+    this.eventPick = ((this.eventPick + 1 + d + n) % n) - 1;
+    const ev = FIELD_EVENTS[this.eventPick];
+    this.eventLabel.textContent = ev ? `${ev.icon} ${ev.name}` : '아무거나';
   }
 
   private run(a: DebugAction, label: string): void {

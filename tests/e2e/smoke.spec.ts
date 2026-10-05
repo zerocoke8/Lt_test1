@@ -580,3 +580,76 @@ test('괴담 방: all 12 rooms and a result card each fit the stage without scro
   expect(problems).toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop next to it locks on, the party reward shows', async ({ page, context }, testInfo: TestInfo) => {
+  const phone = testInfo.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+  page.on('console', m => {
+    if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+  });
+  const shot = (name: string) => page.screenshot({ path: phone ? `${SHOT_DIR}/${name}.png` : testInfo.outputPath(`${testInfo.project.name}-${name}.png`) });
+  const input = await makeInput(page, context, phone);
+  await page.goto('/');
+  await waitPhase(page, 'preset');
+  // floor 2 (the toad's floor); the scheduled events off so only the forced one runs
+  await page.evaluate(() => window.__proto!.startRun({ seed: 12, startFloor: 2, tunables: { invincible: true, goedamRoomsPerZone: 0, fieldEventChance: 0 } }));
+  await waitPhase(page, 'combat');
+  await sleep(2500);
+  expect((await debug(page, { kind: 'fieldEventNext', id: 'lucky_toad' })).ok).toBe(true);
+  // warning: the pill names it; then it starts with the low banner (goal + reward generated from the numbers)
+  await expect(page.locator('.fe-pill')).toBeVisible();
+  await expect(page.locator('.fe-pill .fe-prog')).toHaveText('도망치는 금두꺼비');
+  await page.waitForFunction(() => window.__proto!.game!.state.fieldEvent?.stage === 'active', undefined, { timeout: 4000 });
+  await expect(page.locator('.banner-event .banner-big')).toContainText('도망치는 금두꺼비');
+  await expect(page.locator('.banner-event .banner-sub')).toHaveText('18초 안에 잡으면 모두 궁극기 게이지 +40%');
+  await sleep(250);
+  await shot('combat-event'); // the banner is still up for a moment: banner + pill + the toad's gold ring
+  await expect(page.locator('.fe-pill .fe-reward')).toHaveText('궁극기+40%');
+  await expect(page.locator('.fe-pill .fe-secs')).toHaveText(/^1\d$/);
+  // the pill sits under the floor box and above the field
+  const pill = (await page.locator('.fe-pill').boundingBox())!;
+  const stage = (await page.locator('.stage').boundingBox())!;
+  expect((pill.y + pill.height - stage.y) / (stage.width / 1280)).toBeLessThan(150);
+
+  // a real drag: the next ready card dropped right next to the toad → the character that appears locks onto it
+  const ult0 = await inGame(page, g => g.state.players.map(p => p.ult.charge));
+  const plan = await page.evaluate(() => {
+    const api = window.__proto!;
+    const s = api.game!.state;
+    const toad = s.entities.find(e => e.id === s.fieldEvent!.entityIds[0])!;
+    const me = s.players[0];
+    const idx = [0, 1, 2].find(i => i !== me.activeIndex && api.game!.canSwap(0, i).ok)!;
+    return { idx, finger: api.ui.fingerFor({ x: toad.pos.x - 1, y: toad.pos.y }), toad: toad.id };
+  });
+  const release = await input.dragHold(await center(page, `.ccard[data-idx="${plan.idx}"]`), plan.finger);
+  await sleep(250);
+  await release();
+  await page.waitForFunction(i => window.__proto!.game!.state.players[0].activeIndex === i, plan.idx, { timeout: 3000 });
+  const locked = await inGame(page, (g, a) => {
+    const me = g.state.players[0];
+    const e = g.state.entities.find(x => x.id === me.party[me.activeIndex!].entityId);
+    return e?.targetId === a || !g.state.fieldEvent;
+  }, plan.toad);
+  expect(locked).toBe(true);
+  // the party (two bots + my locked character) catches it within the 18 s
+  await page.waitForFunction(() => window.__proto!.game!.state.fieldEvent === null, undefined, { timeout: 25_000 });
+  const done = await inGame(page, g => ({ ok: g.telemetry(0).fieldEvents?.at(-1)?.success, ult: g.state.players.map(p => p.ult.charge) }));
+  expect(done.ok).toBe(true);
+  // my gauge (a human never fires it by itself; the bots may spend theirs at once)
+  expect(done.ult[0]).toBeGreaterThanOrEqual(Math.min(1, ult0[0] + 0.4) - 1e-6);
+  await expect(page.locator('.ult')).toHaveClass(/is-fe-reward/);
+  await expect(page.locator('.toast').filter({ hasText: '금두꺼비를 잡았다! 모두 궁극기 게이지 +40%' })).toHaveCount(1);
+  await sleep(200);
+  await shot('combat-event-success');
+
+  // 비상등 on a fresh floor: the lamp off my screen gets a gold edge arrow with its icon
+  await debug(page, { kind: 'jumpFloor', floor: 13 });
+  await sleep(1200);
+  expect((await debug(page, { kind: 'fieldEventNext', id: 'dark_lamps' })).ok).toBe(true);
+  await page.waitForFunction(() => window.__proto!.game!.state.fieldEvent?.stage === 'active', undefined, { timeout: 4000 });
+  await sleep(300);
+  await expect(page.locator('.fe-pill .fe-reward')).toHaveText('적 취약');
+  await shot('combat-event-lamps');
+  expect(errors, errors.join('\n')).toEqual([]);
+});

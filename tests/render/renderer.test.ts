@@ -106,6 +106,7 @@ function player(id: number, chars: string[], active: number | null, entityId: nu
       damageBySource: { basic: 0, passive: 0, normal: 0, drag: 0, ult: 0, pet: 0, relic: 0, zone: 0, summon: 0 },
       ultDelayTotal: 0,
       ultDelayCount: 0,
+      fieldEvents: 0,
     },
   };
 }
@@ -158,6 +159,7 @@ function makeState(kind: 'normal' | 'boss', localX: number, floor = 1): GameStat
     rewardOffers: null,
     rewardOffersByPlayer: [],
     goedam: null,
+    fieldEvent: null,
     runResult: null,
   };
 }
@@ -336,6 +338,59 @@ describe('기획 8차 content in the renderer (headless)', () => {
           ]);
           for (let f = 0; f < 50; f++) expect(() => r.render(s, f === 0 ? evs : [], 1 / 60, UI)).not.toThrow();
         }
+      }
+    }
+    expect(sets.has('shadowBlur')).toBe(false);
+  });
+});
+
+describe('기획 12차 돌발 괴담 in the renderer (headless)', () => {
+  it('draws every event (warning and active, units, marks, arrows, preview highlights) and its events, never mutating state', async () => {
+    const { FIELD_EVENTS, FIELD_EVENT_UNIT, getMonster: mon } = await import('../../src/data');
+    const { canvas, sets } = fakeCanvas();
+    const r = createRenderer(canvas as unknown as HTMLCanvasElement);
+    let id = 5000;
+    for (const def of FIELD_EVENTS) {
+      for (const stage of ['warn', 'active'] as const) {
+        const base = makeState('normal', 6, 7);
+        const units: Entity[] = [];
+        const unitId = FIELD_EVENT_UNIT[def.id];
+        // one unit on screen, a second (the same kind) far off screen so the gold arrow shows
+        if (unitId && stage === 'active') {
+          const d = mon(unitId);
+          for (const x of [8, 33]) {
+            const enemy = d.tier !== 'summon';
+            units.push({
+              ...base.entities[3], id: ++id, kind: enemy ? 'monster' : 'summon', team: enemy ? 'enemy' : 'ally', defId: unitId, tier: d.tier,
+              pos: { x, y: 6 }, radius: d.radius, hp: d.stats.maxHp * 0.6, maxHp: d.stats.maxHp, eventTag: def.id === 'midnight_surge' ? 'minion' : enemy ? 'target' : 'ward',
+              anim: def.id === 'lucky_toad' ? 'cast' : 'move', statuses: [],
+            });
+          }
+        }
+        const marks = def.id === 'dark_lamps' ? [{ pos: { x: 4, y: 4 }, radius: 1.6, doneBy: null }, { pos: { x: 18, y: 6 }, radius: 1.6, doneBy: 0 }, { pos: { x: 32, y: 8 }, radius: 1.6, doneBy: null }]
+          : def.id === 'open_shaft' ? [{ pos: { x: 10, y: 6 }, radius: 1.5, doneBy: null }]
+          : def.id === 'sleepwalker' ? [{ pos: { x: 22, y: 6 }, radius: 0.8, doneBy: null }] : [];
+        const s = deepFreeze({
+          ...base,
+          entities: [...base.entities, ...units],
+          fieldEvent: {
+            id: def.id, stage, warnRemaining: stage === 'warn' ? 1 : 0, remaining: 3.5, total: def.duration, pos: { x: 8, y: 6 },
+            entityIds: units.map(u => u.id), marks, progress: Math.min(def.goal, 2), goal: def.goal, creditPlayer: null, startled: 1, printIn: 2, printed: 3,
+          },
+        } as GameState);
+        const evs: GameEvent[] = [
+          { type: 'fieldEventWarn', id: def.id, pos: { x: 8, y: 6 } },
+          { type: 'fieldEventStart', id: def.id, pos: { x: 8, y: 6 } },
+          ...(['lamp', 'fall', 'kill', 'startle', 'heal'] as const).map(kind => ({ type: 'fieldEventProgress', id: def.id, progress: 2, goal: def.goal, player: 0, kind }) as GameEvent),
+          { type: 'damage', targetId: units[0]?.id ?? 1, amount: 50, crit: false, pos: { x: 8, y: 6 }, targetTeam: 'enemy', absorbed: 0, source: 'drag', weak: true },
+        ];
+        for (let i = 0; i < 12; i++) {
+          const ui: RenderUiState = { localPlayer: 0, freezeCamera: false, dragPreview: i % 2 ? { kind: i % 4 === 1 ? 'swap' : 'pet', index: 1, pos: { x: 8, y: 6 }, area: { shape: 'circle', radius: 3 }, valid: true, color: '#fff' } : null };
+          expect(() => r.render(s, i === 0 ? evs : [], 1 / 60, ui)).not.toThrow();
+        }
+        const end = deepFreeze({ ...base, fieldEvent: null });
+        expect(() => r.render(end, [{ type: 'fieldEventEnd', id: def.id, success: stage === 'active', player: 0 }], 1 / 60, UI)).not.toThrow();
+        for (let i = 0; i < 40; i++) r.render(end, [], 1 / 30, UI);
       }
     }
     expect(sets.has('shadowBlur')).toBe(false);

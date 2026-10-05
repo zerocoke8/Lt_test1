@@ -1,8 +1,11 @@
-// Headless drag-skill bench over the real sim (no rendering): what each of the 12 drag skills is worth per cast and
+// Headless drag-skill bench over the real sim (no rendering): what each of the 15 drag skills is worth per cast and
 // per second of cooldown (docs/balance.md), and how much aiming by position matters for it.
 // Run: npx vite-node tests/playtest/drag-bench.ts
 //   env: BENCH_SEEDS=12 BENCH_SEED0=0 BENCH_FLOORS=5 BENCH_CHARS=blade,mage BENCH_POLICIES=designer,best,naive BENCH_SWAP_EVERY=4
 //        BENCH_OUT=path.json (machine-readable result)  BENCH_QUIET=1 (only the value table)
+//        BENCH_PARTY=same|mixed1|mixed2 (기획 12차: player 0 = X×3 | X+블레이드+메이지 | X+가디언+레인저; mixed parties
+//        count only X's casts and X-only effects: its own dispatch, its 흡혼 marks, its drag summons, its attack-down —
+//        meant for 메딕 / 퇴마사 / 퍼펫티어, whose value depends on the rest of the party)
 //        GOEDAM=leave (기획 10차 괴담 rooms after floors 2–4: off|leave|random|first|greedy|forced:<room>:<opt>, see
 //        goedam-policy.ts; 'leave' = 'off' bit for bit, so the drag numbers stay on base values)
 //
@@ -34,6 +37,7 @@ import { bestDropPoint } from '../../src/sim/bot';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { hitsArea } from '../../src/sim/geometry';
 import { canSwap } from '../../src/sim/players';
+import { DEATH_ACTION_NAME } from '../../src/sim/ondeath';
 import { previewPartsFor } from '../../src/sim/preview';
 import { effStats } from '../../src/sim/stats';
 import { activeEntity, clampToArena, edgeDist, getEntity, isAlive, type SimEntity, type SimStatus, type World } from '../../src/sim/world';
@@ -51,6 +55,8 @@ const SWAP_EVERY = Number(env.BENCH_SWAP_EVERY ?? 4);
 /** Seed set offset (noise check: run with 0 and e.g. 100 and compare). */
 const SEED0 = Number(env.BENCH_SEED0 ?? 0);
 const QUIET = env.BENCH_QUIET === '1';
+const PARTY = (env.BENCH_PARTY ?? 'same') as 'same' | 'mixed1' | 'mixed2';
+const MIXED: Record<string, string[]> = { mixed1: ['blade', 'mage'], mixed2: ['guardian', 'ranger'] };
 const DT = 1 / TICK_RATE;
 
 type Policy = 'best' | 'designer' | 'naive' | 'self';
@@ -61,6 +67,9 @@ const AIM_OFFSET: Record<string, Vec2> = {
   shadow: { x: -2.2, y: 0 },
   ranger: { x: -2.5, y: 0 },
   gunner: { x: 2, y: 0 },
+  // 기획 12차: no fixed direction (ring / two side spots) → on the pack; 메딕 aims at hurt allies (healer path)
+  exorcist: { x: 0, y: 0 },
+  puppeteer: { x: 0, y: 0 },
 };
 
 const weight = (e: SimEntity) => (e.tier === 'boss' ? 3 : e.tier === 'mid' ? 2 : 1);
@@ -186,9 +195,12 @@ interface ShieldLedger {
 
 function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
   const def = getCharacter(charId);
-  const human: PlayerSetup = { name: '나', isBot: false, characters: [charId, charId, charId], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] };
+  const party = PARTY === 'same' ? [charId, charId, charId] : [charId, ...MIXED[PARTY]];
+  const mixed = PARTY !== 'same';
+  const human: PlayerSetup = { name: '나', isBot: false, characters: party, pets: ['frog_bomb', 'fairy_heal', 'cat_void'] };
   const players: PlayerSetup[] = [human, ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] }))];
-  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES, ...goedamTunables(GOEDAM) } });
+  // 기획 12차: 돌발 괴담 off — the drag numbers are measured on plain floors (docs/balance.md 11장)
+  const { world: w } = createGameWithWorld({ seed, players, tunables: { ...DEFAULT_TUNABLES, fieldEventChance: 0, ...goedamTunables(GOEDAM) } });
   const s = w.state;
   const p = s.players[0];
   const pilot = goedamPilot(w, GOEDAM);
@@ -207,6 +219,14 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
     acc.comp[k] += v;
     floorBucket().comp[k] += v;
   };
+  // 기획 12차: 흡혼 marks seen before each tick (a killing blow removes the enemy before we can look) and my drag summons
+  const marks = new Map<number, SimStatus>();
+  const drainHeal = (fromId: number, amount: number) => {
+    const m = marks.get(fromId) ?? ((getEntity(w, fromId)?.statuses ?? []).find(x => x.id === 'drain') as SimStatus | undefined);
+    if (m && m.sourcePlayer === 0 && m.src === 'drag') add('drainHealHp', amount);
+  };
+  const decoys = new Map<number, { e: SimEntity; last: number }>();
+  const xDrag = def.drag.name;
   const shields: ShieldLedger[] = [];
   const selfShieldAmt = def.drag.actions
     .filter(a => a.affects === 'self')
@@ -276,9 +296,17 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
         const memberShield = p.party[idx].shield;
         const evBefore = w.events.length;
         const enemiesInFoot = score(parts, cand[policy], foes, 'enemies', false);
-        if (dispatch(w, { type: 'swap', player: 0, partyIndex: idx, pos: cand[policy] }).ok) {
+        const mine = !mixed || p.party[idx].defId === charId;
+        const dragBefore = p.stats.damageBySource.drag;
+        const swapped = dispatch(w, { type: 'swap', player: 0, partyIndex: idx, pos: cand[policy] }).ok;
+        if (swapped && !mine) {
+          // mixed party: another card's cast — played, not measured
           lastSwap = s.time;
           card = idx;
+        } else if (swapped) {
+          lastSwap = s.time;
+          card = idx;
+          if (mixed) add('dmg', p.stats.damageBySource.drag - dragBefore);
           acc.casts++;
           floorBucket().casts++;
           acc.hitsExec += sc[policy];
@@ -287,7 +315,9 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
           // instant heals (only the drag skill can heal inside this dispatch)
           for (let i = evBefore; i < w.events.length; i++) {
             const ev = w.events[i];
-            if (ev.type === 'heal') add('heal', ev.amount);
+            if (ev.type === 'heal' && ev.from == null) add('heal', ev.amount);
+            else if (ev.type === 'heal') drainHeal(ev.from!, ev.amount);
+            else if (ev.type === 'benchHeal' && ev.player === 0) add('benchHealHp', ev.amount);
           }
           // pull / knockback actually moved
           for (const [id, before] of enemyPos) {
@@ -337,12 +367,43 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
       }
     }
 
+    // events from this frame's dispatch were read above; the scan below reads only what the tick adds
+    const scanFrom = w.events.length;
+    marks.clear();
+    const hpBefore = new Map<number, number>();
+    for (const e of s.entities) {
+      if (e.team !== 'enemy' || !isAlive(e)) continue;
+      const m = e.statuses.find(x => x.id === 'drain');
+      if (m) marks.set(e.id, m as SimStatus);
+      if (mixed) hpBefore.set(e.id, e.hp + e.shield);
+    }
+
     tick(w);
+    for (let i = scanFrom; i < w.events.length; i++) {
+      const ev = w.events[i];
+      if (ev.type === 'heal' && ev.from != null) drainHeal(ev.from, ev.amount);
+      // mixed party: only X's drag hits (its own name) and its summons' bursts (only X leaves drag summons)
+      else if (mixed && ev.type === 'damage' && ev.source === 'drag' && (ev.skillName === xDrag || ev.skillName === DEATH_ACTION_NAME)) {
+        add('dmg', Math.min(ev.amount, hpBefore.get(ev.targetId) ?? ev.amount));
+      }
+    }
     w.events.length = 0;
 
     // drag damage (incl. burn ticks, delayed hits)
-    add('dmg', p.stats.damageBySource.drag - prevDrag);
+    if (!mixed) add('dmg', p.stats.damageBySource.drag - prevDrag);
     prevDrag = p.stats.damageBySource.drag;
+
+    // 기획 12차: HP my drag summons (종이 인형) lost — hits that did not land on the party
+    for (const e of s.entities) {
+      if (e.kind === 'summon' && e.team === 'ally' && e.ownerPlayer === 0 && e.rt.summonSlot === 'drag' && !decoys.has(e.id)) decoys.set(e.id, { e, last: e.hp });
+    }
+    for (const [id, d] of decoys) {
+      const dead = d.e.rt.gone || d.e.hp <= 0;
+      const now = dead ? (d.e.hp <= 0 ? 0 : d.last) : d.e.hp;
+      if (now < d.last) add('decoyHp', d.last - now);
+      d.last = now;
+      if (dead) decoys.delete(id);
+    }
 
     // realised CC on enemies (statuses from my drag skill). Only time that actually kept an attack off us is priced
     // (balance critic, outcome ablation: most stunned / slowed seconds land on enemies still walking in):
@@ -358,15 +419,18 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
       const t = engagedTarget(w, e);
       for (const st of e.statuses as SimStatus[]) {
         if (st.sourcePlayer !== 0 || st.src !== 'drag') continue;
-        if (st.id === 'stun') {
+        if (st.id === 'stun' && !mixed) {
           add('stunSec', DT);
           if (t) {
             add('stunEngSec', DT);
             add('stunHp', DT * threatOn(w, e, t));
           }
-        } else if (st.id === 'slow') {
+        } else if (st.id === 'slow' && !mixed) {
           add('slowSec', st.value * DT);
           if (t && !stunned) add('slowHp', st.value * DT * threatOn(w, e, t));
+        } else if (st.id === 'atkDown' && t && !stunned) {
+          // 기획 12차 (퍼펫티어): effStats already has the cut in → the DPS it would have had is threat / (1 − v)
+          add('atkDownHp', DT * threatOn(w, e, t) * (st.value / Math.max(0.1, 1 - st.value)));
         }
       }
     }
@@ -381,7 +445,7 @@ function runOne(charId: string, policy: Policy, seed: number, acc: Acc): void {
       prevBasic[q.id] = q.stats.damageBySource.basic;
       prevTaken[q.id] = q.stats.damageTaken;
       const e = activeEntity(w, q);
-      if (!e || !isAlive(e)) continue;
+      if (!e || !isAlive(e) || mixed) continue;
       let buffed = false;
       // atk and attack-speed buffs multiply on basic attacks: extra = dealt × (1 − 1 / ((1 + a)(1 + h)))
       let a = 0;
@@ -532,7 +596,7 @@ function valueTable(pol: Policy, wt = VALUE_WEIGHTS) {
   return { meanVps, allMean, vals };
 }
 
-const summary: Record<string, unknown> = { seeds: SEEDS, floors: FLOORS, swapEvery: SWAP_EVERY, weights: VALUE_WEIGHTS };
+const summary: Record<string, unknown> = { seeds: SEEDS, floors: FLOORS, swapEvery: SWAP_EVERY, party: PARTY, weights: VALUE_WEIGHTS };
 for (const pol of POLICIES) {
   const { meanVps, allMean, vals } = valueTable(pol);
   const table = vals.map(({ r, v }) => ({
@@ -554,6 +618,10 @@ for (const pol of POLICIES) {
     buffAllyS: r1(r.comp.buffAllySec),
     buffDmg: r0(r.comp.buffDmg),
     cdSec: r1(r.comp.cdSec),
+    benchH: r0(r.comp.benchHealHp),
+    drainH: r0(r.comp.drainHealHp),
+    decoy: r0(r.comp.decoyHp),
+    atkDnHp: r0(r.comp.atkDownHp),
     vDmg: r0(v.damage),
     vCC: r0(v.cc),
     vSup: r0(v.support),

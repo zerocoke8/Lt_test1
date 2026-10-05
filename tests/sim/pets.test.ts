@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getPet } from '../../src/data';
+import { PETS, getPet } from '../../src/data';
 import { applyStatus } from '../../src/sim/status';
 import { active, advance, clearEvents, eventsOf, makeGame, quietFloor, spawnAt } from './helpers';
 
@@ -75,5 +75,10 @@ describe('R14 pets', () => {
     tg.game.state.players[0].out = true;
     expect(tg.game.canUsePet(0, 0)).toEqual({ ok: false, reason: '관전 중' });
     expect(tg.game.canUsePet(0, 9)).toEqual({ ok: false, reason: '잘못된 대상' });
+  });
+
+  it('기획 12차: every pet cooldown is ×0.8 of the old one (35→28, 40→32, 45→36, 50→40)', () => {
+    const cds = Object.fromEntries(PETS.map(p => [p.id, p.cooldown]));
+    expect(cds).toEqual({ frog_bomb: 28, fairy_heal: 32, turtle_guard: 32, owl_frost: 28, golem_turret: 36, cat_void: 32, drum_raccoon: 36, rabbit_time: 40 });
   });
 });

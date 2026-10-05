@@ -466,11 +466,127 @@ export function castFx(fx: SkillFx, host: FxHost, c: CastInfo): boolean {
       clock(fx, cx, cy, Math.min(4.5, radiusOf(a) * 0.55), 1.3, col, k, c.src);
       rings(fx, cx, cy, radiusOf(a), 0.6, 3, 0.9, col, k, c.src, 5);
       return true;
+
+    // ───────── 기획 12차: medic / exorcist / puppeteer ─────────
+    case 'medic_n': {
+      // a syringe capsule flies to the most hurt ally, then a green '+'
+      const o = fx.add(Fx.Orb, c.ox, c.oy, 0.16, MEDIC, k);
+      o.x2 = cx;
+      o.y2 = cy;
+      o.z = 0.8;
+      star(fx, cx, cy, BODY_Z, 26, '#7dffb3', k, 0.14, 4);
+      return true;
+    }
+    case 'medic_d':
+      medicCross(fx, host, c, cx, cy, a, k);
+      return true;
+    case 'medic_u':
+      // siren rings (teal / white / teal) + a white pillar on the medic
+      rings(fx, cx, cy, 0.5, 13, 3, 1.1, MEDIC, k, c.src, 6);
+      rings(fx, cx, cy, 0.5, 9, 1, 0.8, '#ffffff', k * 0.8, c.src, 4);
+      pillar(fx, cx, cy, 1.1, 7, '#ffffff', k, 0.9, c.src);
+      return true;
+    case 'exorcist_n': {
+      const o = fx.add(Fx.Orb, c.ox, c.oy, 0.16, TALISMAN, k);
+      o.x2 = cx;
+      o.y2 = cy;
+      o.z = 0.8;
+      host.ring(cx, cy, 0.3, radiusOf(a), 0.35, INK, 3, 0.12 * k);
+      star(fx, cx, cy, BODY_Z, 22, TALISMAN, k, 0.14, 4);
+      return true;
+    }
+    case 'exorcist_d':
+      sealCircle(fx, host, cx, cy, a, k, 8, 0.4);
+      if (c.local) host.shake(3);
+      return true;
+    case 'exorcist_u':
+      sealCircle(fx, host, cx, cy, a, k, 16, 0.6);
+      host.flash(cx, cy, cx, cy, a, 0.25, INK, 0.6 * k);
+      if (c.local) host.shake(5);
+      return true;
+    case 'puppeteer_n':
+      beam(fx, c.ox, c.oy, cx, cy, 0.12, 0.45, PUPPET, k);
+      star(fx, cx, cy, BODY_Z, 22, PUPPET, k, 0.05, 6);
+      return true;
+    case 'puppeteer_d':
+      // one doll per part: arcs out from the puppeteer, a pink thread stays 0.6 s, a paper puff on landing
+      dollThrow(fx, host, c, cx, cy, a, k, wait);
+      return true;
+    case 'puppeteer_u':
+      if (c.action?.summon) dollThrow(fx, host, c, cx, cy, a, k, 0);
+      else {
+        rings(fx, cx, cy, radiusOf(a), 0.6, 2, 0.8, PUPPET, k, c.src, 5);
+        wave(fx, cx, cy, a, 0.6, PUPPET, k * 0.8);
+      }
+      return true;
+    case 'paper_doll_death':
+      // the decoy bursts: paper shreds + pink pollen + a ring over its radius
+      host.burst(cx, cy, 0.5, 14, HANJI, 3.2, 2.4, 0.7, 6);
+      host.burst(cx, cy, 0.5, 10, PUPPET, 2.4, 1.6, 0.8, 2);
+      host.ring(cx, cy, 0.3, radiusOf(a), 0.4, PUPPET, 4, 0.18 * k);
+      return true;
     default:
       break;
   }
   if (big) wave(fx, cx, cy, a, 0.45, col, k, wait);
   return false;
+}
+
+// ─────────────────────────── 기획 12차 helpers ───────────────────────────
+
+const MEDIC = '#2ec4b6';
+const INK = '#c1121f';
+const TALISMAN = '#ffd23f';
+const PUPPET = '#ff5fa2';
+const HANJI = '#f3e9d2';
+
+/** 메딕 응급 처치: white-on-teal first-aid cross along the exact arms, a white pillar, '+' stars rising at the arm tips. */
+function medicCross(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: number, a: AreaShape, k: number): void {
+  wave(fx, cx, cy, a, 0.7, MEDIC, k);
+  wave(fx, cx, cy, a, 0.45, '#ffffff', k * 0.6, 0.08);
+  pillar(fx, cx, cy, 0.7, 4.5, '#ffffff', k, 0.6);
+  const len = a.shape === 'cross' ? a.length : 3;
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ]) {
+    star(fx, cx + dx * len * 0.8, cy + dy * len * 0.8, 0.4, 20, '#7dffb3', k, 0.1, 4);
+  }
+  host.burst(cx, cy, 0.3, 10, '#7dffb3', 1.2, 2.2, 0.8, -0.4);
+  if (c.local) host.shake(2);
+}
+
+/** 퇴마사 봉인진: two red ink rings on the band edges, a wave over the band, `n` yellow talismans pinned around it. */
+function sealCircle(fx: SkillFx, host: FxHost, cx: number, cy: number, a: AreaShape, k: number, n: number, dur: number): void {
+  const inner = a.shape === 'ring' ? a.inner : 0.6;
+  const outer = radiusOf(a);
+  host.ring(cx, cy, outer * 0.85, outer, dur + 0.2, INK, 5, 0.05 * k);
+  if (inner > 0.2) host.ring(cx, cy, inner * 0.8, inner, dur + 0.2, INK, 4, 0);
+  wave(fx, cx, cy, a, dur + 0.15, INK, k);
+  const mid = a.shape === 'ring' ? (inner + outer) / 2 : outer * 0.7;
+  const turn = Math.random() * Math.PI;
+  for (let i = 0; i < n; i++) {
+    const ang = turn + (i / n) * Math.PI * 2;
+    star(fx, cx + Math.cos(ang) * mid, cy + Math.sin(ang) * mid * 0.85, 0.35, 14, TALISMAN, k, 0.05 + (i / n) * dur * 0.6, 4);
+  }
+}
+
+/** 퍼펫티어 인형: a paper doll arcs from the puppeteer to the spot, a pink thread lingers, paper puff on landing. */
+function dollThrow(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: number, a: AreaShape, k: number, wait: number): void {
+  const o = fx.add(Fx.Orb, c.ox, c.oy, 0.28, HANJI, k);
+  o.x2 = cx;
+  o.y2 = cy;
+  o.z = 0.6;
+  o.wait = wait;
+  beam(fx, c.ox, c.oy, cx, cy, 0.08, 0.6, PUPPET, k * 0.8, wait);
+  if (c.action?.effects.length) wave(fx, cx, cy, a, 0.45, PUPPET, k * 0.8, wait + 0.24);
+  star(fx, cx, cy, 0.35, 18, HANJI, k, wait + 0.26, 6);
+  if (wait <= 0) host.ring(cx, cy, 0.2, Math.min(1.2, radiusOf(a)), 0.3, HANJI, 3, 0);
+  // the doll's lifetime: a thin pink ground ring shrinking until it bursts
+  const life = c.action?.summon?.duration ?? 0;
+  if (life > 0) host.ring(cx, cy, 0.95, 0.4, life, PUPPET, 2.5, 0);
 }
 
 /** Basic-attack swing: a crescent in the attacker's colour across the target, after the wind-up. */

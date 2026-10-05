@@ -4,7 +4,8 @@
 
 export type Vec2 = { x: number; y: number };
 
-export type Role = 'tank' | 'melee' | 'ranged' | 'support';
+/** 기획 12차: 'healer' split off 'support' (탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터, 3 each). */
+export type Role = 'tank' | 'melee' | 'ranged' | 'healer' | 'support';
 export type Team = 'ally' | 'enemy';
 export type Rarity = 'common' | 'rare' | 'epic';
 export type SkillSlot = 'basic' | 'passive' | 'normal' | 'drag' | 'ult';
@@ -50,9 +51,11 @@ export type StatusId =
   | 'haste' // value = atkSpeed pct
   | 'regen' // value = fraction of maxHp per second
   | 'vulnerable' // value = extra damage taken pct
-  | 'lifesteal'; // value = fraction of damage dealt healed
+  | 'lifesteal' // value = fraction of damage dealt healed
+  /** 기획 12차 (흡혼 표식, enemies): value = fraction of damage dealt to this enemy that heals the attacker. */
+  | 'drain';
 
-export const DEBUFFS: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'slow', 'burn', 'atkDown', 'vulnerable']);
+export const DEBUFFS: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'slow', 'burn', 'atkDown', 'vulnerable', 'drain']);
 
 export interface StatusInstance {
   id: StatusId;
@@ -105,15 +108,23 @@ export type Effect =
   /** Remove all debuffs. */
   | { kind: 'cleanse' }
   /** Reduce the caster player's bench swap cooldowns. Applied ONCE per action to the owner player, not per target. */
-  | { kind: 'swapCooldownReduce'; seconds: number };
+  | { kind: 'swapCooldownReduce'; seconds: number }
+  /**
+   * 기획 12차: amount × member maxHp to the bench (not field, not dead) members of the caster player, or of every non-out
+   * player when allPlayers. Applied once per action.
+   */
+  | { kind: 'benchHeal'; amount: number; allPlayers?: boolean }
+  /** 기획 12차: dead members' reviveRemaining −= seconds (min 0); out players skipped. Once per action. */
+  | { kind: 'reviveReduce'; seconds: number; allPlayers?: boolean };
 
 export interface SkillAction {
   /**
    * point  = the drop point (drag skill / pet). For normal/ult it means the current target's position.
    * self   = caster position.
    * target = current target position (falls back to self when no target).
+   * woundedAlly = 기획 12차 (normal skills): the ally with the lowest hp/maxHp within castRange (ties → nearer).
    */
-  center: 'point' | 'self' | 'target';
+  center: 'point' | 'self' | 'target' | 'woundedAlly';
   area: AreaShape;
   affects: Affects;
   effects: Effect[];
@@ -125,7 +136,14 @@ export interface SkillAction {
   /** Leave a persistent circle that re-applies effects every tickInterval for duration. */
   zone?: { duration: number; tickInterval: number };
   /** Spawn units at center. countMax (optional): roll count..countMax (inclusive) per cast. */
-  summon?: { unitId: string; count: number; duration: number; countMax?: number };
+  summon?: {
+    unitId: string;
+    count: number;
+    duration: number;
+    countMax?: number;
+    /** 기획 12차: ally summon stats as fractions of the caster's effective maxHp / atk (종이 인형). */
+    inherit?: { hp: number; atk: number };
+  };
   /** Fixed world offset added to the resolved center, so one skill can hit several spots (e.g. a row of blasts). */
   offset?: Vec2;
   /**
@@ -170,6 +188,8 @@ export interface PassiveDef {
   lowHpAtkBonus?: number;
   /** Heals allies within radius by fraction of their maxHp per second. */
   aura?: { radius: number; healPerSec: number };
+  /** 기획 12차 (메딕): fraction of maxHp per second for my bench members while this character is on field. */
+  benchRegen?: number;
 }
 
 export type BasicAttack =
@@ -242,6 +262,8 @@ export interface MonsterDef {
   onDeath?: { summon?: { unitId: string; count: number }; action?: SkillAction };
   /** 기획 8차: render theme hint (괴담 / urban anomaly look). */
   look?: string;
+  /** 기획 12차: never moves, targets or attacks (종이 인형 decoy). */
+  inert?: boolean;
 }
 
 export interface BossDef extends MonsterDef {
@@ -388,6 +410,86 @@ export interface RelicDef {
   params: Record<string, number>;
 }
 
+// ─── 돌발 괴담 (기획 12차, docs/combat-events.md) ───
+// A small timed objective that pops up during combat on normal floors 2–19. Success gives every non-out player the
+// same reward; failure only loses the chance. Numbers live in src/data/fieldEvents.ts; the open one is state.fieldEvent.
+
+export type FieldEventId = 'lucky_toad' | 'possessed_printer' | 'sleeping_patient' | 'open_shaft' | 'midnight_surge' | 'dark_lamps' | 'sleepwalker';
+/** target = toad/printer (not auto-targeted, drag/pet ×2); minion = 23:59 shadows; ward = patient/child (ally, untouchable, ignored by monsters). */
+export type FieldEventTag = 'target' | 'minion' | 'ward';
+export type FieldEventProgressKind = 'lamp' | 'fall' | 'kill' | 'startle' | 'heal';
+
+/** Party-wide reward (every non-out player, bots and disconnected seats included). */
+export type FieldEventReward =
+  /** Ult gauge + value (0..1, capped at full). */
+  | { kind: 'ultAdd'; value: number }
+  /** Every pet cooldown → 0. */
+  | { kind: 'petReset' }
+  /** Living members (field + bench) heal pct × max HP; dead members' revive wait − reviveCut s. */
+  | { kind: 'healParty'; pct: number; reviveCut: number }
+  /** Bench members' swap (re-appear) cooldown → 0. */
+  | { kind: 'benchSwapReset' }
+  /** A 괴담 trace (GOEDAM_TRACES id). */
+  | { kind: 'trace'; traceId: string }
+  /** Every enemy on the field: vulnerable +vulnerable for duration s and a stun s stun (bosses skip the stun). */
+  | { kind: 'exposeAll'; vulnerable: number; duration: number; stun: number };
+
+export interface FieldEventDef {
+  id: FieldEventId;
+  name: string;
+  icon: string;
+  /** The 괴담 line on the start banner. */
+  premise: string;
+  /** What to do, for the banner: 「{s}초 안에 {task}면 모두 …」 ('잡으' → '18초 안에 잡으면'). */
+  task: string;
+  /** First floor it may come on. */
+  from: number;
+  /** Not rolled on the floor right before a boss (its reward would carry into the boss fight: ult gauge, 2-floor trace). */
+  notBeforeBoss?: boolean;
+  /** Pick weight by zone (0 = never there). */
+  weights: Record<FloorTheme, number>;
+  /** Seconds of the warning (gold mark + banner) before it starts. */
+  warn: number;
+  /** Seconds to succeed once started. */
+  duration: number;
+  /** Count to reach (kills, falls, lamps; 1 = kill the target; patient 100 = HP %; child = path length). */
+  goal: number;
+  reward: FieldEventReward;
+  /** Event-specific numbers (hp, speeds, radii …), read by src/sim/fieldEvents.ts. */
+  params: Record<string, number>;
+}
+
+/** A spot on the ground that belongs to the event: a lamp, the hole, the exit door. doneBy = player who lit it. */
+export interface FieldEventMark {
+  pos: Vec2;
+  radius: number;
+  doneBy: number | null;
+}
+
+export interface FieldEventState {
+  id: FieldEventId;
+  stage: 'warn' | 'active';
+  warnRemaining: number;
+  /** Seconds left once active (= total during the warning). */
+  remaining: number;
+  total: number;
+  /** Where it happens (spawn spot / anchor; the child's start). */
+  pos: Vec2;
+  /** Its units (toad, printer, patient, child, shadows). */
+  entityIds: number[];
+  marks: FieldEventMark[];
+  /** Toward goal (patient: HP %, child: units walked). */
+  progress: number;
+  goal: number;
+  /** Who gets the name on the success toast (last lamp, killing blow …). */
+  creditPlayer: number | null;
+  /** Child: seconds of crying left (it does not walk). */
+  startled?: number;
+  /** Printer: seconds to the next print, and how many it printed. */
+  printIn?: number;
+  printed?: number;
+}
+
 // ─────────────────────────── Floor plan ───────────────────────────
 
 export interface WavePlan {
@@ -445,6 +547,8 @@ export interface Entity {
   /** Summon lifetime left, null = permanent. */
   expiresIn: number | null;
   enraged: boolean;
+  /** 기획 12차: a 돌발 괴담 unit ('target' toad/printer, 'minion' 23:59 shadow, 'ward' patient/child). Absent otherwise. */
+  eventTag?: FieldEventTag;
 }
 
 export interface PartyMember {
@@ -483,6 +587,8 @@ export interface ContributionStats {
   /** Sum of seconds between ult gauge full and ult used. */
   ultDelayTotal: number;
   ultDelayCount: number;
+  /** 기획 12차: 돌발 괴담 this player resolved (killing blow, last lamp, …). */
+  fieldEvents: number;
 }
 
 export interface AppliedReward {
@@ -669,6 +775,8 @@ export interface GameState {
   rewardOffersByPlayer: (RewardOffer[] | null)[];
   /** 기획 10차: the open 괴담 room (phase 'goedam'), else null. */
   goedam: GoedamState | null;
+  /** 기획 12차: the 돌발 괴담 running on this floor (warning or active), else null. */
+  fieldEvent: FieldEventState | null;
   runResult: RunResult | null;
 }
 
@@ -683,7 +791,9 @@ export type DebugAction =
   | { kind: 'jumpFloor'; floor: number }
   | { kind: 'forceEnrage' }
   /** 기획 10차: open a 괴담 room after the next floor clear (room id, or a fitting one for that floor). */
-  | { kind: 'goedamNext'; room?: string };
+  | { kind: 'goedamNext'; room?: string }
+  /** 기획 12차: start a 돌발 괴담 now (normal floor, early in combat) or at 8 s of the next normal floor. */
+  | { kind: 'fieldEventNext'; id?: FieldEventId };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
@@ -715,8 +825,13 @@ export type GameEvent =
       source?: DamageSource;
       /** Skill name for normal/drag/ult hits (render: tiny label under the number). */
       skillName?: string;
+      /** 기획 12차: drag/pet hit on a 돌발 괴담 target (×2) — render tags the number '약점'. */
+      weak?: true;
     }
-  | { type: 'heal'; targetId: number; amount: number; pos: Vec2 }
+  /** from (기획 12차): the 흡혼-marked enemy this heal was drained from (render draws a red wisp from it). */
+  | { type: 'heal'; targetId: number; amount: number; pos: Vec2; from?: number }
+  /** 기획 12차: a bench member (no entity) was healed — render flashes that card. */
+  | { type: 'benchHeal'; player: number; partyIndex: number; amount: number }
   | { type: 'attack'; sourceId: number; targetId: number; ranged: boolean }
   | {
       type: 'skillCast';
@@ -761,7 +876,14 @@ export type GameEvent =
   | { type: 'goedamOutcome'; player: number; optionId: string; outcomeId: string; tone: GoedamOutcomeDef['tone'] }
   /** A trace was added or refreshed. */
   | { type: 'goedamTrace'; player: number; traceId: string; floorsLeft: number | null }
-  | { type: 'goedamTraceExpired'; player: number; traceId: string };
+  | { type: 'goedamTraceExpired'; player: number; traceId: string }
+  /** 기획 12차 돌발 괴담: the warning (gold mark + banner) before it starts. */
+  | { type: 'fieldEventWarn'; id: FieldEventId; pos: Vec2 }
+  | { type: 'fieldEventStart'; id: FieldEventId; pos: Vec2 }
+  /** Progress changed (lamp lit, monster fell, shadow killed, child startled, patient healed). player = who did it. */
+  | { type: 'fieldEventProgress'; id: FieldEventId; progress: number; goal: number; player: number | null; kind?: FieldEventProgressKind }
+  /** Over: success (every non-out player got the reward; player = credit) or failure. */
+  | { type: 'fieldEventEnd'; id: FieldEventId; success: boolean; player: number | null };
 
 // ─────────────────────────── Tunables (debug sliders) ───────────────────────────
 
@@ -792,6 +914,8 @@ export interface Tunables {
   instantCooldowns: boolean;
   /** 기획 10차: 괴담 rooms per zone (0 = off, 1 = default, 2 max). */
   goedamRoomsPerZone: number;
+  /** 기획 12차: chance of a 돌발 괴담 per normal floor 3–19 (floor 2 always has the toad); 0 = off entirely. */
+  fieldEventChance: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────
@@ -844,6 +968,8 @@ export interface Telemetry {
   floorTimes: { floor: number; seconds: number; outcome: 'clear' | 'fail' }[];
   /** 기획 10차: this player's 괴담 수첩 (absent on old snapshots). */
   goedam?: GoedamLogEntry[];
+  /** 기획 12차: every 돌발 괴담 of the run (absent on old snapshots). credit = player index or null. */
+  fieldEvents?: { floor: number; id: FieldEventId; success: boolean; seconds: number; credit: number | null }[];
 }
 
 /** One piece of a drag/pet skill footprint, relative to the drop point (for previews and bot aiming). */
@@ -866,6 +992,8 @@ export interface DragPreview {
   parts?: PreviewPart[];
   valid: boolean;
   color: string;
+  /** 기획 12차: party index / pet slot being dragged (돌발 괴담 drop highlights). */
+  index?: number;
 }
 
 export interface RenderUiState {

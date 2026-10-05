@@ -18,7 +18,7 @@ export function pct(v: number): string {
 export function areaLabel(area: AreaShape, center: SkillAction['center']): string {
   switch (area.shape) {
     case 'single':
-      return '단일 대상';
+      return center === 'woundedAlly' ? '가장 다친 아군' : '단일 대상';
     case 'circle':
       if (area.radius >= 50) return '전체';
       return `${center === 'self' ? '자기 주변' : '원'} 반경 ${num(area.radius)}`;
@@ -49,6 +49,7 @@ const STATUS_SHORT: Record<StatusId, (value: number, duration: number) => string
   regen: (v, d) => `재생 ${num(d)}초`,
   vulnerable: v => `받는 피해 +${pct(v)}`,
   lifesteal: v => `흡혈 ${pct(v)}`,
+  drain: v => `흡혼 표식 ${pct(v)}`,
 };
 
 function effectLabel(e: Effect, hits: number, spots: number): string {
@@ -71,6 +72,11 @@ function effectLabel(e: Effect, hits: number, spots: number): string {
       return '정화';
     case 'swapCooldownReduce':
       return `대기 캐릭터 쿨 -${num(e.seconds)}초`;
+    // 기획 12차 (메딕)
+    case 'benchHeal':
+      return `${e.allPlayers ? '모두의 ' : ''}대기 캐릭터 회복 ${pct(e.amount)}`;
+    case 'reviveReduce':
+      return `${e.allPlayers ? '모두의 ' : ''}부활 대기 -${num(e.seconds)}초`;
   }
 }
 
@@ -117,7 +123,8 @@ export function skillSummary(skill: Pick<SkillDef, 'actions'>): string {
         bits.push(label);
       }
     }
-    const onlyCd = effs.every(e => e.kind === 'swapCooldownReduce');
+    // player-level effects (cooldown cut, bench heal, revive cut) are not "자신"
+    const onlyCd = effs.every(e => e.kind === 'swapCooldownReduce' || e.kind === 'benchHeal' || e.kind === 'reviveReduce');
     const who = a.affects === 'allies' ? '아군 ' : a.affects === 'self' && !onlyCd ? '자신 ' : '';
     // a field repeats its effects: say how often, or "회복 2%" reads as 2% in total
     const every = a.zone ? `${num(a.zone.tickInterval)}초마다 ` : '';

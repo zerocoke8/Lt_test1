@@ -3,6 +3,8 @@
 import type { DamageSource, StatusId, Team, Vec2 } from '../types';
 import { PROJECTILE_MAX_LIFE } from './constants';
 import { unitCtx } from './ctx';
+import { WEAK_MULT } from '../data';
+import { fieldEventDeath } from './fieldEvents';
 import { damageTakenMult, hasRelic, relicParam } from './modifiers';
 import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
@@ -37,6 +39,9 @@ export interface DmgSrc {
 /** Damage sources whose hits carry the skill name on the damage event (render shows it under the number). */
 const SKILL_NAMED: ReadonlySet<DamageSource> = new Set<DamageSource>(['normal', 'drag', 'ult', 'pet']);
 
+/** 기획 12차: 흡혼 표식 heals at this fraction on boss / mid-boss targets. */
+export const DRAIN_BOSS_MULT = 0.5;
+
 export interface OnHit {
   chance: number;
   status: StatusId;
@@ -54,11 +59,15 @@ export function hitDamage(w: World, ctx: CastCtx, target: SimEntity, amount: num
 
 /** Apply raw (pre-mitigation) damage. Returns the mitigated hit (incl. shield-absorbed, incl. overkill). */
 export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: number, crit: boolean): number {
+  if (target.eventTag === 'ward') return 0; // 기획 12차: the patient / sleepwalker never take damage
   if (!isAlive(target) || !(raw > 0)) return 0;
   if (target.team === src.team) return 0;
   if (target.invulnTime > 0) return 0;
   if (w.tunables.invincible && target.kind === 'character') return 0;
   let dmg = raw * (1 + statusValue(target, 'vulnerable'));
+  // 기획 12차: drag skills and pets hit a 돌발 괴담 target ×2 ('약점')
+  const weak = target.eventTag === 'target' && (src.isDrag || src.source === 'pet');
+  if (weak) dmg *= WEAK_MULT;
   const sp = src.player != null ? w.state.players[src.player] : undefined;
   if (sp) {
     if (sp.isBot) dmg *= Math.max(0, w.tunables.botDamageMult);
@@ -85,6 +94,7 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     absorbed,
     source: src.source,
     ...(src.name && SKILL_NAMED.has(src.source) ? { skillName: src.name } : null),
+    ...(weak ? { weak: true as const } : null),
   });
   const dealt = absorbed + Math.min(dmg - absorbed, hpBefore);
   if (sp) {
@@ -100,6 +110,7 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     if (ls > 0) heal(w, src.player, caster, dealt * ls);
     if (src.isDrag && sp && hasRelic(sp, 'blood_chalice')) heal(w, src.player, caster, dealt * relicParam('blood_chalice', 'pct'));
   }
+  if (target.team === 'enemy') drainHeal(w, src, caster, target, dealt);
 
   if (target.hp <= 0) {
     if (target.tier === 'boss') {
@@ -114,12 +125,34 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
   return dmg;
 }
 
-export function heal(w: World, player: number | null, target: SimEntity, amount: number): number {
+/**
+ * 기획 12차 흡혼 표식 (퇴마사): a hit on a marked enemy heals the attacker by dealt × mark value (boss / mid boss: half).
+ * The attacker is the hitting ally character; pets, turrets, zones and DoTs heal that player's field character instead.
+ * Credited to the player who placed the mark.
+ */
+function drainHeal(w: World, src: DmgSrc, caster: SimEntity | null, target: SimEntity, dealt: number): void {
+  const mark = target.statuses.find(s => s.id === 'drain');
+  if (!mark || !(mark.value > 0) || !(dealt > 0)) return;
+  const healer = caster && caster.kind === 'character' && caster.team === 'ally' ? caster : fieldCharacterOf(w, src.player);
+  if (!healer) return;
+  const bossHalf = target.tier === 'boss' || target.tier === 'mid' ? DRAIN_BOSS_MULT : 1;
+  heal(w, mark.sourcePlayer, healer, dealt * mark.value * bossHalf, target.id);
+}
+
+function fieldCharacterOf(w: World, player: number | null): SimEntity | null {
+  if (player == null) return null;
+  const p = w.state.players[player];
+  if (!p || p.activeIndex == null) return null;
+  return getEntity(w, p.party[p.activeIndex].entityId);
+}
+
+/** fromId (기획 12차): the 흡혼-marked enemy a drain heal came from (cosmetic, on the event only). */
+export function heal(w: World, player: number | null, target: SimEntity, amount: number, fromId?: number): number {
   if (!isAlive(target) || !(amount > 0)) return 0;
   const actual = Math.min(target.maxHp - target.hp, amount);
   if (!(actual > 0)) return 0;
   target.hp += actual;
-  emit(w, { type: 'heal', targetId: target.id, amount: actual, pos: copy(target.pos) });
+  emit(w, { type: 'heal', targetId: target.id, amount: actual, pos: copy(target.pos), ...(fromId != null ? { from: fromId } : null) });
   if (player != null) w.state.players[player].stats.healing += actual;
   return actual;
 }
@@ -152,13 +185,15 @@ export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null, opts?:
   }
   if (!opts?.noOnDeath) onMonsterDeath(w, e);
   if (e.team === 'enemy') {
-    if (e.tier !== 'mid' && e.tier !== 'boss') w.spawner.kills++;
+    // 기획 12차: 돌발 괴담 units never count toward the mid boss
+    if (e.tier !== 'mid' && e.tier !== 'boss' && !e.eventTag) w.spawner.kills++;
     const kp = killer?.player != null ? w.state.players[killer.player] : undefined;
     if (kp) {
       kp.stats.kills++;
       if (hasRelic(kp, 'hunter_mark')) reduceBenchSwapCd(kp, relicParam('hunter_mark', 'seconds'));
     }
   }
+  if (w.state.fieldEvent) fieldEventDeath(w, e, killer);
 }
 
 function characterDied(w: World, e: SimEntity): void {

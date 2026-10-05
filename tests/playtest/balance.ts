@@ -7,6 +7,8 @@
 // Reports per floor: clear time, timeouts, my character deaths, player outs, boss enrage/retreat timing.
 // 기획 10차: GOEDAM=off|leave|random|first|greedy|forced:<room>:<opt> (env, default leave) — the human's 괴담 room policy
 // (tests/playtest/goedam-policy.ts); `<policy>_goedam` = room report. START > 1 forces off.
+// 기획 12차: FIELD_EVENTS=off|on (env, default off = the old numbers) — 돌발 괴담 at tunables.fieldEventChance (0.6).
+// The event report (per event success, seconds, cost) is in tests/review/critic-20f.ts (same seeds, same 'active').
 
 import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE } from '../../src/config';
 import { BOSSES, MONSTERS, getPet } from '../../src/data';
@@ -179,7 +181,8 @@ function runOnce(seed: number, policy: Policy, floors: number): FloorRec[] {
 }
 
 function runInner(seed: number, policy: Policy, floors: number): { recs: FloorRec[]; w: World } {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...OVERRIDES, ...goedamTunables(GOEDAM) };
+  const fe: Partial<Tunables> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.FIELD_EVENTS === 'on' ? {} : { fieldEventChance: 0 };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...fe, ...OVERRIDES, ...goedamTunables(GOEDAM) };
   const players: PlayerSetup[] = [
     { ...HUMAN, isBot: policy === 'bot' },
     ...BOT_PRESETS.map(b => ({ name: b.name, isBot: true, characters: [...b.characters], pets: [...b.pets] })),

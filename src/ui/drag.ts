@@ -286,7 +286,7 @@ export class DragController {
     const me = g.state.players[this.lp];
     const color = p.kind === 'swap' ? getCharacter(me.party[p.index].defId).color : getPet(me.pets[p.index].defId).color;
     const parts = g.previewParts(this.lp, p.kind, p.index);
-    this.preview = { kind: p.kind, pos: g.clampToArena(world), area: parts[0]?.area ?? g.previewArea(this.lp, p.kind, p.index), parts, valid, color };
+    this.preview = { kind: p.kind, pos: g.clampToArena(world), area: parts[0]?.area ?? g.previewArea(this.lp, p.kind, p.index), parts, valid, color, index: p.index };
 
     // DOM: ghost under the finger, connector up to the drop point
     this.ghost.style.transform = `translate(${p.finger.x.toFixed(1)}px, ${p.finger.y.toFixed(1)}px)`;

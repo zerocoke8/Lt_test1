@@ -41,7 +41,7 @@ export const COLORS = {
   enemyRing: '#7a1020',
 } as const;
 
-export const ROLE_GLYPH: Record<Role, string> = { tank: '방', melee: '근', ranged: '원', support: '지' };
+export const ROLE_GLYPH: Record<Role, string> = { tank: '방', melee: '근', ranged: '원', healer: '힐', support: '지' };
 
 // ─────────────────────────── color helpers (cached, no per-frame churn) ───────────────────────────
 
@@ -109,8 +109,12 @@ const ACCESSORY_BY_ID: Record<string, Accessory> = {
   gunner: 'gun',
   bard: 'lute',
   chrono: 'orb',
+  // 기획 12차 (placeholder props: syringe / talisman bundle / spool later)
+  medic: 'staff',
+  exorcist: 'staff',
+  puppeteer: 'orb',
 };
-const ACCESSORY_BY_ROLE: Record<Role, Accessory> = { tank: 'shield', melee: 'sword', ranged: 'bow', support: 'staff' };
+const ACCESSORY_BY_ROLE: Record<Role, Accessory> = { tank: 'shield', melee: 'sword', ranged: 'bow', healer: 'staff', support: 'staff' };
 
 export interface UnitLook {
   name: string;
@@ -161,6 +165,7 @@ const HEIGHT_BY_SHAPE: Record<BodyShape, number> = {
   patient: 1.35,
   wheelchair: 1.05,
   doll: 1.2,
+  paper_doll: 1.25, // 기획 12차
   eye_stalk: 1.6,
   red_mask: 1.5,
   giant_mannequin: 1.3,
@@ -169,6 +174,12 @@ const HEIGHT_BY_SHAPE: Record<BodyShape, number> = {
   copier: 1.05,
   head_nurse: 1.55,
   signal: 1.5,
+  // 기획 12차: 돌발 괴담 (render/creatures.ts)
+  lucky_toad: 0.95,
+  event_printer: 0.85,
+  event_patient: 0.75,
+  night_shadow: 1.35,
+  sleepwalker_child: 1.3,
 };
 
 /** Boss set-piece colours (the boss renderer draws the body; this tints hit flashes / ghosts / labels). */

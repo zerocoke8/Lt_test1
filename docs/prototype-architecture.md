@@ -268,3 +268,23 @@ HUD (`src/ui/hud.ts`, `src/ui/skillinfo.ts`, `styles.css`):
 - 화면(폰 844×390@3x): `docs/screenshots/goedam.png`(고르기), `goedam-result.png`(결과 카드), `goedam-multi.png`(멀티 대기 패널 (2/3) + 다른 사람 줄 + 마감), `goedam-multi-idle.png`(아직 안 고른 사람: ✓ 칩만). 12개 방 모두와 결과 카드가 스크롤 없이 들어감(smoke). 흔적 칩 6개(4 + '+2')도 위쪽 줄에 들어감, 혼선이 걸리면 궁극기 "N초 후"도 그 속도로 셈.
 - 고친 것: 자판기 미믹 결과 카드에 「전원 HP 10% 잃음」이 두 번 나오던 것 → 두 번째는 「전원 HP 10% 더 잃음」.
 - 남은 화면 메모: 흔적 칩 줄은 오른쪽 위 벽 앞(논리 y 약 97~136)에 있어서, 캐릭터가 오른쪽 위 벽에 붙으면 머리 위 HP 바가 칩 뒤에 가려질 수 있음(위쪽 HUD 상자처럼 발밑으로 내리는 처리는 아직 없음).
+
+## 12차: 돌발 괴담 (전투 중 이벤트, 2026-10-05)
+
+설계 [`combat-events.md`](combat-events.md), 측정 [`balance.md`](balance.md) 12장. 같은 차수의 새 캐릭터·힐러 역할은 [`new-characters.md`](new-characters.md).
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/types.ts` | `FieldEventId`·`FieldEventTag`('target' 두꺼비·프린터 / 'minion' 23:59 그림자 / 'ward' 환자·아이)·`FieldEventDef`·`FieldEventReward`·`FieldEventState`·`FieldEventMark`, `GameState.fieldEvent`, `Entity.eventTag`, 이벤트 `fieldEventWarn`·`fieldEventStart`·`fieldEventProgress`·`fieldEventEnd`, 피해 이벤트 `weak`(약점 ×2), 디버그 `fieldEventNext`, 튜닝 `fieldEventChance`, `ContributionStats.fieldEvents`, `Telemetry.fieldEvents`, `DragPreview.index` |
+| `src/data/fieldEvents.ts` | 이벤트 7종의 숫자 전부(시간·목표·보상·`params`), 공통 상수(약점 ×2, 잡기 범위 max(2.5, 사거리+1), 고정 해제 8칸), 이벤트 개체 5종(`FIELD_EVENT_UNITS`, `MONSTERS`에는 안 넣음 → 웨이브·로스터 테스트에 안 섞임, `getMonster`로만 찾음), 배너·띠·토스트 문구 함수(숫자에서 만듦). 흔적 2개(아침 햇살·작은 손)는 `data/goedam.ts` 흔적 목록에 |
+| `src/sim/fieldEvents.ts` | 일정(순수: `planFieldEventFor`·`fieldEventSchedule`), 예고 → 시작 → 행동(두꺼비 도망·점프, 프린터 출력, 환자 회복, 통로 빨아들임·추락, 23:59 그림자, 비상등 서 있기, 아이 걷기) → 성공·실패 → 파티 보상 → 정리. 이벤트 전용 랜덤 `mixSeed(seed, salt, stream, floor)` (`w.rng`는 첫 예고 전까지 절대 안 씀; 이벤트 개체도 `createUnit(opts.rng)`로 이벤트 랜덤) |
+| `src/sim/fieldEventPreview.ts` | 순수 `dropOutcome(state, player, kind, index, pos)`: 이 드롭이 이벤트에 하는 일(고정할 대상·약점 대상·켜질 등·아이 놀람·통로 당기기·환자 회복). sim 훅·드래그 미리보기·봇 점수가 모두 이것을 씀 → 미리보기 = 실제 결과 (멀티 클라이언트도 스냅샷으로 같은 계산) |
+| `src/sim/botEvents.ts` | 봇 규칙(대상 가중치 4, 드롭 점수 보너스, 펫 규칙, 이벤트당 한 번 교체 · 비상등·아이 동행은 필요할 때마다). `bot.ts`는 네 곳에서 부르기만 함. `EVENT_BLIND`는 벤치 전용(사람 자리가 이벤트를 모르는 척) |
+| `src/sim/units.ts`·`combat.ts`·`players.ts`·`floor.ts`·`game.ts`·`world.ts`·`entities.ts`·`ctx.ts` | 타겟 규칙(`pickTarget`: 아군은 대상 제외, 몬스터는 'ward' 제외, 8칸 넘으면 고정 해제), 'ward'는 피해 0, 드래그·펫 피해 ×2, 처치 훅·처치 수 제외, 드롭 훅(교체: 등장 뒤 드래그스킬 전 / 펫: 시전 뒤), 층 시작에 일정·남은 이벤트 정리, 클리어·런 끝 정리, 틱 순서(`tickSpawner` 바로 뒤 `tickFieldEvents`), `countEnemies`가 이벤트 개체 제외, `woundedAlly` 후보에 환자 |
+| `src/render/fieldEvents.ts`, `render/creatures.ts`·`preview.ts`·`index.ts` | 금색 회전 점선 고리 + 남은 시간 호, 머리 위 '!' 마름모, 마지막 5초 숫자, 두꺼비 웅크림 호, 프린터 출력 원(기절 중 회색), 환자 큰 HP 막대 + 반경 4 점선, 통로(검은 구멍·손·금 테두리), 비상등(회색 전구 + 1.6 점선 / 빛기둥), 아이 길·출구 문·동행 원·Zz/으앙, 23:59 가장자리 어둠, 금색 화면 밖 화살표(빨간 화살표와 겹치지 않게), 성공 동전·실패 연기, '약점'. 생김새 5종(금두꺼비·프린터·환자 침대·그림자·노란 우비 아이). 끄는 사람에게만: 잡기 ✓·켜기·깨요!·통로 테두리 |
+| `src/ui/fieldEventHud.ts`, `hud.ts`·`debug.ts`·`tunables.ts`·`result.ts`·`styles.css` | 층 상자 아래 한 줄 띠(아이콘 · 남은 초 · 진행 · 보상 한 단어), 시작 배너(보스 페이즈 자리), 성공·실패 토스트(해낸 사람 이름), 보상 받은 곳 금빛 깜빡임, 디버그 「돌발 괴담 확률」 슬라이더 + 「다음 돌발 괴담」, 결과 화면 「돌발 괴담 n/m 성공 · 사람별」 |
+| `server/validate.ts` | `fieldEventNext` (아는 id만) |
+
+- 스냅샷: `wireJson`은 `rt`/`src`만 뺌 → `state.fieldEvent`와 `eventTag`가 그대로 감 (`tests/review/wire-determinism.test.ts` KEYS). 행동 상태(`rt.eventAi`)는 서버에만.
+- 테스트: `tests/sim/field-events.test.ts`(일정·켬/끔 같은 세계·7종 성공/실패·보상·타겟 규칙·안전장치·정리·봇만 12시드 무정지), `tests/ui/field-event-hud.test.ts`, 렌더러·퍼즈·검증·와이어 테스트에 추가, e2e `smoke.spec.ts` 「돌발 괴담」(실제 드래그로 두꺼비 고정 → 성공 토스트·궁극기 깜빡임, 비상등 금색 화살표). 화면: `docs/screenshots/combat-event.png`, `combat-event-success.png`, `combat-event-lamps.png`.
+- 벤치: `tests/review/critic-20f.ts`에 `FIELD_EVENTS=off|on|forced:<id>`와 `FE_SEAT=play|ignore`, 출력 `fieldEvents`(이벤트별 수·성공률·걸린 시간, 이벤트 층 클리어 시간, 시간 초과, 다음 층 사망, 20층).

@@ -1,5 +1,5 @@
-// 프리셋 화면: 캐릭터 12명 중 3명(고른 순서 = 슬롯 1/2/3) + 펫 8마리 중 3마리. 마지막 편성 기억.
-// 캐릭터는 역할별 4열 × 3행 카드. 카드와 상세 패널에 드래그스킬 형태 미니 도형(모양·방향)을 그림 (3차 1·2).
+// 프리셋 화면: 캐릭터 15명 중 3명(고른 순서 = 슬롯 1/2/3) + 펫 8마리 중 3마리. 마지막 편성 기억.
+// 캐릭터는 역할별 5열 × 3행 카드 (기획 12차: 탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터). 카드와 상세 패널에 드래그스킬 형태 미니 도형(모양·방향)을 그림 (3차 1·2).
 
 import type { CharacterDef, PetDef, Role, SkillDef } from '../types';
 import { CHARACTERS, PETS, ROLE_LABEL, getCharacter, getPet } from '../data';
@@ -45,7 +45,7 @@ export function petIcon(def: PetDef, cls: string, parent?: HTMLElement | null): 
   return p;
 }
 
-const ROLES: Role[] = ['tank', 'melee', 'ranged', 'support'];
+const ROLES: Role[] = ['tank', 'melee', 'ranged', 'healer', 'support'];
 
 /** Mini diagram of a character's drag-skill footprint (shape + fixed direction + drop point). */
 export function dragShapeIcon(def: CharacterDef, cls: string, w: number, h: number, parent: HTMLElement, detail = false): HTMLCanvasElement {
@@ -134,7 +134,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     const info = h('div', 'ps-card-info', c);
     h('div', 'ps-card-name', info, def.name);
     const row = h('div', 'ps-card-drag', info);
-    dragShapeIcon(def, 'ps-shape', 58, 30, row);
+    dragShapeIcon(def, 'ps-shape', 50, 26, row);
     h('span', 'ps-card-meta', row, `${def.swapCooldown}초`);
     h('div', 'ps-badge', c);
     charCards.set(def.id, c);

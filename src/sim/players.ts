@@ -2,11 +2,13 @@
 
 import type { CommandResult, GameState, PlayerState, Tunables, Vec2 } from '../types';
 import { getCharacter, getPet } from '../data';
+import { tickBenchRegen } from './bench';
 import { APPEAR_SHIELD_DURATION } from './constants';
 import { addShield, hitDamage } from './combat';
 import { petCooldownFor, swapCooldownFor } from './cooldowns';
 import { charCtx, petCtx } from './ctx';
 import { benchActive, createCharacterEntity } from './entities';
+import { fieldEventOnDrop } from './fieldEvents';
 import { appearShieldFrac, hasRelic, relicParam, ultChargeRate } from './modifiers';
 import { partsForActions } from './preview';
 import { addTelegraph, castSkill } from './skills';
@@ -123,6 +125,7 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
   p.appearLock = t.appearLockTime;
   p.stats.swaps++;
   emit(w, { type: 'appear', player: p.id, partyIndex: idx, entityId: e.id, pos: copy(at) });
+  fieldEventOnDrop(w, p, 'swap', idx, at, e); // 기획 12차: lock onto a 돌발 괴담 target, light lamps, startle the child
 
   // 3) drag skill at the drop point
   const ctx = charCtx(w, e, 'drag', def.drag);
@@ -229,6 +232,7 @@ export function usePet(w: World, pi: number, petIndex: number, pos: Vec2): Comma
   const def = getPet(slot.defId);
   const at = clampToArena(w, pos);
   castSkill(w, petCtx(w, p, def, at), [def.action]);
+  fieldEventOnDrop(w, p, 'pet', petIndex, at, null); // 기획 12차 (after the cast: new summons lock on too)
   slot.cooldownTotal = petCooldownFor(w, p, petIndex);
   slot.cooldownRemaining = slot.cooldownTotal;
   p.stats.petsUsed++;
@@ -277,6 +281,8 @@ export function tickPlayers(w: World, dt: number): void {
         }
       }
     });
+    // 기획 12차: 메딕 대기실 간호 — the one bench regen (src/sim/bench.ts)
+    tickBenchRegen(w, p, dt);
   }
 }
 

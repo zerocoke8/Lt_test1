@@ -1,11 +1,26 @@
-import type { CharacterDef } from '../types';
+import type { CharacterDef, SkillAction } from '../types';
 
-// 캐릭터 12종 (기획 3차 1: 역할별 3명 — 탱커 / 근접딜러 / 원거리딜러 / 서포터). 스킬 내용은 임시 (2차 Q5).
+// 캐릭터 15종 (기획 12차: 역할 5개 × 3명 — 탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터). 스킬 내용은 임시 (2차 Q5).
+// 기획 12차: 힐러 역할 신설 — 클레릭(서포터에서 이동, 수치 그대로) + 메딕 + 퇴마사. 서포터에 퍼펫티어 추가 (docs/new-characters.md).
 // 드래그스킬은 놓은 지점(point)이 기준점. 방향이 있는 형태는 데이터에 방향이 고정됨 (3차 2: 오른쪽 돌진은 항상 오른쪽).
 // swapCooldown(8~12초) = 드래그스킬 쿨, 강할수록 김. 목록 순서 = 프리셋 화면 순서 (역할별로 묶음).
-// 드래그스킬 수치는 밸런스 패스(2026-10-04, docs/balance.md): 쿨 1초당 가치(피해 + 군중제어 + 지원)를 12종이 같게,
+// 드래그스킬 수치는 밸런스 패스(2026-10-04, docs/balance.md): 쿨 1초당 가치(피해 + 군중제어 + 지원)를 전원이 같게,
 // 피해 말고 기능이 없거나 범위가 좁을수록 피해 %가 높음. 측정은 tests/playtest/drag-bench.ts. 설명의 숫자는 데이터와 같아야 함
 // (tests/sim/roster-descriptions.test.ts).
+
+/**
+ * 기획 12차 (퍼펫티어 대역 인형): one doll thrown `x` units sideways of the drop point — lands for 100% damage and leaves a
+ * 종이 인형 decoy (HP = 50% of the caster's max HP, atk = the caster's, 6 s) that explodes on death or expiry.
+ */
+const dollToss = (x: number, delay?: number): SkillAction => ({
+  center: 'point',
+  offset: { x, y: 0 },
+  ...(delay ? { delay } : null),
+  area: { shape: 'circle', radius: 1.5 },
+  affects: 'enemies',
+  effects: [{ kind: 'damage', amount: 1 }],
+  summon: { unitId: 'paper_doll', count: 1, duration: 6, inherit: { hp: 0.5, atk: 1 } },
+});
 
 export const CHARACTERS: CharacterDef[] = [
   // ─────────────────────────── 탱커 ───────────────────────────
@@ -430,11 +445,11 @@ export const CHARACTERS: CharacterDef[] = [
     },
   },
 
-  // ─────────────────────────── 서포터 ───────────────────────────
+  // ─────────────────────────── 힐러 (기획 12차) ───────────────────────────
   {
     id: 'cleric',
     name: '클레릭',
-    role: 'support',
+    role: 'healer',
     color: '#ffd166',
     stats: { maxHp: 520, atk: 16, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 9,
@@ -474,6 +489,97 @@ export const CHARACTERS: CharacterDef[] = [
       actions: [{ center: 'self', area: { shape: 'circle', radius: 99 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.4 }, { kind: 'cleanse' }, { kind: 'status', status: 'regen', duration: 5, value: 0.03 }] }],
     },
   },
+  {
+    // 기획 12차: 교대 치료사 — "누구를" 고친다 (가장 다친 아군 + 대기 카드). 기획서 8장 "대기 중 HP 회복 없음"의 유일한 예외.
+    id: 'medic',
+    name: '메딕',
+    role: 'healer',
+    color: '#2ec4b6',
+    stats: { maxHp: 560, atk: 16, def: 0.12, atkSpeed: 1.1, range: 4.5, moveSpeed: 3.7, critChance: 0.05, critMult: 1.5 },
+    swapCooldown: 9,
+    basic: { kind: 'projectile', speed: 16 },
+    passive: {
+      id: 'medic_p',
+      name: '대기실 간호',
+      description: '필드에 있는 동안 내 대기 캐릭터 HP 초당 0.5% 회복.',
+      benchRegen: 0.005,
+    },
+    normal: {
+      id: 'medic_n',
+      name: '응급 주사',
+      slot: 'normal',
+      description: '반경 6 안에서 HP 비율이 가장 낮은 아군 HP 8% 회복 + 4초간 초당 HP 1% 재생.',
+      cooldown: 8,
+      castRange: 6,
+      castTime: 0.25,
+      actions: [{ center: 'woundedAlly', area: { shape: 'single' }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.08 }, { kind: 'status', status: 'regen', duration: 4, value: 0.01 }] }],
+    },
+    drag: {
+      id: 'medic_d',
+      name: '응급 처치',
+      slot: 'drag',
+      description: '착지 지점에 십자(+) 구급 표시(상하좌우 3.5칸, 폭 1.6): 아군 HP 9% 회복. 내 대기 캐릭터 HP 18% 회복 (방금 나간 캐릭터도).',
+      actions: [
+        { center: 'point', area: { shape: 'cross', length: 3.5, width: 1.6 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.09 }] },
+        // the card that just left is already benched when the drag skill lands (doSwap), so it gets this heal too
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'benchHeal', amount: 0.18 }] },
+      ],
+    },
+    ult: {
+      id: 'medic_u',
+      name: '총력 응급',
+      slot: 'ult',
+      description: '모든 아군 HP 15% 회복. 모든 플레이어의 대기 캐릭터 HP 20% 회복 + 쓰러진 캐릭터 부활 대기 10초 감소.',
+      castTime: 0.4,
+      actions: [
+        { center: 'self', area: { shape: 'circle', radius: 99 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.15 }] },
+        { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'benchHeal', amount: 0.2, allPlayers: true }, { kind: 'reviveReduce', seconds: 10, allPlayers: true }] },
+      ],
+    },
+  },
+  {
+    // 기획 12차: 흡혼 퇴마사 — "때리면" 고쳐진다. 적에게 흡혼 표식을 붙이고, 표식 붙은 적을 때린 아군이 피해의 일부를 회복.
+    id: 'exorcist',
+    name: '퇴마사',
+    role: 'healer',
+    color: '#a4161a',
+    stats: { maxHp: 500, atk: 22, def: 0.08, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.1, critMult: 1.6 },
+    swapCooldown: 10,
+    basic: { kind: 'projectile', speed: 14 },
+    passive: {
+      id: 'exorcist_p',
+      name: '흡혼의 먹',
+      description: '기본 공격 적중 시 30% 확률로 3초간 흡혼 표식(이 적에게 준 피해의 25%만큼 때린 아군 HP 회복).',
+      onHitStatus: { chance: 0.3, status: 'drain', duration: 3, value: 0.25 },
+    },
+    normal: {
+      id: 'exorcist_n',
+      name: '축귀 부적',
+      slot: 'normal',
+      description: '대상 주변 반경 1.5에 공격력 160% 피해 + 4초간 흡혼 표식(피해의 30%).',
+      cooldown: 7,
+      castRange: 6,
+      castTime: 0.3,
+      actions: [{ center: 'target', area: { shape: 'circle', radius: 1.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.6 }, { kind: 'status', status: 'drain', duration: 4, value: 0.3 }] }],
+    },
+    drag: {
+      id: 'exorcist_d',
+      name: '봉인진',
+      slot: 'drag',
+      description: '착지 지점 둘레 고리(안쪽 0.8 ~ 바깥 3.5)에 부적 결계: 적에게 공격력 200% 피해 + 6초간 흡혼 표식(이 적에게 준 피해의 60%만큼 때린 아군 HP 회복, 보스·중형보스는 절반).',
+      actions: [{ center: 'point', area: { shape: 'ring', inner: 0.8, outer: 3.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'drain', duration: 6, value: 0.6 }] }],
+    },
+    ult: {
+      id: 'exorcist_u',
+      name: '백귀 봉인',
+      slot: 'ult',
+      description: '주변 반경 7의 적에게 공격력 200% 피해 + 8초간 흡혼 표식(피해의 50%) + 3초간 30% 둔화.',
+      castTime: 0.4,
+      actions: [{ center: 'self', area: { shape: 'circle', radius: 7 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'drain', duration: 8, value: 0.5 }, { kind: 'status', status: 'slow', duration: 3, value: 0.3 }] }],
+    },
+  },
+
+  // ─────────────────────────── 서포터 ───────────────────────────
   {
     id: 'bard',
     name: '바드',
@@ -562,6 +668,62 @@ export const CHARACTERS: CharacterDef[] = [
       actions: [
         { center: 'self', area: { shape: 'circle', radius: 8 }, affects: 'enemies', effects: [{ kind: 'status', status: 'stun', duration: 2, value: 0 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.2 }] },
         { center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 4 }] },
+      ],
+    },
+  },
+  {
+    // 기획 12차: 미끼와 약화 — 종이 인형이 가까운 적의 공격을 대신 받고 (도발 아님: "가장 가까운 대상" 규칙), 터지면 공격력 −.
+    id: 'puppeteer',
+    name: '퍼펫티어',
+    role: 'support',
+    color: '#ff99c8',
+    stats: { maxHp: 540, atk: 17, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
+    swapCooldown: 11,
+    basic: { kind: 'projectile', speed: 13 },
+    passive: {
+      id: 'puppeteer_p',
+      name: '얽힌 실',
+      description: '기본 공격 적중 시 25% 확률로 3초간 공격력 −15%.',
+      onHitStatus: { chance: 0.25, status: 'atkDown', duration: 3, value: 0.15 },
+    },
+    normal: {
+      id: 'puppeteer_n',
+      name: '실 감기',
+      slot: 'normal',
+      description: '대상에게 공격력 150% 피해 + 4초간 공격력 −20%.',
+      cooldown: 7,
+      castRange: 6,
+      castTime: 0.3,
+      actions: [{ center: 'target', area: { shape: 'single' }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.5 }, { kind: 'status', status: 'atkDown', duration: 4, value: 0.2 }] }],
+    },
+    drag: {
+      id: 'puppeteer_d',
+      name: '대역 인형',
+      slot: 'drag',
+      description: '착지 지점 좌우 2.5칸에 종이 인형 둘을 던짐(반경 1.5): 적에게 공격력 100% 피해. 인형(HP = 내 최대 HP 50%, 6초)은 가까운 적의 공격을 대신 받고, 부서지거나 시간이 다 되면 터져 반경 2 적에게 공격력 120% 피해 + 4초간 공격력 −25%.',
+      actions: [dollToss(-2.5), dollToss(2.5, 0.15)],
+    },
+    ult: {
+      id: 'puppeteer_u',
+      name: '인형극 개막',
+      slot: 'ult',
+      description: '주변 반경 6 적 6초간 공격력 −30%. 자기 주변 네 곳(좌우 3칸, 위아래 2칸)에 인형(HP = 내 최대 HP 60%, 8초)을 세움.',
+      castTime: 0.4,
+      actions: [
+        { center: 'self', area: { shape: 'circle', radius: 6 }, affects: 'enemies', effects: [{ kind: 'status', status: 'atkDown', duration: 6, value: 0.3 }] },
+        ...[
+          [-3, -2],
+          [3, -2],
+          [-3, 2],
+          [3, 2],
+        ].map(([x, y]) => ({
+          center: 'self' as const,
+          offset: { x, y },
+          area: { shape: 'circle' as const, radius: 0.8 },
+          affects: 'allies' as const,
+          effects: [],
+          summon: { unitId: 'paper_doll', count: 1, duration: 8, inherit: { hp: 0.6, atk: 1 } },
+        })),
       ],
     },
   },

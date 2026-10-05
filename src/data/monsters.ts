@@ -253,6 +253,17 @@ export const MONSTERS: MonsterDef[] = [
     // atk 0 → sim uses owner's pet power (same as pet damage source) × 0.5 per shot.
     basic: { kind: 'projectile', speed: 16 },
   },
+  {
+    // 기획 12차 (퍼펫티어): decoy. inert = never moves/targets/attacks; monsters hit it under the usual "nearest" rule.
+    // hp/atk are replaced by the caster's (SkillAction.summon.inherit). atk ≠ 0 so it never takes the petPowered path.
+    // Explodes on death AND on expiry (units.ts). Never in a wave pool.
+    id: 'paper_doll', name: '종이 인형', tier: 'summon', color: '#ff99c8', radius: 0.45, stationary: true, inert: true, look: 'paper_doll',
+    stats: { maxHp: 100, atk: 10, def: 0.2, atkSpeed: 0.01, range: 0, moveSpeed: 0, critChance: 0, critMult: 1.5 },
+    basic: { kind: 'melee' },
+    onDeath: {
+      action: { center: 'self', area: { shape: 'circle', radius: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'atkDown', duration: 4, value: 0.25 }] },
+    },
+  },
 ];
 
 // ─────────────────────────── 보스 (5·10·15·20층) ───────────────────────────

@@ -27,6 +27,8 @@ export const DEFAULT_TUNABLES: Tunables = {
   instantCooldowns: false,
   // 기획 10차: one 괴담 room per zone (4 per run); 0 turns them off
   goedamRoomsPerZone: 1,
+  // 기획 12차: 돌발 괴담 on 60% of normal floors 3–19 (floor 2 = the toad); 0 turns them off entirely
+  fieldEventChance: 0.6,
 };
 
 export const TICK_RATE = 30;

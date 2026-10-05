@@ -5,8 +5,10 @@ import type { BasicAttack, BossDef } from '../types';
 import { ATTACK_ANIM, MONSTER_SKILL_GAP, PULSE_INTERVAL } from './constants';
 import { applyDamage, basicHit, explode, fireProjectile, heal } from './combat';
 import { normalCooldownFor } from './cooldowns';
-import { charCtx, unitCtx } from './ctx';
+import { LOCK_RELEASE } from '../data';
+import { charCtx, findWoundedAlly, unitCtx, usesWoundedAlly } from './ctx';
 import { clampUnit } from './entities';
+import { onMonsterDeath } from './ondeath';
 import { castSkill, startAction } from './skills';
 import { effStats } from './stats';
 import { hasStatus, tickStatusTimers } from './status';
@@ -55,6 +57,8 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
     if (e.expiresIn <= 0) {
       rt.gone = true;
       emit(w, { type: 'death', entityId: e.id, pos: copy(e.pos), kind: e.kind, tier: e.tier });
+      // 기획 12차: an ally summon with onDeath (종이 인형) also bursts when its time runs out
+      if (e.kind === 'summon' && e.team === 'ally' && rt.monDef?.onDeath) onMonsterDeath(w, e);
       return;
     }
   }
@@ -104,6 +108,12 @@ function act(w: World, e: SimEntity, dt: number): void {
     return;
   }
   if (e.anim === 'stunned') e.anim = 'idle';
+  if (e.rt.eventAi) return; // 기획 12차: 돌발 괴담 units are moved by src/sim/fieldEvents.ts
+  if (e.rt.monDef?.inert) {
+    // 기획 12차 (종이 인형): never moves, targets or attacks — it only stands there to be hit
+    e.anim = 'idle';
+    return;
+  }
   if (e.rt.lockTime > 0) return; // casting / appearing: stand still
   if ((e.anim === 'appear' || e.anim === 'cast') && e.animTime <= 0) e.anim = 'idle';
 
@@ -154,13 +164,25 @@ export function nearestEnemy(w: World, e: SimEntity, filter?: (o: SimEntity) => 
 }
 
 /** R6/R7/R8: nearest enemy, locked until it dies or leaves the field. */
+/**
+ * 기획 12차 돌발 괴담 targeting (docs/combat-events.md 2-1): allies never auto-pick an event 'target' while any other
+ * enemy is up (rule 1, 4); monsters never pick a 'ward' (rule 7).
+ */
+export function pickTarget(w: World, e: SimEntity, extra?: (o: SimEntity) => boolean): SimEntity | null {
+  const ok = (o: SimEntity) => !extra || extra(o);
+  if (e.team === 'ally') return nearestEnemy(w, e, o => o.eventTag !== 'target' && ok(o)) ?? nearestEnemy(w, e, ok);
+  return nearestEnemy(w, e, o => o.eventTag !== 'ward' && ok(o));
+}
+
 export function updateTarget(w: World, e: SimEntity): SimEntity | null {
   let t = getEntity(w, e.targetId);
   if (t && t.team === e.team) t = null;
+  // 기획 12차 (rule 3): a held event target farther than LOCK_RELEASE is let go
+  if (t && t.eventTag === 'target' && dist(e.pos, t.pos) > LOCK_RELEASE) t = null;
   if (t) {
     const release = w.tunables.bossLockReleaseSec;
     if (e.kind === 'character' && t.tier === 'boss' && release > 0 && e.targetHeldFor >= release) {
-      const alt = nearestEnemy(w, e, o => o.tier !== 'boss');
+      const alt = pickTarget(w, e, o => o.tier !== 'boss');
       e.targetHeldFor = 0;
       if (alt) {
         t = alt;
@@ -169,7 +191,7 @@ export function updateTarget(w: World, e: SimEntity): SimEntity | null {
     }
     // Stationary summons (turret) can't walk to a far target: re-pick when out of reach.
     if (e.rt.stationary && e.tier !== 'boss' && edgeDist(e, t) > e.rt.base.range) {
-      const n = nearestEnemy(w, e);
+      const n = pickTarget(w, e);
       if (n && n !== t) {
         t = n;
         e.targetId = n.id;
@@ -178,7 +200,7 @@ export function updateTarget(w: World, e: SimEntity): SimEntity | null {
     }
     return t;
   }
-  t = nearestEnemy(w, e);
+  t = pickTarget(w, e);
   e.targetId = t ? t.id : null;
   e.targetHeldFor = 0;
   return t;
@@ -193,7 +215,9 @@ function tryNormalSkill(w: World, e: SimEntity, t: SimEntity | null): void {
   const sk = def.normal;
   const castRange = sk.castRange ?? 0;
   let ok: boolean;
-  if (castRange >= 99) ok = !!t || w.state.entities.some(o => o.team !== e.team && isAlive(o));
+  // 기획 12차 (메딕 응급 주사): a woundedAlly skill casts only when an ally below 90 % is in range, else keeps its cooldown
+  if (usesWoundedAlly(sk)) ok = !!findWoundedAlly(w, e, castRange);
+  else if (castRange >= 99) ok = !!t || w.state.entities.some(o => o.team !== e.team && isAlive(o));
   else ok = !!t && edgeDist(e, t) <= castRange;
   if (!ok) return;
   m.normalCooldownRemaining = normalCooldownFor(w.tunables, p, e.partyIndex);

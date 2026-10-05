@@ -71,6 +71,15 @@ export interface DragComponents {
   buffAllySec: number;
   /** Seconds of bench swap cooldown removed. */
   cdSec: number;
+  // 기획 12차 (docs/new-characters.md 9장)
+  /** Bench HP healed by the drag skill (메딕 응급 처치: the card that just left + the rest of my bench), no overheal. */
+  benchHealHp: number;
+  /** HP healed through 흡혼 표식 marks this drag skill placed (퇴마사 봉인진; any player's hitter). */
+  drainHealHp: number;
+  /** HP the drag skill's summons (종이 인형) lost = hits they took instead of the party. */
+  decoyHp: number;
+  /** Party HP kept by an attack-down from the drag skill (enemy in range of its target, like slow). */
+  atkDownHp: number;
 }
 
 export const zeroComponents = (): DragComponents => ({
@@ -89,13 +98,19 @@ export const zeroComponents = (): DragComponents => ({
   buffDmg: 0,
   buffAllySec: 0,
   cdSec: 0,
+  benchHealHp: 0,
+  drainHealHp: 0,
+  decoyHp: 0,
+  atkDownHp: 0,
 });
 
 /** Damage-equivalent split into the four groups the doc shows. cdValuePerSec = roster mean value per cooldown-second. */
 export function valueOf(c: DragComponents, cdValuePerSec: number, wt = VALUE_WEIGHTS) {
   const damage = c.dmg;
-  const cc = wt.hp * (wt.stun * c.stunHp + wt.slow * c.slowHp + wt.displace * c.dispHp);
-  const support = wt.hp * (c.heal + c.shield + c.defHp) + wt.buff * c.buffDmg;
+  // 기획 12차: attack-down is priced like slow (HP kept while the enemy is hitting); bench / drain heals and the HP a
+  // decoy soaked are HP kept like any heal
+  const cc = wt.hp * (wt.stun * c.stunHp + wt.slow * (c.slowHp + c.atkDownHp) + wt.displace * c.dispHp);
+  const support = wt.hp * (c.heal + c.shield + c.defHp + c.benchHealHp + c.drainHealHp + c.decoyHp) + wt.buff * c.buffDmg;
   const special = wt.cdSec * c.cdSec * cdValuePerSec;
   return { damage, cc, support, special, total: damage + cc + support + special };
 }

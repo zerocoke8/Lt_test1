@@ -106,6 +106,12 @@ export function createResultScreen(
     };
     kvRow('분당 교체', `${t.swapsPerMinute.toFixed(1)}회`);
     kvRow('궁극기 대기 평균', me && me.stats.ultDelayCount > 0 ? `${t.avgUltDelay.toFixed(1)}초` : '사용 안 함');
+    // 기획 12차: 돌발 괴담 n/m 성공 + who resolved them
+    const fe = (t.fieldEvents ?? []).filter(x => x.seconds > 0 || x.success);
+    if (fe.length) {
+      const credits = s.players.filter(p => (p.stats.fieldEvents ?? 0) > 0).map(p => `${p.id === LOCAL ? '나' : p.name} ${p.stats.fieldEvents}`);
+      kvRow('돌발 괴담', `${fe.filter(x => x.success).length}/${fe.length} 성공${credits.length ? ` · ${credits.join(' · ')}` : ''}`);
+    }
     const log = me?.goedamLog ?? [];
     if (log.length) {
       h('div', 'rs-sub', right, '괴담 수첩');

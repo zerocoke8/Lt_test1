@@ -61,6 +61,11 @@ describe('parseClientMsg', () => {
     expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext', room: 'copier' } })).toEqual({ type: 'debug', action: { kind: 'goedamNext', room: 'copier' } });
     expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext', room: '<script>' } })).toBeNull();
     expect(parseCommand({ type: 'debug', action: { kind: 'goedamNext', room: null } })).toBeNull();
+    // 기획 12차: 돌발 괴담 force — a known id or none
+    expect(parseCommand({ type: 'debug', action: { kind: 'fieldEventNext' } })).toEqual({ type: 'debug', action: { kind: 'fieldEventNext' } });
+    expect(parseCommand({ type: 'debug', action: { kind: 'fieldEventNext', id: 'lucky_toad', x: 1 } })).toEqual({ type: 'debug', action: { kind: 'fieldEventNext', id: 'lucky_toad' } });
+    expect(parseCommand({ type: 'debug', action: { kind: 'fieldEventNext', id: 'toad' } })).toBeNull();
+    expect(parseCommand({ type: 'debug', action: { kind: 'fieldEventNext', id: 7 } })).toBeNull();
     expect(parsePreset({ characters: ['blade', 'mage', 'nobody'], pets: PRESET_A.pets })).toBeNull();
     // the same character twice across players is allowed; within a preset the client prevents it
     expect(parsePreset(PRESET_A)).toEqual(PRESET_A);

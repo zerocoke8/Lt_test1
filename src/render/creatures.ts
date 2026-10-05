@@ -18,6 +18,7 @@ export type CreatureShape =
   | 'patient'
   | 'wheelchair'
   | 'doll'
+  | 'paper_doll'
   | 'eye_stalk'
   | 'red_mask'
   | 'giant_mannequin'
@@ -25,7 +26,13 @@ export type CreatureShape =
   | 'elevator_girl'
   | 'copier'
   | 'head_nurse'
-  | 'signal';
+  | 'signal'
+  // 기획 12차: 돌발 괴담 units
+  | 'lucky_toad'
+  | 'event_printer'
+  | 'event_patient'
+  | 'night_shadow'
+  | 'sleepwalker_child';
 
 export type CreatureRole = 'melee' | 'ranged' | 'support' | 'exploder' | 'tank';
 
@@ -65,6 +72,8 @@ export const CREATURE_ART: Record<string, CreatureArt> = {
   iv_zombie: { name: '링거 환자', color: '#9fc9a8', shape: 'patient', heightMul: 1.35, ranged: false, role: 'support' },
   wheelchair_rush: { name: '질주 휠체어', color: '#8f98a3', shape: 'wheelchair', heightMul: 1.05, ranged: false, role: 'melee' },
   nurse_doll: { name: '간호 인형', color: '#f4b6c8', shape: 'doll', heightMul: 1.2, ranged: false, role: 'melee' },
+  // 기획 12차: 퍼펫티어's decoy (ally summon) — hanji body + ally outline so it never reads as the pink 간호 인형
+  paper_doll: { name: '종이 인형', color: '#f3e9d2', shape: 'paper_doll', heightMul: 1.25, ranged: false, role: 'tank' },
   eye_stalk: { name: '눈알 줄기', color: '#7a4ca8', shape: 'eye_stalk', heightMul: 1.6, ranged: true, role: 'ranged' },
   // 기획 8차 리뷰: was a dark coat as small as 그림자 아이 → a saturated red coat and a taller silhouette
   red_mask: { name: '붉은 마스크', color: '#c1121f', shape: 'red_mask', heightMul: 1.85, ranged: false, role: 'melee' },
@@ -73,6 +82,12 @@ export const CREATURE_ART: Record<string, CreatureArt> = {
   copier_beast: { name: '복사기 괴물', color: '#c9ccd1', shape: 'copier', heightMul: 1.05, ranged: true, role: 'ranged' },
   head_nurse: { name: '수간호사', color: '#eef2f3', shape: 'head_nurse', heightMul: 1.55, ranged: false, role: 'support' },
   signal_man: { name: '신호등 인간', color: '#2c2f36', shape: 'signal', heightMul: 1.5, ranged: false, role: 'melee' },
+  // ── 기획 12차: 돌발 괴담 (keyed by MonsterDef.look; the fe_* ids are not in CREATURE_ART) ──
+  lucky_toad: { name: '금두꺼비', color: '#ffc93c', shape: 'lucky_toad', heightMul: 0.95, ranged: false, role: 'tank' },
+  event_printer: { name: '멈추지 않는 프린터', color: '#d9d4c7', shape: 'event_printer', heightMul: 0.85, ranged: false, role: 'support' },
+  event_patient: { name: '잠든 환자', color: '#e9f5ee', shape: 'event_patient', heightMul: 0.75, ranged: false, role: 'support' },
+  night_shadow: { name: '퇴근 못 한 그림자', color: '#16131f', shape: 'night_shadow', heightMul: 1.35, ranged: false, role: 'melee' },
+  sleepwalker_child: { name: '잠든 아이', color: '#ffd23f', shape: 'sleepwalker_child', heightMul: 1.3, ranged: false, role: 'support' },
 };
 
 /** Look keys (MonsterDef.look) and loose synonyms → art id. */
@@ -243,6 +258,9 @@ export function drawCreature(
       // 기획 8차 리뷰: tiny (radius 0.35) and lost in piles → drawn 1.3× its hitbox, like the phone
       doll(ctx, fill, flash, fx, fy, w * 1.3, h * 1.3, s, time, phase, act);
       break;
+    case 'paper_doll':
+      paperDoll(ctx, fill, fx, fy, w * 1.2, h * 1.2, time, phase);
+      break;
     case 'eye_stalk':
       eyeStalk(ctx, fill, flash, fx, fy, w, h, s, time, phase, act);
       break;
@@ -263,6 +281,22 @@ export function drawCreature(
       break;
     case 'signal':
       signalMan(ctx, fill, flash, fx, fy, w, h, s, time, phase, act);
+      break;
+    // 기획 12차: 돌발 괴담
+    case 'lucky_toad':
+      luckyToad(ctx, fill, flash, fx, fy, w * 1.15, h * 1.15, s, time, phase, act);
+      break;
+    case 'event_printer':
+      eventPrinter(ctx, fill, flash, fx, fy, w, h, s, time, phase);
+      break;
+    case 'event_patient':
+      eventPatient(ctx, fill, fx, fy, w * 1.7, h * 1.4, s, time, phase);
+      break;
+    case 'night_shadow':
+      nightShadow(ctx, fill, fx, fy, w * 1.1, h * 1.1, s, time, phase, act);
+      break;
+    case 'sleepwalker_child':
+      sleepwalkerChild(ctx, fill, fx, fy, w * 1.25, h * 1.25, s, time, phase);
       break;
   }
   ctx.lineCap = 'butt';
@@ -967,6 +1001,66 @@ function wheelchair(ctx: CanvasRenderingContext2D, fill: string, flash: boolean,
 }
 
 /** 간호 인형: a cracked porcelain nurse doll, button eyes, head tilted, a big syringe. */
+/**
+ * 기획 12차 종이 인형 (ally decoy): a flat hanji cut-out — round head, button eyes, red cheeks, arms out — with a
+ * green ally outline. Sways a little on its paper stand; never attacks.
+ */
+function paperDoll(ctx: CanvasRenderingContext2D, fill: string, fx: number, fy: number, w: number, h: number, time: number, phase: number): void {
+  const sway = Math.sin(time * 2.2 + phase) * 0.06;
+  ctx.save();
+  ctx.translate(fx, fy);
+  ctx.rotate(sway);
+  const hr = w * 0.3;
+  const top = -h + hr;
+  // body: a paper cut-out "person" (arms out, two legs)
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.12, top + hr * 0.8);
+  ctx.lineTo(-w * 0.5, top + hr * 1.35);
+  ctx.lineTo(-w * 0.44, top + hr * 1.75);
+  ctx.lineTo(-w * 0.16, top + hr * 1.5);
+  ctx.lineTo(-w * 0.26, -h * 0.02);
+  ctx.lineTo(-w * 0.04, -h * 0.02);
+  ctx.lineTo(0, -h * 0.3);
+  ctx.lineTo(w * 0.04, -h * 0.02);
+  ctx.lineTo(w * 0.26, -h * 0.02);
+  ctx.lineTo(w * 0.16, top + hr * 1.5);
+  ctx.lineTo(w * 0.44, top + hr * 1.75);
+  ctx.lineTo(w * 0.5, top + hr * 1.35);
+  ctx.lineTo(w * 0.12, top + hr * 0.8);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  lw(ctx, w, 0.05);
+  ctx.strokeStyle = PAPER_ALLY_OUTLINE;
+  ctx.stroke();
+  // head
+  ctx.beginPath();
+  ctx.arc(0, top, hr, 0, TAU);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.stroke();
+  // button eyes + red cheeks + a red string knot
+  ctx.fillStyle = '#2b2118';
+  ctx.beginPath();
+  ctx.arc(-hr * 0.38, top - hr * 0.05, Math.max(1.2, hr * 0.13), 0, TAU);
+  ctx.arc(hr * 0.38, top - hr * 0.05, Math.max(1.2, hr * 0.13), 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(230, 57, 70, 0.75)';
+  ctx.beginPath();
+  ctx.ellipse(-hr * 0.55, top + hr * 0.35, hr * 0.2, hr * 0.13, 0, 0, TAU);
+  ctx.ellipse(hr * 0.55, top + hr * 0.35, hr * 0.2, hr * 0.13, 0, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = '#ff5fa2';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.1, top + hr * 1.2);
+  ctx.lineTo(w * 0.1, top + hr * 1.35);
+  ctx.stroke();
+  ctx.restore();
+}
+
+const PAPER_ALLY_OUTLINE = '#3ddc84';
+
 function doll(ctx: CanvasRenderingContext2D, fill: string, flash: boolean, fx: number, fy: number, w: number, h: number, s: number, time: number, phase: number, act: number): void {
   const tilt = 0.25 * Math.sin(time * 0.8 + phase) + 0.15;
   // dress (pink) + apron
@@ -1722,4 +1816,266 @@ export function midAura(ctx: CanvasRenderingContext2D, sx: number, sy: number, r
   ctx.setLineDash([]);
   ctx.lineDashOffset = 0;
   ctx.globalAlpha = 1;
+}
+
+// ─────────────────────────── 기획 12차: 돌발 괴담 ───────────────────────────
+// Event units: the gold dashed ring / '!' diamond come from render/fieldEvents.ts; these are just the bodies.
+
+/** 금두꺼비: a squat gold toad with a coin in its mouth; crouches (act) before a hop. */
+function luckyToad(ctx: CanvasRenderingContext2D, fill: string, flash: boolean, fx: number, fy: number, w: number, h: number, s: number, time: number, phase: number, act: number): void {
+  const squash = 1 - 0.28 * act;
+  const hop = CREATURE_POSE.moving ? Math.abs(Math.sin(time * 9 + phase)) * h * 0.12 : 0;
+  const cy = fy - h * 0.4 * squash - hop;
+  const rx = w * 0.56 * (1 + 0.12 * act);
+  const ry = h * 0.4 * squash;
+  // hind legs
+  ctx.beginPath();
+  ctx.ellipse(fx - w * 0.36, fy - h * 0.1 - hop, w * 0.2, h * 0.12, 0, 0, TAU);
+  ctx.ellipse(fx + w * 0.36, fy - h * 0.1 - hop, w * 0.2, h * 0.12, 0, 0, TAU);
+  fillStroke(ctx, flash ? fill : '#e0a91f', w);
+  // body
+  ctx.beginPath();
+  ctx.ellipse(fx, cy, rx, ry, 0, 0, TAU);
+  fillStroke(ctx, fill, w);
+  // belly + back spots
+  ctx.fillStyle = flash ? '#fff' : '#fff1b8';
+  ctx.beginPath();
+  ctx.ellipse(fx + s * rx * 0.25, cy + ry * 0.3, rx * 0.5, ry * 0.5, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = '#d18f12';
+  ctx.beginPath();
+  for (const [dx, dy, r] of [[-0.35, -0.35, 0.09], [-0.05, -0.55, 0.07], [-0.55, 0.0, 0.07]]) {
+    ctx.moveTo(fx - s * rx * dx * -1 + r * w, cy + ry * dy);
+    ctx.arc(fx + s * rx * dx, cy + ry * dy, r * w, 0, TAU);
+  }
+  ctx.fill();
+  // bulging eyes on top
+  const ey = cy - ry * 0.85;
+  for (const k of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(fx + s * rx * 0.2 + k * rx * 0.36, ey, w * 0.16, 0, TAU);
+    fillStroke(ctx, fill, w);
+  }
+  eyePair(ctx, fx + s * rx * 0.2, ey, rx * 0.36, w * 0.1, s, '#fffdf0', '#2b1a00');
+  // grin + coin
+  ctx.strokeStyle = OUTLINE;
+  lw(ctx, w, 0.04);
+  ctx.beginPath();
+  ctx.moveTo(fx + s * rx * 0.05, cy - ry * 0.15);
+  ctx.quadraticCurveTo(fx + s * rx * 0.55, cy + ry * 0.12, fx + s * rx * 0.92, cy - ry * 0.25);
+  ctx.stroke();
+  const cx = fx + s * rx * 0.88;
+  const coinY = cy - ry * 0.05;
+  const cr = w * 0.15;
+  ctx.beginPath();
+  ctx.arc(cx, coinY, cr, 0, TAU);
+  fillStroke(ctx, flash ? '#fff' : '#ffe066', w);
+  ctx.fillStyle = OUTLINE;
+  ctx.fillRect(cx - cr * 0.3, coinY - cr * 0.3, cr * 0.6, cr * 0.6);
+  // glint
+  const g = (time * 0.7 + phase * 0.31) % 1;
+  if (g < 0.18) {
+    ctx.globalAlpha *= 1 - g / 0.18;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(fx - s * rx * 0.3, cy - ry * 0.45, w * 0.06, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha /= Math.max(0.01, 1 - g / 0.18);
+  }
+}
+
+/** 멈추지 않는 프린터: a beige office printer with red panel eyes, a sheet sliding out of the tray. */
+function eventPrinter(ctx: CanvasRenderingContext2D, fill: string, flash: boolean, fx: number, fy: number, w: number, h: number, s: number, time: number, phase: number): void {
+  const bw = w * 1.15;
+  const bh = h * 0.78;
+  const x0 = fx - bw / 2;
+  const y0 = fy - bh;
+  // body
+  pathRoundRect(ctx, x0, y0, bw, bh, Math.max(3, bw * 0.08));
+  fillStroke(ctx, fill, w);
+  // lid
+  pathRoundRect(ctx, x0 + bw * 0.06, y0 - bh * 0.14, bw * 0.88, bh * 0.2, Math.max(2, bw * 0.05));
+  fillStroke(ctx, flash ? fill : '#b9b2a2', w);
+  // output slot
+  ctx.fillStyle = OUTLINE;
+  ctx.fillRect(x0 + bw * 0.14, y0 + bh * 0.42, bw * 0.72, bh * 0.08);
+  // the sheet coming out (loops), with "names" on it
+  const k = ((time * 0.45 + phase * 0.13) % 1) ** 0.7;
+  const sh = bh * 0.55 * k;
+  ctx.fillStyle = '#fffdf6';
+  ctx.fillRect(x0 + bw * 0.2, y0 + bh * 0.48, bw * 0.6, sh);
+  ctx.strokeStyle = OUTLINE;
+  lw(ctx, w, 0.03);
+  ctx.strokeRect(x0 + bw * 0.2, y0 + bh * 0.48, bw * 0.6, sh);
+  ctx.strokeStyle = '#c1121f';
+  ctx.beginPath();
+  for (let i = 1; i <= 3; i++) {
+    const ly = y0 + bh * 0.48 + sh - i * bh * 0.1;
+    if (ly < y0 + bh * 0.5) break;
+    ctx.moveTo(x0 + bw * 0.28, ly);
+    ctx.lineTo(x0 + bw * (0.5 + 0.18 * ((i * 7) % 3) / 2), ly);
+  }
+  ctx.stroke();
+  // panel with two red "eyes"
+  const px = fx + s * bw * 0.28;
+  const py = y0 + bh * 0.2;
+  const blink = blinkOpen(time, phase, 2.6);
+  ctx.globalAlpha *= 0.45;
+  ctx.fillStyle = '#ff2d3c';
+  ctx.beginPath();
+  ctx.arc(px - bw * 0.07, py, w * 0.1, 0, TAU);
+  ctx.arc(px + bw * 0.07, py, w * 0.1, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha /= 0.45;
+  ctx.fillStyle = '#ffd6d9';
+  ctx.beginPath();
+  ctx.ellipse(px - bw * 0.07, py, w * 0.045, w * 0.05 * blink, 0, 0, TAU);
+  ctx.ellipse(px + bw * 0.07, py, w * 0.045, w * 0.05 * blink, 0, 0, TAU);
+  ctx.fill();
+}
+
+/** 잠든 환자: a hospital bed with a sleeper under the sheet and an IV stand (ally side, never fights). */
+function eventPatient(ctx: CanvasRenderingContext2D, fill: string, fx: number, fy: number, w: number, h: number, s: number, time: number, phase: number): void {
+  const bw = w;
+  const bh = h * 0.45;
+  const x0 = fx - bw / 2;
+  const y0 = fy - bh - h * 0.12;
+  // legs + frame
+  ctx.strokeStyle = '#6c757d';
+  lw(ctx, w, 0.05);
+  ctx.beginPath();
+  ctx.moveTo(x0 + bw * 0.08, fy);
+  ctx.lineTo(x0 + bw * 0.08, y0 + bh);
+  ctx.moveTo(x0 + bw * 0.92, fy);
+  ctx.lineTo(x0 + bw * 0.92, y0 + bh);
+  ctx.stroke();
+  pathRoundRect(ctx, x0, y0, bw, bh, Math.max(3, bh * 0.25));
+  fillStroke(ctx, '#cfd8dc', w);
+  // sheet (breathing)
+  const breathe = Math.sin(time * 1.6 + phase) * bh * 0.05;
+  ctx.beginPath();
+  ctx.moveTo(x0 + bw * 0.3, y0 + bh * 0.1);
+  ctx.quadraticCurveTo(fx + bw * 0.1, y0 - bh * 0.35 - breathe, x0 + bw * 0.95, y0 + bh * 0.15);
+  ctx.lineTo(x0 + bw * 0.95, y0 + bh * 0.6);
+  ctx.lineTo(x0 + bw * 0.3, y0 + bh * 0.6);
+  ctx.closePath();
+  fillStroke(ctx, fill, w);
+  // pillow + head with closed eyes
+  const hx = x0 + bw * 0.18;
+  const hy = y0 - bh * 0.05;
+  ctx.beginPath();
+  ctx.ellipse(hx, y0 + bh * 0.15, bw * 0.13, bh * 0.28, 0, 0, TAU);
+  fillStroke(ctx, '#ffffff', w);
+  ctx.beginPath();
+  ctx.arc(hx, hy, bh * 0.42, 0, TAU);
+  fillStroke(ctx, '#f1d3b8', w);
+  ctx.strokeStyle = OUTLINE;
+  lw(ctx, w, 0.03);
+  ctx.beginPath();
+  ctx.arc(hx - bh * 0.15, hy, bh * 0.1, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.moveTo(hx + bh * 0.25, hy);
+  ctx.arc(hx + bh * 0.15, hy, bh * 0.1, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  // IV stand with the bag
+  const ix = x0 - bw * 0.06;
+  ctx.strokeStyle = '#8d99ae';
+  lw(ctx, w, 0.035);
+  ctx.beginPath();
+  ctx.moveTo(ix, fy);
+  ctx.lineTo(ix, y0 - h * 0.75);
+  ctx.stroke();
+  pathRoundRect(ctx, ix - bw * 0.07, y0 - h * 0.75, bw * 0.14, h * 0.28, 3);
+  fillStroke(ctx, 'rgba(210,240,255,0.9)', w);
+  void s;
+}
+
+/** 퇴근 못 한 그림자: a hunched office-worker silhouette, see-through, white eyes (not the red-eyed 그림자 아이). */
+function nightShadow(ctx: CanvasRenderingContext2D, fill: string, fx: number, fy: number, w: number, h: number, s: number, time: number, phase: number, act: number): void {
+  const a = ctx.globalAlpha;
+  ctx.globalAlpha = a * 0.82;
+  const lean = s * w * (CREATURE_POSE.moving ? 0.12 : 0.05);
+  const headR = w * 0.24;
+  const hx = fx + lean + s * w * 0.06;
+  const hy = fy - h + headR;
+  ctx.beginPath();
+  ctx.moveTo(hx - headR * 1.6, hy + headR * 1.2);
+  ctx.quadraticCurveTo(hx - headR * 0.5, hy + headR * 0.4, hx + headR * 1.4, hy + headR * 1.3);
+  const n = 6;
+  for (let i = 0; i <= n; i++) {
+    const x = fx + w * 0.45 - (w * 0.9 * i) / n;
+    const y = fy - (i % 2) * h * 0.1 + Math.sin(time * 7 + phase + i) * h * 0.03;
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(hx, hy, headR, 0, TAU);
+  ctx.fill();
+  // loose tie
+  ctx.strokeStyle = '#3d3552';
+  lw(ctx, w, 0.06);
+  ctx.beginPath();
+  ctx.moveTo(hx, hy + headR * 1.3);
+  ctx.lineTo(hx + s * w * 0.06, hy + headR * 2.6);
+  ctx.stroke();
+  ctx.globalAlpha = a;
+  const r = Math.max(1.6, w * 0.06) * (act > 0.3 ? 1.3 : 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(hx + s * headR * 0.2 - headR * 0.32, hy, r, 0, TAU);
+  ctx.arc(hx + s * headR * 0.2 + headR * 0.32, hy, r, 0, TAU);
+  ctx.fill();
+}
+
+/** 잠든 아이: a small child in a yellow raincoat, eyes shut, arms out in front (sleepwalking). */
+function sleepwalkerChild(ctx: CanvasRenderingContext2D, fill: string, fx: number, fy: number, w: number, h: number, s: number, time: number, phase: number): void {
+  const step = CREATURE_POSE.moving ? Math.sin(time * 6 + phase) : 0;
+  const headR = w * 0.3;
+  const hx = fx + s * w * 0.04;
+  const hy = fy - h + headR;
+  // legs
+  ctx.strokeStyle = '#3a3a3a';
+  lw(ctx, w, 0.09);
+  ctx.beginPath();
+  ctx.moveTo(fx - w * 0.12, fy - h * 0.25);
+  ctx.lineTo(fx - w * 0.12 + step * w * 0.08, fy);
+  ctx.moveTo(fx + w * 0.12, fy - h * 0.25);
+  ctx.lineTo(fx + w * 0.12 - step * w * 0.08, fy);
+  ctx.stroke();
+  // raincoat (a bell)
+  ctx.beginPath();
+  ctx.moveTo(hx - headR * 0.8, hy + headR * 0.6);
+  ctx.lineTo(fx - w * 0.42, fy - h * 0.2);
+  ctx.quadraticCurveTo(fx, fy - h * 0.12, fx + w * 0.42, fy - h * 0.2);
+  ctx.lineTo(hx + headR * 0.8, hy + headR * 0.6);
+  ctx.closePath();
+  fillStroke(ctx, fill, w);
+  // arms held out forward
+  ctx.strokeStyle = fill;
+  lw(ctx, w, 0.12);
+  ctx.beginPath();
+  ctx.moveTo(fx + s * w * 0.1, fy - h * 0.55);
+  ctx.lineTo(fx + s * w * 0.55, fy - h * 0.58 + Math.sin(time * 2 + phase) * h * 0.02);
+  ctx.stroke();
+  // face + hood
+  ctx.beginPath();
+  ctx.arc(hx, hy, headR, 0, TAU);
+  fillStroke(ctx, '#f6d7bd', w);
+  ctx.beginPath();
+  ctx.arc(hx, hy, headR * 1.12, Math.PI * 1.05, Math.PI * 1.95);
+  ctx.lineTo(hx + headR * 1.12, hy + headR * 0.3);
+  ctx.lineTo(hx + headR * 0.9, hy + headR * 0.3);
+  ctx.arc(hx, hy, headR * 0.9, Math.PI * 1.95, Math.PI * 1.05, true);
+  ctx.lineTo(hx - headR * 1.12, hy + headR * 0.3);
+  ctx.closePath();
+  fillStroke(ctx, fill, w);
+  // closed eyes
+  ctx.strokeStyle = OUTLINE;
+  lw(ctx, w, 0.035);
+  ctx.beginPath();
+  ctx.arc(hx - headR * 0.35 + s * headR * 0.1, hy + headR * 0.05, headR * 0.18, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.moveTo(hx + headR * 0.53 + s * headR * 0.1, hy + headR * 0.05);
+  ctx.arc(hx + headR * 0.35 + s * headR * 0.1, hy + headR * 0.05, headR * 0.18, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
 }

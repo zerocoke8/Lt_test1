@@ -243,7 +243,8 @@
 .role-tank { color: #8fb4ff; }
 .role-melee { color: #ff9aa8; }
 .role-ranged { color: #7ff0c4; }
-.role-support { color: #ffe08a; }
+.role-healer { color: #ffe08a; } /* 기획 12차: 힐러 keeps the old 서포터 gold (클레릭) */
+.role-support { color: #e3b5ff; }
 
 @keyframes shake {
   0%, 100% { translate: 0 0; }
@@ -458,8 +459,9 @@
 }
 
 .ps-grid-chars {
-  /* 12 characters: one column per role (탱커 / 근접딜러 / 원거리딜러 / 서포터), 3 cards each */
-  grid-template-columns: repeat(4, 1fr);
+  /* 기획 12차: 15 characters, one column per role (탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터), 3 cards each */
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
   flex: 1;
   min-height: 0;
   margin-bottom: 4px;
@@ -475,8 +477,9 @@
 .ps-role-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 16px;
+  gap: 4px;
+  font-size: 15px;
+  white-space: nowrap;
   font-weight: 900;
   padding-left: 4px;
   border-bottom: 2px solid currentColor;
@@ -505,8 +508,15 @@
 .ps-char {
   height: auto;
   min-height: 0;
-  padding: 8px 10px;
-  gap: 10px;
+  padding: 6px 7px;
+  gap: 7px;
+}
+
+.ps-char .portrait-sm {
+  width: 40px;
+  height: 40px;
+  font-size: 19px;
+  flex: none;
 }
 
 .portrait-sm {
@@ -518,7 +528,7 @@
 .ps-card-drag {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
 }
 
 .ps-shape {
@@ -569,6 +579,10 @@
   line-height: 1.1;
 }
 
+.ps-char .ps-card-name {
+  font-size: 20px;
+}
+
 .ps-pet .ps-card-name {
   font-size: 17px;
   letter-spacing: -0.5px;
@@ -581,7 +595,7 @@
 }
 
 .ps-char .ps-card-meta {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
   color: #c6cddb;
 }
@@ -1547,6 +1561,57 @@
 /* the drag skill fired (it just appeared): its portrait flashes */
 .cc-portrait.is-fired {
   animation: badgeFired 0.55s ease-out;
+}
+
+/* 기획 12차: a bench card healed by 메딕 — green glow on the portrait + a floating '+N' */
+.cc-portrait.is-bench-heal {
+  animation: benchHealGlow 0.7s ease-out;
+}
+
+@keyframes benchHealGlow {
+  0% { filter: brightness(1.6); box-shadow: 0 0 0 3px #5cff8d, 0 0 20px 6px rgba(92, 255, 141, 0.7); }
+  100% { filter: none; box-shadow: none; }
+}
+
+/* 기획 12차: dragging 메딕 — the cards that will sit on the bench preview the heal */
+.ccard[data-bench-heal]::after {
+  content: attr(data-bench-heal);
+  position: absolute;
+  left: 50%;
+  top: -14px;
+  transform: translateX(-50%);
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #0d3b2a;
+  border: 2px solid #5cff8d;
+  color: #5cff8d;
+  font-size: 16px;
+  font-weight: 900;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.ccard.is-dead[data-bench-heal]::after {
+  display: none;
+}
+
+.cc-heal-pop {
+  position: absolute;
+  left: 50%;
+  top: -22px;
+  transform: translateX(-50%);
+  font-size: 22px;
+  font-weight: 900;
+  color: #5cff8d;
+  text-shadow: 0 2px 0 #062b14, 0 0 6px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  animation: healPopUp 0.9s ease-out forwards;
+  z-index: 3;
+}
+
+@keyframes healPopUp {
+  from { opacity: 1; transform: translate(-50%, 6px); }
+  to { opacity: 0; transform: translate(-50%, -26px); }
 }
 
 @keyframes badgeFired {
@@ -4817,3 +4882,96 @@
 .stage.is-small .pl-left { font-size: 21px; }
 .stage.is-small .pl-title { font-size: 21px; }
 .stage.is-small .rs-goedam-row { font-size: 19px; }
+
+/* 기획 12차: 돌발 괴담 — the pill under the floor box (≤ 20 chars, ends above the field top), the low start banner,
+   and gold pulses on what the party reward touched */
+.fe-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(10, 8, 2, 0.82);
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 0 2px #05060a, 0 0 14px rgba(255, 209, 102, 0.35);
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff3c4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.fe-pill.is-warn { animation: fePillWarn 0.5s ease-in-out infinite alternate; }
+.fe-pill.is-urgent { border-color: #ff6b6b; }
+.fe-pill.is-urgent .fe-secs { color: #ff8a8a; }
+.fe-icon { font-size: 22px; }
+.fe-secs { min-width: 26px; text-align: center; font-size: 26px; color: var(--gold); }
+.fe-bar {
+  position: relative;
+  width: 84px;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.fe-bar-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: linear-gradient(180deg, #ffe08a, #f4a261);
+}
+.fe-prog { color: #ffffff; letter-spacing: 1px; }
+.fe-reward { font-size: 19px; color: #ffe08a; }
+@keyframes fePillWarn {
+  from { box-shadow: 0 0 0 2px #05060a, 0 0 6px rgba(255, 209, 102, 0.2); }
+  to { box-shadow: 0 0 0 2px #05060a, 0 0 22px rgba(255, 209, 102, 0.8); }
+}
+
+.banners.is-low .banner-event {
+  padding: 6px 100px 8px;
+  animation: bannerInLow 2.2s ease forwards;
+}
+.banners.is-low .banner-event .banner-big {
+  display: block;
+  font-size: 36px;
+  color: var(--gold);
+}
+.banners.is-low .banner-event .banner-lore {
+  margin-top: 2px;
+  font-size: 19px;
+  color: #fff3c4;
+}
+.banners.is-low .banner-event .banner-sub {
+  display: block;
+  margin: 2px 0 0;
+  font-size: 20px;
+  color: #ffe08a;
+}
+.banner-tip {
+  margin-top: 4px;
+  font-size: 19px;
+  font-weight: 900;
+  color: #c7f9cc;
+  text-shadow: 0 2px 4px #000;
+}
+
+.is-fe-reward { animation: feReward 1.3s ease-out; }
+@keyframes feReward {
+  0% { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0); filter: none; }
+  20% { box-shadow: 0 0 0 5px rgba(255, 209, 102, 0.95), 0 0 26px rgba(255, 209, 102, 0.9); filter: brightness(1.35); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0); filter: none; }
+}
+
+.stage.is-small .fe-pill { height: 42px; font-size: 26px; gap: 9px; }
+.stage.is-small .fe-icon { font-size: 26px; }
+.stage.is-small .fe-secs { font-size: 30px; }
+.stage.is-small .fe-reward { font-size: 23px; }
+.stage.is-small .banners.is-low .banner-event .banner-lore,
+.stage.is-small .banners.is-low .banner-event .banner-sub,
+.stage.is-small .banner-tip { font-size: 23px; }
+.fe-prog.is-dots { font-size: 15px; letter-spacing: 0; }
+.stage.is-small .fe-prog.is-dots { font-size: 18px; }
+/* 기획 12차: the event banner has up to four lines — start a little higher so the last one clears the cards */
+.banners.is-low:has(.banner-event) { top: 392px; }

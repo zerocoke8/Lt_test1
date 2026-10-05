@@ -28,6 +28,7 @@ import type {
   Zone,
 } from '../types';
 import { ARENA_MARGIN, MAX_EVENTS } from './constants';
+import type { FieldEventAi, FieldEventRt } from './fieldEvents';
 import { Rng } from './rng';
 
 // ─────────────────────────── Runtime extensions ───────────────────────────
@@ -54,6 +55,8 @@ export interface EntityRt {
   stationary: boolean;
   /** Ally turret: shoots with owner pet power. */
   petPowered: boolean;
+  /** 기획 12차: skill slot (or 'pet') whose cast spawned this ally summon — damage/decoy credit for the benches. */
+  summonSlot?: SkillSlot | 'pet';
   /** Monster skill parts being wound up (telegraphed, not landed yet): a stun breaks them (status.ts, skills.ts tickPending). */
   windup: PendingHit[];
   /** Boss phases entered so far (BossDef.phases, 기획 8차). */
@@ -61,6 +64,8 @@ export interface EntityRt {
   /** Product of the entered phases' atkSpeedMult / cooldownMult. */
   phaseAtkSpeedMult: number;
   phaseCdMult: number;
+  /** 기획 12차: 돌발 괴담 unit moved by src/sim/fieldEvents.ts (act() skips it). */
+  eventAi?: FieldEventAi | null;
 }
 export interface SimEntity extends Entity {
   rt: EntityRt;
@@ -80,11 +85,17 @@ export interface BotBrain {
   ultAt: number | null;
   /** World x the bot's "camera" follows (last field-character x; null = arena center). */
   viewX: number | null;
+  /** 기획 12차: start tick of the 돌발 괴담 this bot already swapped / used a pet for (once per event), its reaction time. */
+  fieldEventSwapDone?: number;
+  fieldEventPetDone?: number;
+  fieldEventReactAt?: number | null;
 }
 export interface PlayerRt {
   bot: BotBrain;
   /** 기획 5차: came back from 'out' at a floor clear → put party slot 0 on the field when the next floor starts. */
   rejoinNextFloor?: boolean;
+  /** 기획 12차 (메딕 대기실 간호): seconds accumulated toward the next bench-regen pulse. */
+  benchRegenAcc?: number;
 }
 export interface SimPlayer extends PlayerState {
   party: SimMember[];
@@ -122,6 +133,8 @@ export interface CastCtx {
   targetId: number | null;
   /** Last known target position at cast time. */
   targetPos: Vec2 | null;
+  /** 기획 12차: SkillAction.center 'woundedAlly' — the ally picked at cast time (normal skills only, else null). */
+  allyTargetId: number | null;
   /** Caster position at cast time. */
   origin: Vec2;
   isDrag: boolean;
@@ -175,6 +188,8 @@ export interface PendingSpawn {
   pos: Vec2;
   mid: boolean;
   wave: number;
+  /** 기획 12차: printed by the 돌발 괴담 printer (its minions vanish when it is destroyed). */
+  printed?: boolean;
 }
 
 export interface SpawnerState {
@@ -222,6 +237,8 @@ export interface World {
   /** Offers waiting for player 0's choice during 'reward'. */
   humanOffers: { player: number; offers: RewardOffer[] } | null;
   goedam: GoedamRt;
+  /** 기획 12차: 돌발 괴담 plan / history (the open one is state.fieldEvent). */
+  fieldEvents: FieldEventRt;
 }
 
 // ─────────────────────────── Helpers ───────────────────────────
@@ -311,7 +328,8 @@ export function queuedEnemies(w: World): number {
 /** Enemies alive (monsters + enemy summons, boss excluded). */
 export function countEnemies(w: World): number {
   let n = 0;
-  for (const e of w.state.entities) if (e.team === 'enemy' && isAlive(e) && e.tier !== 'boss') n++;
+  // 기획 12차: 돌발 괴담 units never count (floor clear, alive cap, monstersAlive)
+  for (const e of w.state.entities) if (e.team === 'enemy' && isAlive(e) && e.tier !== 'boss' && !e.eventTag) n++;
   return n;
 }
 
@@ -327,6 +345,7 @@ export function endRun(w: World, outcome: RunResult['outcome'], reason: RunResul
   s.rewardOffers = null;
   w.humanOffers = null;
   s.goedam = null;
+  s.fieldEvent = null;
   s.runResult = { outcome, reason, floorReached: s.floor, duration: s.time };
   emit(w, { type: 'runOver', result: s.runResult });
 }
