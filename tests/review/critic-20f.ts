@@ -9,6 +9,19 @@
 //       dodgeonly = dodge without the 4 s rhythm (swaps only to dodge / at low HP / empty field): avoidability ceiling
 //       botseat = a human seat (the harness picks its rewards — random like a bot — and its 괴담 rooms) whose swaps,
 //                pets and ult come from the stock bot AI: the bot-style player for room policies ('bot' always leaves)
+//       기획 14차 실험 토글 (TUN='{"ultPerCharacter":true}' / '{"swapEnergyMode":true,"swapEnergyMax":10,"swapEnergyRegen":1}'):
+//       the active seats play each mode sensibly (default off = the exact old policy, same runs):
+//         · ult: the FIELD character's gauge, 0.5 s after full (shared gauge = today).
+//         · 궁극기 개별 게이지: (1) hold — a field character whose own gauge is ≥ ULT_HOLD full is not rotated out by the
+//           4 s rhythm until it has cast (low HP / dodge still swap); (2) ult swap-in — when the field gauge is below
+//           ULT_HOLD and a swappable bench card's own gauge is full in a fight worth an ult (boss / mid boss alive or
+//           ≥ BOT.ultSwapEnemies enemies, the bots' rule), swap it in at once (no 4 s wait) and cast 0.5 s later.
+//         · 교체 에너지: the rhythm swap wants the healthiest living bench card (ties within 5 % HP: the one benched
+//           longest, so all three rotate) and WAITS until the pool covers its cost (no cheaper-card fallback);
+//           low HP / empty field take the healthiest card the pool affords now. Still ≥ 4 s between rhythm swaps.
+//       Seat report 'seat' (POLICY seats only): swaps / min, ults per run and per 10 combat min, pool before each swap,
+//       swaps into a full-ult bench card, empty-field time, and 'blocked' = the seat wanted a swap (rhythm due, low HP, empty field; bots:
+//       their own timers) but the card it wanted was not available (cooldown today / pool short in energy mode).
 //   REACT=0.6                       dodge reaction time (s)
 //   COMP=default|melee|ranged|support|notank|tank   party compositions (all 3 players, see COMPS)
 //   HCOMP=ranger,mage,gunner        player 0 only (others keep COMP) — solo player picking a party
@@ -49,6 +62,9 @@ import { FIELD_EVENT_UNITS, FIELD_EVENTS as FIELD_EVENT_DEFS, isFieldEventId } f
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { hitsArea } from '../../src/sim/geometry';
 import { canSwap, canUsePet } from '../../src/sim/players';
+import { canAffordSwap, energyMode } from '../../src/sim/energy';
+import { fieldUltGauge, memberUltGauge, perCharUlt } from '../../src/sim/ultMode';
+import { BOT } from '../../src/sim/constants';
 import { applyOffer, rollOffers } from '../../src/sim/rewards';
 import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import type { BossDef, Effect, GameEvent, MonsterDef, PlayerSetup, SimPhase, SkillAction, Tunables, Vec2 } from '../../src/types';
@@ -236,6 +252,7 @@ interface RunRec {
   victory: boolean;
   seed: number;
   goedam: GoedamRunRec;
+  seat: SeatRec;
 }
 
 function petTarget(w: World, pi: number, petIdx: number): Vec2 | null {
@@ -270,7 +287,54 @@ interface Brain {
   ultAt: number | null;
   react: number | null;
   dodgedTele: Set<number>;
+  /** 기획 14차: state.time each card last left the field (energy-mode rotation tie-break). */
+  leftAt: number[];
+  /** 기획 14차: the previous think was blocked (one 'blocked' episode per run of blocked thinks). */
+  blocked: boolean;
 }
+
+/** 기획 14차 per-seat measurements (summed over the POLICY seats of a run). */
+interface SeatRec {
+  seats: number;
+  swaps: number;
+  ults: number;
+  /** Pool value right before each policy swap (energy mode). */
+  eSum: number;
+  eN: number;
+  /** Swaps into a bench card whose own ult gauge was full (per-character mode). */
+  ultSwapIns: number;
+  /** Swaps-in by player 0's card slot (0..2). */
+  byCard: number[];
+  blockedEp: number;
+  blockedSec: number;
+  /** Combat seconds with no character on the field while the seat is not out (waiting to come back in). */
+  emptySec: number;
+}
+const newSeatRec = (): SeatRec => ({ seats: 0, swaps: 0, ults: 0, eSum: 0, eN: 0, ultSwapIns: 0, byCard: [0, 0, 0], blockedEp: 0, blockedSec: 0, emptySec: 0 });
+let SEAT: SeatRec = newSeatRec();
+
+/** 기획 14차: a field character with its own gauge at least this full is held on the field until it casts. */
+const ULT_HOLD = 0.85;
+
+/** Run fn (a seat's decision step) and book the swaps it made into SEAT. */
+function measured(w: World, pi: number, fn: () => void): void {
+  const p = w.state.players[pi];
+  const sw = p.stats.swaps;
+  const e = p.energy ? p.energy.value : null;
+  const before = p.party.map((_, i) => memberUltGauge(p, i)?.charge ?? 0);
+  fn();
+  if (p.stats.swaps > sw && p.activeIndex != null) {
+    if (pi === 0) SEAT.byCard[p.activeIndex]++;
+    if (e != null) {
+      SEAT.eSum += e;
+      SEAT.eN++;
+    }
+    if (perCharUlt(p) && before[p.activeIndex] >= 1) SEAT.ultSwapIns++;
+  }
+}
+
+/** A fight worth an ult swap-in (the bots' rule, src/sim/bot.ts ultCard). */
+const ultWorthy = (foes: SimEntity[]) => foes.some(e => e.tier === 'boss' || e.tier === 'mid') || foes.length >= BOT.ultSwapEnemies;
 
 /** Telegraphs about to land on `me` that a human could have seen for ≥ REACT s. Damage weight ≈ amount sum. */
 function threat(w: World, me: SimEntity, seen: Map<number, number>): number | null {
@@ -290,39 +354,73 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
   if (p.out || s.phase !== 'combat') return;
   const foes = s.entities.filter(e => e.team === 'enemy' && isAlive(e));
   const me = activeEntity(w, p);
-  if (p.ult.charge >= 1 && me && foes.length) {
+  // 기획 14차: the field character's gauge (= the shared one while the per-character toggle is off)
+  const ult = fieldUltGauge(p);
+  if (ult && ult.charge >= 1 && me && foes.length) {
     if (st.ultAt == null) st.ultAt = s.time + 0.5;
     if (s.time >= st.ultAt && dispatch(w, { type: 'ult', player: pi }).ok) st.ultAt = null;
   }
   // 기획 12차: the once-per-event swap toward the event (same rule as the bots)
   if (FIELD_EVENTS !== 'off' && FE_SEAT === 'play' && eventThink(w, p, cmd => dispatch(w, cmd))) st.lastSwap = s.time;
   const ready = [0, 1, 2].filter(i => canSwap(w, pi, i).ok);
-  if (ready.length) {
-    const lowHp = me && me.hp < me.maxHp * 0.35;
-    const due = policy !== 'dodgeonly' && s.time - st.lastSwap >= 4 && foes.length > 0;
-    let go = false;
-    let dodge = false;
-    if (!me) {
+  const perChar = perCharUlt(p);
+  const energy = energyMode(p);
+  const holding = perChar && !!ult && ult.charge >= ULT_HOLD;
+  // 기획 14차 개별 게이지: a full bench card into a fight worth it, now (the field gauge is spent / far from full)
+  const ultIn =
+    perChar && me && !holding && ultWorthy(foes)
+      ? ready.filter(i => (memberUltGauge(p, i)?.charge ?? 0) >= 1).sort((a, b) => (memberUltGauge(p, a)!.fullSince ?? 0) - (memberUltGauge(p, b)!.fullSince ?? 0))[0]
+      : undefined;
+  const lowHp = !!me && me.hp < me.maxHp * 0.35;
+  const due = policy !== 'dodgeonly' && s.time - st.lastSwap >= 4 && foes.length > 0 && !holding;
+  let go = false;
+  let dodge = false;
+  if (!me) {
+    if (ready.length) {
       if (st.react == null) st.react = s.time + 0.6;
       go = s.time >= st.react;
-    } else {
-      go = !!lowHp || due;
-      if ((policy === 'dodge' || policy === 'dodgeonly') && me.invulnTime <= 0) {
-        const tid = threat(w, me, seen);
-        if (tid != null && !st.dodgedTele.has(tid)) {
-          st.dodgedTele.add(tid);
-          go = true;
-          dodge = true;
-        }
+    }
+  } else {
+    go = lowHp || due || ultIn != null;
+    if ((policy === 'dodge' || policy === 'dodgeonly') && me.invulnTime <= 0 && ready.length) {
+      const tid = threat(w, me, seen);
+      if (tid != null && !st.dodgedTele.has(tid)) {
+        st.dodgedTele.add(tid);
+        go = true;
+        dodge = true;
       }
     }
-    if (go) {
-      const idx = [...ready].sort((a, b) => p.party[b].hp / p.party[b].maxHp - p.party[a].hp / p.party[a].maxHp)[0];
-      if (dispatch(w, { type: 'swap', player: pi, partyIndex: idx, pos: seatDropPoint(w, p, idx) }).ok) {
-        st.lastSwap = s.time;
-        st.react = null;
-        if (dodge) rec.dodges++;
-      }
+  }
+  const hpOf = (i: number) => p.party[i].hp / p.party[i].maxHp;
+  const byHp = (a: number, b: number) => hpOf(b) - hpOf(a);
+  let idx: number | undefined;
+  let blocked = false;
+  if (go) {
+    if (ultIn != null) idx = ultIn;
+    else if (energy && me && !lowHp && !dodge) {
+      // 교체 에너지 rhythm swap: the healthiest living bench card (ties: benched longest), waiting for its cost
+      const bench = [0, 1, 2].filter(i => i !== p.activeIndex && p.party[i] && !p.party[i].dead);
+      const want = bench.sort((a, b) => (Math.abs(hpOf(a) - hpOf(b)) < 0.05 ? st.leftAt[a] - st.leftAt[b] : byHp(a, b)))[0];
+      if (want != null && ready.includes(want)) idx = want;
+      else if (want != null && !canAffordSwap(p, want)) blocked = true;
+    } else {
+      idx = [...ready].sort(byHp)[0];
+      // nothing swappable although a living card waits on the bench (cooldown today / pool short in energy mode)
+      if (idx == null && p.party.some((m, i) => i !== p.activeIndex && !m.dead)) blocked = true;
+    }
+  }
+  if (blocked) {
+    SEAT.blockedSec += 0.25;
+    if (!st.blocked) SEAT.blockedEp++;
+  }
+  st.blocked = blocked;
+  if (idx != null) {
+    const from = p.activeIndex;
+    if (dispatch(w, { type: 'swap', player: pi, partyIndex: idx, pos: seatDropPoint(w, p, idx) }).ok) {
+      st.lastSwap = s.time;
+      st.react = null;
+      if (from != null) st.leftAt[from] = s.time;
+      if (dodge) rec.dodges++;
     }
   }
   for (let i = 0; i < p.pets.length; i++) {
@@ -350,11 +448,27 @@ function seatDropPoint(w: World, p: World['state']['players'][number], idx: numb
 /** 'botseat': player 0's combat turn by the stock bot AI while the sim still treats the seat as human. */
 function botSeatThink(w: World): void {
   const ps = w.state.players;
-  const was = ps.map(p => p.isBot);
-  ps.forEach((p, i) => (p.isBot = i === 0));
-  tickBots(w, 1 / TICK_RATE, cmd => dispatch(w, cmd));
-  ps.forEach((p, i) => (p.isBot = was[i]));
+  // 기획 14차 seat report: the bot wants a swap (its own timers: empty field, low HP, periodic swap due) but nothing is
+  // swappable although a living card waits on the bench (cooldown / pool short)
+  const p = ps[0];
+  const me = activeEntity(w, p);
+  const foes = w.state.entities.some(e => e.team === 'enemy' && isAlive(e));
+  if (!p.out) {
+    const want = !me || me.hp < me.maxHp * BOT.lowHpFrac || (foes && w.state.time >= p.rt.bot.nextSwapAt);
+    const waiting = p.party.some((m, i) => i !== p.activeIndex && !m.dead);
+    const blocked = want && waiting && ![0, 1, 2].some(i => canSwap(w, 0, i).ok);
+    if (blocked) {
+      SEAT.blockedSec += 1 / TICK_RATE;
+      if (!BOTSEAT_BLOCKED.v) SEAT.blockedEp++;
+    }
+    BOTSEAT_BLOCKED.v = blocked;
+  }
+  const was = ps.map(q => q.isBot);
+  ps.forEach((q, i) => (q.isBot = i === 0));
+  measured(w, 0, () => tickBots(w, 1 / TICK_RATE, cmd => dispatch(w, cmd)));
+  ps.forEach((q, i) => (q.isBot = was[i]));
 }
+const BOTSEAT_BLOCKED = { v: false };
 /** Floor reward: the first offer (human), or a random one for the bot-style seat (like the sim's bots). */
 const rewardPick: RewardPick = POLICY === 'botseat' ? (offers, _pi, w) => w.rng.int(0, offers.length - 1) : () => 0;
 
@@ -388,7 +502,10 @@ function runOnce(seed: number): RunRec {
   let feForcedFloor = -1;
   const pilot = goedamPilot(w, GOEDAM);
   const thinkers = POLICY === 'active' || POLICY === 'dodge' || POLICY === 'dodgeonly' ? humans : [];
-  const brains = new Map<number, Brain>(thinkers.map(pi => [pi, { lastSwap: -99, ultAt: null, react: null, dodgedTele: new Set() }]));
+  const brains = new Map<number, Brain>(thinkers.map(pi => [pi, { lastSwap: -99, ultAt: null, react: null, dodgedTele: new Set(), leftAt: [-99, -99, -99], blocked: false }]));
+  SEAT = newSeatRec();
+  BOTSEAT_BLOCKED.v = false;
+  const seatIds = POLICY === 'botseat' ? [0] : thinkers;
   const seen = new Map<number, number>();
   const teleKey = new Map<number, string>();
   const floors: FloorRec[] = [];
@@ -479,10 +596,11 @@ function runOnce(seed: number): RunRec {
       thinkIn -= 1 / TICK_RATE;
       if (thinkIn <= 0) {
         thinkIn = 0.25;
-        for (const pi of thinkers) humanThink(w, pi, brains.get(pi)!, POLICY, seen, rec);
+        for (const pi of thinkers) measured(w, pi, () => humanThink(w, pi, brains.get(pi)!, POLICY, seen, rec));
       }
     }
     if (POLICY === 'botseat' && s.phase === 'combat') botSeatThink(w);
+    if (s.phase === 'combat') for (const pi of seatIds) if (!s.players[pi].out && !activeEntity(w, s.players[pi])) SEAT.emptySec += 1 / TICK_RATE;
     if (FE_FORCED && s.phase === 'combat' && s.plan.kind === 'normal' && s.floor >= 2 && s.floor <= 19 && s.floor !== feForcedFloor && s.floorTime >= 8) {
       feForcedFloor = s.floor;
       dispatch(w, { type: 'debug', action: { kind: 'fieldEventNext', id: FE_FORCED as never } });
@@ -720,7 +838,12 @@ function runOnce(seed: number): RunRec {
   const lastF = floors[floors.length - 1];
   const endFloor = lastF?.floor ?? START;
   const victory = !!lastF && lastF.outcome === 'clear' && lastF.floor >= LAST;
-  return { floors, combatSec, endFloor, victory, seed, goedam: goedamRunRec(w, victory, endFloor) };
+  SEAT.seats = seatIds.length;
+  for (const pi of seatIds) {
+    SEAT.swaps += s.players[pi].stats.swaps;
+    SEAT.ults += s.players[pi].stats.ultsUsed;
+  }
+  return { floors, combatSec, endFloor, victory, seed, goedam: goedamRunRec(w, victory, endFloor), seat: SEAT };
 }
 
 // ─────────────────────────── aggregate ───────────────────────────
@@ -929,6 +1052,28 @@ function fieldEventReport(rs: RunRec[]): unknown {
     floor20: { reached: f20.length, deathsAvg: r2(f20.reduce((a, f) => a + f.deaths, 0) / Math.max(1, f20.length)), clearPct: r1((f20.filter(f => f.outcome === 'clear').length / Math.max(1, f20.length)) * 100) },
   };
 }
+/** 기획 14차: the POLICY seats' swap / ult / energy numbers (per seat; ends of runs included). */
+function seatReport(rs: RunRec[]): unknown {
+  const seats = rs.reduce((a, r) => a + r.seat.seats, 0);
+  if (!seats) return null;
+  const min = rs.reduce((a, r) => a + (r.combatSec / 60) * r.seat.seats, 0);
+  const sum = (k: keyof Omit<SeatRec, 'byCard'>) => rs.reduce((a, r) => a + (r.seat[k] as number), 0);
+  const vict = rs.filter(r => r.victory);
+  const vSeats = vict.reduce((a, r) => a + r.seat.seats, 0);
+  const byCard = [0, 1, 2].map(i => rs.reduce((a, r) => a + r.seat.byCard[i], 0));
+  return {
+    swapsPerMin: r2(sum('swaps') / Math.max(1e-9, min)),
+    ultsPerRun: r2(sum('ults') / seats),
+    ultsPerRunVictory: vSeats ? r2(vict.reduce((a, r) => a + r.seat.ults, 0) / vSeats) : null,
+    ultsPer10Min: r2((sum('ults') / Math.max(1e-9, min)) * 10),
+    ultSwapInsPerRun: r2(sum('ultSwapIns') / seats),
+    energyAtSwap: sum('eN') ? r2(sum('eSum') / sum('eN')) : null,
+    blockedPer10Min: r2((sum('blockedEp') / Math.max(1e-9, min)) * 10),
+    blockedTimePct: r1((sum('blockedSec') / Math.max(1e-9, min * 60)) * 100),
+    emptyFieldPct: r1((sum('emptySec') / Math.max(1e-9, min * 60)) * 100),
+    p0SwapsByCardPerRun: byCard.map(x => r1(x / rs.length)),
+  };
+}
 const out = {
   cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name, FIELD_EVENTS, FE_SEAT },
   runs: {
@@ -945,6 +1090,7 @@ const out = {
   monsterHeal: top(gHeal, 10, runs.length),
   goedam: goedamSummary(GOEDAM, runs.map(r => r.goedam)),
   fieldEvents: fieldEventReport(runs),
+  seat: seatReport(runs),
   perFloor,
 };
 if (env.GOEDAM_DUMP) fs.writeFileSync(env.GOEDAM_DUMP, JSON.stringify(runs.map(r => ({ seed: r.seed, ...r.goedam }))));

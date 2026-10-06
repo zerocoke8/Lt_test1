@@ -14,6 +14,8 @@ import { skillMod } from './modifiers';
 import { previewPartsFor } from './preview';
 import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } from './players';
 import { Rng } from './rng';
+import { fillUlts, syncUltMode } from './ultMode';
+import { resetSwapCooldowns, syncEnergyMode } from './energy';
 import { scaleArea, tickPending, tickZones } from './skills';
 import { benchMaxHp } from './stats';
 import { applyTunablesPatch, computeTelemetry, emptyContribution } from './telemetry';
@@ -143,6 +145,8 @@ export function createWorld(setup: GameSetup): World {
     if (p.party.length === 0) continue;
     createCharacterEntity(w, p, 0, { x: 0, y: 0 });
   }
+  syncUltMode(w); // 기획 14차: per-character gauges from the start when the toggle is already on
+  syncEnergyMode(w); // 기획 14차: a full energy pool from the start when 교체 에너지 is on
   startFloor(w, startFloorN, false);
   syncMembers(w);
   return w;
@@ -190,6 +194,8 @@ export function step(w: World, realDt: number): void {
 export function dispatch(w: World, cmd: Command): CommandResult {
   const s = w.state;
   let r: CommandResult;
+  syncUltMode(w); // 기획 14차: the solo debug panel edits tunables in place — a command sees the gauge mode they set
+  syncEnergyMode(w); // … and the 교체 에너지 mode
   switch (cmd.type) {
     case 'swap':
       r = doSwap(w, cmd.player, cmd.partyIndex, cmd.pos);
@@ -219,6 +225,8 @@ export function dispatch(w: World, cmd: Command): CommandResult {
       break;
     case 'tunables':
       r = applyTunablesPatch(w.tunables, cmd.patch);
+      syncUltMode(w); // 기획 14차: the host's toggle reaches every client's next snapshot
+      syncEnergyMode(w);
       break;
     default:
       r = { ok: false, reason: '알 수 없는 명령' };
@@ -238,18 +246,12 @@ function debug(w: World, a: DebugAction): CommandResult {
   switch (a.kind) {
     case 'chargeUlt':
       if (!p0) return { ok: false, reason: '플레이어 없음' };
-      p0.ult.charge = 1;
-      if (p0.ult.fullSince == null) {
-        p0.ult.fullSince = s.time;
-        emit(w, { type: 'ultReady', player: p0.id });
-      }
+      fillUlts(w, p0); // 기획 14차: per character → every character's gauge
       return { ok: true };
     case 'resetCooldowns':
       if (!p0) return { ok: false, reason: '플레이어 없음' };
-      for (const m of p0.party) {
-        m.swapCooldownRemaining = 0;
-        m.normalCooldownRemaining = 0;
-      }
+      for (const m of p0.party) m.normalCooldownRemaining = 0;
+      resetSwapCooldowns(p0); // 기획 14차 교체 에너지: a full pool
       for (const pet of p0.pets) pet.cooldownRemaining = 0;
       return { ok: true };
     case 'killAll':

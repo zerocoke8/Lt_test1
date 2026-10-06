@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { cleanState, wireJson } from '../../server/snapshot';
 import { dropOutcome } from '../../src/sim/fieldEventPreview';
 import { tick } from '../../src/sim/game';
-import type { Command, GameState } from '../../src/types';
+import type { Command, GameState, Tunables } from '../../src/types';
+import { canSwapState, canUltState } from '../../src/sim/players';
+import { fieldUltGauge, ultSecondsLeft } from '../../src/sim/ultMode';
+import { cardReady, energySecondsTo, swapCostNow } from '../../src/sim/energy';
 import { makeGame, type TestGame } from '../sim/helpers';
 
 const KEYS: Record<string, string[]> = {
@@ -14,10 +17,13 @@ const KEYS: Record<string, string[]> = {
   wave: ['at', 'spawns'],
   entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged', 'eventTag'],
   status: ['id', 'remaining', 'total', 'value', 'sourcePlayer', 'data'], // data: 기획 13차 taunt / tether / root / stasis
-  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog'],
-  member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId'],
+  // energy: 기획 14차 교체 에너지 (only while the toggle is on)
+  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'energy', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog'],
+  // ult: 기획 14차 궁극기 개별 게이지 (only while the toggle is on)
+  member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId', 'ult'],
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
+  energy: ['value', 'max', 'regen'],
   stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage'],
   telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total'],
   zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
@@ -52,8 +58,10 @@ function audit(s: GameState, seen: Set<string>): string[] {
   }
   for (const p of s.players) {
     bad.push(...extra('player', p), ...extra('ult', p.ult), ...extra('stats', p.stats));
+    if (p.energy) (seen.add('energy'), bad.push(...extra('energy', p.energy)));
     for (const m of p.party) {
       bad.push(...extra('member', m));
+      if (m.ult) (seen.add('memberUlt'), bad.push(...extra('ult', m.ult)));
       for (const st of m.statuses) bad.push(...extra('status', st));
     }
     for (const pt of p.pets) bad.push(...extra('pet', pt));
@@ -84,7 +92,7 @@ function audit(s: GameState, seen: Set<string>): string[] {
 }
 
 /** A human slot that swaps / uses pets / ults on a fixed schedule; two bots; a disconnect + return in the middle. */
-function scripted(seed: number, observe: (tg: TestGame) => void): string {
+function scripted(seed: number, observe: (tg: TestGame) => void, extra: Partial<Tunables> = {}): string {
   const tg = makeGame({
     seed,
     players: [
@@ -92,7 +100,7 @@ function scripted(seed: number, observe: (tg: TestGame) => void): string {
       { name: '봇1', isBot: true, characters: ['gunner', 'warden', 'bard'], pets: ['owl_frost', 'turtle_guard', 'frog_bomb'] },
       { name: '봇2', isBot: true, characters: ['chrono', 'paladin', 'shadow'], pets: ['frog_bomb', 'owl_frost', 'fairy_heal'] },
     ],
-    tunables: { invincible: true, goedamRoomsPerZone: 2, fieldEventChance: 1 },
+    tunables: { invincible: true, goedamRoomsPerZone: 2, fieldEventChance: 1, ...extra },
   });
   const s = tg.w.state;
   s.players[0].relics.push('echo_seal');
@@ -143,8 +151,18 @@ describe('wire snapshot = contract only', () => {
       tick(boss.w);
       if (t % 15 === 0) for (const b of audit(cleanState(boss.w.state), seen)) bad.add(b);
     }
+    // 기획 14차: the per-character gauges are contract too
+    scripted(78, tg => {
+      if (tg.w.state.tick % 30 !== 0) return;
+      for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
+    }, { ultPerCharacter: true });
+    // 기획 14차: … and the energy pool
+    scripted(79, tg => {
+      if (tg.w.state.tick % 30 !== 0) return;
+      for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
+    }, { swapEnergyMode: true });
     expect([...bad]).toEqual([]);
-    for (const k of ['bossGroggy', 'bossGroggy:down']) expect(seen.has(k), k).toBe(true);
+    for (const k of ['bossGroggy', 'bossGroggy:down', 'memberUlt', 'energy']) expect(seen.has(k), k).toBe(true);
     // the run really exercised every kind
     for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog', 'fieldEvent', 'entity:event']) expect(seen.has(k), k).toBe(true);
   });
@@ -173,5 +191,54 @@ describe('determinism with observers', () => {
       g.clampToArena({ x: Number.NaN, y: Infinity });
     });
     expect(observed).toBe(plain);
+  }, 60_000);
+
+  it('기획 14차: with per-character ult gauges on, the read-only calls (fieldUltGauge, ultSecondsLeft, canUltState) leave it bit-identical too', () => {
+    const on = { ultPerCharacter: true };
+    const plain = scripted(4343, () => {}, on);
+    const observed = scripted(
+      4343,
+      tg => {
+        const g = tg.game;
+        for (let p = 0; p < 3; p++) {
+          const pl = g.state.players[p];
+          fieldUltGauge(pl);
+          for (let i = 0; i < 3; i++) ultSecondsLeft(g.tunables, pl, i);
+          canUltState(cleanState(g.state), p);
+          g.canSwap(p, 1);
+        }
+        wireJson(g.state);
+      },
+      on,
+    );
+    expect(observed).toBe(plain);
+    expect(plain).not.toBe(scripted(4343, () => {}));
+  }, 60_000);
+
+  it('기획 14차: with 교체 에너지 on (and both rules on), the read-only energy calls leave it bit-identical too', () => {
+    for (const on of [{ swapEnergyMode: true }, { swapEnergyMode: true, ultPerCharacter: true, swapEnergyMax: 6 }]) {
+      const plain = scripted(4444, () => {}, on);
+      const observed = scripted(
+        4444,
+        tg => {
+          const g = tg.game;
+          const snap = cleanState(g.state);
+          for (let p = 0; p < 3; p++) {
+            const pl = g.state.players[p];
+            for (let i = 0; i < 3; i++) {
+              swapCostNow(pl, i);
+              cardReady(pl, i);
+              energySecondsTo(pl, i, g.tunables.swapEnergyRegen);
+              canSwapState(snap, p, i);
+              g.canSwap(p, i);
+            }
+          }
+          wireJson(g.state);
+        },
+        on,
+      );
+      expect(observed).toBe(plain);
+      expect(plain).not.toBe(scripted(4444, () => {}));
+    }
   }, 60_000);
 });

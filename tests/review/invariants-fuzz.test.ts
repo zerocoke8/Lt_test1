@@ -6,6 +6,8 @@ import { TICK_RATE } from '../../src/config';
 import { FIELD_EVENTS, GOEDAM_ROOMS } from '../../src/data';
 import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
+import { perCharUlt } from '../../src/sim/ultMode';
+import { energyMode } from '../../src/sim/energy';
 import { CONTROL_STATUSES, type Command, type DebugAction, type PlayerSetup } from '../../src/types';
 import { BOT1, BOT2, HUMAN, makeGame, type TestGame } from '../sim/helpers';
 
@@ -33,6 +35,26 @@ function check(tg: TestGame, where: string): string[] {
     if (!(p.ult.charge >= 0 && p.ult.charge <= 1)) bad(`p${p.id} ult charge ${p.ult.charge}`);
     if ((p.ult.charge >= 1) !== (p.ult.fullSince != null) && s.phase === 'combat' && !p.out) bad(`p${p.id} fullSince ${p.ult.fullSince} charge ${p.ult.charge}`);
     if (p.appearLock < 0) bad(`p${p.id} appearLock < 0`);
+    // 기획 14차 궁극기 개별 게이지: all members carry a gauge or none; the mode follows the toggle by the next tick
+    const gauges = p.party.filter(m => m.ult != null).length;
+    if (gauges !== 0 && gauges !== p.party.length) bad(`p${p.id} ${gauges}/${p.party.length} member gauges`);
+    if (where === 'tick' && s.phase === 'combat' && perCharUlt(p) !== tg.w.tunables.ultPerCharacter) bad(`p${p.id} gauge mode ≠ toggle`);
+    // 기획 14차 교체 에너지: a pool iff the toggle is on (by the next tick); 0 ≤ value ≤ max = the slider; no cooldowns
+    if (where === 'tick' && s.phase === 'combat' && energyMode(p) !== tg.w.tunables.swapEnergyMode) bad(`p${p.id} energy mode ≠ toggle`);
+    if (p.energy) {
+      const e = p.energy;
+      if (!(e.value >= 0 && e.value <= e.max + 1e-9)) bad(`p${p.id} energy ${e.value} / ${e.max}`);
+      if (where === 'tick' && e.max !== Math.max(1, tg.w.tunables.swapEnergyMax)) bad(`p${p.id} energy max ${e.max} ≠ slider`);
+      p.party.forEach((m, i) => m.swapCooldownRemaining !== 0 && bad(`p${p.id} member ${i} cooling ${m.swapCooldownRemaining} in energy mode`));
+    }
+    if (perCharUlt(p)) {
+      if (p.ult.charge !== 0 || p.ult.fullSince != null) bad(`p${p.id} shared gauge used in per-character mode`);
+      p.party.forEach((m, i) => {
+        const g = m.ult!;
+        if (!(g.charge >= 0 && g.charge <= 1)) bad(`p${p.id} member ${i} ult charge ${g.charge}`);
+        if ((g.charge >= 1) !== (g.fullSince != null) && s.phase === 'combat' && !p.out) bad(`p${p.id} member ${i} fullSince ${g.fullSince} charge ${g.charge}`);
+      });
+    }
   }
   for (const e of s.entities) {
     if (e.rt.gone) continue;
@@ -109,6 +131,28 @@ const GOEDAM_PICKS = [...new Set(GOEDAM_ROOMS.flatMap(room => room.options.map(o
 /** 기획 13차 cases: forced breaks / near-full gauges and jumps onto boss floors (older cases keep their streams). */
 const GROGGY_DEBUG: DebugAction[] = [{ kind: 'forceGroggy' }, { kind: 'forceGroggy', fill: 0.85 }, { kind: 'jumpFloor', floor: 5 }, { kind: 'jumpFloor', floor: 15 }];
 
+/** 기획 14차: flip the per-character ult toggle and move its sliders (host tunables command, garbage values too). */
+function ultModeCommand(r: Rng): Command {
+  const patch = r.pick([
+    { ultPerCharacter: r.chance(0.5) },
+    { ultFieldChargeTime: r.range(5, 90) },
+    { ultBenchRatio: r.pick([0, 0.1, 1 / 3, 1, 7, -2]) },
+    { ultPerCharacter: r.chance(0.7), ultBenchRatio: r.range(0, 1) },
+  ]);
+  return { type: 'tunables', patch };
+}
+
+/** 기획 14차: flip the 교체 에너지 toggle and move its sliders (garbage values too); sometimes the ult toggle with it. */
+function energyModeCommand(r: Rng): Command {
+  const patch = r.pick<Record<string, unknown>>([
+    { swapEnergyMode: r.chance(0.5) },
+    { swapEnergyMax: r.pick([1, 4, 10, 20, 0, -3, 500]) },
+    { swapEnergyRegen: r.pick([0, 0.25, 1, 3, -1, 99]) },
+    { swapEnergyMode: r.chance(0.7), swapEnergyMax: r.range(4, 20), ultPerCharacter: r.chance(0.5) },
+  ]);
+  return { type: 'tunables', patch };
+}
+
 function randomCommand(r: Rng, n: number, extra: readonly DebugAction[] = []): Command {
   const k = r.next();
   const garbage = r.chance(0.08);
@@ -168,21 +212,40 @@ describe('invariants under random commands', () => {
     // 기획 13차 스킬 리뉴얼: all 15 renewed characters (taunt, tether, root, stasis, charm, blink chains, bench buffs …)
     { seed: 11, t: { maxFloor: 20, reviveTime: 8, monsterHpMult: 0.4 }, players: RENEWAL_A },
     { seed: 12, t: { maxFloor: 20, reviveTime: 20, monsterDmgMult: 3, fieldEventChance: 0.6 }, players: RENEWAL_B, groggy: false },
+    // 기획 14차 궁극기 개별 게이지: on from the start with rooms / field events / groggy, and flipped at random mid-run
+    { seed: 13, t: { maxFloor: 20, reviveTime: 8, ultPerCharacter: true, goedamRoomsPerZone: 2, fieldEventChance: 1, monsterHpMult: 0.3 }, groggy: true },
+    { seed: 14, t: { maxFloor: 20, reviveTime: 20, ultPerCharacter: true, ultFieldChargeTime: 8, monsterDmgMult: 3, goedamRoomsPerZone: 1 }, players: RENEWAL_A, ultFlip: true },
+    // 기획 14차 교체 에너지: on from the start (rooms, field events, groggy, 크로노 / 토끼 cuts), both test rules on, and
+    // flipped at random mid-run with its sliders
+    { seed: 15, t: { maxFloor: 20, reviveTime: 8, swapEnergyMode: true, goedamRoomsPerZone: 2, fieldEventChance: 1, monsterHpMult: 0.3 }, players: RENEWAL_B, groggy: true },
+    { seed: 16, t: { maxFloor: 20, reviveTime: 20, swapEnergyMode: true, swapEnergyMax: 6, swapEnergyRegen: 2, ultPerCharacter: true, monsterDmgMult: 3, goedamRoomsPerZone: 1, fieldEventChance: 0.6 }, players: RENEWAL_A },
+    { seed: 17, t: { maxFloor: 20, reviveTime: 8, swapEnergyMode: true, ultPerCharacter: true, monsterHpMult: 0.4, fieldEventChance: 1 }, energyFlip: true, groggy: true },
   ];
-  for (const { seed, t, groggy, players } of cases as { seed: number; t: object; groggy?: boolean; players?: PlayerSetup[] }[]) {
+  for (const { seed, t, groggy, players, ultFlip, energyFlip } of cases as { seed: number; t: object; groggy?: boolean; players?: PlayerSetup[]; ultFlip?: boolean; energyFlip?: boolean }[]) {
     it(`seed ${seed} ${JSON.stringify(t)}: 6 sim minutes, no broken invariant`, () => {
       const tg = makeGame({ seed, players: players ?? [HUMAN, BOT1, BOT2], tunables: t });
       const r = new Rng(seed * 7919);
       const errs: string[] = [];
       let rooms = 0;
       let breaks = 0;
+      let ults = 0;
+      let flips = 0;
+      let mode = perCharUlt(tg.w.state.players[0]);
+      let eFlips = 0;
+      let eMode = energyMode(tg.w.state.players[0]);
+      let swaps = 0;
       const controls = new Set<string>();
       const s = tg.w.state;
       for (let i = 0; i < 6 * 60 * TICK_RATE && s.phase !== 'runOver'; i++) {
         if (s.phase === 'combat') tick(tg.w);
         errs.push(...check(tg, 'tick'));
         if (r.chance(0.06)) {
-          const cmd = randomCommand(r, s.players.length, groggy ? GROGGY_DEBUG : []);
+          const cmd =
+            ultFlip && r.chance(0.15)
+              ? ultModeCommand(r)
+              : energyFlip && r.chance(0.15)
+                ? energyModeCommand(r)
+                : randomCommand(r, s.players.length, groggy ? GROGGY_DEBUG : []);
           tg.game.dispatch(cmd);
           errs.push(...check(tg, `after ${JSON.stringify(cmd)}`));
         }
@@ -196,11 +259,21 @@ describe('invariants under random commands', () => {
         const evs = tg.game.drainEvents();
         rooms += evs.filter(e => e.type === 'goedamOpen').length;
         breaks += evs.filter(e => e.type === 'bossGroggy').length;
+        ults += evs.filter(e => e.type === 'ultCast').length;
+        if (perCharUlt(s.players[0]) !== mode) (flips++, (mode = !mode));
+        if (energyMode(s.players[0]) !== eMode) (eFlips++, (eMode = !eMode));
+        swaps += evs.filter(e => e.type === 'appear').length;
         for (const e of evs) if (e.type === 'statusApplied') controls.add(e.status);
         if (errs.length > 20) break;
       }
       expect(errs.slice(0, 20)).toEqual([]);
       if (groggy) expect(breaks).toBeGreaterThan(0);
+      // 기획 14차: per-character runs really cast ults; the flip case really switched modes back and forth
+      if ((t as { ultPerCharacter?: boolean }).ultPerCharacter) expect(ults).toBeGreaterThan(3);
+      if (ultFlip) expect(flips).toBeGreaterThanOrEqual(2);
+      // 기획 14차 교체 에너지: swaps really happened under the pool; the flip case really switched modes
+      if ((t as { swapEnergyMode?: boolean }).swapEnergyMode) expect(swaps).toBeGreaterThan(10);
+      if (energyFlip) expect(eFlips).toBeGreaterThanOrEqual(2);
       // 기획 13차: the renewed parties really put their control statuses on the field
       if (players) expect([...controls].sort()).toEqual(expect.arrayContaining(['root', 'taunt', 'tether'].filter(id => players.some(p => p.characters.includes(OWNER[id])))));
       if ((t as { goedamRoomsPerZone?: number }).goedamRoomsPerZone) expect(rooms).toBeGreaterThan(0);

@@ -150,7 +150,7 @@ describe('R27/R28 at the edges: every enemy-hitting drag skill, 6 drops (inside,
             expect(sortedKeys(count), label).toEqual(sortedKeys(want));
           }
         }
-      });
+      }, 20_000); // ~2 s alone; under the full parallel suite it could pass the 5 s default
     }
   }
 });

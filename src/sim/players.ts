@@ -10,11 +10,13 @@ import { petCooldownFor, swapCooldownFor } from './cooldowns';
 import { charCtx, petCtx } from './ctx';
 import { benchActive, createCharacterEntity } from './entities';
 import { fieldEventOnDrop } from './fieldEvents';
-import { appearShieldFrac, hasRelic, relicParam, ultChargeRate } from './modifiers';
+import { appearShieldFrac, hasRelic, relicParam } from './modifiers';
 import { partsForActions } from './preview';
 import { addTelegraph, castSkill } from './skills';
 import { benchMaxHp, effStats } from './stats';
 import { applyStatus, tickStatusTimers } from './status';
+import { fieldUltGauge, perCharUlt, refundUlt, syncUltMode, tickUlt, ultCastableSince } from './ultMode';
+import { canAffordSwap, spendSwapEnergy, syncEnergyMode, tickEnergy } from './energy';
 import {
   activeEntity,
   aliveEnemiesOf,
@@ -27,6 +29,9 @@ import {
   type SimPlayer,
   type World,
 } from './world';
+
+// 기획 14차: the gauge rules (shared / per character) live in ./ultMode; re-exported for older importers
+export { setUltCharge, ultChargeTimeFor } from './ultMode';
 
 const ok: CommandResult = { ok: true };
 const fail = (reason: string): CommandResult => ({ ok: false, reason });
@@ -51,7 +56,10 @@ export function canSwapState(s: GameState, pi: number, idx: number): CommandResu
   if (p.activeIndex === idx) return fail('이미 필드에 있음');
   if (m.dead) return fail('사망');
   // A card's own cooldown is the more useful reason, so it wins over the shared 0.5 s appear lock.
-  if (m.swapCooldownRemaining > 0) return fail('쿨타임');
+  // 기획 14차 교체 에너지: the player's pool instead of the card's cooldown (src/sim/energy.ts)
+  if (p.energy) {
+    if (!canAffordSwap(p, idx)) return fail('에너지 부족');
+  } else if (m.swapCooldownRemaining > 0) return fail('쿨타임');
   if (p.appearLock > 0) return fail('등장 중');
   return ok;
 }
@@ -71,9 +79,11 @@ export function canUltState(s: GameState, pi: number): CommandResult {
   if (!p) return fail('잘못된 대상');
   if (p.out) return fail('관전 중');
   if (s.phase !== 'combat') return fail('전투 중이 아님');
-  if (p.ult.charge < 1) return fail('게이지 부족');
   const m = p.activeIndex != null ? p.party[p.activeIndex] : null;
-  if (!m || m.dead || m.entityId == null) return fail('필드에 캐릭터 없음');
+  // 기획 14차: the field character's own gauge in per-character mode (an empty field has none → '필드에 캐릭터 없음')
+  const g = fieldUltGauge(p);
+  if (g && g.charge < 1) return fail('게이지 부족');
+  if (!g || !m || m.dead || m.entityId == null) return fail('필드에 캐릭터 없음');
   return ok;
 }
 
@@ -88,6 +98,7 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
   if (!r.ok) return r;
   const p = w.state.players[pi];
   const t = w.tunables;
+  spendSwapEnergy(w, p, idx); // 기획 14차 교체 에너지 (no-op while the toggle is off)
 
   // 1) leaving character
   const old = activeEntity(w, p);
@@ -97,9 +108,12 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
     const leaveCtx = charCtx(w, old, 'passive', { id: 'relay_flag', name: '교대의 깃발' });
     benchActive(w, p);
     // 기획 6차: the re-appear (= drag skill) cooldown starts when a character is swapped OUT, not when it appears.
-    const lm = p.party[leaveIdx];
-    lm.swapCooldownTotal = swapCooldownFor(w, p, leaveIdx);
-    lm.swapCooldownRemaining = lm.swapCooldownTotal;
+    // 기획 14차 교체 에너지: no re-appear cooldown — the pool limits swaps (the card may come back at once)
+    if (!p.energy) {
+      const lm = p.party[leaveIdx];
+      lm.swapCooldownTotal = swapCooldownFor(w, p, leaveIdx);
+      lm.swapCooldownRemaining = lm.swapCooldownTotal;
+    }
     emit(w, { type: 'leave', player: p.id, partyIndex: leaveIdx, pos: leavePos });
     if (hasRelic(p, 'relay_flag')) relayExplosion(w, leaveCtx, leavePos);
   } else {
@@ -171,8 +185,9 @@ export function canUlt(w: World, pi: number): CommandResult {
   if (!p) return fail('잘못된 대상');
   if (p.out) return fail('관전 중');
   if (w.state.phase !== 'combat') return fail('전투 중이 아님');
-  if (p.ult.charge < 1) return fail('게이지 부족');
-  if (!activeEntity(w, p)) return fail('필드에 캐릭터 없음');
+  const g = fieldUltGauge(p);
+  if (g && g.charge < 1) return fail('게이지 부족');
+  if (!g || !activeEntity(w, p)) return fail('필드에 캐릭터 없음');
   return ok;
 }
 
@@ -183,17 +198,19 @@ export function useUlt(w: World, pi: number): CommandResult {
   const e = activeEntity(w, p)!;
   const def = e.rt.charDef!;
   const sk = def.ult;
-  const fullSince = p.ult.fullSince ?? w.state.time;
+  const g = fieldUltGauge(p)!; // 기획 14차: the shared gauge, or the field character's own
+  // 기획 14차 개별 게이지: a gauge that filled on the bench counts from the swap-in (ultCastableSince)
+  const fullSince = ultCastableSince(p, g, w.state.time, e.rt.appearedAt);
   p.stats.ultDelayTotal += Math.max(0, w.state.time - fullSince);
   p.stats.ultDelayCount++;
   p.stats.ultsUsed++;
-  p.ult.charge = 0;
-  p.ult.fullSince = null;
+  g.charge = 0;
+  g.fullSince = null;
   // 기획 13차 컷인 (docs/skill-renewal.md 2-3): the cut-in starts on every screen; the sim keeps running, the caster is
   // invulnerable for the guard and stands still for castTime, and the effects land from ULT_CUTIN.firstHit s on
   emit(w, { type: 'ultCast', player: p.id, entityId: e.id, defId: def.id, skillId: sk.id, name: sk.name });
   e.invulnTime = Math.max(e.invulnTime, ULT_CUTIN.guard);
-  castSkill(w, { ...charCtx(w, e, 'ult', sk), ultCast: { landed: false } }, sk.actions);
+  castSkill(w, { ...charCtx(w, e, 'ult', sk), ultCast: { landed: false, member: p.activeIndex } }, sk.actions);
   if (sk.castTime && sk.castTime > 0) {
     e.rt.lockTime = Math.max(e.rt.lockTime, sk.castTime);
     e.anim = 'cast';
@@ -203,40 +220,30 @@ export function useUlt(w: World, pi: number): CommandResult {
 }
 
 /**
- * Seconds for an empty gauge to fill (R9 time-only charge × 기획 10차 trace rate: 혼선 30 s → ~43 s). Pure (tunables +
- * PlayerState): the sim charges with it and the HUD's 'N초 후' / skill sheet show it, also on a client's snapshot.
- */
-export function ultChargeTimeFor(tunables: Pick<Tunables, 'ultChargeTime'>, p: PlayerState): number {
-  return Math.max(0.01, tunables.ultChargeTime) / ultChargeRate(p);
-}
-
-/**
  * 기획 13차: floor clear / boss retreat during the cut-in (every ult effect waits ≥ ULT_CUTIN.firstHit s): an ult none
  * of whose parts fired yet is given back — a full gauge, not counted as used.
  */
 export function refundUnlandedUlts(w: World): void {
-  const refund = new Set<number>();
-  for (const p of w.pending) if (p.kind === 'hit' && p.ctx.ultCast && !p.ctx.ultCast.landed && p.ctx.player != null) refund.add(p.ctx.player);
-  for (const pi of refund) {
-    const p = w.state.players[pi];
-    if (!p) continue;
+  // 기획 14차: per character, two characters of one player can both be in their cut-in — each gets its own back
+  // casts are told apart by the member recorded at cast time (counted as used once each), gauges by where the refund
+  // goes now (the toggle may have turned off since: both casts then fill the one shared gauge)
+  const casts = new Set<string>();
+  const refund = new Map<string, { pi: number; member: number | null }>();
+  for (const pd of w.pending) {
+    if (pd.kind !== 'hit' || !pd.ctx.ultCast || pd.ctx.ultCast.landed || pd.ctx.player == null) continue;
+    const pi = pd.ctx.player;
+    const owner = w.state.players[pi];
+    if (!owner) continue;
+    const cast = pd.ctx.ultCast.member ?? null;
+    const member = perCharUlt(owner) ? cast : null;
+    casts.add(`${pi}:${cast}`);
+    refund.set(`${pi}:${member}`, { pi, member });
+  }
+  for (const key of casts) {
+    const p = w.state.players[Number(key.split(':')[0])];
     p.stats.ultsUsed = Math.max(0, p.stats.ultsUsed - 1);
-    setUltCharge(w, p, 1);
   }
-}
-
-/** Set the ult gauge (0..1). Full: fullSince starts now + 'ultReady'; below full: fullSince cleared (기획 10차). */
-export function setUltCharge(w: World, p: SimPlayer, value: number): void {
-  // same near-full snap as tickPlayers: 0.7 of tick charge + 0.3 can land at 0.99999… (no ultReady otherwise)
-  p.ult.charge = value > 1 - 1e-9 ? 1 : Math.max(0, value);
-  if (p.ult.charge >= 1) {
-    if (p.ult.fullSince == null) {
-      p.ult.fullSince = w.state.time;
-      emit(w, { type: 'ultReady', player: p.id });
-    }
-  } else {
-    p.ult.fullSince = null;
-  }
+  for (const { pi, member } of refund.values()) refundUlt(w, w.state.players[pi], member);
 }
 
 // ─────────────────────────── Pets ───────────────────────────
@@ -270,18 +277,14 @@ function dec(x: number, dt: number): number {
 
 export function tickPlayers(w: World, dt: number): void {
   const t = w.tunables;
+  syncUltMode(w); // 기획 14차: follow the 궁극기 개별 게이지 toggle (no-op while it agrees with the state)
+  syncEnergyMode(w); // 기획 14차: follow the 교체 에너지 toggle and its max slider
   for (const p of w.state.players) {
     if (p.out) continue;
     p.appearLock = dec(p.appearLock, dt);
-    // R9: time-only charge, per player
-    if (p.ult.charge < 1) {
-      p.ult.charge = Math.min(1, p.ult.charge + dt / ultChargeTimeFor(t, p));
-      if (p.ult.charge > 1 - 1e-9) p.ult.charge = 1;
-    }
-    if (p.ult.charge >= 1 && p.ult.fullSince == null) {
-      p.ult.fullSince = w.state.time;
-      emit(w, { type: 'ultReady', player: p.id });
-    }
+    // R9: time-only charge, per player (기획 14차: or per character — src/sim/ultMode.ts)
+    tickUlt(w, p, dt);
+    tickEnergy(w, p, dt); // 기획 14차 교체 에너지: regen (no pool while the toggle is off)
     for (const s of p.pets) s.cooldownRemaining = t.instantCooldowns ? 0 : dec(s.cooldownRemaining, dt);
     p.party.forEach((m, idx) => {
       m.swapCooldownRemaining = t.instantCooldowns ? 0 : dec(m.swapCooldownRemaining, dt);

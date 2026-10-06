@@ -7,6 +7,7 @@ import { WEAK_MULT } from '../data';
 import { fieldEventDeath } from './fieldEvents';
 import { groggyHitMult } from './groggy';
 import { damageTakenMult, hasRelic, relicParam } from './modifiers';
+import { cutBenchSwap } from './energy';
 import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
 import { benchMaxHp, effStats } from './stats';
@@ -196,12 +197,12 @@ export function addShield(target: SimEntity, amount: number, duration: number): 
   target.rt.shieldTime = Math.max(target.rt.shieldTime, duration);
 }
 
-/** Bench swap cooldown reduction (pet rabbit, hunter_mark). */
-export function reduceBenchSwapCd(p: SimPlayer, seconds: number): void {
-  p.party.forEach((m, i) => {
-    if (i === p.activeIndex) return;
-    m.swapCooldownRemaining = Math.max(0, m.swapCooldownRemaining - seconds);
-  });
+/**
+ * Bench swap cooldown reduction (pet rabbit, hunter_mark, 크로노). 기획 14차 교체 에너지: N s of regen instead, or a
+ * fixed `energy` when the effect carries one (크로노 균열).
+ */
+export function reduceBenchSwapCd(w: World, p: SimPlayer, seconds: number, energy?: number): void {
+  cutBenchSwap(w, p, seconds, energy);
 }
 
 /**
@@ -223,7 +224,7 @@ export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null, opts?:
     const kp = killer?.player != null ? w.state.players[killer.player] : undefined;
     if (kp) {
       kp.stats.kills++;
-      if (hasRelic(kp, 'hunter_mark')) reduceBenchSwapCd(kp, relicParam('hunter_mark', 'seconds'));
+      if (hasRelic(kp, 'hunter_mark')) reduceBenchSwapCd(w, kp, relicParam('hunter_mark', 'seconds'));
     }
   }
   if (w.state.fieldEvent) fieldEventDeath(w, e, killer);

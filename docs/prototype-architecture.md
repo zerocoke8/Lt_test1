@@ -459,3 +459,54 @@ src/sim (서버·혼자 하기 공통, 결정적)
 - 스냅샷 크기는 multiplayer.md 7-1.
 
 **확인한 것**: `npx tsc --noEmit`, `npm run typecheck:server`, `npx vitest run`(53파일 689개), `npm run build:all`, `npm run build:artifact`, `npx playwright test` 전체(폰·PC·멀티) 3번. 새 e2e: 멀티 「보스 그로기·궁극기 컷인 (13차)」(세 화면 같은 게이지·같은 쓰러짐·컷인은 내 화면만), 아티팩트 테스트에 효과음(첫 클릭에 켜짐, 드래그 단계 소리, 요청 0·콘솔 오류 0). 12차 뒤 한 번 실패했던 멀티 첫 테스트는 이번에 전체 실행 3번 + 따로 6번 + CPU 2코어를 일부러 바쁘게 한 채 4번, 모두 통과 — 원래 오류 기록이 남아 있지 않아 원인은 못 찾음(추정했던 "드래그 미리보기가 마지막 터치 이동보다 늦게 갱신"은 6× CPU 실험에서 재현 안 됨).
+
+## 14차: 실험 규칙 토글 — 궁극기 개별 게이지 (2026-10-06)
+
+규칙은 [`game-design.md`](game-design.md) 27-1. 기본 꺼짐 = 13차와 완전히 같은 판(`tests/sim/default-off-golden.test.ts`: 13차 코드로 잡은 상태·이벤트 해시 2개).
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/sim/ultMode.ts` (새) | 규칙 전부: 모드 판정(`perCharUlt`), 버튼 게이지(`fieldUltGauge`), 카드 게이지, 채우는 시간·남은 초, 토글 따라가기(`syncUltMode`), 틱 충전, 얻기·잃기(`setUltCharge`/`addUltCharge` → 필드 캐릭터), 디버그 충전, 컷인 환불 |
+| `src/types.ts` | `PartyMember.ult?` (켜져 있을 때만 존재), `UltGauge`, `ultReady.partyIndex?`, `Tunables.ultPerCharacter/ultFieldChargeTime/ultBenchRatio` |
+| `src/sim/players.ts`, `game.ts`, `goedam.ts`, `fieldEvents.ts`, `bot.ts` | 기존 게이지 지점(시전·확인·틱·환불·디버그·괴담·금두꺼비·봇)이 `ultMode` 함수를 부름. 봇 `ultCard`: 가득 찬 대기 카드 꺼내기 |
+| `src/ui/hud.ts`, `styles.css`, `skillinfo.ts` | 카드 링 `.cc-ult`, 버튼 = 필드 캐릭터 게이지, 스킬 정보 「필드 30초 · 대기 90초」 |
+| `src/ui/tunables.ts`, `debug.ts` | `ToggleSpec.mode` + `SliderSpec.mode`: 「실험 규칙」 칸에 토글 → 설명 → 그 규칙 슬라이더 (꺼져 있으면 흐리게). 교체 에너지도 같은 틀로 추가 |
+| `src/audio/director.ts`, `src/ui/app.ts` | 「궁극기 준비」·10초 알림·충전 중 토스트가 필드 캐릭터 게이지 기준 |
+| `src/sim/telemetry.ts` | 서버 한도 `ultFieldChargeTime` 1~600, `ultBenchRatio` 0~1 |
+
+- **모드는 상태에 있다**: 켜져 있으면 세 카드 모두 `ult`를 갖고, 꺼져 있으면 아무도 안 갖는다. 클라이언트의 확인(`canUltState`)·HUD·소리는 스냅샷만 보고 판단하므로 토글 값이 늦게 와도 서로 어긋나지 않음. 토글 → 상태 반영은 `syncUltMode` (판 시작, 매 틱, 명령마다, 튜닝 명령 직후).
+- 테스트: `tests/sim/ult-per-character.test.ts`(규칙 13개 + 봇), fuzz 2판(켜고 시작 / 도중에 마구 켜고 끄기), 전송 키(`member.ult`) + 관찰자 결정성, 서버(방장만, 두 화면 다 반영), `tests/e2e/ult-per-char.spec.ts`(폰: 패널에서 켜기 → 링 3개 → 필드 캐릭터 궁극기).
+
+### 14차: 실험 규칙 토글 — 교체 에너지
+
+규칙은 [`game-design.md`](game-design.md) 27-2, 비용표·20층 측정은 [`balance.md`](balance.md) 13장. 두 토글은 서로 독립(둘 다 켠 fuzz·결정성 판 있음).
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/sim/energy.ts` (새) | 규칙 전부: 모드 판정(`energyMode`), 비용(`swapEnergyCost` = 데이터 − 빠른 교대 v/2 × 속도, `swapCostNow` = 최대 에너지로 자름), 확인(`canAffordSwap`, `cardReady`, `energySecondsTo`), 토글 따라가기(`syncEnergyMode`), 틱 충전(`tickEnergy`), 쓰기(`spendSwapEnergy`), 쿨 감소 → 에너지(`cutBenchSwap`: 초 × 속도, 효과에 `energy`가 있으면 그 값 — 크로노 균열 2), 「쿨 0」 → 가득(`resetSwapCooldowns`) |
+| `src/types.ts`, `src/data/characters.ts` | `PlayerState.energy?: {value, max, regen}` (켜져 있을 때만; regen = 차는 속도, 클라이언트 비용 계산용), `CharacterDef.swapEnergy` (5~7), `Tunables.swapEnergyMode/swapEnergyMax/swapEnergyRegen` |
+| `src/sim/players.ts` | `canSwapState`: 켜져 있으면 쿨 대신 「에너지 부족」. `doSwap`: 비용을 쓰고 나가는 카드에 쿨을 안 붙임. `tickPlayers`: `syncEnergyMode` + `tickEnergy` |
+| `src/sim/combat.ts`, `skills.ts`, `goedam.ts`, `fieldEvents.ts`, `floor.ts`, `game.ts` | 쿨을 줄이던 곳(`reduceBenchSwapCd` → `cutBenchSwap`)과 0으로 만들던 곳(괴담 「모든 쿨 0」, 돌발 「교체 쿨 0」, 탈락 후 복귀, 디버그 「쿨 초기화」 → `resetSwapCooldowns`)이 한 함수씩만 부름. 봇은 `canSwap`을 쓰므로 바뀐 코드 없음 |
+| `src/ui/hud.ts`, `styles.css` | 카드 줄 위 `.hud-energy` (칸 = 최대 에너지, `+N⚡` 팝, 거절 흔들림), 카드 `.cc-cost` 「⚡6」 + `.is-short`, 「에너지 부족」 토스트(`refusalText`), 스킬 정보 「교체 ⚡6」, 빈 필드 안내. 켜져 있으면 상태 이상 아이콘과 1회 팁이 바 위로 올라감 |
+| `src/ui/format.ts` (`energyRuleText`), `skillinfo.ts`, `reward.ts`, `fieldEventHud.ts`, `preset.ts`, `app.ts` | 「재등장 쿨 N초 감소」 같은 설명을 에너지 말로 (보상·유물·펫·스킬·돌발 괴담 보상), 프리셋 카드 「⚡6」 |
+| `src/ui/tunables.ts` | 토글 + `swapEnergyMax`(4~20) · `swapEnergyRegen`(0.25~3 /초) 슬라이더 (실험 규칙 칸, 토글 바로 아래). 슬라이더 값 표시는 단계의 소수 자리만큼 |
+| `src/audio/director.ts` | 카드 준비 = `cardReady` (켜져 있으면 대기 카드가 처음 쓸 수 있게 될 때 한 번) |
+| `src/sim/telemetry.ts` | 서버 한도 `swapEnergyMax` 1~100, `swapEnergyRegen` 0~20 |
+
+- **모드는 상태에 있다** (궁극기 개별 게이지와 같은 방식): `energy`가 있으면 켜진 것. 클라이언트 확인(`canSwapState`)은 스냅샷의 `energy.value`/`max`와 카드 데이터·보상만으로 판단. 전송값은 소수 둘째 자리로 반올림되므로 비용과 0.01 안쪽 차이만 서버가 다르게 볼 수 있음(그때는 서버가 거절, 토스트).
+- 테스트: `tests/sim/swap-energy.test.ts`(16개, 봇 2개 포함), fuzz 3판(켜고 시작 / 두 토글 다 / 도중에 마구 켜고 끄기·이상한 값), 전송 키(`player.energy`) + 관찰자 결정성(켬, 둘 다 켬), 서버(방장만, 두 화면 반영, 한도), UI(슬라이더·문구·소리), `tests/e2e/swap-energy.spec.ts`(폰·데스크톱: 패널에서 켜기 → 슬라이더 12·0.25 → 바 12칸·카드 비용 → 교체가 에너지를 씀 → 모자란 카드 거절).
+
+### 14차 통합 확인
+
+- 두 토글은 서로 독립: 각 규칙 코드는 `src/sim/ultMode.ts`·`src/sim/energy.ts` 한 곳씩, 기존 지점은 함수 한 번씩만 부름. 모드는 **상태**(`party[].ult`, `players[].energy`)에 있으므로 클라이언트는 스냅샷만 보고 판단 — 멀티에서 튜닝 값이 늦게 와도 버튼·카드·소리가 서버와 어긋나지 않음.
+- 새·늘린 e2e:
+  - `multi.spec.ts` 「3 players (기획 14차)」: 방장 패널 → 두 규칙·에너지 슬라이더, 세 화면 같은 바·링, B의 교체가 B의 에너지만, 방장 아닌 사람의 튜닝 시도 3가지 모두 막힘, C의 궁극기가 C의 필드 게이지만, 끄기, 같은 틱 비교(차이 0). `energy-multi.png`.
+  - `artifact.spec.ts`: 한 파일 빌드에서 두 규칙을 패널로 켜고 교체·궁극기, 요청 0 · 콘솔 오류 0.
+  - `swap-energy.spec.ts`: 「실험 규칙」 칸 구조(토글 → 그 규칙 슬라이더 2개, 가로 스크롤 없음) + `debug-modes.png`.
+  - 거절 토스트(약 1.9초)는 멀티처럼 터치 드래그가 느린 판에서 지나가 버릴 수 있어서, 나타나는 순간 기록해 확인(13차 두꺼비 테스트와 같은 방식).
+- 스냅샷 크기는 multiplayer.md 7-2 (`snap-size.ts`에 `SNAP_TUN` 추가).
+- 화면 이름 정리: `ult-per-character.png` → `ult-per-char.png`.
+- **확인한 것**: `npx tsc --noEmit`, `npm run typecheck:server`, `npx vitest run`(56파일 749개), `npm run build:all`, `npm run build:artifact`, `npx playwright test` 전체(폰·PC·멀티) 3번 — 새 테스트를 넣기 전 36개 통과, 넣은 뒤 2번 연속 41개 통과(5개는 원래 건너뜀: 성능 측정, 폰 전용·PC 전용). 13차에서 간헐 실패를 기록해 두었던 멀티 첫 테스트(「3 players: lobby → room → start …」)는 3번 모두 통과(재현 안 됨).
+- **14차 리뷰 수정** (규칙은 game-design.md 27-3b): `energy.ts` 균열 고정 에너지(`Effect.swapCooldownReduce.energy`) · 빠른 교대 × 속도 · `SwapEnergy.regen`; `ultMode.ts` 관전 중 토글은 1번 슬롯으로(`syncUltMode`), `ultCastableSince`(궁극기 대기 통계를 필드에 나온 때부터, 캐릭터 엔티티 `rt.appearedAt`); `players.ts refundUnlandedUlts`가 시전마다 사용 횟수를 되돌림; `director.ts` 10초 알림은 필드에 나온 때부터 · 카드마다 한 번; `debug.ts touchSafeRange`(터치: 옆으로 끌기·톡 = 값, 세로 = 스크롤만) + 「실험 규칙」 칸을 맨 위로 + 폰 글자 키움; `skillinfo.ts` 줄 줄임 + `.ss-skill` 두 줄 허용; `preset.ts` 설명 끝 「⚡ = 교체 비용」 · `setUltPerCharacter` · 출발 위 한 줄 메모; 궁극기 버튼 「준비 완료」. 테스트: `swap-energy.test.ts`(크로노 속도 0.25·1·3), `ult-per-character.test.ts`(관전 토글, 겹친 컷인, 대기 통계), `audio.test.ts`(알림), `ui-logic.test.ts`(문구), `swap-energy.spec.ts` 폰 전용(세로로 밀어도 값 그대로 + 가로 끌기 · 두 규칙 켜고 거너·크로노·메이지 스킬 정보 이름 잘림 0).
+- vitest를 Playwright와 **동시에** 돌리면 CPU가 모자라 vitest가 「Timeout calling onTaskUpdate」(테스트 결과 보고 지연, 테스트 749개는 모두 통과)를 낼 수 있음 — 따로 돌리면 깨끗함.
+

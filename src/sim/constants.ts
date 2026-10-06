@@ -49,4 +49,7 @@ export const BOT = {
   // 기획 13차 보스 그로기: 'almost full' → a stun drag first; a full ult is used within ultGroggy s of a groggy boss
   nearFull: 0.8,
   ultGroggy: 0.5,
+  // 기획 14차 궁극기 개별 게이지: with the field ult spent, a ready bench card whose own ult is full comes in early
+  // when the fight is worth it (a boss / mid boss, or at least this many enemies)
+  ultSwapEnemies: 4,
 };

@@ -6,7 +6,9 @@
 import './styles.css';
 import type { Command, CommandResult, DragPreview, Game, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../config';
+import { TOGGLES } from './tunables';
 import { createGame } from '../sim';
+import { fieldUltGauge } from '../sim/ultMode';
 import { createRenderer } from '../render';
 import { TickSmoother } from '../render/smooth';
 import { isSoloOnlyBuild, type NetStatus } from '../net/connection';
@@ -252,8 +254,16 @@ export function startApp(root: HTMLElement): void {
   };
 
   function refreshDebugNote(): void {
-    const n = Object.keys(loadTunableOverrides()).length;
-    preset.setDebugNote(n > 0 ? `디버그 튜닝 ${n}개 적용 중` : '');
+    const o = loadTunableOverrides();
+    const t = { ...DEFAULT_TUNABLES, ...o };
+    // 기획 14차: name the test rules the next run plays with; the other saved tunings are counted
+    const rules = TOGGLES.filter(x => x.mode && t[x.key]);
+    const n = Object.keys(o).filter(k => !rules.some(r => r.key === k)).length;
+    const tuned = n > 0 ? `디버그 튜닝 ${n}개 적용 중` : '';
+    preset.setDebugNote(rules.length > 0 ? `실험 규칙: ${rules.map(r => r.label).join(' · ')}${n > 0 ? ` (+ 튜닝 ${n}개)` : ''}` : tuned);
+    // 기획 14차 교체 에너지: the preset shows swap costs instead of re-appear cooldowns while the saved toggle is on
+    preset.setSwapEnergy(t.swapEnergyMode ? t.swapEnergyRegen : null);
+    preset.setUltPerCharacter(!!t.ultPerCharacter);
   }
 
   function refreshNetNote(): void {
@@ -429,7 +439,7 @@ export function startApp(root: HTMLElement): void {
     const me = game.state.players[localPlayer];
     const text =
       r.reason === '게이지 부족'
-        ? `궁극기 충전 중 · ${Math.floor((me?.ult.charge ?? 0) * 100)}%`
+        ? `궁극기 충전 중 · ${Math.floor(((me && fieldUltGauge(me)?.charge) ?? 0) * 100)}%`
         : r.reason === '필드에 캐릭터 없음'
           ? '필드에 캐릭터가 없어요 · 카드를 먼저 끌어 놓으세요'
           : r.reason === '관전 중'
@@ -544,7 +554,7 @@ export function startApp(root: HTMLElement): void {
     menuOpen = false;
     // HUD toasts/banners stack above the screen layer: hide them under the result screen
     hud?.setCovered(true);
-    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null });
+    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null, energyRegen: game.tunables.swapEnergyRegen });
     goedam.hide();
     result.show(game, quitWhileOut, { localPlayer, multi: mode === 'multi', isHost: !!remote?.isHost });
     sfx.scene('result');
@@ -649,7 +659,7 @@ export function startApp(root: HTMLElement): void {
       hud.setSpectateAction(remote.isHost ? null : '나가기');
       if (!remote.isHost && debug.isOpen) debug.close();
     }
-    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.rewardDeadline ?? null });
+    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.rewardDeadline ?? null, energyRegen: game.tunables.swapEnergyRegen });
     goedam.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.goedamDeadline ?? null });
     hud?.setCovered(reward.visible || goedam.visible || paused || menuOpen);
     if (game.state.phase === 'runOver' && resultAt == null) resultAt = now + (quitRequested ? 0 : RESULT_DELAY_MS);

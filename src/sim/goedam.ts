@@ -29,7 +29,9 @@ import {
   goedamRoomWeight,
 } from '../data';
 import { heal } from './combat';
-import { refreshMaxHp, revive, setUltCharge, syncMembers } from './players';
+import { refreshMaxHp, revive, syncMembers } from './players';
+import { addUltCharge, setUltCharge } from './ultMode';
+import { resetSwapCooldowns } from './energy';
 import { drawOne, grantReward } from './rewards';
 import { mixSeed, Rng } from './rng';
 import { emit, getEntity, type SimPlayer, type World } from './world';
@@ -279,14 +281,12 @@ function applyEffect(w: World, p: SimPlayer, e: GoedamEffect, params: GoedamPara
     case 'ultSet':
       return setUltCharge(w, p, e.value);
     case 'ultAdd':
-      return setUltCharge(w, p, p.ult.charge + e.value);
+      return addUltCharge(w, p, e.value); // 기획 14차: the field character's gauge in per-character mode
     case 'resetCooldowns':
       for (const pet of p.pets) pet.cooldownRemaining = 0;
       if (!e.petsOnly) {
-        for (const m of p.party) {
-          m.swapCooldownRemaining = 0;
-          m.normalCooldownRemaining = 0;
-        }
+        for (const m of p.party) m.normalCooldownRemaining = 0;
+        resetSwapCooldowns(p); // 기획 14차 교체 에너지: a full pool instead
       }
       return;
     case 'reward':

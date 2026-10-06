@@ -144,7 +144,16 @@ export type Effect =
    * Reduce the caster player's bench swap cooldowns (allPlayers 기획 13차: every non-out player's). Applied ONCE per
    * action, not per target. Emits 'swapCdCut'.
    */
-  | { kind: 'swapCooldownReduce'; seconds: number; allPlayers?: boolean }
+  | {
+      kind: 'swapCooldownReduce';
+      seconds: number;
+      allPlayers?: boolean;
+      /**
+       * 기획 14차 교체 에너지: in energy mode this cut returns exactly this much energy instead of seconds × regen —
+       * a character's own refund that is priced into its swapEnergy (크로노 균열), so the cost table holds at any regen.
+       */
+      energy?: number;
+    }
   /**
    * 기획 12차: amount × member maxHp to the bench (not field, not dead) members of the caster player, or of every non-out
    * player when allPlayers. Applied once per action.
@@ -287,8 +296,13 @@ export interface CharacterDef {
   /** Placeholder art color. */
   color: string;
   stats: StatBlock;
-  /** Re-appearance cooldown in seconds (8~12). This IS the drag-skill cooldown. Starts when the character appears. */
+  /** Re-appearance cooldown in seconds (8~12). This IS the drag-skill cooldown. Starts when the character leaves. */
   swapCooldown: number;
+  /**
+   * 기획 14차 교체 에너지 (test toggle Tunables.swapEnergyMode): energy one swap-in of this character costs (4~8),
+   * set from the measured drag value per cast so value per energy is about equal (docs/balance.md 13-4).
+   */
+  swapEnergy: number;
   basic: BasicAttack;
   passive: PassiveDef;
   normal: SkillDef;
@@ -679,6 +693,27 @@ export interface PartyMember {
   normalCooldownRemaining: number;
   /** Entity id while on field. */
   entityId: number | null;
+  /**
+   * 기획 14차 궁극기 개별 게이지 (debug toggle Tunables.ultPerCharacter): this character's own gauge. Present on every
+   * member while the toggle is on, absent when it is off (then PlayerState.ult is the one shared gauge). src/sim/ultMode.ts.
+   */
+  ult?: UltGauge;
+}
+
+/**
+ * 기획 14차 교체 에너지: value 0..max (fractional: it fills continuously), max = Tunables.swapEnergyMax, regen =
+ * Tunables.swapEnergyRegen (per second; carried so pure checks on a client snapshot price 빠른 교대 like the sim).
+ */
+export interface SwapEnergy {
+  value: number;
+  max: number;
+  regen: number;
+}
+
+/** An ult gauge: charge 0..1 (1 = usable), fullSince = sim time it became full (null below full). */
+export interface UltGauge {
+  charge: number;
+  fullSince: number | null;
 }
 
 export interface PetSlot {
@@ -724,7 +759,13 @@ export interface PlayerState {
   /** Party index on field, null = field empty. */
   activeIndex: number | null;
   pets: PetSlot[];
-  ult: { charge: number; fullSince: number | null };
+  /** The player's shared ult gauge (today's rule). 기획 14차: unused while the members carry their own (PartyMember.ult). */
+  ult: UltGauge;
+  /**
+   * 기획 14차 교체 에너지 (debug toggle Tunables.swapEnergyMode): the pool the player's 3 characters swap in with.
+   * Present while the toggle is on (then no character has a re-appear cooldown), absent when it is off. src/sim/energy.ts.
+   */
+  energy?: SwapEnergy;
   /** 사망: all 3 characters dead at the same moment. Spectating for rest of run. */
   out: boolean;
   /** Multiplayer: this human dropped; a bot drives the slot until they reconnect. */
@@ -1028,7 +1069,8 @@ export type GameEvent =
   | { type: 'spawn'; entityId: number; pos: Vec2; tier: MonsterTier }
   | { type: 'revive'; player: number; partyIndex: number }
   | { type: 'playerOut'; player: number }
-  | { type: 'ultReady'; player: number }
+  /** A gauge became full. 기획 14차: partyIndex = whose gauge (per-character mode only; absent = the shared gauge). */
+  | { type: 'ultReady'; player: number; partyIndex?: number }
   | { type: 'floorStart'; floor: number; kind: 'normal' | 'boss' }
   | { type: 'floorClear'; floor: number }
   | { type: 'enrage' }
@@ -1090,6 +1132,20 @@ export interface Tunables {
   bossGroggyDuration: number;
   bossGroggyDamageMult: number;
   bossGroggyDragMult: number;
+  /**
+   * 기획 14차 궁극기 개별 게이지 (test toggle, default off = one gauge per player): every character has its own gauge;
+   * the field character's fills in ultFieldChargeTime s, bench characters' at ultBenchRatio × that rate (option C).
+   */
+  ultPerCharacter: boolean;
+  ultFieldChargeTime: number;
+  ultBenchRatio: number;
+  /**
+   * 기획 14차 교체 에너지 (test toggle, default off = per-character re-appear cooldowns): one energy pool per player,
+   * swapEnergyMax big, filling swapEnergyRegen per second in combat; a swap-in costs CharacterDef.swapEnergy.
+   */
+  swapEnergyMode: boolean;
+  swapEnergyMax: number;
+  swapEnergyRegen: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────

@@ -369,6 +369,38 @@ describe('sfx director: every GameEvent type has a sound', () => {
     expect(ids(route([{ type: 'death', entityId: 101, pos: P, kind: 'character', tier: 'character' }]))).toEqual(['char.down.far']);
   });
 
+  it('기획 14차 per-character gauges: only my field character\'s gauge chimes ult.ready (bench gauges fill silently)', () => {
+    expect(ids(route([{ type: 'ultReady', player: 0, partyIndex: 0 }]))).toEqual(['ult.ready']);
+    expect(ids(route([{ type: 'ultReady', player: 0, partyIndex: 2 }]))).toEqual([]);
+    expect(ids(route([{ type: 'ultReady', player: 1, partyIndex: 0 }]))).toEqual([]);
+    // the 10 s reminder follows the field character's own gauge
+    const s = state();
+    const me = s.players[0];
+    me.party.forEach((m, i) => (m.ult = { charge: i === 1 ? 1 : 0.2, fullSince: i === 1 ? -20 : null }));
+    expect(ids(route([], s))).toEqual([]);
+    me.activeIndex = 1;
+    expect(ids(route([], s))).toEqual(['ult.remind']);
+  });
+
+  it('기획 14차 per-character gauges: a card that filled on the bench reminds 10 s after it came on, once per card', () => {
+    const d = new Director();
+    const at = (time: number, active: number) => {
+      const s = state({ tick: Math.round(time * 30), time });
+      s.players[0].party.forEach((m, i) => (m.ult = { charge: i === 2 ? 0.3 : 1, fullSince: i === 2 ? null : 5 }));
+      s.players[0].activeIndex = active;
+      return ids(d.route([], s, view({ now: time }))).filter(x => x === 'ult.remind');
+    };
+    at(39, 2); // warm-up frame (snapshot only)
+    expect(at(40, 2)).toEqual([]); // 0 and 1 full on the bench since t 5: no reminder from there
+    expect(at(41, 0)).toEqual([]); // swapped in at 41: castable from now
+    expect(at(50, 0)).toEqual([]);
+    expect(at(51, 0)).toEqual(['ult.remind']);
+    expect(at(52, 1)).toEqual([]); // swap 0 → 1: a fresh clock for 1
+    expect(at(62, 1)).toEqual(['ult.remind']);
+    expect(at(63, 0)).toEqual([]); // back to 0 (already reminded for this fill): silent
+    expect(at(80, 0)).toEqual([]);
+  });
+
   it('10 hits in one frame play once (hit.multi), louder but at most ×2', () => {
     const r = route(Array.from({ length: 10 }, () => SAMPLES.damage));
     expect(ids(r)).toEqual(['hit.multi']);
@@ -400,6 +432,24 @@ describe('sfx director: every GameEvent type has a sound', () => {
     const rew = d.route([], state({ tick: 105, phase: 'reward', rewardOffersByPlayer: [[], null] }), view({ now: 1.5 }));
     expect(ids(rew)).toEqual(expect.arrayContaining(['reward.open', 'amb.goedam']));
     expect(rew.ctl).toContainEqual(expect.objectContaining({ kind: 'stop', key: 'amb' }));
+  });
+});
+
+describe('기획 14차 교체 에너지: the card-ready chime', () => {
+  it('ready = the pool affords the card; one chime when the bench comes back (both cards cross together)', () => {
+    const d = new Director();
+    const s0 = state({ tick: 200 });
+    for (const m of s0.players[0].party) m.swapCooldownRemaining = 0;
+    s0.players[0].energy = { value: 2, max: 10, regen: 1 };
+    d.route([], s0, view({ now: 2 }));
+    const s1 = state({ tick: 201 });
+    for (const m of s1.players[0].party) m.swapCooldownRemaining = 0;
+    s1.players[0].energy = { value: 2.5, max: 10, regen: 1 };
+    expect(ids(d.route([], s1, view({ now: 2.1 })))).not.toContain('ui.cardReady');
+    const s2 = state({ tick: 202 });
+    for (const m of s2.players[0].party) m.swapCooldownRemaining = 0;
+    s2.players[0].energy = { value: 7, max: 10, regen: 1 }; // 블레이드 6 and 메이지 6 at once
+    expect(ids(d.route([], s2, view({ now: 2.2 }))).filter(x => x === 'ui.cardReady')).toHaveLength(1);
   });
 });
 

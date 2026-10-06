@@ -274,6 +274,40 @@ describe('game', () => {
     expect(snap.tunables?.invincible).toBe(true);
   });
 
+  it('기획 14차: the host turns 궁극기 개별 게이지 on → every client sees the toggle and per-character gauges; a guest cannot', async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { ultPerCharacter: true } } });
+    expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(false);
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { ultPerCharacter: true, ultBenchRatio: 0.5 } } });
+    expect((await a.next('cmdResult', m => m.seq === 2)).ok).toBe(true);
+    for (const c of [a, b]) {
+      const snap = await c.snap(m => m.tunables?.ultPerCharacter === true && m.state.players.every(p => p.party.every(x => x.ult != null)));
+      expect(snap.tunables?.ultBenchRatio).toBe(0.5);
+    }
+    a.send({ t: 'cmd', seq: 3, cmd: { type: 'tunables', patch: { ultPerCharacter: false } } });
+    const off = await b.snap(m => m.tunables?.ultPerCharacter === false && m.state.players.every(p => p.party.every(x => x.ult == null)));
+    expect(off.state.players[0].ult.charge).toBeGreaterThanOrEqual(0);
+  });
+
+  it('기획 14차: the host turns 교체 에너지 on with its sliders → every client sees the pool; a guest cannot; garbage is clamped', async () => {
+    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
+    await makeRoom(a, b);
+    await startGame(a, b);
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { swapEnergyMode: true } } });
+    expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(false);
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { swapEnergyMode: true, swapEnergyMax: 999, swapEnergyRegen: 0.5 } } });
+    expect((await a.next('cmdResult', m => m.seq === 2)).ok).toBe(true);
+    for (const c of [a, b]) {
+      const snap = await c.snap(m => m.tunables?.swapEnergyMode === true && m.state.players.every(p => p.energy?.max === 100));
+      expect(snap.tunables?.swapEnergyRegen).toBe(0.5);
+      expect(snap.state.players.every(p => p.party.every(x => x.swapCooldownRemaining === 0))).toBe(true);
+    }
+    a.send({ t: 'cmd', seq: 3, cmd: { type: 'tunables', patch: { swapEnergyMode: false } } });
+    await b.snap(m => m.tunables?.swapEnergyMode === false && m.state.players.every(p => p.energy == null));
+  });
+
   it('snapshots: tunables only when changed (+ ~1/s), telemetry only after runOver, wave spawns thinned', async () => {
     const a = await connect('A');
     await makeRoom(a);

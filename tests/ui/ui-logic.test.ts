@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TUNABLES } from '../../src/config';
-import { CHARACTERS, GOEDAM_ROOMS, PETS, goedamOptionView } from '../../src/data';
+import { CHARACTERS, GOEDAM_ROOMS, PETS, getCharacter, goedamOptionView } from '../../src/data';
 import type { GoedamProgress, Tunables } from '../../src/types';
 import {
   countdown,
@@ -11,11 +11,13 @@ import {
   goedamTimerText,
   goedamWaitText,
   refusalText,
+  energyNum,
+  energyRuleText,
   resultReason,
 } from '../../src/ui/format';
 import { clientToLogical, computeFit } from '../../src/ui/stage';
 import { DEFAULT_PRESET, sanitizePreset } from '../../src/ui/storage';
-import { SLIDERS, TOGGLES, diffFromDefaults, sanitizeOverrides } from '../../src/ui/tunables';
+import { SLIDERS, TOGGLES, diffFromDefaults, formatTunable, sanitizeOverrides } from '../../src/ui/tunables';
 
 describe('stage fit (letterbox + safe area)', () => {
   const none = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -111,6 +113,50 @@ describe('debug tunables', () => {
       if (typeof DEFAULT_TUNABLES[k] === 'number') expect(SLIDERS.some(s => s.key === k), k).toBe(true);
       else expect(TOGGLES.some(t => t.key === k), k).toBe(true);
     }
+  });
+
+  it('기획 14차 test rules: off by default, each with its own sliders (shown under its toggle)', () => {
+    for (const t of TOGGLES.filter(x => x.mode)) {
+      expect(DEFAULT_TUNABLES[t.key], t.key).toBe(false);
+      expect(SLIDERS.filter(s => s.mode === t.key).length, t.key).toBeGreaterThanOrEqual(2);
+    }
+    expect(SLIDERS.filter(s => s.mode === 'ultPerCharacter').map(s => s.key)).toEqual(['ultFieldChargeTime', 'ultBenchRatio']);
+    for (const s of SLIDERS) if (s.mode) expect(TOGGLES.some(t => t.key === s.mode && t.mode), s.key).toBe(true);
+    expect(DEFAULT_TUNABLES.ultFieldChargeTime).toBe(30);
+    expect(DEFAULT_TUNABLES.ultBenchRatio).toBeCloseTo(1 / 3, 12);
+    expect(sanitizeOverrides({ ultPerCharacter: true, ultBenchRatio: 3 })).toEqual({ ultPerCharacter: true, ultBenchRatio: 1 });
+  });
+
+  it('기획 14차 교체 에너지: toggle + 최대 에너지 (4–20, 10) and 에너지 차는 속도 (0.25–3 /s, 1) right under it', () => {
+    expect(SLIDERS.filter(s => s.mode === 'swapEnergyMode').map(s => [s.key, s.min, s.max])).toEqual([
+      ['swapEnergyMax', 4, 20],
+      ['swapEnergyRegen', 0.25, 3],
+    ]);
+    expect([DEFAULT_TUNABLES.swapEnergyMode, DEFAULT_TUNABLES.swapEnergyMax, DEFAULT_TUNABLES.swapEnergyRegen]).toEqual([false, 10, 1]);
+    expect(sanitizeOverrides({ swapEnergyMode: true, swapEnergyMax: 99, swapEnergyRegen: 0 })).toEqual({ swapEnergyMode: true, swapEnergyMax: 20, swapEnergyRegen: 0.25 });
+    const regen = SLIDERS.find(s => s.key === 'swapEnergyRegen')!;
+    expect(formatTunable(regen, 0.25)).toBe('0.25/초');
+    expect(formatTunable(SLIDERS.find(s => s.key === 'swapEnergyMax')!, 12)).toBe('12');
+    // the older sliders keep their format (0.05 steps → 2 decimals, 0.1 / 0.5 → 1)
+    expect(formatTunable(SLIDERS.find(s => s.key === 'swapCooldownMult')!, 1)).toBe('1.00×');
+    expect(formatTunable(SLIDERS.find(s => s.key === 'waveInterval')!, 8)).toBe('8.0초');
+  });
+
+  it('기획 14차 교체 에너지: refusal text and the cooldown wording rewritten for energy mode', () => {
+    expect(refusalText({ ok: false, reason: '에너지 부족' }, { kind: 'swap', energy: { need: 6, secs: 2.2 } })).toBe('에너지 부족 · ⚡6 필요 (3초 후)');
+    expect(refusalText({ ok: false, reason: '에너지 부족' }, { kind: 'swap', energy: { need: 5.5, secs: Infinity } })).toBe('에너지 부족 · ⚡5.5 필요');
+    expect(energyRuleText('블레이드의 재등장 쿨 -2초 (최소 4초)', 1)).toBe('블레이드 교체 비용 ⚡-1');
+    expect(energyRuleText('적을 처치할 때마다 대기 캐릭터 재등장 쿨 0.5초 감소.', 2)).toBe('적을 처치할 때마다 교체 에너지 +1.');
+    expect(energyRuleText('내 대기 캐릭터 재등장 쿨 4초 감소 + 반경 3 아군', 1)).toBe('내 교체 에너지 +4 + 반경 3 아군');
+    expect(energyRuleText('재등장 쿨 초기화', 1)).toBe('교체 에너지 가득');
+    expect(energyRuleText('교체 쿨 0', 1)).toBe('에너지 가득');
+    // 빠른 교대 follows the regen slider (v/2 s of regen); 크로노 균열's refund is a fixed 2 at any regen
+    expect(energyRuleText('블레이드의 재등장 쿨 -2초 (최소 4초)', 2)).toBe('블레이드 교체 비용 ⚡-2');
+    const chrono = getCharacter('chrono');
+    expect(energyRuleText(chrono.drag.description, 3, chrono.drag)).toContain('내 교체 에너지 +2.');
+    expect(energyRuleText(chrono.ult.description, 3, chrono.ult)).toContain('모든 플레이어의 교체 에너지 +12.');
+    expect(energyNum(6)).toBe('6');
+    expect(energyNum(6.44)).toBe('6.4');
   });
 
   it('slider ranges contain the default value', () => {
