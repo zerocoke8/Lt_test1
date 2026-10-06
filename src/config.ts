@@ -34,6 +34,14 @@ export const DEFAULT_TUNABLES: Tunables = {
   bossGroggyDuration: 5,
   bossGroggyDamageMult: 1.5,
   bossGroggyDragMult: 2,
+  // 기획 14차 궁극기 개별 게이지 (test toggle, off = today's shared gauge): field 30 s, bench at 1/3 of that rate
+  ultPerCharacter: false,
+  ultFieldChargeTime: 30,
+  ultBenchRatio: 1 / 3,
+  // 기획 14차 교체 에너지 (test toggle, off = today's re-appear cooldowns): max 10, +1 per second
+  swapEnergyMode: false,
+  swapEnergyMax: 10,
+  swapEnergyRegen: 1,
 };
 
 /**

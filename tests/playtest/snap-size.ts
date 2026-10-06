@@ -4,7 +4,8 @@
 //   raw  = JSON bytes per frame (avg / max)
 //   wire = bytes after permessage-deflate with context takeover (one zlib stream per client, level 4, sync flush)
 // Same seeds and scenarios on any checkout, so an old tree can be measured by copying this file into it.
-// Run: npx vite-node tests/playtest/snap-size.ts   (env SNAP_SEC = seconds per scenario, default 40)
+// Run: npx vite-node tests/playtest/snap-size.ts   (env SNAP_SEC = seconds per scenario, default 40;
+// SNAP_TUN = JSON tunables over every scenario, e.g. '{"ultPerCharacter":true,"swapEnergyMode":true}' — 기획 14차)
 
 import { constants, createDeflateRaw, type DeflateRaw } from 'node:zlib';
 import { wireJson } from '../../server/snapshot';
@@ -15,6 +16,7 @@ import type { GameEvent, PlayerSetup, Tunables } from '../../src/types';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 const SEC = Number(env.SNAP_SEC ?? 40);
+const EXTRA = JSON.parse(env.SNAP_TUN ?? '{}') as Partial<Tunables>;
 
 interface Scenario {
   name: string;
@@ -51,7 +53,7 @@ async function run(sc: Scenario) {
   const { game, world } = createGameWithWorld({
     seed: sc.seed,
     players: SEATS,
-    tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, fieldEventChance: 0, ...sc.tunables },
+    tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, fieldEventChance: 0, ...sc.tunables, ...EXTRA },
     startFloor: sc.startFloor,
   });
   game.drainEvents();

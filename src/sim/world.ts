@@ -51,6 +51,8 @@ export interface EntityRt {
   lockTime: number;
   shieldTime: number;
   sinceAppear: number;
+  /** 기획 14차: sim time a character entity came onto the field (swap-in, run start, rejoin). Characters only. */
+  appearedAt?: number;
   pulseTimer: number;
   stationary: boolean;
   /** Ally turret: shoots with owner pet power. */
@@ -154,7 +156,7 @@ export interface CastCtx {
    * 기획 13차: an ult cast (shared by every copy of the ctx). landed = one of its parts fired; a floor clear during the
    * cut-in drops the rest and refunds the gauge only while none has (players.ts refundUnlandedUlts).
    */
-  ultCast?: { landed: boolean };
+  ultCast?: { landed: boolean; member?: number | null };
 }
 
 export interface GroggyMark {

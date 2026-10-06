@@ -28,7 +28,9 @@ import { SPAWN_WARNING_TIME, SUMMON_SPREAD } from './constants';
 import { clampUnit, createUnit } from './entities';
 import { dropOutcome } from './fieldEventPreview';
 import { addGoedamTrace } from './goedam';
-import { setUltCharge, syncMembers } from './players';
+import { syncMembers } from './players';
+import { addUltCharge } from './ultMode';
+import { resetSwapCooldowns } from './energy';
 import { mixSeed, Rng } from './rng';
 import { effStats } from './stats';
 import { applyStatus, hasStatus } from './status';
@@ -872,7 +874,7 @@ export function applyReward(w: World, r: FieldEventReward): void {
   const players = s.players.filter(p => !p.out);
   switch (r.kind) {
     case 'ultAdd':
-      for (const p of players) setUltCharge(w, p, Math.min(1, p.ult.charge + r.value));
+      for (const p of players) addUltCharge(w, p, r.value); // 기획 14차: the field character's in per-character mode
       return;
     case 'petReset':
       for (const p of players) for (const pet of p.pets) pet.cooldownRemaining = 0;
@@ -887,7 +889,7 @@ export function applyReward(w: World, r: FieldEventReward): void {
       syncMembers(w);
       return;
     case 'benchSwapReset':
-      for (const p of players) p.party.forEach((m, i) => (i !== p.activeIndex ? (m.swapCooldownRemaining = 0) : 0));
+      for (const p of players) resetSwapCooldowns(p, 'bench'); // 기획 14차 교체 에너지: a full pool instead
       return;
     case 'trace':
       for (const p of players) addGoedamTrace(w, p, r.traceId);

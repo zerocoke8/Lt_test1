@@ -307,7 +307,7 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
       await expect(page.locator(`.ccard[data-idx="${i}"] .cc-count`)).toHaveText(/^\d+$/);
     }
   }
-  await expect(page.locator('.ult-sub')).toHaveText(/(\d+초 후|궁극기 준비)$/);
+  await expect(page.locator('.ult-sub')).toHaveText(/(\d+초 후|준비 완료)$/);
   // tap the field character's card → compact skill sheet over the field (never blocks it), tap again → closed
   await input.tap(await center(page, '.ccard[data-idx="1"]'));
   await expect(page.locator('.skill-sheet')).toBeVisible();
@@ -597,6 +597,15 @@ test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop
   await page.evaluate(() => window.__proto!.startRun({ seed: 12, startFloor: 2, tunables: { invincible: true, goedamRoomsPerZone: 0, fieldEventChance: 0, monsterHpMult: 0.3 } }));
   await waitPhase(page, 'combat');
   await sleep(2500);
+  // every toast from here on is recorded: the toad is often caught (~2.4 s in) while the drag below is still running,
+  // and a toast lives only 1.9 s — checking the live DOM afterwards raced against the screenshot/drag steps
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { __toasts: string[] }).__toasts = seen;
+    new MutationObserver(ms => {
+      for (const m of ms) for (const n of m.addedNodes) if (n instanceof HTMLElement && n.classList.contains('toast')) seen.push(n.textContent ?? '');
+    }).observe(document.body, { subtree: true, childList: true });
+  });
   expect((await debug(page, { kind: 'fieldEventNext', id: 'lucky_toad' })).ok).toBe(true);
   // warning: the pill names it; then it starts with the low banner (goal + reward generated from the numbers)
   await expect(page.locator('.fe-pill')).toBeVisible();
@@ -635,8 +644,9 @@ test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop
   expect(locked).toBe(true);
   // the party (two bots + my locked character) catches it within the 18 s
   await page.waitForFunction(() => window.__proto!.game!.state.fieldEvent === null, undefined, { timeout: 25_000 });
-  // the toast lives 1.9 s: check it first, then the picture (coins + '성공!' at the spot, the toast, the gold ult pulse)
-  await expect(page.locator('.toast').filter({ hasText: '금두꺼비를 잡았다! 모두 궁극기 게이지 +40%' })).toHaveCount(1);
+  // the success toast was shown (recorded above; it lives 1.9 s), then the picture (coins + '성공!', the gold ult pulse)
+  const toasts = await page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts);
+  expect(toasts.filter(t => t.includes('금두꺼비를 잡았다! 모두 궁극기 게이지 +40%'))).toHaveLength(1);
   await shot('combat-event-success');
   const done = await inGame(page, g => ({ ok: g.telemetry(0).fieldEvents?.at(-1)?.success, ult: g.state.players.map(p => p.ult.charge) }));
   expect(done.ok).toBe(true);

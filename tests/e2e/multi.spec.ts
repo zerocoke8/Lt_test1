@@ -830,6 +830,255 @@ test('3 players (기획 13차): the boss groggy gauge fills and breaks the same 
   }
 });
 
+/**
+ * 기획 14차: record, per sim tick, what both test rules put in the state (every player's energy pool, field card, shared
+ * gauge, each card's own gauge and re-appear cooldown). Two screens that saw the same tick must hold the same values.
+ */
+async function recordModes(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __modes: Record<number, string> };
+    w.__modes = {};
+    const loop = () => {
+      const s = window.__proto?.game?.state;
+      if (s && s.phase === 'combat')
+        w.__modes[s.tick] = JSON.stringify(
+          s.players.map(p => [p.energy ?? null, p.activeIndex, p.ult, p.party.map(m => [m.ult ?? null, m.swapCooldownRemaining])]),
+        );
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
+}
+
+/** Ticks seen by all pages, and how many of those disagree (should be 0). */
+async function compareModes(pages: Page[]): Promise<{ common: number; diff: string[] }> {
+  const recs = await Promise.all(pages.map(p => p.evaluate(() => (window as unknown as { __modes: Record<number, string> }).__modes)));
+  const diff: string[] = [];
+  let common = 0;
+  for (const tick of Object.keys(recs[0])) {
+    if (!recs.every(r => tick in r)) continue;
+    common++;
+    if (!recs.every(r => r[Number(tick)] === recs[0][Number(tick)])) diff.push(`tick ${tick}: ${recs.map(r => r[Number(tick)]).join(' | ')}`);
+  }
+  return { common, diff };
+}
+
+test('3 players (기획 14차): the host turns 교체 에너지 and 궁극기 개별 게이지 on from the debug panel — every screen plays the same rule, a swap spends the right pool, a non-host cannot tune', async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const A = await openPlayer(browser, 'A');
+  const B = await openPlayer(browser, 'B', { characters: ['guardian', 'blade', 'gunner'], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] });
+  const C = await openPlayer(browser, 'C', { characters: ['warden', 'gunner', 'bard'], pets: ['owl_frost', 'turtle_guard', 'frog_bomb'] });
+  const all = [A, B, C];
+  try {
+    await toLobby(A, '에이');
+    await tap(A, '.lb-create');
+    await waitPhase(A.page, 'room');
+    const code = (await A.page.evaluate(() => window.__proto!.net.roomCode))!;
+    for (const [p, nick] of [[B, '비'], [C, '씨']] as const) {
+      await toLobby(p, nick);
+      await p.page.locator('.lb-code-input').fill(code);
+      await tap(p, '.lb-join');
+      await waitPhase(p.page, 'room');
+    }
+    await tap(A, '.lb-start');
+    for (const p of all) await waitPhase(p.page, 'combat', 20_000);
+    // nobody dies, no 괴담 room / 돌발 괴담 in the way; the 5층 boss (×10 HP) keeps the floor in combat for the whole test
+    const tune = (p: Player, patch: object) => p.page.evaluate(pa => window.__proto!.game!.dispatch({ type: 'tunables', patch: pa as never }), patch);
+    expect((await tune(A, { invincible: true, fieldEventChance: 0, goedamRoomsPerZone: 0, monsterHpMult: 10 })).ok).toBe(true);
+    expect((await A.page.evaluate(() => window.__proto!.game!.dispatch({ type: 'debug', action: { kind: 'jumpFloor', floor: 5 } }))).ok).toBe(true);
+    for (const p of all)
+      await p.page.waitForFunction(() => {
+        const s = window.__proto!.game!.state;
+        return s.floor === 5 && s.phase === 'combat' && s.bossId != null && s.floorTime > 1;
+      }, undefined, { timeout: 15_000 });
+    // default (off) on every screen: no bar, no cost chip, no per-card ring
+    for (const p of all) {
+      await expect(p.page.locator('.ccard')).toHaveCount(3);
+      await expect(p.page.locator('.hud-energy')).toBeHidden();
+      await expect(p.page.locator('.cc-cost:visible')).toHaveCount(0);
+      await expect(p.page.locator('.cc-ult:visible')).toHaveCount(0);
+    }
+    for (const p of all) await recordModes(p.page);
+
+    // ── 교체 에너지: the host's debug panel (real taps) → toggle on → 최대 에너지 12, 에너지 차는 속도 3/초 ──
+    await expect(B.page.locator('.btn-dbg')).toBeHidden();
+    await tap(A, '.btn-dbg');
+    await expect(A.page.locator('.debug-panel')).toBeVisible();
+    const en = A.page.locator('.dbg-mode[data-key="swapEnergyMode"]');
+    await en.locator('.dbg-toggle').click();
+    await expect(en).toHaveClass(/is-on/);
+    await en.locator('.dbg-slider[data-key="swapEnergyMax"] input').fill('12');
+    await en.locator('.dbg-slider[data-key="swapEnergyRegen"] input').fill('3');
+    await expect(en.locator('.dbg-slider[data-key="swapEnergyMax"] .dbg-slider-value')).toHaveText('12');
+    // every screen: the server's tunables, a pool for every player, 12 segments; the raised max fills at 3/s (no refill)
+    for (const p of all) {
+      await p.page.waitForFunction(
+        () => {
+          const g = window.__proto!.game!;
+          return g.tunables.swapEnergyMode && g.tunables.swapEnergyMax === 12 && g.state.players.every(q => q.energy?.max === 12 && q.energy.value >= 12);
+        },
+        undefined,
+        { timeout: 10_000 },
+      );
+      await expect(p.page.locator('.hud-energy')).toBeVisible();
+      await expect(p.page.locator('.hud-energy .en-seg')).toHaveCount(12);
+      await expect(p.page.locator('.hud-energy .en-seg.is-full')).toHaveCount(12);
+      await expect(p.page.locator('.cc-cost:visible')).toHaveCount(3);
+      await expect(p.page.locator('.ccard .cc-cd:visible')).toHaveCount(0);
+    }
+    // slow the regen right down (0.25/s) so the spend is easy to read on every screen
+    await en.locator('.dbg-slider[data-key="swapEnergyRegen"] input').fill('0.25');
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.tunables.swapEnergyRegen === 0.25, undefined, { timeout: 5000 });
+    await A.page.locator('.debug-panel .dbg-hbtn', { hasText: '✕' }).click();
+    await expect(A.page.locator('.debug-panel')).toBeHidden();
+
+    // each screen's chips are its own party's costs (B's 블레이드 / C's 거너 = ⚡6 by the data)
+    const costOf = (p: Player, idx: number) => p.page.locator(`.ccard[data-idx="${idx}"] .cc-cost`).textContent().then(t => Number(t!.slice(1)));
+    const costB = await costOf(B, 1);
+    expect(costB).toBeGreaterThanOrEqual(4);
+    expect(costB).toBeLessThanOrEqual(8);
+
+    // ── a non-host cannot tune: the client refuses, a mutated panel object snaps back, a raw command is refused ──
+    const refused = await tune(B, { swapEnergyMax: 4 });
+    expect(refused).toEqual({ ok: false, reason: '방장만 할 수 있어요' });
+    await B.page.evaluate(() => {
+      window.__proto!.game!.tunables.swapEnergyMax = 4;
+      window.__proto!.game!.tunables.ultPerCharacter = true;
+    });
+    await B.page.waitForFunction(() => window.__proto!.game!.tunables.swapEnergyMax === 12 && !window.__proto!.game!.tunables.ultPerCharacter, undefined, {
+      timeout: 5000,
+    });
+    // past the client: the same command straight down B's socket — the server refuses it (host-only)
+    await B.page.evaluate(() => {
+      const conn = (window.__proto!.game as unknown as { conn: { send(m: unknown): boolean } }).conn;
+      conn.send({ t: 'cmd', seq: 9_000_001, cmd: { type: 'tunables', patch: { swapEnergyMax: 4, ultPerCharacter: true } } });
+    });
+    await sleep(800);
+    for (const p of all) {
+      expect(await p.page.evaluate(() => [window.__proto!.game!.tunables.swapEnergyMax, window.__proto!.game!.tunables.ultPerCharacter])).toEqual([12, false]);
+      expect(await state<number[]>(p.page, 's.players.map(q => q.energy.max)')).toEqual([12, 12, 12]);
+    }
+
+    // ── B: a real touch drag of card 2 → B's pool (and only B's) pays 블레이드's cost, on every screen ──
+    for (const p of all) await recordFx(p.page);
+    expect(await state<number | null>(B.page, 's.players[1].activeIndex')).toBe(0);
+    await touchDrag(B, await center(B.page, '.ccard[data-idx="1"]'), await fieldFinger(B.page));
+    for (const p of all) {
+      await p.page.waitForFunction(() => window.__proto!.game!.state.players[1].activeIndex === 1, undefined, { timeout: 5000 });
+      const [a, b, c] = await state<number[]>(p.page, 's.players.map(q => q.energy.value)');
+      expect(b).toBeGreaterThanOrEqual(12 - costB - 0.01);
+      expect(b).toBeLessThan(12 - costB + 1); // + a little regen at 0.25/s
+      expect([a, c]).toEqual([12, 12]);
+      // no re-appear cooldown on the card that left
+      expect(await state<number[]>(p.page, 's.players[1].party.map(m => m.swapCooldownRemaining)')).toEqual([0, 0, 0]);
+    }
+    expect(await state<number>(A.page, 's.players[1].stats.swaps')).toBe(1);
+    // B's own bar shows the spend; A's and C's bars (their own pools) stay full
+    await expect(B.page.locator('.hud-energy .en-seg.is-full')).toHaveCount(12 - costB);
+    for (const p of [A, C]) await expect(p.page.locator('.hud-energy .en-seg.is-full')).toHaveCount(12);
+    // the card that just left may come straight back (the pool allows it) — only the 0.5 s appear lock in between
+    await sleep(700);
+    expect(await B.page.evaluate(() => window.__proto!.game!.canSwap(1, 0).ok)).toBe(true);
+    await shot(B, 'energy-multi');
+
+    // a pool that cannot pay: the host drops the 최대 에너지 slider to 4 (every pool is cut to 4) and back to 12 (raising
+    // the max does not refill) — as if B had swapped a lot; B's other cards cost more than that → refused on B's screen
+    await A.page.evaluate(() => (window.__proto!.game!.tunables.swapEnergyMax = 4));
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.players.every(q => q.energy!.max === 4), undefined, { timeout: 5000 });
+    await A.page.evaluate(() => (window.__proto!.game!.tunables.swapEnergyMax = 12));
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.players.every(q => q.energy!.max === 12), undefined, { timeout: 5000 });
+    // every pool now holds ≤ 4 + a little regen: B's other cards are short → dimmed, '에너지 부족', and a drag is refused
+    const shortIdx = await B.page.evaluate(() => {
+      const g = window.__proto!.game!;
+      return [0, 2].find(i => !g.canSwap(1, i).ok && g.canSwap(1, i).reason === '에너지 부족') ?? null;
+    });
+    expect(shortIdx).not.toBeNull();
+    await expect(B.page.locator(`.ccard[data-idx="${shortIdx}"]`)).toHaveClass(/is-short/);
+    await expect(B.page.locator(`.ccard[data-idx="${shortIdx}"] .cc-state`)).toHaveText('에너지 부족');
+    // the refusal toast appears at the first finger move and lives ~1.9 s, while a CDP touch drag on a busy 3-page box
+    // can take longer than that: record toasts as they appear instead of polling the live DOM
+    await B.page.evaluate(() => {
+      const w = window as unknown as { __toasts: string[] };
+      w.__toasts = [];
+      new MutationObserver(ms => {
+        for (const m of ms)
+          for (const n of m.addedNodes) if (n instanceof HTMLElement && n.matches('.toast, .toast *')) w.__toasts.push(n.textContent ?? '');
+        for (const el of document.querySelectorAll('.toast')) if (!w.__toasts.includes(el.textContent ?? '')) w.__toasts.push(el.textContent ?? '');
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
+    await touchDrag(B, await center(B.page, `.ccard[data-idx="${shortIdx}"]`), await fieldFinger(B.page));
+    await B.page.waitForFunction(() => (window as unknown as { __toasts: string[] }).__toasts.some(t => t.includes('에너지 부족')), undefined, { timeout: 3000 });
+    expect(await state<number>(A.page, 's.players[1].activeIndex')).toBe(1);
+    expect(await state<number>(A.page, 's.players[1].stats.swaps')).toBe(1);
+
+    // ── 궁극기 개별 게이지: the host's panel again → toggle on, 필드 충전 시간 6초 ──
+    await tap(A, '.btn-dbg');
+    const ult = A.page.locator('.dbg-mode[data-key="ultPerCharacter"]');
+    await ult.locator('.dbg-toggle').click();
+    await expect(ult).toHaveClass(/is-on/);
+    await ult.locator('.dbg-slider[data-key="ultFieldChargeTime"] input').fill('6');
+    await A.page.locator('.debug-panel .dbg-hbtn', { hasText: '✕' }).click();
+    for (const p of all) {
+      await p.page.waitForFunction(
+        () => {
+          const g = window.__proto!.game!;
+          return g.tunables.ultPerCharacter && g.tunables.ultFieldChargeTime === 6 && g.state.players.every(q => q.party.every(m => m.ult != null));
+        },
+        undefined,
+        { timeout: 10_000 },
+      );
+      // three rings per screen (my cards); the field card's fills in ~6 s, the bench ones at a third of that
+      await expect(p.page.locator('.cc-ult:visible')).toHaveCount(3);
+      await expect(p.page.locator('.ccard.is-active .cc-ult')).toHaveClass(/is-full/, { timeout: 12_000 });
+      await expect(p.page.locator('.ccard:not(.is-active) .cc-ult.is-full')).toHaveCount(0);
+      // 교체 에너지 is still on next to it (the two rules are independent)
+      await expect(p.page.locator('.hud-energy')).toBeVisible();
+    }
+    // C taps the ult: C's field character casts, only that gauge empties — on every screen
+    const fieldC = await state<number>(C.page, 's.players[2].activeIndex');
+    const beforeC = await state<number[]>(C.page, 's.players[2].party.map(m => m.ult.charge)');
+    expect(beforeC[fieldC]).toBe(1);
+    await tap(C, '.ult');
+    for (const p of all) {
+      await p.page.waitForFunction(() => window.__proto!.game!.state.players[2].stats.ultsUsed === 1, undefined, { timeout: 5000 });
+      const after = await state<number[]>(p.page, 's.players[2].party.map(m => m.ult.charge)');
+      expect(after[fieldC]).toBeLessThan(0.2);
+      for (let i = 0; i < 3; i++) if (i !== fieldC) expect(after[i]).toBeGreaterThanOrEqual(beforeC[i]);
+      // A's and B's own field gauges are untouched (still full, nobody else cast)
+      expect(await state<number[]>(p.page, '[0, 1].map(pi => s.players[pi].party[s.players[pi].activeIndex].ult.charge)')).toEqual([1, 1]);
+      expect(await state<number[]>(p.page, 's.players.map(q => q.stats.ultsUsed)')).toEqual([0, 0, 1]);
+    }
+    await expect(C.page.locator('.ccard.is-active .cc-ult')).not.toHaveClass(/is-full/);
+
+    // ── off again (host): the bar and rings go away on every screen, today's shared gauge is back ──
+    await A.page.evaluate(() => {
+      const t = window.__proto!.game!.tunables;
+      t.swapEnergyMode = false;
+      t.ultPerCharacter = false;
+    });
+    for (const p of all) {
+      await p.page.waitForFunction(() => window.__proto!.game!.state.players.every(q => q.energy == null && q.party.every(m => m.ult == null)), undefined, {
+        timeout: 5000,
+      });
+      await expect(p.page.locator('.hud-energy')).toBeHidden();
+      await expect(p.page.locator('.cc-ult:visible')).toHaveCount(0);
+      await expect(p.page.locator('.cc-cost:visible')).toHaveCount(0);
+    }
+
+    // ── no desync: every sim tick that two or three screens saw holds the same pools / gauges / cooldowns ──
+    const cmp = await compareModes(all.map(p => p.page));
+    expect(cmp.common).toBeGreaterThan(100);
+    expect(cmp.diff, cmp.diff.slice(0, 3).join('\n')).toEqual([]);
+
+    const errors = all.flatMap(p => p.errors);
+    expect(errors, errors.join('\n')).toEqual([]);
+  } finally {
+    for (const p of all) await p.ctx.close().catch(() => {});
+  }
+});
+
 test('1-human room: the host plays with 2 bots', async ({ browser }) => {
   const A = await openPlayer(browser, 'A');
   try {

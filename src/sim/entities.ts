@@ -111,6 +111,7 @@ export function createCharacterEntity(w: World, p: SimPlayer, idx: number, pos: 
       lockTime: 0,
       shieldTime: m.rt.shieldTime,
       sinceAppear: FAR,
+      appearedAt: w.state.time,
       pulseTimer: 0,
       stationary: false,
       petPowered: false,

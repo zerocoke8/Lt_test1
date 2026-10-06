@@ -10,6 +10,7 @@ import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvent
 import { clearGroggy, resetGroggy } from './groggy';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { refundUnlandedUlts, revive, syncMembers } from './players';
+import { resetSwapCooldowns } from './energy';
 import { applyOffer, rollOffers } from './rewards';
 import type { Rng } from './rng';
 import {
@@ -366,10 +367,10 @@ export function floorClear(w: World): void {
     p.activeIndex = null;
     p.appearLock = 0;
     p.party.forEach((m, idx) => {
-      m.swapCooldownRemaining = 0;
       m.normalCooldownRemaining = 0;
       if (m.dead) revive(w, p, idx);
     });
+    resetSwapCooldowns(p); // 기획 14차 교체 에너지: revived at a floor start = a full pool
     p.rt.rejoinNextFloor = true;
   }
   syncMembers(w);

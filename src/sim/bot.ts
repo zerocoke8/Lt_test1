@@ -9,6 +9,7 @@ import { BOT } from './constants';
 import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botEvents';
 import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
+import { fieldUltGauge, memberUltGauge, perCharUlt } from './ultMode';
 import { previewPartsFor } from './preview';
 import { activeEntity, clamp, clampToArena, copy, dist, getEntity, isAlive, type SimEntity, type SimPlayer, type World } from './world';
 
@@ -180,9 +181,13 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
   const b = p.rt.bot;
   const enemies = enemiesAlive(w);
 
-  // Ult: 0.5–3 s after full.
-  if (p.ult.charge >= 1) {
-    if (b.ultAt == null) b.ultAt = (p.ult.fullSince ?? s.time) + w.rng.range(BOT.ultDelay[0], BOT.ultDelay[1]);
+  // Ult: 0.5–3 s after full (기획 14차: the field character's own gauge in per-character mode). Deliberately from
+  // fullSince, not the swap-in: a bench card that is already full is cast right after it comes on — the bot pulls full
+  // cards for exactly that (ultCard), like the measured human seat (docs/balance.md 13-1); the ult-delay STAT uses
+  // ultCastableSince instead.
+  const ult = fieldUltGauge(p);
+  if (ult && ult.charge >= 1) {
+    if (b.ultAt == null) b.ultAt = (ult.fullSince ?? s.time) + w.rng.range(BOT.ultDelay[0], BOT.ultDelay[1]);
     // 기획 13차: a full ult goes into a groggy boss soon (never saved up for one)
     if (groggyDown(w)) b.ultAt = Math.min(b.ultAt, s.time + BOT.ultGroggy);
     if (s.time >= b.ultAt && enemies.length > 0 && p.activeIndex != null) {
@@ -219,7 +224,11 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
     if (ready.length > 0 && me.hp < me.maxHp * BOT.lowHpFrac) {
       swapTo(emergencyCard(p, ready, byHp));
     } else if (ready.length > 0 && enemies.length > 0 && s.time >= b.nextSwapAt) {
-      swapTo(groggyCard(w, p, ready) ?? periodicCard(p, ready) ?? w.rng.pick(ready));
+      swapTo(groggyCard(w, p, ready) ?? ultCard(p, ready, enemies) ?? periodicCard(p, ready) ?? w.rng.pick(ready));
+    } else {
+      // 기획 14차: no need to wait for the periodic swap when a full-ult card is ready and the field one is spent
+      const u = ultCard(p, ready, enemies);
+      if (u != null) swapTo(u);
     }
   }
   if (s.phase !== 'combat') return;
@@ -293,6 +302,28 @@ function periodicCard(p: SimPlayer, ready: number[]): number | null {
 }
 
 const BENCH_LOW_HP_FRAC = 0.6;
+
+/**
+ * 기획 14차 궁극기 개별 게이지: the field character's ult is not ready but a ready bench card's own gauge is full and the
+ * fight is worth an ult (boss / mid boss on field, or BOT.ultSwapEnemies+ enemies) → that card (fullest wait first).
+ * Null while the toggle is off (no rng draw: today's bot runs stay identical).
+ */
+function ultCard(p: SimPlayer, ready: number[], enemies: SimEntity[]): number | null {
+  if (!perCharUlt(p) || ready.length === 0) return null;
+  const field = fieldUltGauge(p);
+  if (field && field.charge >= 1) return null;
+  if (!enemies.some(e => e.tier === 'boss' || e.tier === 'mid') && enemies.length < BOT.ultSwapEnemies) return null;
+  let best: number | null = null;
+  let since = Infinity;
+  for (const i of ready) {
+    const g = memberUltGauge(p, i);
+    if (g && g.charge >= 1 && (g.fullSince ?? 0) < since) {
+      best = i;
+      since = g.fullSince ?? 0;
+    }
+  }
+  return best;
+}
 
 // ─────────────────────────── 기획 13차: boss groggy (docs/boss-groggy.md 7장) ───────────────────────────
 // Same gauge rules as a human (no seat weights); emergency swaps and the 돌발 괴담 rules come first.

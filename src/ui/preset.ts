@@ -6,7 +6,7 @@ import { CHARACTERS, PETS, ROLE_LABEL, getCharacter, getPet } from '../data';
 import { drawShapeIcon } from '../render/shapeIcon';
 import { partsForActions } from '../sim/preview';
 import { ROLE_ICON, button, h, replayClass } from './dom';
-import { ROLE_GLYPH, basicAttackText } from './format';
+import { ROLE_GLYPH, basicAttackText, energyRuleText } from './format';
 import type { PresetSave } from './storage';
 import { createToaster } from './toast';
 import { ICON_FULLSCREEN } from './dom';
@@ -19,6 +19,13 @@ export interface PresetScreen {
   /** Current (possibly incomplete) selection. */
   value(): PresetSave;
   setDebugNote(text: string): void;
+  /**
+   * 기획 14차 교체 에너지 (debug toggle): null = today's rule (cards show '10초', the detail '나가면 재등장 쿨'); else the
+   * cards show the swap-in cost ('⚡6') and descriptions read cooldown cuts as energy at this regen.
+   */
+  setSwapEnergy(regen: number | null): void;
+  /** 기획 14차 궁극기 개별 게이지 (debug toggle): the detail's ult row says the gauge is per character. */
+  setUltPerCharacter(on: boolean): void;
 }
 
 export interface PresetScreenOpts {
@@ -94,7 +101,9 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   const left = h('div', 'ps-left', main);
   const secC = h('div', 'ps-sec', left);
   h('span', 'ps-sec-title', secC, '캐릭터');
-  h('span', 'ps-sec-hint', secC, '고른 순서 = 슬롯 · 1번이 먼저 출전 · 도형 = 드래그스킬 범위 · 초 = 재등장 쿨');
+  // the last clause names the unit on the cards: re-appear cooldown, or (기획 14차 교체 에너지) the swap cost
+  const charHint = (energy: boolean) => `고른 순서 = 슬롯 · 1번이 먼저 출전 · 도형 = 드래그스킬 범위 · ${energy ? '⚡ = 교체 비용' : '초 = 재등장 쿨'}`;
+  const hint = h('span', 'ps-sec-hint', secC, charHint(false));
   const charGrid = h('div', 'ps-grid ps-grid-chars', left);
   const roleCols = new Map<Role, HTMLElement>();
   for (const role of ROLES) {
@@ -128,6 +137,11 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   });
 
   const charCards = new Map<string, HTMLElement>();
+  /** 기획 14차 교체 에너지: each card's '10초' / '⚡6' label, and the mode (null = off). */
+  const metas = new Map<string, HTMLElement>();
+  let energyRegen: number | null = null;
+  let ultPerChar = false;
+  const desc = (text: string, skill?: SkillDef) => (energyRegen != null ? energyRuleText(text, energyRegen, skill) : text);
   for (const def of CHARACTERS) {
     const c = button('ps-card ps-char', '', roleCols.get(def.role) ?? charGrid, () => toggleChar(def.id, c));
     c.style.setProperty('--c', def.color);
@@ -137,7 +151,8 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     h('div', 'ps-card-name', info, def.name);
     const row = h('div', 'ps-card-drag', info);
     dragShapeIcon(def, 'ps-shape', 50, 26, row);
-    h('span', 'ps-card-meta', row, `${def.swapCooldown}초`);
+    const meta = h('span', 'ps-card-meta', row, `${def.swapCooldown}초`);
+    metas.set(def.id, meta);
     h('div', 'ps-badge', c);
     charCards.set(def.id, c);
   }
@@ -219,7 +234,8 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       h('div', 'dt-stats', t, `HP ${s.maxHp} · 공격력 ${s.atk} · 사거리 ${s.range}`);
       const list = h('div', 'dt-skills', detail);
       // 드래그스킬 first: it is what the swap game is about (shape + direction diagram)
-      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, def.drag.description, `나가면 재등장 쿨 ${def.swapCooldown}초`);
+      const dragMeta = energyRegen != null ? `교체 비용 ⚡${def.swapEnergy}` : `나가면 재등장 쿨 ${def.swapCooldown}초`;
+      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, desc(def.drag.description, def.drag), dragMeta);
       const body = h('div', 'sk-shape-row', drag);
       const fig = h('div', 'sk-shape', body);
       dragShapeIcon(def, 'sk-shape-cv', 132, 74, fig, true);
@@ -229,7 +245,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       skillRow(list, '패시브', 'passive', def.passive.name, def.passive.description, '필드에서만');
       const n: SkillDef = def.normal;
       skillRow(list, '일반스킬', 'normal', n.name, n.description, `자동 · 쿨 ${n.cooldown ?? 0}초`);
-      skillRow(list, '궁극기', 'ult', def.ult.name, def.ult.description, '게이지 탭');
+      skillRow(list, '궁극기', 'ult', def.ult.name, desc(def.ult.description, def.ult), ultPerChar ? '캐릭터별 게이지 · 탭' : '게이지 탭');
     } else {
       const def = getPet(focus.id);
       const hd = h('div', 'dt-head', detail);
@@ -239,7 +255,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       nm.style.color = def.color;
       h('div', 'dt-stats', t, `펫 · 쿨타임 ${def.cooldown}초`);
       const list = h('div', 'dt-skills', detail);
-      skillRow(list, '펫 기능', 'pet', def.name, def.description, `쿨 ${def.cooldown}초`);
+      skillRow(list, '펫 기능', 'pet', def.name, desc(def.description), `쿨 ${def.cooldown}초`);
       h('div', 'dt-note', detail, '펫 카드를 필드로 끌어 놓으면 놓은 지점에서 바로 발동해요. 교체가 아니라서 필드 캐릭터는 그대로 있어요.');
     }
   }
@@ -311,6 +327,22 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     setDebugNote(text) {
       debugNote.textContent = text;
       debugNote.classList.toggle('is-hidden', !text);
+    },
+    setSwapEnergy(regen) {
+      if (regen === energyRegen) return;
+      energyRegen = regen;
+      for (const [id, meta] of metas) {
+        const def = getCharacter(id);
+        meta.textContent = regen != null ? `⚡${def.swapEnergy}` : `${def.swapCooldown}초`;
+        meta.classList.toggle('is-energy', regen != null);
+      }
+      hint.textContent = charHint(regen != null);
+      renderDetailBody();
+    },
+    setUltPerCharacter(on) {
+      if (on === ultPerChar) return;
+      ultPerChar = on;
+      renderDetailBody();
     },
   };
 }

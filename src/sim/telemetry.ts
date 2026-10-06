@@ -80,6 +80,12 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   bossGroggyDuration: [0.5, 30],
   bossGroggyDamageMult: [1, 5],
   bossGroggyDragMult: [1, 5],
+  // 기획 14차 궁극기 개별 게이지 (bench ratio 0 = bench gauges never fill)
+  ultFieldChargeTime: [1, 600],
+  ultBenchRatio: [0, 1],
+  // 기획 14차 교체 에너지 (regen 0 = the pool only refills through cuts / '쿨 0')
+  swapEnergyMax: [1, 100],
+  swapEnergyRegen: [0, 20],
 };
 
 /**

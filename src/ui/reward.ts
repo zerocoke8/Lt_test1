@@ -5,6 +5,7 @@ import type { GameState, RewardOffer } from '../types';
 import { RARITY_COLOR, RARITY_LABEL, getCharacter } from '../data';
 import { button, h, setText, show } from './dom';
 import { portrait } from './preset';
+import { energyRuleText } from './format';
 
 export interface RewardView {
   localPlayer: number;
@@ -12,6 +13,8 @@ export interface RewardView {
   multi: boolean;
   /** Auto-pick deadline on the local clock (Date.now() ms), null = none. */
   deadline: number | null;
+  /** 기획 14차 교체 에너지: regen per second (cooldown wording → energy wording while my player has a pool). */
+  energyRegen?: number;
 }
 
 /** My pending offers (falls back to the single-human field for player 0). */
@@ -83,7 +86,7 @@ export class RewardOverlay {
     show(this.wait, waiting);
     show(this.row, !!offers);
     // rebuild the cards only when the offers really change (snapshots bring new arrays 15×/s)
-    const key = offers ? `${s.floor}|${offers.map(o => `${o.rewardId}:${o.partyIndex}`).join(',')}` : '';
+    const key = offers ? `${s.floor}|${me?.energy ? 'e' : ''}|${offers.map(o => `${o.rewardId}:${o.partyIndex}`).join(',')}` : '';
     if (key === this.shownKey) {
       this.shown = offers;
       if (waiting || offers) this.title.textContent = `${s.floor}층 클리어!`;
@@ -118,7 +121,8 @@ export class RewardOverlay {
       if (m) portrait(getCharacter(m.defId), 'portrait-md', icon);
       else h('div', `rw-gem ${o.isRelic ? 'is-relic' : ''}`, icon);
       h('div', 'rw-name', c, o.name);
-      h('div', 'rw-desc', c, o.description);
+      // 기획 14차 교체 에너지: '재등장 쿨 −1초' reads as what it does in that mode (빠른 교대 → cost, 표식 → energy)
+      h('div', 'rw-desc', c, me?.energy ? energyRuleText(o.description, view.energyRegen ?? 1) : o.description);
       h('div', 'rw-pick', c, '선택');
     });
   }

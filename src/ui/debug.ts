@@ -30,6 +30,60 @@ interface SliderRow {
   row: HTMLElement;
 }
 
+/**
+ * 기획 14차 리뷰: a phone scroll that starts on a slider must not move it (the panel is scrolled by swiping across many
+ * sliders; in multiplayer the host would broadcast every accidental value). Touch only: the value is taken once the
+ * finger moves mostly sideways (a drag) or on a tap; a vertical swipe scrolls the panel (touch-action: pan-y) and puts
+ * back the value the slider had. Mouse / keyboard / test fill: applied on every input as before.
+ */
+export function touchSafeRange(input: HTMLInputElement, apply: () => void): void {
+  let g: { x: number; y: number; v: string; mode: 'pending' | 'drag' | 'scroll' } | null = null;
+  const SLOP = 8;
+  input.addEventListener(
+    'touchstart',
+    e => {
+      const t = e.touches[0];
+      g = t ? { x: t.clientX, y: t.clientY, v: input.value, mode: 'pending' } : null;
+    },
+    { passive: true },
+  );
+  input.addEventListener(
+    'touchmove',
+    e => {
+      const t = e.touches[0];
+      if (!g || !t || g.mode !== 'pending') return;
+      const dx = Math.abs(t.clientX - g.x);
+      const dy = Math.abs(t.clientY - g.y);
+      if (dx >= SLOP && dx > dy) {
+        g.mode = 'drag';
+        apply();
+      } else if (dy >= SLOP) {
+        g.mode = 'scroll';
+        input.value = g.v;
+      }
+    },
+    { passive: true },
+  );
+  const end = (e: TouchEvent, cancelled: boolean) => {
+    if (!g) return;
+    const { mode, v, y } = g;
+    g = null;
+    // still undecided (the browser may stop sending moves once it scrolls): a finger that ended away vertically scrolled
+    const t = e.changedTouches[0];
+    const moved = !!t && Math.abs(t.clientY - y) >= SLOP;
+    if (mode === 'scroll' || (mode === 'pending' && (cancelled || moved))) input.value = v;
+    else apply(); // a tap (or the end of a sideways drag)
+  };
+  input.addEventListener('touchend', e => end(e, false));
+  input.addEventListener('touchcancel', e => end(e, true));
+  input.addEventListener('input', () => {
+    if (!g) return apply();
+    if (g.mode === 'drag') apply();
+    else if (g.mode === 'scroll') input.value = g.v;
+    // pending: wait for the gesture to declare itself
+  });
+}
+
 export class DebugPanel {
   readonly el: HTMLElement;
   private readonly deps: DebugDeps;
@@ -37,6 +91,8 @@ export class DebugPanel {
   private readonly collapseBtn: HTMLButtonElement;
   private readonly sliders: SliderRow[] = [];
   private readonly toggles: { key: (typeof TOGGLES)[number]['key']; input: HTMLInputElement }[] = [];
+  /** 기획 14차 test rules: each block (toggle + its sliders) dims its sliders while the toggle is off. */
+  private readonly modeBlocks: { key: (typeof TOGGLES)[number]['key']; el: HTMLElement }[] = [];
   private readonly speedBtns: { v: number; b: HTMLButtonElement }[] = [];
   private readonly floorInput: HTMLElement;
   private readonly juiceRows: { key: keyof JuiceSettings; input: HTMLInputElement; value: HTMLElement; row: HTMLElement; fmt: (v: number) => string }[] = [];
@@ -61,6 +117,31 @@ export class DebugPanel {
     this.body = h('div', 'dbg-body', this.el);
     // keep wheel/touch scrolling inside the panel
     this.body.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
+
+    const toggle = (parent: HTMLElement, t: (typeof TOGGLES)[number]) => {
+      const lab = h('label', 'dbg-toggle', parent);
+      lab.dataset.key = t.key;
+      const input = h('input', '', lab);
+      input.type = 'checkbox';
+      h('span', 'dbg-switch', lab);
+      h('span', 'dbg-toggle-label', lab, t.label);
+      input.addEventListener('change', () => this.set(t.key, input.checked));
+      this.toggles.push({ key: t.key, input });
+    };
+    // 기획 14차 실험 규칙: each test rule = its toggle, a one-line note and its own sliders right under it. First in the
+    // panel (the rules under test): reaching it never means swiping across other sliders.
+    const modes = TOGGLES.filter(t => t.mode);
+    if (modes.length > 0) {
+      const ms = this.section('실험 규칙 (기본 꺼짐 = 지금 규칙)');
+      for (const t of modes) {
+        const block = h('div', 'dbg-mode', ms);
+        block.dataset.key = t.key;
+        toggle(block, t);
+        h('div', 'dbg-mode-note', block, t.mode!.note);
+        for (const spec of SLIDERS) if (spec.mode === t.key) this.slider(block, spec);
+        this.modeBlocks.push({ key: t.key, el: block });
+      }
+    }
 
     // speed
     const sp = this.section('게임 속도');
@@ -121,7 +202,7 @@ export class DebugPanel {
       input.min = String(js.min);
       input.max = String(js.max);
       input.step = String(js.step);
-      input.addEventListener('input', () => {
+      touchSafeRange(input, () => {
         JUICE[js.key] = Number(input.value);
         saveJuice(JUICE);
         this.syncJuice();
@@ -137,35 +218,18 @@ export class DebugPanel {
 
     // toggles
     const tg = this.section('토글');
-    for (const t of TOGGLES) {
-      const lab = h('label', 'dbg-toggle', tg);
-      const input = h('input', '', lab);
-      input.type = 'checkbox';
-      h('span', 'dbg-switch', lab);
-      h('span', 'dbg-toggle-label', lab, t.label);
-      input.addEventListener('change', () => this.set(t.key, input.checked));
-      this.toggles.push({ key: t.key, input });
-    }
+    for (const t of TOGGLES) if (!t.mode) toggle(tg, t);
 
     // sliders (grouped)
     let group = '';
     let sec: HTMLElement = tg;
     for (const spec of SLIDERS) {
+      if (spec.mode) continue;
       if (spec.group !== group) {
         group = spec.group;
         sec = this.section(group);
       }
-      const row = h('div', 'dbg-slider', sec);
-      const top = h('div', 'dbg-slider-top', row);
-      h('span', 'dbg-slider-label', top, spec.label);
-      const value = h('span', 'dbg-slider-value', top);
-      const input = h('input', '', row);
-      input.type = 'range';
-      input.min = String(spec.min);
-      input.max = String(spec.max);
-      input.step = String(spec.step);
-      input.addEventListener('input', () => this.set(spec.key, Number(input.value)));
-      this.sliders.push({ spec, input, value, row });
+      this.slider(sec, spec);
     }
 
     // 기획 13차 효과음: every sound id ▶ (this device)
@@ -181,6 +245,21 @@ export class DebugPanel {
       this.sync();
       this.deps.toast('튜닝 수치를 기본값으로 되돌렸어요', 'good');
     });
+  }
+
+  private slider(parent: HTMLElement, spec: SliderSpec): void {
+    const row = h('div', 'dbg-slider', parent);
+    row.dataset.key = spec.key;
+    const top = h('div', 'dbg-slider-top', row);
+    h('span', 'dbg-slider-label', top, spec.label);
+    const value = h('span', 'dbg-slider-value', top);
+    const input = h('input', '', row);
+    input.type = 'range';
+    input.min = String(spec.min);
+    input.max = String(spec.max);
+    input.step = String(spec.step);
+    touchSafeRange(input, () => this.set(spec.key, Number(input.value)));
+    this.sliders.push({ spec, input, value, row });
   }
 
   private section(title: string): HTMLElement {
@@ -281,6 +360,7 @@ export class DebugPanel {
       s.row.classList.toggle('is-changed', v !== DEFAULT_TUNABLES[s.spec.key]);
     }
     for (const tg of this.toggles) tg.input.checked = t[tg.key];
+    for (const mb of this.modeBlocks) mb.el.classList.toggle('is-on', !!t[mb.key]);
     for (const sb of this.speedBtns) sb.b.classList.toggle('is-on', Math.abs(sb.v - t.gameSpeed) < 1e-6);
     this.floorInput.textContent = `${this.jumpTo}층`;
   }

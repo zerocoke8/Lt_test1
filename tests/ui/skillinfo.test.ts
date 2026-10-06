@@ -137,3 +137,30 @@ describe('card diamond (일반스킬 쿨)', () => {
     expect(seen).toBeGreaterThan(total - 1 / 30 - 1e-9);
   });
 });
+
+describe('기획 14차 궁극기 개별 게이지 in the skill sheet', () => {
+  it('per-character mode: this card\'s field / bench fill times; bench ratio 0 = 충전 없음', () => {
+    const def = getCharacter('mage');
+    expect(skillRows(def, { ult: 30 })[4].trigger).toBe('게이지 30초 · 탭');
+    expect(skillRows(def, { ult: 30, ultBench: 90 })[4].trigger).toBe('필드 30초 · 대기 90초');
+    expect(skillRows(def, { ult: 30, ultBench: Infinity })[4].trigger).toBe('필드 30초 · 대기 안 참');
+  });
+});
+
+
+describe('기획 14차 교체 에너지 in the skill sheet', () => {
+  it('the drag row says the swap cost instead of the cooldown; cooldown cuts read as energy (N s × regen)', () => {
+    const chrono = getCharacter('chrono');
+    const rows = skillRows(chrono, { energy: { cost: 6, regen: 1 } });
+    expect(rows[3].trigger).toBe('교체 ⚡6');
+    expect(rows[3].summary).toContain('교체 에너지 +2');
+    expect(rows[3].summary).not.toContain('대기 캐릭터 쿨');
+    expect(rows[4].summary).toContain('모두의 교체 에너지 +4');
+    expect(skillRows(chrono, { energy: { cost: 5.5, regen: 1.5 } })[3].trigger).toBe('교체 ⚡5.5');
+    // the rift's refund is a fixed 2 (priced into 크로노's cost); the ult's 4 s scale with the regen slider
+    expect(skillRows(chrono, { energy: { cost: 6, regen: 1.5 } })[3].summary).toContain('교체 에너지 +2');
+    expect(skillRows(chrono, { energy: { cost: 6, regen: 1.5 } })[4].summary).toContain('모두의 교체 에너지 +6');
+    // off: today's text
+    expect(skillRows(chrono)[3].summary).toContain('대기 캐릭터 쿨 -2초');
+  });
+});

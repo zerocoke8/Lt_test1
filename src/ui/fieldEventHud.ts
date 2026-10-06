@@ -3,7 +3,8 @@
 // touched (ult button, pet cards, character cards, trace chips). Hud (hud.ts) owns the elements and calls update().
 
 import type { FieldEventDef, FieldEventState, GameEvent, GameState } from '../types';
-import { fieldEventGoalText, fieldEventRewardText, getFieldEvent } from '../data';
+import { fieldEventGoalText, fieldEventRewardText as rewardTextOf, getFieldEvent } from '../data';
+import { energyRuleText } from './format';
 import { h, replayClass, setClass, setStyle, setText, show } from './dom';
 import { markTipSeen, tipSeen } from './storage';
 import type { ToastKind } from './toast';
@@ -31,6 +32,12 @@ export interface FieldEventHudDeps {
   pulseTargets(): { ult: HTMLElement; pets: HTMLElement[]; chars: HTMLElement[]; traces: HTMLElement };
 }
 
+/** The reward's words; 기획 14차 교체 에너지: '교체 쿨 0' reads '에너지 가득' while my player has a pool. */
+function fieldEventRewardText(s: GameState, local: number, r: FieldEventDef['reward'], short = false): string {
+  const t = rewardTextOf(r, short);
+  return s.players[local]?.energy ? energyRuleText(t, 1) : t;
+}
+
 /** Subject particle for a name: 이 after a final consonant (digits read in Korean), else 가. */
 export function subjectOf(name: string): string {
   const ch = name.trim().slice(-1);
@@ -45,7 +52,7 @@ export function subjectOf(name: string): string {
 /** Success toast: '민지가 금두꺼비를 잡았다! 모두 궁극기 게이지 +40%' (or '23:59 정각 성공! …' without a name). */
 export function fieldEventToast(s: GameState, local: number, id: FieldEventDef['id'], player: number | null): string {
   const def = getFieldEvent(id);
-  const reward = `모두 ${fieldEventRewardText(def.reward)}`;
+  const reward = `모두 ${fieldEventRewardText(s, local, def.reward)}`;
   const p = player != null ? s.players[player] : undefined;
   if (!p) return `${def.name} 성공! ${reward}`;
   const who = p.id === local ? '내가' : subjectOf(p.name);
@@ -178,6 +185,6 @@ export class FieldEventHud {
     setClass(this.prog, 'is-dots', /[●○]/.test(p.text));
     setClass(this.prog, 'is-hazard', !!p.hazard);
     show(this.reward, true);
-    setText(this.reward, fieldEventRewardText(def.reward, true));
+    setText(this.reward, fieldEventRewardText(s, this.deps.localPlayer, def.reward, true));
   }
 }

@@ -4,6 +4,8 @@ import type { AreaShape, CharacterDef, Effect, SkillAction } from '../types';
 // 기획 12차: 힐러 역할 신설 — 클레릭(서포터에서 이동, 수치 그대로) + 메딕 + 퇴마사. 서포터에 퍼펫티어 추가 (docs/new-characters.md).
 // 드래그스킬은 놓은 지점(point)이 기준점. 방향이 있는 형태는 데이터에 방향이 고정됨 (3차 2: 오른쪽 돌진은 항상 오른쪽).
 // swapCooldown(8~12초) = 드래그스킬 쿨, 강할수록 김. 목록 순서 = 프리셋 화면 순서 (역할별로 묶음).
+// 기획 14차 교체 에너지 (실험 토글): swapEnergy = 교체 1번 비용 (4~8). 드래그스킬 시전 1번의 잰 가치 ÷ 38.5 반올림
+// (크로노는 균열이 돌려주는 에너지 2를 더함 — 균열은 에너지 차는 속도와 상관없이 늘 에너지 2, effect.energy) → 에너지 1당 가치가 15명 모두 평균 ±8% 안 (docs/balance.md 13-4, 시드 두 세트).
 // 기획 13차 스킬 리뉴얼 (docs/skill-renewal.md 3장): 드래그·궁극기는 2~4박자 연속기 (SkillAction.stage = 단계 이름, 연출·소리
 // 열쇠). 위력 드래그 약 ×1.6, 궁극기 약 ×1.8. 쿨·궁극기 게이지(30초)·드래그 방향은 그대로. 궁극기는 컷인 0.5초:
 // castTime 0.5 + 시전자 무적 0.5초 (ULT_CUTIN), 효과는 0.45초부터 (움직임만 0초 허용). 설명의 숫자는 데이터와 같아야 함
@@ -54,6 +56,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#5b8def',
     stats: { maxHp: 900, atk: 18, def: 0.3, atkSpeed: 0.9, range: 0.6, moveSpeed: 3.2, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 10,
+    swapEnergy: 6,
     basic: { kind: 'melee' },
     passive: {
       id: 'guardian_p',
@@ -107,6 +110,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#48bfe3',
     stats: { maxHp: 850, atk: 20, def: 0.25, atkSpeed: 0.9, range: 0.6, moveSpeed: 3.2, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 11,
+    swapEnergy: 7,
     basic: { kind: 'melee' },
     passive: {
       id: 'paladin_p',
@@ -178,6 +182,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#80b918',
     stats: { maxHp: 950, atk: 16, def: 0.3, atkSpeed: 0.85, range: 0.7, moveSpeed: 3.0, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 10,
+    swapEnergy: 5,
     basic: { kind: 'melee' },
     passive: {
       id: 'warden_p',
@@ -233,6 +238,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#ef476f',
     stats: { maxHp: 600, atk: 32, def: 0.1, atkSpeed: 1.4, range: 0.6, moveSpeed: 3.8, critChance: 0.15, critMult: 1.8 },
     swapCooldown: 10,
+    swapEnergy: 6,
     basic: { kind: 'melee' },
     passive: {
       id: 'blade_p',
@@ -289,6 +295,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#e76f51',
     stats: { maxHp: 750, atk: 40, def: 0.15, atkSpeed: 0.8, range: 0.7, moveSpeed: 3.4, critChance: 0.1, critMult: 2.0 },
     swapCooldown: 11,
+    swapEnergy: 7,
     basic: { kind: 'melee', splashRadius: 1 },
     passive: {
       id: 'berserker_p',
@@ -344,6 +351,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#5e60ce',
     stats: { maxHp: 560, atk: 34, def: 0.08, atkSpeed: 1.5, range: 0.6, moveSpeed: 4.0, critChance: 0.2, critMult: 1.9 },
     swapCooldown: 9,
+    swapEnergy: 6,
     basic: { kind: 'melee' },
     passive: {
       id: 'shadow_p',
@@ -405,6 +413,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#06d6a0',
     stats: { maxHp: 480, atk: 26, def: 0.05, atkSpeed: 1.3, range: 6, moveSpeed: 3.6, critChance: 0.2, critMult: 1.8 },
     swapCooldown: 10,
+    swapEnergy: 5,
     basic: { kind: 'projectile', speed: 18 },
     passive: {
       id: 'ranger_p',
@@ -452,6 +461,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#9b5de5',
     stats: { maxHp: 450, atk: 30, def: 0.05, atkSpeed: 0.8, range: 5.5, moveSpeed: 3.4, critChance: 0.1, critMult: 1.6 },
     swapCooldown: 12,
+    swapEnergy: 6,
     basic: { kind: 'projectile', speed: 12, splashRadius: 1.2 },
     passive: {
       id: 'mage_p',
@@ -517,6 +527,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#c68b59',
     stats: { maxHp: 500, atk: 28, def: 0.05, atkSpeed: 1.1, range: 5.5, moveSpeed: 3.5, critChance: 0.15, critMult: 1.7 },
     swapCooldown: 10,
+    swapEnergy: 6,
     basic: { kind: 'projectile', speed: 20 },
     passive: {
       id: 'gunner_p',
@@ -575,6 +586,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#ffd166',
     stats: { maxHp: 520, atk: 16, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 9,
+    swapEnergy: 5,
     basic: { kind: 'projectile', speed: 14 },
     passive: {
       id: 'cleric_p',
@@ -631,6 +643,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#2ec4b6',
     stats: { maxHp: 560, atk: 16, def: 0.12, atkSpeed: 1.1, range: 4.5, moveSpeed: 3.7, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 9,
+    swapEnergy: 5,
     basic: { kind: 'projectile', speed: 16 },
     passive: {
       id: 'medic_p',
@@ -682,6 +695,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#a4161a',
     stats: { maxHp: 500, atk: 22, def: 0.08, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.1, critMult: 1.6 },
     swapCooldown: 10,
+    swapEnergy: 6,
     basic: { kind: 'projectile', speed: 14 },
     passive: {
       id: 'exorcist_p',
@@ -732,6 +746,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#e056fd',
     stats: { maxHp: 540, atk: 15, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.7, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 9,
+    swapEnergy: 6,
     basic: { kind: 'projectile', speed: 14 },
     passive: {
       id: 'bard_p',
@@ -791,6 +806,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#b8c0ff',
     stats: { maxHp: 500, atk: 18, def: 0.08, atkSpeed: 0.9, range: 5.5, moveSpeed: 3.6, critChance: 0.1, critMult: 1.6 },
     swapCooldown: 9,
+    swapEnergy: 6,
     basic: { kind: 'projectile', speed: 13 },
     passive: {
       id: 'chrono_p',
@@ -816,7 +832,7 @@ export const CHARACTERS: CharacterDef[] = [
       actions: [
         { stage: 'rift', center: 'point', area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
         // 기획 6차 (쿨은 나간 순간부터): the card that just left always carries a fresh full cooldown, so the cut always lands
-        { stage: 'rift', center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 2 }] },
+        { stage: 'rift', center: 'self', area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 2, energy: 2 }] },
         { stage: 'rewind', center: 'point', delay: 0.5, area: { shape: 'circle', radius: 3.8 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 1.4 }] },
         // damage first, then the stun (기획서: 피해 먼저)
         { stage: 'stop', center: 'point', delay: 0.85, area: { shape: 'cross', diagonal: true, length: 3.5, width: 1.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.4 }, { kind: 'status', status: 'stun', duration: 1.2, value: 0 }, { kind: 'status', status: 'vulnerable', duration: 3, value: 0.15 }] },
@@ -842,6 +858,7 @@ export const CHARACTERS: CharacterDef[] = [
     color: '#ff99c8',
     stats: { maxHp: 540, atk: 17, def: 0.1, atkSpeed: 1.0, range: 5, moveSpeed: 3.6, critChance: 0.05, critMult: 1.5 },
     swapCooldown: 11,
+    swapEnergy: 6,
     basic: { kind: 'projectile', speed: 13 },
     passive: {
       id: 'puppeteer_p',

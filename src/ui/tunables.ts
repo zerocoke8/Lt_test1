@@ -15,6 +15,18 @@ export interface SliderSpec {
   group: string;
   /** Display suffix. */
   unit?: string;
+  /** 기획 14차: a slider of a test rule — shown right under that toggle (TOGGLES[].mode), not in the groups below. */
+  mode?: BoolTunable;
+}
+
+export interface ToggleSpec {
+  key: BoolTunable;
+  label: string;
+  /**
+   * 기획 14차 test rules (default off = today's rules): the toggle gets its own block in '실험 규칙' with a one-line
+   * note, and the sliders whose `mode` is this key right under it (dimmed while it is off).
+   */
+  mode?: { note: string };
 }
 
 export const SLIDERS: SliderSpec[] = [
@@ -47,11 +59,27 @@ export const SLIDERS: SliderSpec[] = [
   { group: '보스 그로기', key: 'bossGroggyDamageMult', label: '그로기 받는 피해', min: 1, max: 3, step: 0.1, unit: '×' },
   { group: '보스 그로기', key: 'bossGroggyDragMult', label: '그로기 드래그 피해', min: 1, max: 4, step: 0.1, unit: '×' },
   { group: '진행', key: 'gameSpeed', label: '게임 속도', min: 0.25, max: 4, step: 0.25, unit: '×' },
+  // 기획 14차 궁극기 개별 게이지 (under its toggle): field fill time, bench rate as a share of the field rate (0 = none)
+  { group: '실험 규칙', mode: 'ultPerCharacter', key: 'ultFieldChargeTime', label: '필드 충전 시간', min: 5, max: 90, step: 1, unit: '초' },
+  { group: '실험 규칙', mode: 'ultPerCharacter', key: 'ultBenchRatio', label: '대기 충전 비율', min: 0, max: 1, step: 0.01, unit: '×' },
+  // 기획 14차 교체 에너지 (under its toggle): pool size (= HUD segments) and regen per second
+  { group: '실험 규칙', mode: 'swapEnergyMode', key: 'swapEnergyMax', label: '최대 에너지', min: 4, max: 20, step: 1 },
+  { group: '실험 규칙', mode: 'swapEnergyMode', key: 'swapEnergyRegen', label: '에너지 차는 속도', min: 0.25, max: 3, step: 0.25, unit: '/초' },
 ];
 
-export const TOGGLES: { key: BoolTunable; label: string }[] = [
+export const TOGGLES: ToggleSpec[] = [
   { key: 'invincible', label: '무적' },
   { key: 'instantCooldowns', label: '쿨타임 없음' },
+  {
+    key: 'ultPerCharacter',
+    label: '궁극기 개별 게이지',
+    mode: { note: '캐릭터마다 게이지 · 필드는 충전 시간대로, 대기는 비율만큼 느리게 · 궁 버튼 = 필드 캐릭터' },
+  },
+  {
+    key: 'swapEnergyMode',
+    label: '교체 에너지',
+    mode: { note: '재등장 쿨 대신 플레이어 에너지 · 교체마다 캐릭터 비용(⚡5~7) · 쿨 감소 = 에너지 충전' },
+  },
 ];
 
 export const SPEEDS = [0.5, 1, 2, 4];
@@ -60,7 +88,8 @@ export const SPEEDS = [0.5, 1, 2, 4];
 const SESSION_ONLY: ReadonlySet<keyof Tunables> = new Set<keyof Tunables>(['gameSpeed']);
 
 export function formatTunable(spec: SliderSpec, v: number): string {
-  const digits = spec.step >= 1 ? 0 : spec.step >= 0.1 ? 1 : 2;
+  // as many decimals as the step has (1 → 0, 0.5 → 1, 0.25 / 0.05 → 2)
+  const digits = spec.step >= 1 ? 0 : Math.min(2, (String(spec.step).split('.')[1] ?? '').length);
   return `${v.toFixed(digits)}${spec.unit ?? ''}`;
 }
 
