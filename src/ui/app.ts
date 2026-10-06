@@ -4,7 +4,7 @@
 // Loop: dt = min(0.1, …); if running: game.step(dt); events = game.drainEvents(); renderer.render(…); hud.update(…).
 
 import './styles.css';
-import type { Command, CommandResult, DragPreview, Game, GameSetup, GameState, RenderUiState, Tunables, Vec2 } from '../types';
+import type { Command, CommandResult, DragPreview, Game, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../config';
 import { createGame } from '../sim';
 import { createRenderer } from '../render';
@@ -12,6 +12,8 @@ import { TickSmoother } from '../render/smooth';
 import { isSoloOnlyBuild, type NetStatus } from '../net/connection';
 import { LobbyClient, type StartMsg } from '../net/lobbyClient';
 import { RemoteGame } from '../net/remoteGame';
+import { sfx } from '../audio';
+import { sfxDebugApi, type SfxDebugApi } from '../audio/devboard';
 import { DebugPanel } from './debug';
 import { h } from './dom';
 import { DragController, LIFT, type DragKind } from './drag';
@@ -66,7 +68,11 @@ export interface ProtoApi {
     readonly dragPreview: DragPreview | null;
     /** Test hook: the state the renderer drew last frame (solo: positions blended between sim ticks). */
     readonly drawState: GameState | null;
+    /** Test hook (기획 13차): the last few ult cut-ins on this screen — 'full' (mine) or 'mini' (another player's corner banner). */
+    readonly cutIns: ReturnType<Renderer['cutInLog']>;
   };
+  /** 기획 13차 효과음: play / ids / recent (last 64 requests, kept even when muted). */
+  readonly sfx: SfxDebugApi;
 }
 
 declare global {
@@ -83,6 +89,7 @@ const PROBE_WAIT_MS = 1500;
 export function startApp(root: HTMLElement): void {
   root.replaceChildren();
   const stage = new Stage(root);
+  sfx.attach(root);
   const renderer = createRenderer(stage.canvas);
   /** Solo: positions blended between sim ticks (30 Hz sim, 60 Hz screen). Multiplayer interpolates in RemoteGame. */
   const smoother = new TickSmoother();
@@ -112,6 +119,7 @@ export function startApp(root: HTMLElement): void {
 
   const lobby = new LobbyClient(() => nickname, {
     onChange: () => {
+      sfx.roomMembers(lobby.room?.members.length ?? 0);
       refreshNetNote();
       if (lobbyScreen.visible) refreshLobby();
     },
@@ -142,8 +150,10 @@ export function startApp(root: HTMLElement): void {
 
   const drag = new DragController({ stage, game: () => game, renderer: () => renderer, hud: () => hud, localPlayer: () => localPlayer });
   const reward = new RewardOverlay(stage.screenLayer, i => {
+    const offer = game?.state.rewardOffersByPlayer[localPlayer]?.[i];
     const r = game?.dispatch({ type: 'chooseReward', player: localPlayer, offerIndex: i });
     if (r && !r.ok) hud?.toast(r.reason ?? '선택할 수 없어요', 'warn');
+    else if (offer) sfx.ui(offer.isRelic ? 'relic.get' : `reward.pick.${offer.rarity}`);
   });
   // 기획 10차: the 괴담 room sits right above the reward screen (pause / debug / result stack over it)
   const goedam = new GoedamScreen(stage.screenLayer, {
@@ -308,6 +318,7 @@ export function startApp(root: HTMLElement): void {
   function showLobby(): void {
     drag.cancel();
     screen = 'lobby';
+    sfx.scene('lobby');
     preset.setVisible(false);
     result.hide();
     goedam.hide();
@@ -334,6 +345,7 @@ export function startApp(root: HTMLElement): void {
       return;
     }
     if (on && (!game || screen !== 'combat')) return;
+    if (on !== paused) sfx.ui(on ? 'ui.pause.open' : 'ui.pause.close');
     paused = on;
     if (on) {
       drag.cancel();
@@ -347,6 +359,7 @@ export function startApp(root: HTMLElement): void {
       setPaused(true);
       return;
     }
+    if (!menuOpen) sfx.ui('ui.pause.open');
     menuOpen = true;
     drag.cancel();
     pause.show(game.state, { multi: true, isHost: !!remote?.isHost, localPlayer });
@@ -357,6 +370,7 @@ export function startApp(root: HTMLElement): void {
       setPaused(false);
       return;
     }
+    if (menuOpen) sfx.ui('ui.pause.close');
     menuOpen = false;
     pause.hide();
   }
@@ -388,6 +402,7 @@ export function startApp(root: HTMLElement): void {
     localPlayer = 0;
     uiState.localPlayer = 0;
     game = createGame(full);
+    sfx.scene('combat', game.state, 0);
     smoother.reset();
     hud = newHud(game);
     screen = 'combat';
@@ -409,6 +424,7 @@ export function startApp(root: HTMLElement): void {
     // multiplayer menu open (R35: no pause, but the HUD is covered): no ult from the keyboard either
     if (!game || screen !== 'combat' || paused || menuOpen) return;
     const r = game.dispatch({ type: 'ult', player: localPlayer });
+    sfx.ui(r.ok ? 'ui.ult.press' : 'ui.ult.denied');
     if (r.ok) return;
     const me = game.state.players[localPlayer];
     const text =
@@ -447,6 +463,7 @@ export function startApp(root: HTMLElement): void {
     remote = rg;
     game = rg;
     mode = 'multi';
+    sfx.scene('combat', rg.state, rg.localPlayer);
     localPlayer = rg.localPlayer;
     uiState.localPlayer = localPlayer;
     hud = newHud(rg);
@@ -530,6 +547,8 @@ export function startApp(root: HTMLElement): void {
     reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null });
     goedam.hide();
     result.show(game, quitWhileOut, { localPlayer, multi: mode === 'multi', isHost: !!remote?.isHost });
+    sfx.scene('result');
+    sfx.bests(stage.screenLayer.querySelectorAll('.is-best').length);
   }
 
   function toPreset(): void {
@@ -540,6 +559,7 @@ export function startApp(root: HTMLElement): void {
     game = null;
     screen = 'preset';
     paused = false;
+    sfx.scene('preset');
     result.hide();
     goedam.hide();
     pause.hide();
@@ -616,8 +636,12 @@ export function startApp(root: HTMLElement): void {
     const drawState = mode === 'solo' ? smoother.view(game.state, now, game.tunables.gameSpeed) : game.state;
     lastDrawState = drawState;
     renderer.render(drawState, events, running ? dt : 0, uiState);
+    // 기획 13차 효과음: solo pause / portrait stop the sound (multiplayer menu keeps playing)
+    sfx.setPaused(!running);
+    sfx.frame(game.state, events, { localPlayer, gameSpeed: game.tunables.gameSpeed, toScreen: w => renderer.worldToScreen(w), nowMs: now });
     hud?.update(game.state, events);
     if (mode === 'multi' && remote && hud) {
+      sfx.net(remote.connected);
       hud.setNetStatus(
         !remote.connected ? '서버와 연결이 끊겼어요 · 다시 연결하는 중…' : remote.stalled ? '연결이 불안정해요 · 다시 연결하는 중…' : null,
       );
@@ -672,6 +696,7 @@ export function startApp(root: HTMLElement): void {
     },
     startRun,
     setPaused,
+    sfx: sfxDebugApi,
     ui: {
       dragTo(kind, index, world) {
         if (!game) return { ok: false, reason: '전투 중이 아님' };
@@ -692,6 +717,9 @@ export function startApp(root: HTMLElement): void {
       },
       get drawState() {
         return game && screen === 'combat' ? lastDrawState : null;
+      },
+      get cutIns() {
+        return renderer.cutInLog();
       },
     },
   };

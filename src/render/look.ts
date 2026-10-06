@@ -266,3 +266,13 @@ export function boldFont(px: number): string {
   }
   return f;
 }
+
+/**
+ * 기획 13차 리뷰 (skill-renewal 2-4: red = monster warnings): a character whose own colour is red draws its skill areas
+ * (drag preview, warnings, beats) in another colour — 퇴마사's are talisman yellow, its ink red stays for thin strokes.
+ */
+const AREA_COLOR: Readonly<Record<string, string>> = { exorcist: '#ffd166' };
+
+export function areaColor(defId: string, base: string): string {
+  return AREA_COLOR[defId] ?? base;
+}

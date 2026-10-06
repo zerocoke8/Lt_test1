@@ -11,6 +11,7 @@ import type { PresetSave } from './storage';
 import { createToaster } from './toast';
 import { ICON_FULLSCREEN } from './dom';
 import { toggleFullscreen } from './stage';
+import { createSoundToggle } from './soundPanel';
 
 export interface PresetScreen {
   readonly el: HTMLElement;
@@ -84,6 +85,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   const titles = h('div', 'ps-titles', head);
   h('div', 'ps-title', titles, '스왑 타워');
   h('div', 'ps-sub', titles, '출발 전 편성 · 캐릭터 3명과 펫 3마리를 골라 주세요');
+  createSoundToggle(head); // 기획 13차 효과음
   const fs = button('icon-btn', '', head, () => void toggleFullscreen());
   fs.innerHTML = ICON_FULLSCREEN;
   fs.setAttribute('aria-label', '전체 화면');

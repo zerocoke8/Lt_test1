@@ -11,6 +11,12 @@ import { ROLE_GLYPH } from './format';
 import { petGlyph } from './preset';
 import type { Hud } from './hud';
 import type { Stage } from './stage';
+import { sfx } from '../audio';
+import { areaColor } from '../render/look';
+
+function charAreaColor(defId: string): string {
+  return areaColor(defId, getCharacter(defId).color);
+}
 
 /** Logical px between finger and drop point. */
 export const LIFT = 80;
@@ -180,7 +186,10 @@ export class DragController {
     if (!pv.valid) {
       const r = this.can(p.kind, p.index);
       if (!r.ok) this.deps.hud()?.refuse(p.kind, p.index, r);
-      else this.deps.hud()?.toast('취소됨 · 필드 위에서 놓아 주세요');
+      else {
+        sfx.ui('ui.card.cancel');
+        this.deps.hud()?.toast('취소됨 · 필드 위에서 놓아 주세요');
+      }
       return;
     }
     const res =
@@ -207,6 +216,7 @@ export class DragController {
 
   private startDrag(p: Press): void {
     p.dragging = true;
+    sfx.ui(p.kind === 'swap' ? 'ui.card.lift' : 'ui.pet.lift');
     const me = this.deps.game()?.state.players[this.lp];
     if (p.kind === 'swap') {
       const def = getCharacter(me?.party[p.index]?.defId ?? '');
@@ -284,7 +294,8 @@ export class DragController {
     const ok = this.can(p.kind, p.index).ok;
     const valid = ok && overField && inArena;
     const me = g.state.players[this.lp];
-    const color = p.kind === 'swap' ? getCharacter(me.party[p.index].defId).color : getPet(me.pets[p.index].defId).color;
+    // 기획 13차 리뷰: a red character (퇴마사) previews in its area colour, never in the monster-warning red
+    const color = p.kind === 'swap' ? charAreaColor(me.party[p.index].defId) : getPet(me.pets[p.index].defId).color;
     const parts = g.previewParts(this.lp, p.kind, p.index);
     this.preview = { kind: p.kind, pos: g.clampToArena(world), area: parts[0]?.area ?? g.previewArea(this.lp, p.kind, p.index), parts, valid, color, index: p.index };
 

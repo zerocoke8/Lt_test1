@@ -1,17 +1,23 @@
 // Event-driven visual effects. Owns only render-side state (pools + timers); never touches GameState.
 
-import { LOGICAL_H, LOGICAL_W, type AreaShape, type DamageSource, type GameEvent, type GameState, type SkillAction, type Team, type Telegraph } from '../types';
+import { LOGICAL_H, LOGICAL_W, type AreaShape, type DamageSource, type Entity, type GameEvent, type GameState, type SkillAction, type Team, type Telegraph } from '../types';
 import { PLAYER_COLORS } from '../config';
-import { getCharacter, getMonster, getPet } from '../data';
+import { CHARACTERS, getCharacter, getMonster, getPet } from '../data';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
-import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, boldFont, lighten, mix, petColor, type UnitLook, unitLook } from './look';
+import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, areaColor, boldFont, lighten, mix, petColor, type UnitLook, unitLook } from './look';
 import { Pool } from './pool';
 import { DIR_VEC, aimSamples, areaSize, hitsArea } from '../sim/geometry';
 import { TAU, areaRadius, fanFrame, pathArea, pathRoundRect } from './shapes';
 import { type UnitMemo, bodyHeight, bodyTop, bodyWidth, drawBody } from './units';
 import { DASH_LAND } from './dashtime';
 import { Fx, type FxHost, Impact, SkillFx } from './skillfx';
-import { type CastInfo, castFx, swingFx } from './castfx';
+import { type CastInfo, beam as beamFx, castFx, swingFx, xslash } from './castfx';
+import { Pk, drawParticle } from './fxparts';
+import { ScreenFx } from './cutin';
+import { LAND, PREP, STAGE_DETAIL, type StageHost, type StageInfo, genericLand } from './stagefx';
+import { type ImpactSpec, impactOf } from './impact';
+import { SkillMarks } from './marks';
+import { StatusFx } from './statusfx';
 import { Juice, impactStrength, landingKick, partKick } from './juice';
 
 // ─────────────────────────── effect records (pooled) ───────────────────────────
@@ -38,6 +44,8 @@ interface Floater {
   alpha: number;
   /** Numbers only merge with the same key (skill hits of one skill). */
   key: string;
+  /** 기획 13차: small white tag right of the number ('×2' = a drag hit on a groggy boss), '' = none. */
+  tag: string;
 }
 
 type FloaterKind = 0 | 1 | 2 | 3 | 4 | 5;
@@ -79,6 +87,9 @@ interface Particle {
   dur: number;
   color: string;
   size: number;
+  /** 기획 13차: look (Pk.Square = the old square) and its own spin phase. */
+  kind: Pk;
+  spin: number;
 }
 
 interface Ghost {
@@ -91,7 +102,7 @@ interface Ghost {
   phase: number;
   age: number;
   dur: number;
-  mode: 0 | 1; // 0 death, 1 leave (swap out)
+  mode: 0 | 1 | 2; // 0 death, 1 leave (swap out), 2 afterimage (기획 13차 분신 / 잔상 / 되감기)
 }
 
 interface Warn {
@@ -182,6 +193,8 @@ interface Landing {
   parts: { x: number; y: number; area: AreaShape }[];
   /** Drag skill name (its damage events wait for the impact). */
   skill: string;
+  /** 기획 13차: a renewed (staged) drag — its big beat kicks on its own (impact.ts), the touchdown only a 60 ms thud. */
+  staged: boolean;
 }
 
 /** A delayed part of my drag skill (meteor, chained blast): kicks when it lands. */
@@ -229,14 +242,37 @@ const TMP_O = { x: 0, y: 0 };
 const SWING_WINDUP = 0.07;
 /** Two numbers on one target this close together are stacked (the later one sits above), not drawn on each other. */
 const STACK_WINDOW = 0.2;
+/**
+ * 기획 13차 리뷰: a renewed multi-hit / multi-target stage sums into one number per cluster — the same skill's numbers on
+ * targets this close (world units) merge, and a merged number stays up while the hits keep coming.
+ */
+const CLUSTER_R = 2.2;
+/** A merged number is kept at most this old while hits keep landing (it fades once they stop). */
+const MERGE_KEEP_AGE = 0.25;
+/** Heal ticks on one target (sanctuary, auras) keep adding into one number this long — no column of '+30's. */
+const HEAL_MERGE_WINDOW = 0.9;
+/** Numbers on my own character pop beside its '나' tag (world units to the right), never on it. */
+const MY_TAG_CLEAR_X = 0.75;
 /** My drag skill's ally buffs / self shield: a one-time text on whoever got them ("공속 +40%", "보호막"). */
 const BUFF_TEXT_COLOR = '#7ff0e0';
 const SKILL_NUM_COLOR: Partial<Record<DamageSource, string>> = { normal: '#6fe7ff', drag: '#a6ff6b', ult: '#ffd23f', pet: '#ff9ad5' };
 const SKILL_NUM_SIZE: Partial<Record<DamageSource, number>> = { normal: 20, drag: 24, ult: 24, pet: 21 };
+/** 기획 13차: hits on a groggy boss — amber, 1.15× (crit look unchanged); drag hits get a small white '×2'. */
+const GROGGY_NUM_COLOR = '#ffc94d';
+const GROGGY_NUM_SIZE = 1.15;
 
-export class Vfx implements FxHost {
+/** 기획 13차: a delayed kick (hit-stop / shake / screen flash) of my renewed skill's beat, fired when its picture starts. */
+interface Kick {
+  t: number;
+  stop: number;
+  shake: number;
+  screen: number;
+  color: string;
+}
+
+export class Vfx implements FxHost, StageHost {
   readonly floaters = new Pool<Floater>(
-    () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0, label: '', stroke: '#0a0a0a', alpha: 1, key: '' }),
+    () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0, label: '', stroke: '#0a0a0a', alpha: 1, key: '', tag: '' }),
     110,
   );
   /** Per-skill flavour effects (slashes, arrows, meteors, clocks …). */
@@ -247,7 +283,7 @@ export class Vfx implements FxHost {
     48,
   );
   readonly particles = new Pool<Particle>(
-    () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, g: 0, age: 0, dur: 1, color: '#fff', size: 3 }),
+    () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, g: 0, age: 0, dur: 1, color: '#fff', size: 3, kind: Pk.Square, spin: 0 }),
     360,
   );
   readonly ghosts = new Pool<Ghost>(
@@ -270,6 +306,8 @@ export class Vfx implements FxHost {
   private readonly myNames = new Map<string, number>();
   private clock = 0;
   private memosRef: Map<number, UnitMemo> = new Map();
+  /** The local player (numbers on its character keep clear of the 나 tag). */
+  private localPlayer = -1;
   /** Hit-stop + camera shake (기획 8차). Only my own skills shake hard; other players' landings barely. */
   readonly juice = new Juice();
   private readonly landings: Landing[] = [];
@@ -306,6 +344,45 @@ export class Vfx implements FxHost {
   phaseFlash = 0;
   bossRetreatT = -1;
   banner = { active: false, age: 0, dur: 1.5, title: '', sub: '', color: '#fff', glyph: '' };
+  /** 기획 13차: ult cut-in, mini banners and screen-wide beats (flash, vignette, spotlight, slash, desaturate). */
+  readonly screen = new ScreenFx();
+  /** 기획 13차: styled warnings + zone decor of the renewed skills. */
+  readonly marks = new SkillMarks();
+  /** 기획 13차: taunt / tether / root / stasis / charm / splashUp visuals and head icons. */
+  readonly status = new StatusFx();
+  private readonly kicks: Kick[] = [];
+  /** Render-only hops (ranger ult jump …): entity → [age, dur, height]. */
+  private readonly hops = new Map<number, { age: number; dur: number; h: number }>();
+  /** Units drawn hidden until this vfx clock (shadow vanishing during the cut-in). */
+  private readonly hides = new Map<number, number>();
+  private readonly stage: StageInfo = {
+    skillId: '',
+    stage: '',
+    slot: '',
+    x: 0,
+    y: 0,
+    area: SINGLE_AREA,
+    ox: 0,
+    oy: 0,
+    src: -1,
+    follow: -1,
+    color: '#fff',
+    k: 1,
+    local: false,
+    wait: 0,
+    delay: 0,
+    hit: 0,
+    hits: 1,
+    targets: 0,
+    actionIndex: 0,
+    face: 1,
+    dashTravel: 0,
+    action: null,
+  };
+  private readonly enemyBuf: UnitMemo[] = [];
+  private readonly allyBuf: UnitMemo[] = [];
+  private readonly spec: ImpactSpec = { stop: 0, shake: 0, flash: 0 };
+  private lastStasisKick = -9;
 
   reset(): void {
     this.floaters.clear();
@@ -338,14 +415,32 @@ export class Vfx implements FxHost {
     this.bossRetreatT = -1;
     this.enrageT = 99;
     this.banner.active = false;
+    this.screen.reset();
+    this.marks.reset();
+    this.status.reset();
+    this.kicks.length = 0;
+    this.hops.clear();
+    this.hides.clear();
   }
 
   // ─────────────────────────── event intake ───────────────────────────
 
   handle(ev: GameEvent, c: VfxContext): void {
+    this.memosRef = c.memos;
+    this.localPlayer = c.localPlayer;
     switch (ev.type) {
       case 'damage':
+        this.status.onDamage(ev.targetId, ev.amount, skillOwner(ev.skillName), this.status.isStopped(ev.targetId));
         this.onDamage(ev, c, null);
+        break;
+      case 'skillStage':
+        this.onStage(ev, c);
+        break;
+      case 'ultCast':
+        this.onUltCast(ev, c);
+        break;
+      case 'stasisEnd':
+        this.onStasisEnd(ev, c);
         break;
       case 'heal': {
         if (ev.amount <= 0) break;
@@ -381,6 +476,8 @@ export class Vfx implements FxHost {
         break;
       }
       case 'dash': {
+        const dm = c.memos.get(ev.entityId);
+        if (dm) dm.noLerp = true; // a dash is drawn as a streak, never as a pull slide
         const ent = findEntity(c.state, ev.entityId);
         const d = this.dashes.spawn();
         d.entityId = ev.entityId;
@@ -421,6 +518,7 @@ export class Vfx implements FxHost {
           armed: false,
           parts: [],
           skill: '',
+          staged: false,
         });
         break;
       }
@@ -472,6 +570,8 @@ export class Vfx implements FxHost {
             ls.kill(i);
           }
         }
+        // 기획 13차: a groggy break cancels every pending part at once — one "끊김!" per spot, not a stack of them
+        if (this.freshLabelNear('끊김!', ev.pos.x, ev.pos.y)) break;
         this.label(ev.pos.x, ev.pos.y, z, '끊김!', '#9ad1ff', 17, 1.3);
         this.burst(ev.pos.x, ev.pos.y, z * 0.6, 10, '#cfe8ff', 1.6, 2, 0.45);
         break;
@@ -504,8 +604,16 @@ export class Vfx implements FxHost {
         break;
       }
       case 'blink': {
-        // 기획 8차: vanish in a puff of shadow, reappear next to the target with a ring (a thin trail says where it went)
         const m = c.memos.get(ev.entityId);
+        if (m) m.noLerp = true;
+        if (ev.hop != null && m && m.kind === 'character') {
+          // 기획 13차 블레이드 순보: an afterimage left behind + a straight white flash to the next enemy
+          this.ghost(m, 2, 0.35, ev.from.x, ev.from.y);
+          beamFx(this.sfx, ev.from.x, ev.from.y, ev.to.x, ev.to.y, 0.35, 0.18, '#ffffff', 1);
+          this.burst(ev.to.x, ev.to.y, 0.5, 6, '#ffc2d1', 2.2, 1.5, 0.3);
+          break;
+        }
+        // 기획 8차: vanish in a puff of shadow, reappear next to the target with a ring (a thin trail says where it went)
         if (m) this.ghost(m, 1, 0.3, ev.from.x, ev.from.y);
         this.burst(ev.from.x, ev.from.y, 0.5, 12, '#2a1f3d', 2.2, 2, 0.45, -1);
         this.burst(ev.from.x, ev.from.y, 0.5, 6, '#c77dff', 1.6, 1.5, 0.35, -1);
@@ -593,20 +701,24 @@ export class Vfx implements FxHost {
     if (m && m.tier === 'boss') this.bossFlash = 1;
     if (ev.amount >= 0.5) {
       const src = ev.source;
+      // 기획 13차: a groggy boss's numbers are amber and a bit bigger; a drag hit says '×2'
+      const gc = ev.groggy ? GROGGY_NUM_COLOR : null;
+      const gk = ev.groggy ? GROGGY_NUM_SIZE : 1;
+      const tag = ev.groggy && ev.drag ? '×2' : '';
       if (ev.targetTeam === 'ally') {
         this.addNumber(ev.targetId, ev.crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, COLORS.dmgAlly, m, '', ev.crit ? 22 : 16, '', 1, 'ally');
       } else if (ev.skillName && src && SKILL_NUM_COLOR[src]) {
         // skill hit: bigger, coloured by its slot; mine full size, other players' smaller and dimmer. No name under the
         // number (it was 12 px — unreadable on a phone): the callout over the caster already names the skill.
         const mine = (this.myNames.get(ev.skillName) ?? -1) >= this.clock;
-        const base = (SKILL_NUM_SIZE[src] ?? 20) * (ev.crit ? 1.2 : 1);
-        this.addNumber(ev.targetId, 4, ev.amount, ev.pos.x, ev.pos.y, SKILL_NUM_COLOR[src]!, m, '', mine ? base : base * 0.74, '', mine ? 1 : 0.7, `${src}:${ev.skillName}`, ev.crit ? '!' : '');
+        const base = (SKILL_NUM_SIZE[src] ?? 20) * (ev.crit ? 1.2 : 1) * gk;
+        this.addNumber(ev.targetId, 4, ev.amount, ev.pos.x, ev.pos.y, gc ?? SKILL_NUM_COLOR[src]!, m, '', mine ? base : base * 0.74, '', mine ? 1 : 0.7, `${src}:${ev.skillName}`, ev.crit ? '!' : '', tag);
       } else if (src && src !== 'basic' && src !== 'summon' && src !== 'pet') {
         // burns, auras, leftover zones: small and warm, never mistaken for a hit
-        this.addNumber(ev.targetId, 5, ev.amount, ev.pos.x, ev.pos.y, '#ffb36b', m, '', 13, '', 0.9, 'dot');
+        this.addNumber(ev.targetId, 5, ev.amount, ev.pos.x, ev.pos.y, gc ?? '#ffb36b', m, '', 13 * gk, '', 0.9, 'dot');
       } else {
         const crit = ev.crit;
-        this.addNumber(ev.targetId, crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, crit ? COLORS.dmgCrit : COLORS.dmgEnemy, m, '', crit ? 24 : 15, '', 1, 'basic', crit ? '!' : '');
+        this.addNumber(ev.targetId, crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, gc ?? (crit ? COLORS.dmgCrit : COLORS.dmgEnemy), m, '', (crit ? 24 : 15) * gk, '', 1, 'basic', crit ? '!' : '', tag);
       }
     } else if (ev.absorbed >= 0.5) {
       this.addNumber(ev.targetId, 3, ev.absorbed, ev.pos.x, ev.pos.y, COLORS.absorbed, m, '', 13, '', 1, 'abs');
@@ -633,6 +745,18 @@ export class Vfx implements FxHost {
     }
     if (!t) return;
     this.pendingSwing.set(ev.targetId, { ax: src.x, ay: src.y });
+    // 기획 13차: a charmed enemy's swings are pink (it fights its own side); 광란 (splashUp) cracks the ground per hit
+    if (this.status.isCharmed(src.id)) {
+      swingFx(this.sfx, src.x, src.y, t.x, t.y, (bodyHeight(t.look, t.radius) * 0.5) / PX_PER_UNIT_Z, '#ff5fa2', 0.9, SWING_WINDUP * 0.6, false);
+      return;
+    }
+    if (this.status.hasSplash(src.id)) {
+      const cr = this.sfx.add(Fx.Crack, t.x, t.y, 0.6, '#ff3b1f', k * 0.8);
+      cr.w = Math.PI * 2;
+      cr.r = 1.1;
+      cr.n = 5;
+      cr.wait = SWING_WINDUP;
+    }
     if (t.tier === 'boss') return;
     // crescents for heroes' swings and for whatever hits MY character; a crowd of monsters trading blows with bots
     // only gets the hit flash + jolt (keeps 30-monster fights cheap and readable)
@@ -650,9 +774,7 @@ export class Vfx implements FxHost {
     const src = ev.sourceId !== null ? c.memos.get(ev.sourceId) ?? null : null;
     const srcEnt = ev.sourceId !== null ? findEntity(c.state, ev.sourceId) : null;
     // a character's skills use its own colour (same as the drag preview / landing burst / card)
-    const charColor = srcEnt && srcEnt.kind === 'character' && srcEnt.ownerPlayer !== null && srcEnt.partyIndex !== null
-      ? characterColor(c.state, srcEnt.ownerPlayer, srcEnt.partyIndex)
-      : src && src.kind === 'character' ? src.look.color : null;
+    const charColor = skillAreaColor(c, srcEnt, src);
     const color = ev.slot === 'pet' ? (petColor(ev.skillId) ?? pColor) : charColor ?? (ally ? pColor : '#ff4d4d');
     const ox = srcEnt ? srcEnt.pos.x : src ? src.x : ev.center.x;
     const oy = srcEnt ? srcEnt.pos.y : src ? src.y : ev.center.y;
@@ -688,6 +810,9 @@ export class Vfx implements FxHost {
     }
 
     const local = ev.player === c.localPlayer;
+    // 기획 13차: the renewed drag / ult beats (actions with a stage) have their own storyboards (stagefx.ts): the
+    // wind-up here, the burst at their skillStage
+    const staged = !!ev.stage && (ev.slot === 'drag' || ev.slot === 'ult') && charColor !== null;
     const strong = ev.slot === 'ult' || ev.slot === 'drag' || ev.slot === 'pet';
     // another player's cast: same shape and direction, drawn softer (fewer particles, fainter fill) so it never buries
     // my own preview or fight; mine stay at full strength
@@ -699,9 +824,14 @@ export class Vfx implements FxHost {
       if (ev.slot === 'ult') src.ultT = 0;
       else if (ev.slot === 'normal' || ev.slot === 'drag') src.skillT = 0;
     }
-    if (idx === 0) this.callout(ev, c, src, local, color);
+    // my ult's name is in the cut-in band (a callout would say it twice); "컷인 짧게" keeps the callout
+    if (idx === 0 && !(local && ev.slot === 'ult' && this.screen.cutin.active && !this.screen.cutin.short)) this.callout(ev, c, src, local, color);
     if (local && ev.slot === 'drag' && action) this.buffText(ev, c, action, src);
     if (ev.slot === 'drag') this.armLanding(ev, local, selfOnlyAction(action));
+    if (staged) {
+      this.prepStage(ev, c, action, color, k, local, src, ox, oy);
+      return;
+    }
 
     const selfOnly = action?.affects === 'self';
     if (!delayed && !selfOnly) this.flash(ev.center.x, ev.center.y, ox, oy, ev.area, strong ? 0.55 : 0.4, color, (strong ? 0.8 : 0.5) * k);
@@ -751,11 +881,293 @@ export class Vfx implements FxHost {
       pl.r = 0.8;
       pl.z = 5.5;
       pl.follow = ev.sourceId ?? -1;
-      if (local) {
-        this.showBanner(ev, c, color);
-        this.pulse(color);
+      if (local) this.pulse(color);
+    }
+  }
+
+  // ─────────────────────────── 기획 13차: renewed skill stages ───────────────────────────
+
+  /** A renewed beat was cast: its wind-up (PREP) and, when it is delayed, the look of its warning. */
+  private prepStage(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, action: SkillAction | null, color: string, k: number, local: boolean, src: UnitMemo | null, ox: number, oy: number): void {
+    const key = `${ev.skillId}:${ev.stage}`;
+    if ((ev.delay ?? 0) > 0) this.marks.hint(ev, key, color, k);
+    const fn = PREP[key];
+    if (!fn) return;
+    const s = this.fillStage(key, ev.skillId, ev.stage!, ev.slot, ev.center.x, ev.center.y, ev.area, action, color, k, local, src, ox, oy, ev.sourceId, c);
+    s.delay = ev.delay ?? 0;
+    s.hits = Math.max(1, ev.hits ?? 1);
+    s.actionIndex = ev.actionIndex ?? 0;
+    STAGE_DETAIL.low = !local;
+    fn(this.sfx, this, s);
+    STAGE_DETAIL.low = false;
+  }
+
+  /** A renewed beat landed (each hit / zone tick): its burst (LAND), its zone's decor, its kick. */
+  private onStage(ev: Extract<GameEvent, { type: 'skillStage' }>, c: VfxContext): void {
+    if (ev.team !== 'ally') return;
+    const key = `${ev.skillId}:${ev.stage}`;
+    const src = ev.sourceId !== null ? c.memos.get(ev.sourceId) ?? null : null;
+    const srcEnt = ev.sourceId !== null ? findEntity(c.state, ev.sourceId) : null;
+    const charColor = skillAreaColor(c, srcEnt, src);
+    const color = charColor ?? (ev.player !== null ? playerColor(c.state, ev.player) : '#ff5fa2');
+    const local = ev.player === c.localPlayer;
+    const k = ev.player !== null && !local ? OTHER_PLAYER_FX : 1;
+    const action = ev.slot === 'drag' || ev.slot === 'ult' ? actionFor(ev.skillId, ev.slot, ev.actionIndex) : null;
+    const ox = srcEnt ? srcEnt.pos.x : src ? src.x : ev.center.x;
+    const oy = srcEnt ? srcEnt.pos.y : src ? src.y : ev.center.y;
+    const s = this.fillStage(key, ev.skillId, ev.stage, ev.slot, ev.center.x, ev.center.y, ev.area, action, color, k, local, src, ox, oy, ev.sourceId, c);
+    s.hit = ev.hit;
+    s.hits = ev.hits;
+    s.targets = ev.targets;
+    s.actionIndex = ev.actionIndex;
+    // a drag beat that lands while its caster is still dropping in: its picture waits for the touchdown
+    s.wait = ev.slot === 'drag' ? this.landWait(ev.sourceId) : 0;
+    if (action?.zone && ev.hit === 0) this.marks.bindZone(c.state.zones, ev, key, color, k);
+    const fn = LAND[key];
+    STAGE_DETAIL.low = !s.local;
+    if (fn) fn(this.sfx, this, s);
+    else genericLand(this.sfx, s);
+    STAGE_DETAIL.low = false;
+    this.stageImpact(ev, key, s, action, c);
+  }
+
+  /** The beat's area flash and (mine) its stop / shake / screen flash from the Impact table; others' finales flash at half. */
+  private stageImpact(ev: Extract<GameEvent, { type: 'skillStage' }>, key: string, s: StageInfo, action: SkillAction | null, c: VfxContext): void {
+    const spec = impactOf(key, ev.hit, ev.hits, ev.actionIndex, this.spec);
+    if (!spec) return;
+    const big = spec.stop > 0 || (spec.screen ?? 0) > 0;
+    // a flurry (storm ×8, barrage ×12, shells ×10) flashes its footprint once, not on every hit
+    const flurry = ev.hits > 1 && ev.hit > 0 && !big;
+    if (spec.flash > 0 && !flurry && action?.affects !== 'self' && action?.affects !== 'allies') {
+      const f = this.flashes.spawn();
+      f.cx = ev.center.x;
+      f.cy = ev.center.y;
+      f.ox = s.ox;
+      f.oy = s.oy;
+      f.hasOrigin = true;
+      f.area = clampArea(ev.area);
+      f.age = -s.wait;
+      f.dur = big ? 0.14 : 0.25;
+      f.color = big ? lighten(s.color, 0.4) : s.color;
+      f.strength = spec.flash * s.k;
+    }
+    if (s.local) {
+      const none = ev.targets <= 0;
+      const kk = this.kicks.length < 12 ? ({} as Kick) : this.kicks.shift()!;
+      kk.t = s.wait;
+      kk.stop = none ? 0 : (spec.stop / 1000) * (this.juice.settings.hitStopMs / 75);
+      kk.shake = none ? spec.shake * 0.5 : spec.shake;
+      kk.screen = spec.screen ?? 0;
+      kk.color = spec.screenColor ?? '#ffffff';
+      this.kicks.push(kk);
+    } else if ((spec.screen ?? 0) > 0 && c.camX !== undefined && Math.abs(ev.center.x - c.camX) < VIEW_WIDTH_UNITS / 2 + 2) {
+      // another player's / a bot's finale in view: half the flash, no stop, no shake
+      this.screen.flash((spec.screen ?? 0) * 0.5, spec.screenColor);
+    }
+  }
+
+  private fillStage(
+    key: string,
+    skillId: string,
+    stage: string,
+    slot: string,
+    x: number,
+    y: number,
+    area: AreaShape,
+    action: SkillAction | null,
+    color: string,
+    k: number,
+    local: boolean,
+    src: UnitMemo | null,
+    ox: number,
+    oy: number,
+    sourceId: number | null,
+    c: VfxContext,
+  ): StageInfo {
+    const s = this.stage;
+    s.skillId = skillId;
+    s.stage = stage;
+    s.slot = slot;
+    s.x = x;
+    s.y = y;
+    s.area = area;
+    s.ox = ox;
+    s.oy = oy;
+    s.src = sourceId ?? -1;
+    s.color = color;
+    s.k = k;
+    s.local = local;
+    s.wait = slot === 'drag' ? this.landWait(sourceId) : 0;
+    s.delay = 0;
+    s.hit = 0;
+    s.hits = 1;
+    s.targets = 0;
+    s.actionIndex = 0;
+    s.face = src ? (Math.cos(src.facing) >= 0 ? 1 : -1) : 1;
+    s.dashTravel = this.dashTravel(sourceId);
+    s.action = action;
+    // a follow beat rides its caster (self-centred) or the enemy nearest its spot (target-centred)
+    s.follow = !action?.follow ? -1 : action.center === 'self' ? s.src : this.nearestEnemy(x, y, c.memos);
+    void key;
+    return s;
+  }
+
+  /** Seconds until this caster's drag landing touches down (its beats' pictures wait for it), 0 when none. */
+  private landWait(id: number | null): number {
+    if (id == null) return 0;
+    for (let i = this.landings.length - 1; i >= 0; i--) {
+      const l = this.landings[i];
+      if (l.entityId === id && l.age < l.impact) return l.impact - l.age;
+    }
+    return 0;
+  }
+
+  private nearestEnemy(x: number, y: number, memos: Map<number, UnitMemo>): number {
+    let best = -1;
+    let bd = 4;
+    for (const m of memos.values()) {
+      if (m.team !== 'enemy') continue;
+      const d = Math.hypot(m.x - x, m.y - y);
+      if (d < bd) {
+        bd = d;
+        best = m.id;
       }
     }
+    return best;
+  }
+
+  /** An ult was tapped: my cut-in (or the "컷인 짧게" banner), others' corner banner, the caster's pose and quirks. */
+  private onUltCast(ev: Extract<GameEvent, { type: 'ultCast' }>, c: VfxContext): void {
+    const m = c.memos.get(ev.entityId);
+    if (m) m.ultT = 0;
+    const look = unitLook('character', ev.defId);
+    const local = ev.player === c.localPlayer;
+    const k = local ? 1 : OTHER_PLAYER_FX;
+    if (local) {
+      this.screen.cutin.start(ev.defId, ev.name, look.color, look, ev.entityId);
+      this.banner.title = ev.name;
+    } else this.screen.cutin.mini(look, look.color, c.state.players[ev.player]?.name ?? '', ev.name);
+    const x = m ? m.x : 0;
+    const y = m ? m.y : 0;
+    if (m) {
+      this.ring(x, y, 0.4, 3.2, 0.5, look.color, 6, 0.12 * k);
+      const pl = this.sfx.add(Fx.Pillar, x, y, 0.55, look.color, k);
+      pl.r = 0.8;
+      pl.z = 6;
+      pl.follow = ev.entityId;
+    }
+    switch (ev.defId) {
+      case 'shadow':
+        // vanishes into ink for the cut-in (the sim already put it behind its target)
+        this.hides.set(ev.entityId, this.clock + 0.45);
+        if (m) this.spray(x, y, 0.5, Math.round(14 * k), Pk.Ink, '#1b1c3d', 2.5, 2, 0.6, 6, 6);
+        break;
+      case 'ranger':
+        this.hop(ev.entityId, 1.4, 0.45);
+        break;
+      case 'cleric': {
+        const w = this.sfx.add(Fx.Wings, x, y, 1.7, '#ffd166', k);
+        w.r = 2.2;
+        w.z = 1.1;
+        w.follow = ev.entityId;
+        break;
+      }
+      case 'berserker':
+        if (m) this.spray(x, y, 0.3, Math.round(10 * k), Pk.Ember, '#ff3b1f', 2, 3, 0.6, -1, 5);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 기획 13차 정지 끝: the clock glass shatters on the unit, the stored damage comes back as a big Σ number. */
+  private onStasisEnd(ev: Extract<GameEvent, { type: 'stasisEnd' }>, c: VfxContext): void {
+    const m = c.memos.get(ev.entityId);
+    this.status.clearSigma(ev.entityId);
+    if (!m) return;
+    const z = (bodyHeight(m.look, m.radius) * 0.6) / PX_PER_UNIT_Z;
+    this.spray(m.x, m.y, z, 10, Pk.Glass, '#e7eaff', 4, 3, 0.7, 8, 5);
+    this.ring(m.x, m.y, 0.3, 1.8, 0.35, '#b8c0ff', 4, 0.15);
+    if (ev.amount >= 1) {
+      const l = this.label(m.x, m.y, z + 1.2, `Σ ${Math.round(ev.amount)}`, '#e7eaff', m.tier === 'boss' ? 30 : 24, 1.2);
+      l.stroke = '#141633';
+    }
+    if (ev.player === c.localPlayer && this.clock - this.lastStasisKick > 0.3) {
+      this.lastStasisKick = this.clock;
+      this.juice.hitStop(0.08 * (this.juice.settings.hitStopMs / 75));
+      this.juice.shake(6);
+    }
+  }
+
+  // ── StageHost ──
+
+  afterimage(entityId: number, x: number, y: number, dur: number): void {
+    const m = this.memosRef.get(entityId);
+    if (m) this.ghost(m, 2, dur, x, y);
+  }
+
+  hop(entityId: number, height: number, dur: number): void {
+    this.hops.set(entityId, { age: 0, dur, h: height });
+  }
+
+  /** Render-only lift of a unit this frame (world units), 0 when it is not hopping. */
+  liftOf(entityId: number): number {
+    const h = this.hops.get(entityId);
+    if (!h) return 0;
+    const t = Math.min(1, h.age / h.dur);
+    return h.h * 4 * t * (1 - t);
+  }
+
+  /** Hidden this frame (shadow during its cut-in). */
+  hidden(entityId: number): boolean {
+    const until = this.hides.get(entityId);
+    return until !== undefined && until > this.clock;
+  }
+
+  enemiesIn(area: AreaShape, x: number, y: number): readonly UnitMemo[] {
+    const out = this.enemyBuf;
+    out.length = 0;
+    TMP_C.x = x;
+    TMP_C.y = y;
+    for (const m of this.memosRef.values()) {
+      if (m.team !== 'enemy') continue;
+      TMP_O.x = m.x;
+      TMP_O.y = m.y;
+      if (hitsArea(area, TMP_C, TMP_C, TMP_O, m.radius)) out.push(m);
+    }
+    return out;
+  }
+
+  allies(): readonly UnitMemo[] {
+    const out = this.allyBuf;
+    out.length = 0;
+    for (const m of this.memosRef.values()) if (m.team === 'ally' && m.kind === 'character') out.push(m);
+    return out;
+  }
+
+  memo(id: number): UnitMemo | undefined {
+    return this.memosRef.get(id);
+  }
+
+  /** Kicks / hops / hides that wait on the world clock. */
+  private updateStageTimers(dt: number): void {
+    const ks = this.kicks;
+    for (let i = ks.length - 1; i >= 0; i--) {
+      const kk = ks[i];
+      kk.t -= dt;
+      if (kk.t > 0) continue;
+      if (kk.stop > 0) this.juice.hitStop(kk.stop);
+      if (kk.shake > 0) this.juice.shake(kk.shake, 0.22);
+      if (kk.screen > 0) this.screen.flash(kk.screen, kk.color);
+      ks.splice(i, 1);
+    }
+    if (this.hops.size) for (const [id, h] of this.hops) if ((h.age += dt) >= h.dur) this.hops.delete(id);
+    if (this.hides.size) for (const [id, t] of this.hides) if (t <= this.clock) this.hides.delete(id);
+  }
+
+  /** Screen layer on the real clock (the cut-in keeps going through a hit-stop). */
+  updateReal(dt: number): void {
+    this.screen.update(dt);
   }
 
   /**
@@ -765,6 +1177,7 @@ export class Vfx implements FxHost {
    */
   private armLanding(ev: Extract<GameEvent, { type: 'skillCast' }>, local: boolean, selfOnly: boolean): void {
     const delay = ev.delay ?? 0;
+    if (ev.stage && delay > 0) return; // 기획 13차: a renewed beat kicks at its own skillStage (Impact table)
     if (local && delay > 0) {
       if (!selfOnly && this.partHits.length < 16) this.partHits.push({ t: delay, x: ev.center.x, y: ev.center.y, area: ev.area });
       return;
@@ -774,6 +1187,7 @@ export class Vfx implements FxHost {
     if (!l) return;
     l.armed = true;
     l.skill = ev.name;
+    if (ev.stage) l.staged = true;
     const travel = this.dashTravel(ev.sourceId);
     // a dash skill hits along its path: the kick comes when the streak arrives, not at the touchdown
     if (travel > 0) l.impact = Math.max(l.impact, DASH_LAND + travel);
@@ -790,7 +1204,7 @@ export class Vfx implements FxHost {
   }
 
   /** Enemies (memo positions) touching `area` at (x, y); the boss counts double (it is a big hit). */
-  private enemiesIn(area: AreaShape, x: number, y: number, memos: Map<number, UnitMemo>): number {
+  private enemyWeight(area: AreaShape, x: number, y: number, memos: Map<number, UnitMemo>): number {
     TMP_C.x = x;
     TMP_C.y = y;
     let n = 0;
@@ -825,11 +1239,12 @@ export class Vfx implements FxHost {
           let n = 0;
           let size = 0;
           for (const p of l.parts) {
-            n += this.enemiesIn(p.area, p.x, p.y, c.memos);
+            n += this.enemyWeight(p.area, p.x, p.y, c.memos);
             size += areaSize(p.area) || 0;
           }
           const str = impactStrength(n, size);
-          const kick = landingKick(this.juice.settings, str, n);
+          // 기획 13차 (2-2): "착지 멈춤은 큰 박자가 따로 있으면 60ms로 줄임" — a renewed drag's touchdown is a light thud
+          const kick = l.staged ? { stop: 0.06 * (this.juice.settings.hitStopMs / 75), shake: 3 } : landingKick(this.juice.settings, str, n);
           this.juice.hitStop(kick.stop);
           this.juice.shake(kick.shake);
           const at = c.memos.get(l.entityId);
@@ -846,7 +1261,7 @@ export class Vfx implements FxHost {
       const p = ps[i];
       p.t -= dt;
       if (p.t > 0) continue;
-      const n = this.enemiesIn(p.area, p.x, p.y, c.memos);
+      const n = this.enemyWeight(p.area, p.x, p.y, c.memos);
       const kick = partKick(this.juice.settings, impactStrength(n, areaSize(p.area) || 0), n);
       this.juice.hitStop(kick.stop);
       this.juice.shake(kick.shake, 0.2);
@@ -878,6 +1293,7 @@ export class Vfx implements FxHost {
       p.dur = 0.35 + Math.random() * 0.2;
       p.color = i % 3 === 0 ? '#ffffff' : '#d9d0c1';
       p.size = 3 + Math.random() * 3;
+      p.kind = Pk.Square;
     }
   }
 
@@ -912,6 +1328,7 @@ export class Vfx implements FxHost {
       p.dur = 0.7 + Math.random() * 0.3;
       p.color = i % 2 ? '#7dffb3' : '#52d273';
       p.size = 3 + Math.random() * 2.5;
+      p.kind = Pk.Square;
     }
     const f = this.sfx.add(Fx.Star, x, y, 0.35, '#52d273', 0.8);
     f.z = z * 0.9;
@@ -936,6 +1353,7 @@ export class Vfx implements FxHost {
       p.dur = 0.6 + Math.random() * 0.4;
       p.color = i % 4 === 0 ? '#00e5ff' : i % 4 === 1 ? '#ff2bd6' : '#f3f1ea';
       p.size = 4 + Math.random() * 3;
+      p.kind = Pk.Square;
     }
   }
 
@@ -963,6 +1381,7 @@ export class Vfx implements FxHost {
       p.dur = 0.35 + Math.random() * 0.25;
       p.color = i % 3 === 0 ? '#ffffff' : '#ff7b54';
       p.size = 3 + Math.random() * 3;
+      p.kind = Pk.Square;
     }
   }
 
@@ -1092,18 +1511,6 @@ export class Vfx implements FxHost {
     this.pulseColor = color;
   }
 
-  private showBanner(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, color: string): void {
-    const b = this.banner;
-    const m = ev.sourceId !== null ? c.memos.get(ev.sourceId) : undefined;
-    b.active = true;
-    b.age = 0;
-    b.dur = 1.5;
-    b.title = ev.name;
-    b.sub = m ? `${m.look.name} · 궁극기` : '궁극기';
-    b.color = m ? m.look.color : color;
-    b.glyph = m && m.look.role ? ROLE_GLYPH[m.look.role] : '★';
-  }
-
   /**
    * Where a dashing entity should be DRAWN this frame, as an offset from its sim position (= the dash end), plus the
    * landing lift. null when it is not dashing.
@@ -1154,16 +1561,21 @@ export class Vfx implements FxHost {
     alpha: number,
     key: string,
     suffix = '',
+    tag = '',
   ): void {
     {
       // hits on one target within the window add up into one number: same skill, or basic hits (a crit among them
       // turns the whole number into a crit) — a pile of "182! 13 113!" became one readable number
-      const last = this.lastDamage.get(targetId);
-      const win = kind === 2 ? HEAL_WINDOW : kind === 4 ? MERGE_WINDOW * 1.3 : MERGE_WINDOW;
+      const own = this.lastDamage.get(targetId);
+      const win = kind === 2 ? HEAL_MERGE_WINDOW : kind === 4 ? MERGE_WINDOW * 1.3 : MERGE_WINDOW;
       const basicLike = (k: FloaterKind) => k === 0 || k === 1;
-      const same = last && (last.kind === kind || (basicLike(kind) && basicLike(last.kind)));
-      if (last && same && last.targetId === targetId && last.key === key && last.age < win && last.age < last.dur) {
+      const same = own && (own.kind === kind || (basicLike(kind) && basicLike(own.kind)));
+      // a skill's numbers, and splash basic hits (버서커 혈귀 강림), also merge across neighbouring targets
+      const cluster = kind === 4 || key === 'basic';
+      const last = own && same && own.targetId === targetId && own.key === key && own.age < win && own.age < own.dur ? own : cluster ? this.clusterNumber(kind, key, x, y, win) : null;
+      if (last) {
         last.amount += amount;
+        if (kind === 2 || kind === 4) last.age = Math.min(last.age, MERGE_KEEP_AGE);
         const crit = suffix === '!' || last.text.endsWith('!');
         if (kind === 1 && last.kind === 0) {
           last.kind = 1;
@@ -1175,6 +1587,7 @@ export class Vfx implements FxHost {
         last.text = prefix + Math.round(last.amount) + (crit ? '!' : suffix);
         last.pop = 0;
         if (label && !last.label) last.label = label;
+        if (tag) last.tag = tag;
         return;
       }
     }
@@ -1190,6 +1603,7 @@ export class Vfx implements FxHost {
     f.dur = kind === 1 || kind === 4 ? 1.05 : kind === 5 ? 0.7 : 0.85;
     f.pop = 0;
     f.label = label;
+    f.tag = tag;
     f.alpha = alpha;
     f.key = key;
     f.stroke = kind === 1 ? '#4a2500' : kind === 4 ? mix(color, '#000000', 0.8) : '#0a0a0a';
@@ -1217,8 +1631,23 @@ export class Vfx implements FxHost {
       f.x = prev.x;
       f.dx = prev.dx;
     }
+    // my character: beside its '나' tag, not on it
+    if (m && m.tier === 'character' && m.ownerPlayer === this.localPlayer && this.localPlayer >= 0) f.x = x + MY_TAG_CLEAR_X;
     this.lastSpawn.set(targetId, f);
     this.lastDamage.set(targetId, f);
+  }
+
+  /** A live skill number of the same skill on a target within CLUSTER_R (the cross-target merge), else null. */
+  private clusterNumber(kind: FloaterKind, key: string, x: number, y: number, win: number): Floater | null {
+    const ps = this.floaters;
+    const basic = kind === 0 || kind === 1;
+    for (let i = 0; i < ps.count; i++) {
+      const f = ps.items[i];
+      if (f.key !== key || f.age >= win || f.age >= f.dur) continue;
+      if (basic ? f.kind !== 0 && f.kind !== 1 : f.kind !== kind) continue;
+      if (Math.hypot(f.x - x, f.y - y) <= CLUSTER_R) return f;
+    }
+    return null;
   }
 
   ring(x: number, y: number, r0: number, r1: number, dur: number, color: string, width: number, fill: number): void {
@@ -1265,6 +1694,33 @@ export class Vfx implements FxHost {
       p.dur = dur * (0.6 + Math.random() * 0.5);
       p.color = color;
       p.size = 2.5 + Math.random() * 3;
+      p.kind = Pk.Square;
+    }
+  }
+
+  /**
+   * 기획 13차: a burst of shaped particles (feathers, paper, ink, glass, notes, gold dust, petals, embers, rocks, smoke).
+   * Past SPRAY_SOFT_CAP live particles the count halves (the pool recycles the oldest beyond 360 anyway).
+   */
+  spray(x: number, y: number, z: number, n: number, kind: Pk, color: string, speed: number, up: number, dur: number, g = 9, size = 5): void {
+    const count = this.particles.count > SPRAY_SOFT_CAP ? Math.ceil(n / 2) : n;
+    for (let i = 0; i < count; i++) {
+      const p = this.particles.spawn();
+      const a = Math.random() * TAU;
+      const sp = speed * (0.4 + Math.random() * 0.6);
+      p.x = x;
+      p.y = y;
+      p.z = z;
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp * 0.7;
+      p.vz = up * (0.5 + Math.random() * 0.7);
+      p.g = g;
+      p.age = 0;
+      p.dur = dur * (0.7 + Math.random() * 0.5);
+      p.color = color;
+      p.size = size * (0.7 + Math.random() * 0.6);
+      p.kind = kind;
+      p.spin = Math.random() * TAU;
     }
   }
 
@@ -1289,10 +1745,11 @@ export class Vfx implements FxHost {
       p.dur = 0.4 + Math.random() * 0.3;
       p.color = i % 3 === 0 ? '#ffffff' : color;
       p.size = 2.5 + Math.random() * 3;
+      p.kind = Pk.Square;
     }
   }
 
-  private ghost(m: UnitMemo, mode: 0 | 1, dur: number, x = m.x, y = m.y): void {
+  private ghost(m: UnitMemo, mode: 0 | 1 | 2, dur: number, x = m.x, y = m.y): void {
     const g = this.ghosts.spawn();
     g.look = m.look;
     g.tier = m.tier;
@@ -1304,6 +1761,16 @@ export class Vfx implements FxHost {
     g.age = 0;
     g.dur = dur;
     g.mode = mode;
+  }
+
+  /** A label with this text that started under 0.25 s ago within 2.5 units of (x, y). */
+  private freshLabelNear(text: string, x: number, y: number): boolean {
+    const ls = this.labels;
+    for (let i = 0; i < ls.count; i++) {
+      const l = ls.items[i];
+      if (l.text === text && l.age < 0.25 && Math.abs(l.x - x) < 2.5 && Math.abs(l.y - y) < 2.5) return true;
+    }
+    return false;
   }
 
   private label(x: number, y: number, z: number, text: string, color: string, size: number, dur: number): Label {
@@ -1372,6 +1839,7 @@ export class Vfx implements FxHost {
   };
 
   update(dt: number, c: VfxContext): void {
+    this.localPlayer = c.localPlayer;
     this.castKeys.clear();
     this.castSeq.clear();
     this.pendingSwing.clear();
@@ -1391,6 +1859,8 @@ export class Vfx implements FxHost {
     }
     this.sfx.update(dt, this, c.memos);
     this.updateLandings(dt, c);
+    this.updateStageTimers(dt);
+    this.marks.update(dt, c.state.telegraphs ?? NO_TELES, c.state.zones ?? NO_ZONES);
     this.pulseT += dt;
     if (this.myNames.size > 24) for (const [n, t] of this.myNames) if (t < this.clock) this.myNames.delete(n);
     // flush accumulated heals: big heals become numbers, trickles (aura/regen ticks) only sparkle
@@ -1678,6 +2148,10 @@ export class Vfx implements FxHost {
         ctx.translate(fx, fy);
         ctx.scale(1 + p * 0.25, Math.max(0.05, 1 - p * 0.85));
         drawBody(ctx, g.look, g.tier, 0, 0, w, h, g.s, time, g.phase, p < 0.15);
+      } else if (g.mode === 2) {
+        // afterimage: a pale copy fading where it stood
+        ctx.globalAlpha = (1 - p) * 0.5;
+        drawBody(ctx, g.look, g.tier, fx, fy, w, h, g.s, time, g.phase, true);
       } else {
         // leave: rise + thin out
         fy -= p * 40;
@@ -1693,13 +2167,22 @@ export class Vfx implements FxHost {
   /** Airborne effects over units: particles + skill flavour (slashes, arrows, meteors …). */
   drawAir(ctx: CanvasRenderingContext2D, cam: Camera, time = 0): void {
     const ps = this.particles;
+    const lod = ps.count > SPRAY_SOFT_CAP;
     for (let i = 0; i < ps.count; i++) {
       const p = ps.items[i];
       const k = 1 - p.age / p.dur;
-      const s = p.size * (0.4 + 0.6 * k);
-      ctx.globalAlpha = Math.min(1, k * 1.5);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(cam.sx(p.x) - s / 2, cam.sy(p.y) - p.z * PX_PER_UNIT_Z - s / 2, s, s);
+      // past the soft cap every bit is a plain square (one fillRect instead of a path): the crowd frame stays cheap
+      if (p.kind === Pk.Square || (lod && p.kind !== Pk.Smoke)) {
+        const s = p.size * (0.4 + 0.6 * k);
+        ctx.globalAlpha = Math.min(1, k * 1.5);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(cam.sx(p.x) - s / 2, cam.sy(p.y) - p.z * PX_PER_UNIT_Z - s / 2, s, s);
+        continue;
+      }
+      // shaped bits: smoke swells, the rest shrink a little; feathers / paper / petals tumble as they fall
+      const s = p.kind === Pk.Smoke ? p.size * (0.6 + 1.2 * (1 - k)) : p.size * (0.6 + 0.4 * k);
+      ctx.globalAlpha = p.kind === Pk.Smoke ? 0.45 * k : Math.min(1, k * 1.5);
+      drawParticle(ctx, p.kind, cam.sx(p.x), cam.sy(p.y) - p.z * PX_PER_UNIT_Z, s, p.color, p.spin + p.age * 5);
     }
     ctx.globalAlpha = 1;
     this.sfx.drawAir(ctx, cam, this.memosRef, time);
@@ -1786,6 +2269,18 @@ export class Vfx implements FxHost {
       ctx.strokeText(f.text, x, y);
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, x, y);
+      if (f.tag) {
+        const tx = x + ctx.measureText(f.text).width / 2 + 2;
+        const align: CanvasTextAlign = ctx.textAlign;
+        ctx.textAlign = 'left';
+        ctx.font = boldFont(13);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#0a0a0a';
+        ctx.strokeText(f.tag, tx, y - f.size * 0.35);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(f.tag, tx, y - f.size * 0.35);
+        ctx.textAlign = align;
+      }
       if (f.label) {
         ctx.font = boldFont(12);
         ctx.lineWidth = 3;
@@ -1827,7 +2322,7 @@ export class Vfx implements FxHost {
    * Full-screen effects: enrage tint pulse, floor-clear flash, fade-in, ult cut-in banner. (The lasting enrage edge
    * glow is a CSS overlay in the HUD — `.enrage-vignette` — not redrawn here every frame.)
    */
-  drawScreen(ctx: CanvasRenderingContext2D): void {
+  drawScreen(ctx: CanvasRenderingContext2D, cam?: Camera, time = 0): void {
     if (this.enrageT < 2.2) {
       const p = this.enrageT / 2.2;
       const pulse = Math.max(0, Math.sin(this.enrageT * Math.PI * 3));
@@ -1870,105 +2365,11 @@ export class Vfx implements FxHost {
       ctx.strokeRect(0, 0, LOGICAL_W, LOGICAL_H);
     }
     ctx.globalAlpha = 1;
-    if (this.banner.active) this.drawBanner(ctx);
+    // 기획 13차: vignettes, the blade's screen slash, ult finale flashes, the cut-in band / corner banners
+    if (cam) this.screen.drawTop(ctx, cam, time);
+    ctx.globalAlpha = 1;
   }
 
-  /**
-   * Ult cut-in: a slanted band sliding in from the right in the empty cliff band under the field (local screen only).
-   * It sits right of the character cards (x ≥ ~580): the active card and its status pips rise into this band on the left,
-   * while the ult gauge and pet cards start below it (y > 565).
-   */
-  private drawBanner(ctx: CanvasRenderingContext2D): void {
-    const b = this.banner;
-    const t = b.age;
-    const inT = 0.16;
-    const outT = 0.25;
-    let slide = 0;
-    if (t < inT) slide = 1 - easeOut(t / inT);
-    else if (t > b.dur - outT) slide = easeIn((t - (b.dur - outT)) / outT);
-    const alpha = t > b.dur - outT ? 1 - (t - (b.dur - outT)) / outT : 1;
-    const cy = 530;
-    const h = 58;
-    const skew = 28;
-    const bw = 680;
-    const L = LOGICAL_W - bw + slide * (bw + 80);
-    const R = LOGICAL_W + 20 + slide * (bw + 80);
-    const top = cy - h / 2;
-    const bot = cy + h / 2;
-    ctx.save();
-    ctx.globalAlpha = alpha * 0.8;
-    ctx.fillStyle = '#080a12';
-    ctx.beginPath();
-    ctx.moveTo(L + skew, top);
-    ctx.lineTo(R, top);
-    ctx.lineTo(R, bot);
-    ctx.lineTo(L - skew, bot);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = b.color;
-    ctx.beginPath();
-    ctx.moveTo(L + skew + 3, top - 5);
-    ctx.lineTo(R, top - 5);
-    ctx.lineTo(R, top);
-    ctx.lineTo(L + skew, top);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(L - skew, bot);
-    ctx.lineTo(R, bot);
-    ctx.lineTo(R, bot + 5);
-    ctx.lineTo(L - skew - 3, bot + 5);
-    ctx.closePath();
-    ctx.fill();
-    // speed streaks (clipped to the band)
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(L + skew, top);
-    ctx.lineTo(R, top);
-    ctx.lineTo(R, bot);
-    ctx.lineTo(L - skew, bot);
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalAlpha = alpha * 0.22;
-    for (let i = 0; i < 5; i++) {
-      const yy = top + 8 + i * 11;
-      const xx = ((t * 1400 + i * 211) % (bw + 200)) - 160;
-      ctx.fillRect(L + xx, yy, 110, 2);
-    }
-    ctx.restore();
-    // portrait disc
-    const px = L + 80;
-    ctx.globalAlpha = alpha;
-    ctx.beginPath();
-    ctx.arc(px, cy, 25, 0, TAU);
-    ctx.fillStyle = b.color;
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-    ctx.font = boldFont(23);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#0b0d14';
-    ctx.strokeText(b.glyph, px, cy + 1);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(b.glyph, px, cy + 1);
-    // text
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.font = `700 14px ${FONT_STACK}`;
-    ctx.fillStyle = b.color;
-    ctx.fillText(b.sub, px + 42, cy - 9);
-    ctx.font = boldFont(28);
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = '#000000';
-    ctx.strokeText(b.title, px + 42, cy + 20);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(b.title, px + 42, cy + 20);
-    ctx.restore();
-  }
 }
 
 // ─────────────────────────── helpers ───────────────────────────
@@ -1990,6 +2391,10 @@ function easeIn(t: number): number {
 }
 
 const TMP_SW = { ax: 0, ay: 0 };
+/** 기획 13차: live particles past this → sprays halve and shaped bits draw as squares (2-2: 40 / 60 per skill). */
+const SPRAY_SOFT_CAP = 220;
+const NO_TELES: Telegraph[] = [];
+const NO_ZONES: GameState['zones'] = [];
 /** Skills whose field has its own colour. */
 const ZONE_TINT: Record<string, string> = { mage_u: '#7fdcff' };
 
@@ -2027,8 +2432,17 @@ export function playerColor(state: GameState, player: number): string {
 }
 
 /** Placeholder art colour of a player's party member (null when unknown). */
+/** A character's colour for its skill areas (areaColor: 퇴마사 yellow, never the monster-warning red). */
+function skillAreaColor(c: VfxContext, srcEnt: Entity | null, src: UnitMemo | null): string | null {
+  if (srcEnt && srcEnt.kind === 'character' && srcEnt.ownerPlayer !== null && srcEnt.partyIndex !== null) {
+    const base = characterColor(c.state, srcEnt.ownerPlayer, srcEnt.partyIndex);
+    return base ? areaColor(srcEnt.defId, base) : null;
+  }
+  return src && src.kind === 'character' ? areaColor(src.defId, src.look.color) : null;
+}
+
 export function characterColor(state: GameState, player: number, partyIndex: number): string | null {
-  const m = state.players[player]?.party[partyIndex];
+  const m = state.players[player]?.party?.[partyIndex];
   if (!m) return null;
   try {
     return getCharacter(m.defId).color;
@@ -2065,6 +2479,14 @@ export function monsterAction(defId: string, skillId: string, idx: number): Skil
     monsterActionCache.set(key, list);
   }
   return list ? list[Math.min(idx, list.length - 1)] ?? null : null;
+}
+
+/** 기획 13차: which character a skill name belongs to (drag / ult names), for the vulnerable mark's look. */
+const skillOwners = new Map<string, string>();
+function skillOwner(name: string | undefined): string | null {
+  if (!name) return null;
+  if (skillOwners.size === 0) for (const ch of CHARACTERS) for (const sk of [ch.drag, ch.ult]) skillOwners.set(sk.name, ch.id);
+  return skillOwners.get(name) ?? null;
 }
 
 function selfOnlyAction(a: SkillAction | null): boolean {

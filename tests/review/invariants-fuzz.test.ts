@@ -6,7 +6,7 @@ import { TICK_RATE } from '../../src/config';
 import { FIELD_EVENTS, GOEDAM_ROOMS } from '../../src/data';
 import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
-import type { Command } from '../../src/types';
+import { CONTROL_STATUSES, type Command, type DebugAction, type PlayerSetup } from '../../src/types';
 import { BOT1, BOT2, HUMAN, makeGame, type TestGame } from '../sim/helpers';
 
 function check(tg: TestGame, where: string): string[] {
@@ -64,15 +64,52 @@ function check(tg: TestGame, where: string): string[] {
     if (e.eventTag === 'ward' && e.hp <= 0) bad(`ward ${e.id} at ${e.hp} HP`);
   }
   if (fe && !(fe.remaining >= 0 && fe.remaining <= fe.total + 1e-9)) bad(`field event remaining ${fe.remaining}`);
+  // 기획 13차 보스 그로기: only on a boss floor in combat; down ⇔ the boss carries the stun, never down and locked at once
+  const g = s.bossGroggy;
+  if (g) {
+    if (s.phase !== 'combat' || s.plan.kind !== 'boss') bad(`groggy gauge in ${s.phase} / ${s.plan.kind}`);
+    if (!(g.fill >= 0 && g.fill <= 1)) bad(`groggy fill ${g.fill}`);
+    if (!(g.left >= 0 && g.left <= g.total + 1e-9)) bad(`groggy left ${g.left} / ${g.total}`);
+    if (!(g.lock >= 0 && g.lock <= g.lockTotal + 1e-9)) bad(`groggy lock ${g.lock}`);
+    if (g.left > 0 && g.lock > 0) bad('groggy down and locked');
+    if (g.near && (g.left > 0 || g.lock > 0 || g.fill < 0.8)) bad(`groggy near with fill ${g.fill} left ${g.left} lock ${g.lock}`);
+    const boss = s.entities.find(e => e.id === s.bossId && !e.rt.gone);
+    if (g.left > 0 && boss && !boss.statuses.some(st => st.id === 'stun')) bad('groggy boss without its stun');
+  }
+  // 기획 13차 스킬 리뉴얼: control statuses only where they may land, tethers hold, status data stays finite
+  for (const e of s.entities) {
+    if (e.rt.gone) continue;
+    for (const st of e.statuses) {
+      const d = st.data;
+      if (d && [d.anchor?.x, d.anchor?.y, d.radius, d.stored].some(x => x !== undefined && !finite(x))) bad(`entity ${e.id} ${st.id} data non-finite`);
+      if (CONTROL_STATUSES.has(st.id) && e.team !== 'enemy') bad(`ally ${e.id} ${e.defId} under ${st.id}`);
+      if (st.id === 'splashUp' && e.team !== 'ally') bad(`enemy ${e.id} with splashUp`);
+      const bossy = e.tier === 'boss' || e.tier === 'mid';
+      if ((st.id === 'taunt' || st.id === 'tether' || st.id === 'charm') && bossy) bad(`${e.tier} ${e.id} under ${st.id}`);
+      if (st.id === 'charm' && e.kind === 'summon') bad(`summon ${e.id} charmed`);
+      if (st.id === 'stun' && e.tier === 'boss' && !(g && g.left > 0)) bad(`boss stunned outside its groggy`);
+      if ((st.id === 'tether' || st.id === 'root') && d?.anchor) {
+        const far = Math.hypot(e.pos.x - d.anchor.x, e.pos.y - d.anchor.y) - (d.radius ?? 0);
+        if (far > TETHER_SLACK) bad(`${e.id} ${e.defId} ${far.toFixed(2)} outside its ${st.id}`);
+      }
+      if (st.id === 'stasis' && !(d && (d.stored ?? 0) >= 0)) bad(`stasis on ${e.id} without its store`);
+    }
+  }
   if (s.phase === 'combat' && s.plan.kind === 'boss' && s.bossId == null) bad('boss floor without boss');
   if (s.phase === 'combat' && s.plan.kind === 'normal' && s.floorTime > s.plan.timeLimit + 1e-6) bad('normal floor past time limit still in combat');
   return errs;
 }
 
+/** A tethered unit near the arena edge may sit up to the wall margin off its anchor (clampUnit wins). */
+const TETHER_SLACK = 0.6;
+
 /** Every option id of every room, plus 'continue' (invalid ones for the open room are refused). */
 const GOEDAM_PICKS = [...new Set(GOEDAM_ROOMS.flatMap(room => room.options.map(o => o.id))), 'continue', 'continue'];
 
-function randomCommand(r: Rng, n: number): Command {
+/** 기획 13차 cases: forced breaks / near-full gauges and jumps onto boss floors (older cases keep their streams). */
+const GROGGY_DEBUG: DebugAction[] = [{ kind: 'forceGroggy' }, { kind: 'forceGroggy', fill: 0.85 }, { kind: 'jumpFloor', floor: 5 }, { kind: 'jumpFloor', floor: 15 }];
+
+function randomCommand(r: Rng, n: number, extra: readonly DebugAction[] = []): Command {
   const k = r.next();
   const garbage = r.chance(0.08);
   const pos = garbage ? { x: r.pick([NaN, -50, 1e9, Infinity]), y: r.pick([NaN, -3, 99]) } : { x: r.range(-2, 40), y: r.range(-2, 14) };
@@ -93,9 +130,25 @@ function randomCommand(r: Rng, n: number): Command {
       { kind: 'goedamNext' },
       { kind: 'fieldEventNext' },
       { kind: 'fieldEventNext', id: r.pick(FIELD_EVENTS).id },
+      ...extra,
     ] as const),
   };
 }
+
+/** 기획 13차: parties that together field all 15 renewed characters (a human + 2 bots each). */
+const pets = ['frog_bomb', 'fairy_heal', 'owl_frost'];
+/** Who applies which control status (fuzz expects it seen when that character is in the parties). */
+const OWNER: Record<string, string> = { taunt: 'guardian', tether: 'warden', root: 'exorcist' };
+const RENEWAL_A: PlayerSetup[] = [
+  { name: '나', isBot: false, characters: ['warden', 'chrono', 'puppeteer'], pets },
+  { name: '봇1', isBot: true, characters: ['exorcist', 'berserker', 'bard'], pets },
+  { name: '봇2', isBot: true, characters: ['paladin', 'shadow', 'medic'], pets },
+];
+const RENEWAL_B: PlayerSetup[] = [
+  { name: '나', isBot: false, characters: ['guardian', 'blade', 'cleric'], pets },
+  { name: '봇1', isBot: true, characters: ['ranger', 'gunner', 'mage'], pets },
+  { name: '봇2', isBot: true, characters: ['puppeteer', 'chrono', 'warden'], pets },
+];
 
 describe('invariants under random commands', () => {
   const cases = [
@@ -109,19 +162,27 @@ describe('invariants under random commands', () => {
     // 기획 12차: 돌발 괴담 on every eligible floor (+ random forced ones)
     { seed: 7, t: { maxFloor: 20, reviveTime: 8, fieldEventChance: 1, monsterHpMult: 0.3 } },
     { seed: 8, t: { maxFloor: 12, reviveTime: 20, fieldEventChance: 0.6, goedamRoomsPerZone: 1, monsterDmgMult: 3 } },
+    // 기획 13차: boss groggy on (default) with short, repeated breaks and random forced ones
+    { seed: 9, t: { maxFloor: 20, reviveTime: 8, monsterHpMult: 0.5, bossGroggyThreshold: 40, bossGroggyDuration: 2 }, groggy: true },
+    { seed: 10, t: { maxFloor: 20, reviveTime: 20, monsterDmgMult: 3, bossFloorTime: 20, bossGroggyThreshold: 60 }, groggy: true },
+    // 기획 13차 스킬 리뉴얼: all 15 renewed characters (taunt, tether, root, stasis, charm, blink chains, bench buffs …)
+    { seed: 11, t: { maxFloor: 20, reviveTime: 8, monsterHpMult: 0.4 }, players: RENEWAL_A },
+    { seed: 12, t: { maxFloor: 20, reviveTime: 20, monsterDmgMult: 3, fieldEventChance: 0.6 }, players: RENEWAL_B, groggy: false },
   ];
-  for (const { seed, t } of cases) {
+  for (const { seed, t, groggy, players } of cases as { seed: number; t: object; groggy?: boolean; players?: PlayerSetup[] }[]) {
     it(`seed ${seed} ${JSON.stringify(t)}: 6 sim minutes, no broken invariant`, () => {
-      const tg = makeGame({ seed, players: [HUMAN, BOT1, BOT2], tunables: t });
+      const tg = makeGame({ seed, players: players ?? [HUMAN, BOT1, BOT2], tunables: t });
       const r = new Rng(seed * 7919);
       const errs: string[] = [];
       let rooms = 0;
+      let breaks = 0;
+      const controls = new Set<string>();
       const s = tg.w.state;
       for (let i = 0; i < 6 * 60 * TICK_RATE && s.phase !== 'runOver'; i++) {
         if (s.phase === 'combat') tick(tg.w);
         errs.push(...check(tg, 'tick'));
         if (r.chance(0.06)) {
-          const cmd = randomCommand(r, s.players.length);
+          const cmd = randomCommand(r, s.players.length, groggy ? GROGGY_DEBUG : []);
           tg.game.dispatch(cmd);
           errs.push(...check(tg, `after ${JSON.stringify(cmd)}`));
         }
@@ -132,10 +193,16 @@ describe('invariants under random commands', () => {
           tg.game.dispatch({ type: 'goedam', player: 0, option: pr.stage === 'choosing' ? r.pick(opts).id : 'continue' });
           errs.push(...check(tg, 'after goedam pick'));
         }
-        rooms += tg.game.drainEvents().filter(e => e.type === 'goedamOpen').length;
+        const evs = tg.game.drainEvents();
+        rooms += evs.filter(e => e.type === 'goedamOpen').length;
+        breaks += evs.filter(e => e.type === 'bossGroggy').length;
+        for (const e of evs) if (e.type === 'statusApplied') controls.add(e.status);
         if (errs.length > 20) break;
       }
       expect(errs.slice(0, 20)).toEqual([]);
+      if (groggy) expect(breaks).toBeGreaterThan(0);
+      // 기획 13차: the renewed parties really put their control statuses on the field
+      if (players) expect([...controls].sort()).toEqual(expect.arrayContaining(['root', 'taunt', 'tether'].filter(id => players.some(p => p.characters.includes(OWNER[id])))));
       if ((t as { goedamRoomsPerZone?: number }).goedamRoomsPerZone) expect(rooms).toBeGreaterThan(0);
     });
   }

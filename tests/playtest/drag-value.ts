@@ -80,6 +80,18 @@ export interface DragComponents {
   decoyHp: number;
   /** Party HP kept by an attack-down from the drag skill (enemy in range of its target, like slow). */
   atkDownHp: number;
+  // 기획 13차 리뉴얼 (docs/skill-renewal.md 4-4)
+  /** Extra damage the rest of the party dealt to enemies this skill made vulnerable (amount × v / (1 + v)). */
+  vulnDmg: number;
+  /** Enemy-seconds taunted, and the HP kept: DPS × (taunter's defence − the other field characters' mean). */
+  tauntSec: number;
+  tauntHp: number;
+  /** Charmed enemies that would have been hitting us: their DPS (they hit their own side instead). */
+  charmHp: number;
+  /** Enemy-seconds rooted / tethered (priced 0 like pull / knockback: enemies in reach keep hitting). */
+  holdSec: number;
+  /** Seconds of revive wait removed (메딕 궁극기), priced like bench cooldown seconds. */
+  reviveSec: number;
 }
 
 export const zeroComponents = (): DragComponents => ({
@@ -102,6 +114,12 @@ export const zeroComponents = (): DragComponents => ({
   drainHealHp: 0,
   decoyHp: 0,
   atkDownHp: 0,
+  vulnDmg: 0,
+  tauntSec: 0,
+  tauntHp: 0,
+  charmHp: 0,
+  holdSec: 0,
+  reviveSec: 0,
 });
 
 /** Damage-equivalent split into the four groups the doc shows. cdValuePerSec = roster mean value per cooldown-second. */
@@ -109,9 +127,11 @@ export function valueOf(c: DragComponents, cdValuePerSec: number, wt = VALUE_WEI
   const damage = c.dmg;
   // 기획 12차: attack-down is priced like slow (HP kept while the enemy is hitting); bench / drain heals and the HP a
   // decoy soaked are HP kept like any heal
-  const cc = wt.hp * (wt.stun * c.stunHp + wt.slow * (c.slowHp + c.atkDownHp) + wt.displace * c.dispHp);
-  const support = wt.hp * (c.heal + c.shield + c.defHp + c.benchHealHp + c.drainHealHp + c.decoyHp) + wt.buff * c.buffDmg;
-  const special = wt.cdSec * c.cdSec * cdValuePerSec;
+  // 기획 13차: stasis counts as stun, taunt / charm are HP kept like the other control; vulnerable is extra party
+  // damage like a buff; a revive second is a bench cooldown second
+  const cc = wt.hp * (wt.stun * (c.stunHp + c.charmHp) + wt.slow * (c.slowHp + c.atkDownHp) + wt.displace * c.dispHp + c.tauntHp);
+  const support = wt.hp * (c.heal + c.shield + c.defHp + c.benchHealHp + c.drainHealHp + c.decoyHp) + wt.buff * (c.buffDmg + c.vulnDmg);
+  const special = wt.cdSec * (c.cdSec + c.reviveSec) * cdValuePerSec;
   return { damage, cc, support, special, total: damage + cc + support + special };
 }
 

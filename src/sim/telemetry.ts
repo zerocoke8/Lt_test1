@@ -22,6 +22,9 @@ export function emptyContribution(): ContributionStats {
     ultDelayTotal: 0,
     ultDelayCount: 0,
     fieldEvents: 0,
+    groggyPoints: 0,
+    groggyBreaks: 0,
+    groggyDamage: 0,
   };
 }
 
@@ -72,6 +75,11 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   petCooldownMult: [0, 10],
   goedamRoomsPerZone: [0, 2, true],
   fieldEventChance: [0, 1],
+  // 기획 13차 보스 그로기 (0 = off)
+  bossGroggyThreshold: [0, 2000],
+  bossGroggyDuration: [0.5, 30],
+  bossGroggyDamageMult: [1, 5],
+  bossGroggyDragMult: [1, 5],
 };
 
 /**

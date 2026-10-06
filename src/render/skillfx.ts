@@ -11,6 +11,7 @@ import { lighten } from './look';
 import { Pool } from './pool';
 import { TAU, pathArea } from './shapes';
 import type { UnitMemo } from './units';
+import { drawPartAir, drawPartGround } from './fxparts';
 
 export const enum Fx {
   Spin,
@@ -34,6 +35,59 @@ export const enum Fx {
   XSlash,
   Dome,
   Orb,
+  // 기획 13차 연출 부품 (skill-renewal.md 2-7), drawn by fxparts.ts
+  /** FallingObject: n = FallObj, r = size (units), z = start height; lands at the end of dur (shadow grows under it). */
+  Fall,
+  /** TetherLine: (x,y)/follow → (x2,y2)/follow2; n = TetherStyle, r = sag (units), w = width px; breaks while fading. */
+  Tether,
+  /** A big glyph (滅, 印, !, Σ …) at height z; r = px size, text = glyph. */
+  Glyph,
+  /** Hex shield panels lighting up over a band / dome (guardian). area = footprint. */
+  Hex,
+  /** Rune magic circle on the ground (mage), r = radius, spins; n = rune ticks. */
+  Rune,
+  /** A shape burning in from its middle, pulsing faster (paladin brand, shadow / chrono X). area = footprint. */
+  Brand,
+  /** Three staff lines along a band + a clef (bard). area = rect footprint. */
+  Staff,
+  /** A talisman flying (x,y) → (x2,y2), then pinned there until dur (exorcist). */
+  Talisman,
+  /** Lightning zig-zag (x,y) → (x2,y2), re-jittered every few frames (medic). */
+  Bolt,
+  /** Ice crystal (n 0) or grey stone (n 1) around a unit (follow). r = unit radius. */
+  Encase,
+  /** Aim reticle following a unit (gunner / ranger follow stages), shrinking toward the hit. r = radius (units). */
+  Crosshair,
+  /** Ground decal: crater / scorch (n 0) or ink pool (n 1), fades out. r = radius (units). */
+  Scorch,
+  /** Wings of light on a unit (cleric ult). r = span (units). */
+  Wings,
+  /** A ghost silhouette rising out of a unit (exorcist), z = start height. */
+  Spirit,
+  /** Crescent moon hanging over a point (shadow ult), r = px size; drops through the last 25 % of dur. */
+  Moon,
+  /** Aim line with marching ››› chevrons (x,y) → (x2,y2) (ranger), w = width (units). */
+  AimLine,
+}
+
+/** What a Fx.Fall drops. */
+export const enum FallObj {
+  Meteor,
+  Shield,
+  Cage,
+  Shell,
+  Crescent,
+  Bell,
+  Spear,
+  Arrow,
+}
+
+/** How a Fx.Tether line looks. */
+export const enum TetherStyle {
+  Chain,
+  Thread,
+  Dotted,
+  Electric,
 }
 
 export interface Sfx {
@@ -71,6 +125,10 @@ export interface Sfx {
   impact: Impact;
   /** Sparks when a delayed effect starts (off for plain basic-attack swings: there are many of those). */
   sparks: boolean;
+  /** 기획 13차: second entity to follow (Tether end), −1 = fixed (x2, y2). */
+  follow2: number;
+  /** 기획 13차: glyph text (Fx.Glyph). */
+  text: string;
 }
 
 export const enum Impact {
@@ -111,6 +169,9 @@ export function dirAngle(d: Dir): number {
   return Math.atan2(u.y, u.x);
 }
 
+/** A followed aura fades this fast once its unit is gone. */
+const AURA_FADE = 0.3;
+
 export class SkillFx {
   readonly pool = new Pool<Sfx>(
     () => ({
@@ -139,8 +200,11 @@ export class SkillFx {
       flip: 1,
       impact: Impact.None,
       sparks: true,
+      follow2: -1,
+      text: '',
     }),
-    220,
+    // 기획 13차: multi-beat skills (3 players' renewed drags / ults at once) need more room than the old 220
+    360,
   );
   private seedN = 1;
 
@@ -176,6 +240,8 @@ export class SkillFx {
     f.flip = 1;
     f.impact = Impact.None;
     f.sparks = true;
+    f.follow2 = -1;
+    f.text = '';
     return f;
   }
 
@@ -190,6 +256,8 @@ export class SkillFx {
         continue;
       }
       f.age += dt;
+      // a buff aura leaves with its unit (기획 13차 리뷰: the berserker's frenzy never outlives the berserker on the field)
+      if (f.kind === Fx.Aura && f.follow >= 0 && !memos.has(f.follow)) f.age = Math.max(f.age, f.dur - AURA_FADE);
       if (f.kind === Fx.Notes || f.kind === Fx.Aura || f.kind === Fx.Snow) this.emitOngoing(f, host, memos, dt);
       if (f.age >= f.dur) {
         this.onEnd(f, host);
@@ -199,7 +267,7 @@ export class SkillFx {
   }
 
   /** World anchor of an effect this frame (follows its entity while that one is known). */
-  private at(f: Sfx, memos: Map<number, UnitMemo>): { x: number; y: number } {
+  at(f: Sfx, memos: Map<number, UnitMemo>): { x: number; y: number } {
     if (f.follow >= 0) {
       const m = memos.get(f.follow);
       if (m) {
@@ -312,11 +380,11 @@ export class SkillFx {
           this.drawMeteorShadow(ctx, cam, f, t);
           break;
         default:
+          if (f.kind >= Fx.Fall) drawPartGround(ctx, cam, f, t, this.at(f, memos), memos, time);
           break;
       }
     }
     ctx.globalAlpha = 1;
-    void time;
   }
 
   /** Airborne flavour (over the units): beams, arrows, slashes, stars, meteors, pillars, notes, pellets. */
@@ -372,6 +440,7 @@ export class SkillFx {
           this.drawAura(ctx, cam, f, t, memos);
           break;
         default:
+          if (f.kind >= Fx.Fall) drawPartAir(ctx, cam, f, t, this.at(f, memos), memos, time);
           break;
       }
     }

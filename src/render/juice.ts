@@ -124,10 +124,10 @@ export class Juice {
    * what they add; the rolling budget and the single-freeze cap keep it from ever turning into a stall.
    * Returns the seconds actually added.
    */
-  hitStop(sec: number): number {
+  hitStop(sec: number, opts?: { cap?: number; ignoreBudget?: boolean }): number {
     if (!(sec > 0) || this.settings.hitStopMs <= 0) return 0;
-    const want = Math.min(FREEZE_MAX_SEC, sec);
-    const add = Math.min(Math.max(0, want - this.freeze), this.budget());
+    const want = Math.min(opts?.cap ?? FREEZE_MAX_SEC, sec);
+    const add = Math.min(Math.max(0, want - this.freeze), opts?.ignoreBudget ? Infinity : this.budget());
     if (add < 0.012) return 0;
     if (this.freeze <= 0) this.fresh = true;
     this.freeze += add;
@@ -201,6 +201,16 @@ export function landingKick(settings: JuiceSettings, s: number, n: number): { st
   const base = settings.hitStopMs / 1000;
   if (n <= 0) return { stop: base * 0.6, shake: 4 };
   return { stop: base * (0.8 + 0.4 * s), shake: 6 + 6 * s };
+}
+
+/**
+ * 기획 13차 보스 그로기: the break moment — a 180 ms stop (scaled with the hit-stop setting like a landing's 75 ms base;
+ * at most once per groggy, so it may pass the per-second budget) and a shake twice a solid drag landing's.
+ */
+export const GROGGY_STOP_SEC = 0.18;
+export function groggyKick(settings: JuiceSettings): { stop: number; shake: number } {
+  const k = settings.hitStopMs / JUICE_DEFAULTS.hitStopMs;
+  return { stop: Math.min(0.25, GROGGY_STOP_SEC * k), shake: 2 * landingKick(settings, 0.5, 1).shake };
 }
 
 /** A delayed part of my drag skill (meteor, chained blast): shorter stop, smaller shake; nothing hit → shake only. */

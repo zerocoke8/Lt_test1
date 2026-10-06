@@ -70,3 +70,42 @@ describe('R23 bots', () => {
     }
   });
 });
+
+describe('기획 13차: bots aim the renewed multi-beat drags', () => {
+  const cluster = (tg: ReturnType<typeof makeGame>, cx: number, cy: number) =>
+    [[0, 0], [0.8, 0.4], [-0.6, -0.5], [0.3, 0.9]].map(([dx, dy]) => {
+      const m = spawnAt(tg, 'slime', { x: cx + dx, y: cy + dy });
+      m.rt.stationary = true;
+      return m;
+    });
+
+  it('블레이드: dropped left of the pack so the dash, the rush back and the burst all sweep it', () => {
+    const tg = makeGame({ players: [{ ...HUMAN, isBot: true, characters: ['guardian', 'blade', 'cleric'] }] });
+    quietFloor(tg);
+    active(tg).pos = { x: 12, y: 6 };
+    const ms = cluster(tg, 15, 6);
+    const pos = bestDropPoint(tg.w, tg.w.state.players[0], 1);
+    const parts = tg.game.previewParts(0, 'swap', 1).filter(p => p.affects === 'enemies');
+    expect(parts).toHaveLength(3);
+    for (const p of parts) {
+      const c = { x: pos.x + p.offset.x, y: pos.y + p.offset.y };
+      expect(ms.filter(m => hitsArea(p.area, c, c, m.pos, m.radius)).length).toBeGreaterThanOrEqual(3);
+    }
+    expect(pos.x).toBeLessThan(15);
+  });
+
+  it('a healer drag that also hits enemies (클레릭 종, 메딕 제세동) still aims at the hurt allies first', () => {
+    for (const id of ['cleric', 'medic']) {
+      const tg = makeGame({ players: [{ ...HUMAN, isBot: true, characters: ['guardian', id, 'blade'] }, { ...HUMAN, name: '둘' }] });
+      quietFloor(tg);
+      const hurt = active(tg, 1);
+      hurt.pos = { x: 8, y: 6 };
+      hurt.hp = hurt.maxHp * 0.3;
+      active(tg, 0).pos = { x: 10, y: 3 };
+      cluster(tg, 22, 6); // a pack far from the hurt ally
+      const pos = bestDropPoint(tg.w, tg.w.state.players[0], 1);
+      expect(Math.abs(pos.x - hurt.pos.x), id).toBeLessThan(3.6);
+    }
+  });
+});
+

@@ -29,7 +29,47 @@ export const DEFAULT_TUNABLES: Tunables = {
   goedamRoomsPerZone: 1,
   // 기획 12차: 돌발 괴담 on 60% of normal floors 3–19 (floor 2 = the toad); 0 turns them off entirely
   fieldEventChance: 0.6,
+  // 기획 13차 보스 그로기 (docs/boss-groggy.md): gauge base 100 (0 = off), 5 s down, damage taken ×1.5, drag ×2
+  bossGroggyThreshold: 100,
+  bossGroggyDuration: 5,
+  bossGroggyDamageMult: 1.5,
+  bossGroggyDragMult: 2,
 };
+
+/**
+ * 기획 13차 보스 그로기 — structural numbers (docs/boss-groggy.md 2~3장). Gauge max = bossGroggyThreshold × BossDef
+ * groggy.threshold × (1 + perHuman × (humans − 1)) × (1 + escalate × breaks). Points per action that reaches the boss:
+ * a drag cast dragHit once (+ dragStun per stun second), an ult / pet / normal skill its stun seconds × weight.
+ */
+export const GROGGY = {
+  perHuman: 0.4,
+  escalate: 0.5,
+  /** Seconds after groggy the gauge stays at 0 and takes no points. */
+  lock: 10,
+  /** No points for this long → the gauge decays decayPerSec points per second. */
+  decayAfter: 4,
+  decayPerSec: 4,
+  /** 'Almost full' cue from this fill on. */
+  nearAt: 0.8,
+  /** The boss's first pattern after it stands up comes at least this late (its skill cooldowns were frozen). */
+  wakeGap: 1.5,
+  /** '+N' pops only for gains of at least this many points. */
+  popMin: 5,
+  weights: { dragHit: 10, dragStun: 15, ultStun: 10, petStun: 5, normalStun: 2 },
+} as const;
+
+/**
+ * 기획 13차 스킬 리뉴얼 (docs/skill-renewal.md 2-3): the ult cut-in. The sim never pauses — every ult has castTime 0.5
+ * (caster stands still), its caster is invulnerable for `guard` s, and its effects land at `firstHit` s or later
+ * (movement-only parts may happen at once).
+ */
+export const ULT_CUTIN = { guard: 0.5, firstHit: 0.45 } as const;
+
+/**
+ * 기획 13차 정지 (크로노): bosses / mid bosses are stopped for `bossTimeMult` × the duration and are immune for `immune` s
+ * after it ends; a boss's rebound is at most `bossReboundCap` × its max HP.
+ */
+export const STASIS = { bossTimeMult: 0.6, immune: 10, bossReboundCap: 0.06 } as const;
 
 export const TICK_RATE = 30;
 export const TICK_DT = 1 / TICK_RATE;
@@ -62,8 +102,10 @@ export const FLOOR_WAVES = { first: 5, perFloor: 1, max: 6 };
  * (리뷰 후 0.6 → 0.7: shorter floors (6 waves), the softer patterns (붉은 마스크, 야근의 군주 2페이즈, 회복, 간호 인형) and
  * the de-synced monster skills would otherwise make 6~20층 easier than intended — 20층 클리어 런 ≈ 47%, 7차 결정 ≈ 41%.)
  * statMult(f) = 1 + g·(min(f, from) − 1) + g·factor·max(0, f − from).
+ * 기획 13차 밸런스 (보스 그로기 + 스킬 리뉴얼로 20층 클리어 65 → 99.9%): 0.7 → 1.33 — 1~5층은 그대로라 강해진 손맛은
+ * 초반에 그대로 느끼고, 6층부터 몬스터 HP·공격이 더 빨리 자람 (20층 statMult 2.74 → 3.87). docs/balance.md 12장.
  */
-export const LATE_STAT_GROWTH = { from: 5, factor: 0.7 };
+export const LATE_STAT_GROWTH = { from: 5, factor: 1.33 };
 
 /** Monster stat multiplier of a floor (HP & attack, FloorPlan.statMult). */
 export function floorStatMult(floor: number, growth: number): number {

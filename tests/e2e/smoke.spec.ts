@@ -654,3 +654,123 @@ test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop
   await shot('combat-event-lamps');
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('보스 그로기: forced boss floor — gauge row under the HP bar, near-full cue, the break (stamp + countdown pill + 지금! cards), the lock', async ({ page }, testInfo: TestInfo) => {
+  const phone = testInfo.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+  page.on('console', m => {
+    if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+  });
+  const extraShot = (name: string) => page.screenshot({ path: testInfo.outputPath(`${testInfo.project.name}-${name}.png`) });
+  await page.goto('/');
+  await waitPhase(page, 'preset');
+  await page.evaluate(() => window.__proto!.startRun({ seed: 5, startFloor: 5, tunables: { invincible: true, goedamRoomsPerZone: 0 } }));
+  await waitPhase(page, 'combat');
+  await sleep(1500);
+  // the gauge row sits right under the boss HP bar, inside the boss box
+  const row = page.locator('.boss-groggy');
+  await expect(row).toBeVisible();
+  const bar = (await page.locator('.boss-bar').boundingBox())!;
+  const rb = (await row.boundingBox())!;
+  expect(rb.y).toBeGreaterThan(bar.y + bar.height - 0.5);
+  expect(Math.abs(rb.width - bar.width)).toBeLessThan(2);
+  // the box still ends above the boss art (logical y ≈ 95, BOSS_DROP)
+  const box = (await page.locator('.boss').boundingBox())!;
+  const stage = (await page.locator('.stage').boundingBox())!;
+  expect((box.y + box.height - stage.y) / (stage.width / 1280)).toBeLessThan(98);
+
+  // almost full: the row blinks with ⚡, the box turns gold
+  expect((await debug(page, { kind: 'forceGroggy', fill: 0.85 })).ok).toBe(true);
+  await expect(row).toHaveClass(/is-near/);
+  await expect(page.locator('.boss')).toHaveClass(/is-near/);
+  await sleep(300);
+  await extraShot('boss-groggy-near');
+
+  // the break: countdown pill in the cast-pill spot, gold box, every ready card says 지금!
+  expect((await debug(page, { kind: 'forceGroggy' })).ok).toBe(true);
+  const pill = page.locator('.boss-gpill');
+  await expect(pill).toBeVisible();
+  await expect(pill).toHaveText(/^그로기! [45]\.\d초 · 드래그 ×2$/);
+  await expect(row).toHaveClass(/is-down/);
+  await expect(page.locator('.boss')).toHaveClass(/is-groggy/);
+  expect(await page.locator('.ccard.is-now').count()).toBeGreaterThan(0);
+  await sleep(380); // past the hit-stop: the stamp has scaled in
+  if (phone) await page.screenshot({ path: `${SHOT_DIR}/boss-groggy.png` });
+  else await extraShot('boss-groggy');
+  const t1 = Number((await pill.textContent())!.match(/(\d\.\d)초/)![1]);
+  await sleep(600);
+  const t2 = Number((await pill.textContent())!.match(/(\d\.\d)초/)![1]);
+  expect(t2).toBeLessThan(t1);
+  const down = await inGame(page, g => ({ stun: g.state.entities.find(e => e.id === g.state.bossId)!.statuses.some(s => s.id === 'stun'), left: g.state.bossGroggy!.left }));
+  expect(down.stun).toBe(true);
+
+  // stands up: the pill goes, the grey lock hatch refills the row
+  await page.waitForFunction(() => (window.__proto!.game!.state.bossGroggy?.left ?? 1) === 0, undefined, { timeout: 8000 });
+  await expect(row).toHaveClass(/is-lock/);
+  await expect(pill).toBeHidden();
+  expect(await page.locator('.ccard.is-now').count()).toBe(0);
+  await sleep(1200);
+  await extraShot('boss-groggy-lock');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('효과음: ?mute=1 keeps a silent log (buttons, card lift, drag stages), pause-menu sound controls, unlock on first release', async ({ page, context }, testInfo: TestInfo) => {
+  const phone = testInfo.project.name === 'phone';
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
+  page.on('console', m => {
+    if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+  });
+  const input = await makeInput(page, context, phone);
+  const recent = () => page.evaluate(() => window.__proto!.sfx.recent.map(r => r.id));
+
+  // ?mute=1: forced silence, no AudioContext at all, the request log still fills
+  await page.goto('/?mute=1');
+  await waitPhase(page, 'preset');
+  await expect(page.locator('.snd-mini')).toHaveText('🔇');
+  await input.tap(await center(page, '.btn-start'));
+  await waitPhase(page, 'combat');
+  expect(await recent()).toContain('ui.start');
+  expect(await page.evaluate(() => ({ u: window.__proto!.sfx.unlocked, m: window.__proto!.sfx.muted }))).toEqual({ u: false, m: true });
+  await page.evaluate(() => window.__proto!.startRun({ seed: 20261005 }));
+  await waitPhase(page, 'combat');
+  await sleep(1500);
+
+  // a real drag of card 2: lift sound, then that character's renewed drag stage sounds
+  const card = await inGame(page, g => g.state.players[0].party[1].defId);
+  const release = await input.dragHold(await center(page, '.ccard[data-idx="1"]'), await fieldFinger(page));
+  await sleep(200);
+  await release();
+  await page.waitForFunction(() => window.__proto!.game!.state.players[0].activeIndex === 1, undefined, { timeout: 3000 });
+  await sleep(1500);
+  const ids = await recent();
+  expect(ids).toContain('ui.card.lift');
+  expect(ids.some(id => id.startsWith(`drag.${card}.`))).toBe(true);
+  expect(ids).toContain(`char.appear.${getCharacter(card).role}`);
+
+  // pause menu: 🔊/🔇 + 전체 · 효과음 · 배경음, inside the stage
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pause')).toBeVisible();
+  expect(await recent()).toContain('ui.pause.open');
+  await expect(page.locator('.snd-panel input[type="range"]')).toHaveCount(3);
+  await expect(page.locator('.snd-toggle')).toContainText('mute=1');
+  const box = await page.locator('.pause-box').boundingBox();
+  const vp = page.viewportSize()!;
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(vp.height + 1);
+  if (phone) await page.screenshot({ path: `${SHOT_DIR}/pause-sound.png` });
+  await page.locator('.snd-panel input[type="range"]').nth(2).evaluate(el => {
+    (el as HTMLInputElement).value = '20';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('swapTower.audio.v1') ?? '{}').bg)).toBeCloseTo(0.2);
+
+  // without ?mute=1 the context is created on the first release (never on pointerdown)
+  await page.goto('/');
+  await waitPhase(page, 'preset');
+  expect(await page.evaluate(() => window.__proto!.sfx.unlocked)).toBe(false);
+  await input.tap(await center(page, '.ps-card.ps-char'));
+  await page.waitForFunction(() => window.__proto!.sfx.unlocked, undefined, { timeout: 3000 });
+  expect(errors).toEqual([]);
+});

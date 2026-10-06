@@ -9,6 +9,7 @@ import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tuna
 import type { ToastKind } from './toast';
 import { HIT_STOP_RANGE, JUICE, JUICE_DEFAULTS, SHAKE_RANGE, type JuiceSettings } from '../render/juice';
 import { loadJuice, saveJuice } from './storage';
+import { mountSfxBoard } from '../audio/devboard';
 
 /** Render-only sliders (this device only, never sent to the server): 기획 8차 drag-landing feel. */
 const JUICE_SLIDERS: { key: keyof JuiceSettings; label: string; min: number; max: number; step: number; fmt: (v: number) => string }[] = [
@@ -78,6 +79,9 @@ export class DebugPanel {
     action('적 전멸', { kind: 'killAll' });
     action('층 건너뛰기', { kind: 'skipFloor' });
     action('광폭화', { kind: 'forceEnrage' });
+    // 기획 13차: boss groggy gauge — break now / almost full
+    action('그로기', { kind: 'forceGroggy' });
+    action('그로기 직전', { kind: 'forceGroggy', fill: 0.85 });
     const jump = h('div', 'dbg-jump', act);
     button('dbg-btn dbg-step', '−', jump, () => this.bumpFloor(-1));
     this.floorInput = h('span', 'dbg-floor', jump, '2층');
@@ -163,6 +167,9 @@ export class DebugPanel {
       input.addEventListener('input', () => this.set(spec.key, Number(input.value)));
       this.sliders.push({ spec, input, value, row });
     }
+
+    // 기획 13차 효과음: every sound id ▶ (this device)
+    mountSfxBoard(this.section('효과음 (이 기기만)'));
 
     const foot = this.section('');
     button('dbg-btn dbg-reset', '모든 수치 기본값으로', foot, () => {

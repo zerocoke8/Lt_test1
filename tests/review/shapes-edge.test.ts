@@ -58,12 +58,34 @@ function partCenter(drop: Vec2, p: PreviewPart): Vec2 {
   return { x: drop.x + p.offset.x, y: drop.y + p.offset.y };
 }
 
-function expectedHits(parts: PreviewPart[], drop: Vec2, units: SimEntity[], affects: 'enemies' | 'allies'): Map<number, number> {
+/**
+ * Seconds to watch a drag skill: past its last damaging beat (at least 1.5 s), never as long as the 종이 인형 live (their
+ * burst is not part of the preview).
+ */
+function watchWindow(actions: readonly SkillAction[]): number {
+  const last = Math.max(0, ...actions.filter(a => !a.zone && a.effects.some(e => e.kind === 'damage')).map(a => a.delay ?? 0));
+  return Math.max(1.5, last + 0.3);
+}
+
+/** Part filter: damaging parts that land within the window (기획 13차: slow / tether walls deal no damage). */
+function damagingWithin(actions: readonly SkillAction[], window: number): (p: PreviewPart, i: number) => boolean {
+  return (p, i) => actions[i].effects.some(e => e.kind === 'damage') && p.delay <= window - 0.2;
+}
+
+const sortedKeys = (m: Map<number, number>) => [...m.keys()].sort((a, b) => a - b);
+
+function expectedHits(
+  parts: PreviewPart[],
+  drop: Vec2,
+  units: SimEntity[],
+  affects: 'enemies' | 'allies',
+  keep: (p: PreviewPart, i: number) => boolean = () => true,
+): Map<number, number> {
   const want = new Map<number, number>();
   for (const e of units) {
     let n = 0;
-    for (const p of parts) {
-      if (p.affects !== affects) continue;
+    for (const [i, p] of parts.entries()) {
+      if (p.affects !== affects || !keep(p, i)) continue;
       const c = partCenter(drop, p);
       if (hitsArea(p.area, c, c, e.pos, e.radius)) n++;
     }
@@ -86,7 +108,9 @@ describe('R27/R28 at the edges: every enemy-hitting drag skill, 6 drops (inside,
             // what the UI shows: preview at the clamped finger point
             const pos = tg.game.clampToArena(raw);
             const parts = tg.game.previewParts(0, 'swap', 1);
-            const want = expectedHits(parts, pos, [...enemies, ...boss], 'enemies');
+            const partActions = def.drag.actions.filter(a => a.center !== 'woundedAlly');
+            const window = watchWindow(def.drag.actions);
+            const want = expectedHits(parts, pos, [...enemies, ...boss], 'enemies', damagingWithin(partActions, window));
             const dashPreview = previewDashEnd({ pos, area: parts[0].area, parts }, s.plan.arena);
             clearEvents(tg);
             expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: raw }).ok).toBe(true);
@@ -103,7 +127,8 @@ describe('R27/R28 at the edges: every enemy-hitting drag skill, 6 drops (inside,
             const first = tg.game.drainEvents();
             // skillCast events (telegraph/vfx source) = the preview parts' centers and areas
             const casts = first.filter((e): e is Extract<GameEvent, { type: 'skillCast' }> => e.type === 'skillCast' && e.slot === 'drag');
-            for (const p of parts.filter(q => q.affects !== 'self')) {
+            // 기획 13차: a rush back (charge) telegraphs its real path from the dash end; the preview draws the band it sweeps
+            for (const p of parts.filter((q, i) => q.affects !== 'self' && !partActions[i].charge)) {
               const c = partCenter(pos, p);
               expect(
                 casts.some(e => Math.abs(e.center.x - c.x) < 1e-9 && Math.abs(e.center.y - c.y) < 1e-9 && JSON.stringify(e.area) === JSON.stringify(p.area)),
@@ -115,13 +140,14 @@ describe('R27/R28 at the edges: every enemy-hitting drag skill, 6 drops (inside,
               for (const ev of evs) if (ev.type === 'damage' && ev.targetTeam === 'enemy' && ev.amount > 0) count.set(ev.targetId, (count.get(ev.targetId) ?? 0) + 1);
             };
             add(first);
-            for (let i = 0; i < 45; i++) {
+            for (let i = 0; i < Math.round(window * 30); i++) {
               for (const e of enemies) e.statuses.length = 0;
               for (const e of boss) e.statuses.length = 0;
               advance(tg, 1 / 30);
               add(tg.events.splice(0));
             }
-            expect(Object.fromEntries(count), label).toEqual(Object.fromEntries(want));
+            // 기획 13차: multi-beat skills hit a unit several times (volleys, zones) — every previewed unit is hit, nothing else
+            expect(sortedKeys(count), label).toEqual(sortedKeys(want));
           }
         }
       });
@@ -158,7 +184,9 @@ describe('R27 ally parts (bard band, paladin circle, cleric spring) touch exactl
           const want = new Set(expectedHits(parts, pos, turrets, 'allies').keys());
           clearEvents(tg);
           expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: raw }).ok).toBe(true);
-          const healed = new Set(tg.game.drainEvents().flatMap(e => (e.type === 'heal' ? [e.targetId] : [])));
+          // 기획 13차: the bard's side bands land at 0.3 s (the cleric's parts are instant; its 1 %/s aura would add heals)
+          if (id === 'bard') advance(tg, 0.5);
+          const healed = new Set([...tg.game.drainEvents(), ...tg.events.splice(0)].flatMap(e => (e.type === 'heal' ? [e.targetId] : [])));
           const got = new Set(turrets.filter(t => touched(t, healed)).map(t => t.id));
           expect([...got].sort((x, y) => x - y), `${id} r+${stacks * 50}% ${JSON.stringify(raw)}`).toEqual([...want].sort((x, y) => x - y));
           // the drawn parts (render) are the same footprint
@@ -179,6 +207,7 @@ describe('knockback / pull near walls', () => {
       return m;
     });
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 4, y: 6 } });
+    advance(tg, 1); // 기획 13차: two blasts and the slug (0.15 / 0.45 / 0.85 s)
     for (const m of ms) {
       expect(m.pos.x).toBeGreaterThanOrEqual(m.radius - 1e-9);
       expect(m.hp).toBeLessThan(1e9);
@@ -227,7 +256,9 @@ describe('echo_seal: second pass = same footprint (radius rewards included), tel
       const enemies = enemyGrid(tg);
       const drop = tg.game.clampToArena({ x: 34.8, y: 1 });
       const parts = tg.game.previewParts(0, 'swap', 1);
-      const want = expectedHits(parts, drop, enemies, 'enemies');
+      const partActions = def.drag.actions.filter(a => a.center !== 'woundedAlly');
+      const window = watchWindow(def.drag.actions);
+      const want = expectedHits(parts, drop, enemies, 'enemies', damagingWithin(partActions, window));
       clearEvents(tg);
       tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: drop });
       active(tg).rt.base.atk = 0;
@@ -241,13 +272,19 @@ describe('echo_seal: second pass = same footprint (radius rewards included), tel
         for (const ev of evs) if (ev.type === 'damage' && ev.targetTeam === 'enemy' && ev.amount > 0) count.set(ev.targetId, (count.get(ev.targetId) ?? 0) + 1);
       };
       add(tg.game.drainEvents());
-      for (let i = 0; i < 75; i++) {
+      // the echo comes 1 s later: watch the window again after it
+      for (let i = 0; i < Math.round((window + 1) * 30); i++) {
         for (const e of enemies) e.statuses.length = 0;
         advance(tg, 1 / 30);
         add(tg.events.splice(0));
       }
-      const doubled = new Map([...want].map(([k, v]) => [k, v * 2]));
-      expect(Object.fromEntries(count)).toEqual(Object.fromEntries(doubled));
+      // same footprint twice: the same units, each hit at least as often as one pass would (×2 for the instant parts)
+      expect(sortedKeys(count)).toEqual(sortedKeys(want));
+      const firstPart = parts.findIndex((p, i) => p.affects === 'enemies' && p.delay === 0 && !partActions[i].charge && partActions[i].effects.some(e => e.kind === 'damage'));
+      if (firstPart >= 0) {
+        const once = expectedHits([parts[firstPart]], drop, enemies, 'enemies');
+        for (const id of once.keys()) expect(count.get(id) ?? 0, `${def.id} unit ${id}`).toBeGreaterThanOrEqual(2);
+      }
     });
   }
 });

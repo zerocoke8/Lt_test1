@@ -53,9 +53,37 @@ export type StatusId =
   | 'vulnerable' // value = extra damage taken pct
   | 'lifesteal' // value = fraction of damage dealt healed
   /** 기획 12차 (흡혼 표식, enemies): value = fraction of damage dealt to this enemy that heals the attacker. */
-  | 'drain';
+  | 'drain'
+  // 기획 13차 스킬 리뉴얼 (docs/skill-renewal.md 5-2): enemy control statuses + one ally buff
+  /** 도발: the enemy must target data.sourceEntityId (released when that unit dies / leaves). Bosses, mid bosses, stationary immune. */
+  | 'taunt'
+  /** 묶기: cannot move farther than value (= data.radius) from data.anchor. Bosses / mid bosses immune. */
+  | 'tether'
+  /** 속박: cannot move at all, still attacks (a tether of radius 0 at the spot it was rooted). */
+  | 'root'
+  /**
+   * 정지: no move / attack / wind-up / cooldowns (telegraphed attacks are postponed, not broken). Damage taken is stored
+   * (data.stored); when it ends the unit takes value × stored once more ('stasisEnd'). Bosses / mid bosses: ×0.6 time,
+   * then STASIS.immune s immune.
+   */
+  | 'stasis'
+  /** 조종: attacks the nearest other enemy; its hits count for the player who charmed it. Bosses / mid / summons immune. */
+  | 'charm'
+  /** Ally buff: basic-attack splash radius +value (a character without splash gets one). */
+  | 'splashUp';
 
-export const DEBUFFS: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'slow', 'burn', 'atkDown', 'vulnerable', 'drain']);
+export const DEBUFFS: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'slow', 'burn', 'atkDown', 'vulnerable', 'drain', 'taunt', 'tether', 'root', 'stasis', 'charm']);
+
+/** 기획 13차: the control statuses that come with a 'statusApplied' event (head icons / sounds). */
+export const CONTROL_STATUSES: ReadonlySet<StatusId> = new Set<StatusId>(['taunt', 'tether', 'root', 'stasis', 'charm']);
+
+/** 기획 13차: per-instance data of the new statuses (taunt: who; tether / root: where; stasis: damage stored). */
+export interface StatusData {
+  sourceEntityId?: number;
+  anchor?: Vec2;
+  radius?: number;
+  stored?: number;
+}
 
 export interface StatusInstance {
   id: StatusId;
@@ -64,6 +92,8 @@ export interface StatusInstance {
   value: number;
   /** player id that applied it (for contribution), null for monsters */
   sourcePlayer: number | null;
+  /** 기획 13차: only on taunt / tether / root / stasis. */
+  data?: StatusData;
 }
 
 // ─────────────────────────── Data-driven skills ───────────────────────────
@@ -94,10 +124,13 @@ export type AreaShape =
 export type Affects = 'enemies' | 'allies' | 'self';
 
 export type Effect =
-  /** amount × caster atk */
-  | { kind: 'damage'; amount: number }
-  /** amount × target maxHp */
-  | { kind: 'heal'; amount: number }
+  /** amount × caster atk. crit 'always' (기획 13차): a guaranteed critical hit (no roll). */
+  | { kind: 'damage'; amount: number; crit?: 'always' }
+  /**
+   * amount × target maxHp. overflowShield (기획 13차, 클레릭): the part that overflows max HP becomes a shield of frac ×
+   * overflow, never making this source's shield exceed cap × maxHp, for duration s.
+   */
+  | { kind: 'heal'; amount: number; overflowShield?: { frac: number; cap: number; duration: number } }
   /** amount × target maxHp, absorbs damage, expires after duration */
   | { kind: 'shield'; amount: number; duration: number }
   | { kind: 'status'; status: StatusId; duration: number; value: number }
@@ -107,15 +140,23 @@ export type Effect =
   | { kind: 'pull'; distance: number }
   /** Remove all debuffs. */
   | { kind: 'cleanse' }
-  /** Reduce the caster player's bench swap cooldowns. Applied ONCE per action to the owner player, not per target. */
-  | { kind: 'swapCooldownReduce'; seconds: number }
+  /**
+   * Reduce the caster player's bench swap cooldowns (allPlayers 기획 13차: every non-out player's). Applied ONCE per
+   * action, not per target. Emits 'swapCdCut'.
+   */
+  | { kind: 'swapCooldownReduce'; seconds: number; allPlayers?: boolean }
   /**
    * 기획 12차: amount × member maxHp to the bench (not field, not dead) members of the caster player, or of every non-out
    * player when allPlayers. Applied once per action.
    */
   | { kind: 'benchHeal'; amount: number; allPlayers?: boolean }
-  /** 기획 12차: dead members' reviveRemaining −= seconds (min 0); out players skipped. Once per action. */
-  | { kind: 'reviveReduce'; seconds: number; allPlayers?: boolean };
+  /** 기획 12차: dead members' reviveRemaining −= seconds (min 0); out players skipped. Once per action. Emits 'reviveCut'. */
+  | { kind: 'reviveReduce'; seconds: number; allPlayers?: boolean }
+  /**
+   * 기획 13차 (바드 앙코르): a status on every living bench member of the caster player (allPlayers: of every non-out
+   * player). It ticks on the bench and comes onto the field with the card. Once per action; emits 'benchBuff'.
+   */
+  | { kind: 'benchStatus'; status: StatusId; duration: number; value: number; allPlayers?: boolean };
 
 export interface SkillAction {
   /**
@@ -123,8 +164,36 @@ export interface SkillAction {
    * self   = caster position.
    * target = current target position (falls back to self when no target).
    * woundedAlly = 기획 12차 (normal skills): the ally with the lowest hp/maxHp within castRange (ties → nearer).
+   *   기획 13차 (drag skills): within allyRange of the drop point, every player's characters + the 돌발 괴담 patient.
    */
   center: 'point' | 'self' | 'target' | 'woundedAlly';
+  /**
+   * 기획 13차 스킬 리뉴얼: stage name (render / sound key `skillId:stage`). Sent on 'skillCast' and 'skillStage'.
+   * Several actions may share one stage (e.g. a hit on enemies + a shield on self at the same beat).
+   */
+  stage?: string;
+  /**
+   * 기획 13차: a delayed 'self' / 'target' action re-resolves its center (and the caster's attack) when it lands, not when
+   * cast; its telegraph follows too. A gone target is replaced by the caster's current target, else its last spot.
+   */
+  follow?: boolean;
+  /** 기획 13차: show the telegraph only for the last N s of the delay (0 = no telegraph). Absent = the whole delay. */
+  telegraphLead?: number;
+  /** 기획 13차 (woundedAlly drag): search radius around the drop point. */
+  allyRange?: number;
+  /** 기획 13차: hit only the N nearest targets (distance → id). Targets immune to its statuses are picked last. */
+  maxTargets?: number;
+  /**
+   * 기획 13차 (퇴마사 멸): every enemy this action hit (up to maxHits) heals the allies within radius of its center by
+   * amount × their max HP, all at once (heal event from = the first enemy hit).
+   */
+  healPerHit?: { radius: number; amount: number; maxHits: number };
+  /**
+   * 기획 13차 (블레이드 순보): `count` hits, `interval` apart: before each, the caster teleports next to an enemy within
+   * `radius` of itself (enemies hit fewer times first, then nearer, then lower id; at most maxPerTarget each) and the
+   * action hits around it. Emits 'blink' per hop.
+   */
+  blinkChain?: { count: number; radius: number; interval: number; maxPerTarget: number };
   area: AreaShape;
   affects: Affects;
   effects: Effect[];
@@ -150,14 +219,25 @@ export interface SkillAction {
    * Caster dashes from the resolved center toward dir by distance (drag skill: appear at the drop point, then dash).
    * The caster ends at the clamped end point; effects hit along the path (pair with area {shape:'rect', dir, length: distance}).
    */
-  dash?: { dir: Dir; distance: number; duration?: number };
+  dash?: {
+    dir: Dir;
+    distance: number;
+    duration?: number;
+    /** 기획 13차 (거너 반동, 섀도우 질주): the caster moves from where it stands when the action lands, not at cast. */
+    atFire?: boolean;
+  };
   /**
    * 기획 8차 (monsters): the caster rushes from where it stands toward the resolved center by up to `distance`
    * (after `delay`), hitting along the path (pair with area {shape:'line'}). Emits 'dash'.
+   * stopAtCenter (기획 13차, 블레이드 되돌아 베기): the rush ends at the center instead of running past it.
+   * An echo_seal recast (noDash) hits along the path without moving the caster.
    */
-  charge?: { distance: number; duration?: number };
-  /** 기획 8차 (monsters): the caster teleports next to its current target before the action resolves. Emits 'blink'. */
-  blink?: { offset: number };
+  charge?: { distance: number; duration?: number; stopAtCenter?: boolean };
+  /**
+   * 기획 8차 (monsters): the caster teleports next to its current target before the action resolves. Emits 'blink'.
+   * behind (기획 13차, 섀도우 월영참): on the far side of the target.
+   */
+  blink?: { offset: number; behind?: boolean };
 }
 
 export interface SkillDef {
@@ -277,6 +357,11 @@ export interface BossDef extends MonsterDef {
    * rotation and applies its multipliers (stacking with enrage).
    */
   phases?: { hpBelow: number; name?: string; skills?: MonsterSkill[]; atkSpeedMult?: number; cooldownMult?: number }[];
+  /**
+   * 기획 13차 보스 그로기 (docs/boss-groggy.md): this boss has a groggy gauge. threshold = boss multiplier of the gauge max
+   * (100 × threshold × human-count multiplier × repeat multiplier). Absent = no gauge.
+   */
+  groggy?: { threshold: number };
 }
 
 /** Summoned ally units (pets, skills) use MonsterDef shape with tier 'summon'. */
@@ -492,6 +577,32 @@ export interface FieldEventState {
   printed?: number;
 }
 
+// ─── 보스 그로기 (기획 13차, docs/boss-groggy.md) ───
+
+/**
+ * The boss's groggy gauge (boss floors with a BossDef.groggy, else GameState.bossGroggy is null). The HUD draws only
+ * from this (rejoin / mid-join safe), never from events.
+ */
+export interface BossGroggyState {
+  /** Gauge 0..1 (points ÷ the current max, so a seat turning bot only changes the fill speed, never the bar). */
+  fill: number;
+  /** Seconds of groggy left; 0 = not groggy. */
+  left: number;
+  /** Groggy length of the current / last break. */
+  total: number;
+  /** Seconds of the after-groggy lock left (the gauge takes no points). */
+  lock: number;
+  lockTotal: number;
+  /** Breaks so far this fight (the max grows ×(1 + 0.5 × count)). */
+  count: number;
+  /** fill ≥ 80 % and neither groggy nor locked ('next stun drag breaks it'). */
+  near: boolean;
+  /** Player who filled it last (the last break), null = none / debug. */
+  breaker: number | null;
+}
+
+export type GroggyGainWhy = 'drag' | 'stun' | 'ult' | 'pet';
+
 // ─────────────────────────── Floor plan ───────────────────────────
 
 export interface WavePlan {
@@ -591,6 +702,10 @@ export interface ContributionStats {
   ultDelayCount: number;
   /** 기획 12차: 돌발 괴담 this player resolved (killing blow, last lamp, …). */
   fieldEvents: number;
+  /** 기획 13차: boss groggy points this player filled, breaks (last fill), and damage dealt to a groggy boss. No reward. */
+  groggyPoints: number;
+  groggyBreaks: number;
+  groggyDamage: number;
 }
 
 export interface AppliedReward {
@@ -779,6 +894,8 @@ export interface GameState {
   goedam: GoedamState | null;
   /** 기획 12차: the 돌발 괴담 running on this floor (warning or active), else null. */
   fieldEvent: FieldEventState | null;
+  /** 기획 13차: the boss's groggy gauge on a boss floor (null elsewhere, or with bossGroggyThreshold 0). */
+  bossGroggy: BossGroggyState | null;
   runResult: RunResult | null;
 }
 
@@ -795,7 +912,9 @@ export type DebugAction =
   /** 기획 10차: open a 괴담 room after the next floor clear (room id, or a fitting one for that floor). */
   | { kind: 'goedamNext'; room?: string }
   /** 기획 12차: start a 돌발 괴담 now (normal floor, early in combat) or at 8 s of the next normal floor. */
-  | { kind: 'fieldEventNext'; id?: FieldEventId };
+  | { kind: 'fieldEventNext'; id?: FieldEventId }
+  /** 기획 13차: set the boss groggy gauge (default 1 = break now; e.g. 0.85 = near full). Clears the lock. */
+  | { kind: 'forceGroggy'; fill?: number };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
@@ -829,6 +948,10 @@ export type GameEvent =
       skillName?: string;
       /** 기획 12차: drag/pet hit on a 돌발 괴담 target (×2) — render tags the number '약점'. */
       weak?: true;
+      /** 기획 13차: hit on a groggy boss (×1.5, drag ×2) — render: amber number, drag hits get '×2'. */
+      groggy?: true;
+      /** 기획 13차: the hit came from a drag cast (only set together with groggy). */
+      drag?: true;
     }
   /** from (기획 12차): the 흡혼-marked enemy this heal was drained from (render draws a red wisp from it). */
   | { type: 'heal'; targetId: number; amount: number; pos: Vec2; from?: number }
@@ -850,12 +973,51 @@ export type GameEvent =
       /** Repeated hits (ult flurries): count and spacing. Absent = one hit. */
       hits?: number;
       hitInterval?: number;
+      /** 기획 13차: SkillAction.stage and the action's index in its skill (character / pet casts with stages). */
+      stage?: string;
+      actionIndex?: number;
+      /** 기획 13차: the telegraph follows the caster / target (SkillAction.follow). */
+      follow?: true;
+      /** 기획 13차: the telegraph shows only for the last N s (0 = none). */
+      telegraphLead?: number;
     }
+  /**
+   * 기획 13차: one staged action landed (every hit of a multi-hit). center / area = where it hit, targets = units it hit.
+   * Only for actions with a SkillAction.stage (the 15 renewed drag / ult skills).
+   */
+  | {
+      type: 'skillStage';
+      sourceId: number | null;
+      player: number | null;
+      slot: SkillSlot | 'pet' | 'monster';
+      skillId: string;
+      stage: string;
+      actionIndex: number;
+      center: Vec2;
+      area: AreaShape;
+      team: Team;
+      /** 0-based hit of hits. */
+      hit: number;
+      hits: number;
+      targets: number;
+    }
+  /** 기획 13차: an ult was tapped — the cut-in starts (before its skillCast events). Effects land ≥ 0.45 s later. */
+  | { type: 'ultCast'; player: number; entityId: number; defId: string; skillId: string; name: string }
+  /** 기획 13차: a control status landed on a unit (head icon / sound). source = the caster entity, if any. */
+  | { type: 'statusApplied'; targetId: number; status: StatusId; duration: number; player: number | null; sourceId: number | null }
+  /** 기획 13차: a stasis ended; the unit took `amount` (the stored-damage rebound). */
+  | { type: 'stasisEnd'; entityId: number; amount: number; player: number | null }
+  /** 기획 13차: a bench card got a status (바드 앙코르). from = the casting player. */
+  | { type: 'benchBuff'; player: number; partyIndex: number; status: StatusId; duration: number; value: number; from: number | null }
+  /** 기획 13차: a dead card's revive wait got shorter by `seconds` (메딕 골든 아워). from = the casting player. */
+  | { type: 'reviveCut'; player: number; partyIndex: number; seconds: number; from: number | null }
+  /** 기획 13차: a player's bench swap cooldowns got `seconds` shorter (크로노). from = the casting player. */
+  | { type: 'swapCdCut'; player: number; seconds: number; from: number | null }
   | { type: 'appear'; player: number; partyIndex: number; entityId: number; pos: Vec2 }
   /** Caster moved along a dash (render a streak; entity pos is already at `to`). */
   | { type: 'dash'; entityId: number; from: Vec2; to: Vec2; duration: number }
-  /** 기획 8차: a monster teleported (render a vanish/appear). */
-  | { type: 'blink'; entityId: number; from: Vec2; to: Vec2 }
+  /** 기획 8차: a monster teleported (render a vanish/appear). 기획 13차: also character blinks (블레이드 순보 hop n of count). */
+  | { type: 'blink'; entityId: number; from: Vec2; to: Vec2; hop?: number; hops?: number }
   /** 기획 8차: a boss crossed an HP threshold. */
   | { type: 'bossPhase'; entityId: number; phase: number; name: string }
   | { type: 'leave'; player: number; partyIndex: number; pos: Vec2 }
@@ -885,7 +1047,12 @@ export type GameEvent =
   /** Progress changed (lamp lit, monster fell, shadow killed, child startled, patient healed). player = who did it. */
   | { type: 'fieldEventProgress'; id: FieldEventId; progress: number; goal: number; player: number | null; kind?: FieldEventProgressKind }
   /** Over: success (every non-out player got the reward; player = credit) or failure. */
-  | { type: 'fieldEventEnd'; id: FieldEventId; success: boolean; player: number | null };
+  | { type: 'fieldEventEnd'; id: FieldEventId; success: boolean; player: number | null }
+  /** 기획 13차: the boss broke (groggy for duration s). player = who filled it last (null = debug). count = breaks so far. */
+  | { type: 'bossGroggy'; entityId: number; player: number | null; count: number; duration: number }
+  | { type: 'bossGroggyEnd'; entityId: number }
+  /** 기획 13차: gauge points of one action (only ≥ 5 points, for the '+N' pop). */
+  | { type: 'groggyGain'; player: number; amount: number; why: GroggyGainWhy };
 
 // ─────────────────────────── Tunables (debug sliders) ───────────────────────────
 
@@ -918,6 +1085,11 @@ export interface Tunables {
   goedamRoomsPerZone: number;
   /** 기획 12차: chance of a 돌발 괴담 per normal floor 3–19 (floor 2 always has the toad); 0 = off entirely. */
   fieldEventChance: number;
+  /** 기획 13차: boss groggy gauge base max (100; 0 = groggy off), groggy seconds, damage taken ×, drag damage taken ×. */
+  bossGroggyThreshold: number;
+  bossGroggyDuration: number;
+  bossGroggyDamageMult: number;
+  bossGroggyDragMult: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────
@@ -1012,6 +1184,8 @@ export interface Renderer {
   screenToWorld(p: Vec2): Vec2;
   /** World → logical canvas px. */
   worldToScreen(v: Vec2): Vec2;
+  /** Test hook (기획 13차): the last few ult cut-ins this screen showed ('full' = my band, 'mini' = another player's corner banner). */
+  cutInLog(): readonly { kind: 'full' | 'short' | 'mini'; name: string; who: string }[];
 }
 
 export const LOGICAL_W = 1280;

@@ -260,8 +260,18 @@ export const MONSTERS: MonsterDef[] = [
     id: 'paper_doll', name: '종이 인형', tier: 'summon', color: '#ff99c8', radius: 0.45, stationary: true, inert: true, look: 'paper_doll',
     stats: { maxHp: 100, atk: 10, def: 0.2, atkSpeed: 0.01, range: 0, moveSpeed: 0, critChance: 0, critMult: 1.5 },
     basic: { kind: 'melee' },
+    // 기획 13차 리뉴얼 (대역 인형극): r 2 → 2.3, 120 → 150%, 공격력 −25% 4초 → −30% 5초; 13차 밸런스: 150 → 200%
     onDeath: {
-      action: { center: 'self', area: { shape: 'circle', radius: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'atkDown', duration: 4, value: 0.25 }] },
+      action: { stage: 'burst', center: 'self', area: { shape: 'circle', radius: 2.3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'atkDown', duration: 5, value: 0.3 }] },
+    },
+  },
+  {
+    // 기획 13차 (퍼펫티어 커튼콜): the big doll of the ult — same decoy, a bigger burst
+    id: 'paper_doll_grand', name: '대형 종이 인형', tier: 'summon', color: '#ff99c8', radius: 0.6, stationary: true, inert: true, look: 'paper_doll',
+    stats: { maxHp: 100, atk: 10, def: 0.2, atkSpeed: 0.01, range: 0, moveSpeed: 0, critChance: 0, critMult: 1.5 },
+    basic: { kind: 'melee' },
+    onDeath: {
+      action: { stage: 'burst', center: 'self', area: { shape: 'circle', radius: 2.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.6 }, { kind: 'status', status: 'atkDown', duration: 5, value: 0.35 }] },
     },
   },
 ];
@@ -309,12 +319,15 @@ export const BOSSES: BossDef[] = [
         ],
       },
     ],
+    // 기획 13차 보스 그로기: gauge ×0.8 (첫 보스, 배우는 자리)
+    groggy: { threshold: 0.8 },
     enrage: ENRAGE,
   },
   {
     // 10층: 야근의 군주 — 팔이 여러 개인 사무실 유령.
     id: 'overtime_lord', name: '야근의 군주', tier: 'boss', color: '#3d5a80', radius: 3, stationary: true, look: 'overtime_lord',
-    stats: { maxHp: 8000, atk: 30, def: 0.2, atkSpeed: 0.55, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
+    // 기획 13차 밸런스: HP 8000 → 9000 (그로기 설계 8장 +12% 묶음을 10층에만 — 15·20층은 6층 이후 성장만으로 싸움 길이가 12차 수준)
+    stats: { maxHp: 9000, atk: 30, def: 0.2, atkSpeed: 0.55, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
     basic: { kind: 'projectile', speed: 11 },
     skills: [
       {
@@ -348,6 +361,8 @@ export const BOSSES: BossDef[] = [
         ],
       },
     ],
+    // 기획 13차 보스 그로기: gauge ×1
+    groggy: { threshold: 1 },
     enrage: ENRAGE,
   },
   {
@@ -391,6 +406,8 @@ export const BOSSES: BossDef[] = [
         ],
       },
     ],
+    // 기획 13차 보스 그로기: gauge ×1
+    groggy: { threshold: 1 },
     enrage: ENRAGE,
   },
   {
@@ -445,6 +462,8 @@ export const BOSSES: BossDef[] = [
         ],
       },
     ],
+    // 기획 13차 보스 그로기: gauge ×1.1 (최종 보스)
+    groggy: { threshold: 1.1 },
     enrage: ENRAGE,
   },
 ];

@@ -8,7 +8,7 @@ import { DIR_VEC, areaCentroid, dashEnd, rectFrame } from '../sim/geometry';
 import { dropOutcome } from '../sim/fieldEventPreview';
 import { Camera } from './camera';
 import { boldFont } from './look';
-import { TAU, addAreaPath, drawGroundArrow, drawGroundChevrons, fanFrame, groundEllipse, pathArea } from './shapes';
+import { TAU, addAreaPath, areaReach, drawGroundArrow, drawGroundChevrons, fanFrame, groundEllipse, pathArea } from './shapes';
 
 /** Buff/heal areas that only touch allies get this tint + dashed outline (enemy-hitting parts use the card colour). */
 export const ALLY_TINT = '#7dffb3';
@@ -211,8 +211,11 @@ export function drawPreviewFootprint(
     ctx.setLineDash([]);
   }
 
-  // 2) enemy-hitting (or mixed) parts; later delayed parts a little fainter
-  for (const p of parts) {
+  // 2) enemy-hitting (or mixed) parts; later delayed parts a little fainter. 기획 13차 리뷰 (2-4): many parts (메이지's
+  // 7 meteors) are one union outline + light marks inside, not a blob of separate filled circles
+  const hits = parts.filter(p => p.enemies);
+  if (hits.length >= MERGE_PARTS) drawMergedParts(ctx, cam, hits, color, valid);
+  else for (const p of parts) {
     if (!p.enemies) continue;
     const late = numbered && p.order > 1 ? (p.order - 1) / Math.max(1, maxOrder - 1) : 0;
     pathArea(ctx, cam, p.center, null, p.part.area, 1);
@@ -311,7 +314,67 @@ export function drawPreviewFootprint(
 
 /** Landing-order badges (1, 2, 3 …) of delayed multi-hits, drawn above the units so bodies never hide them. */
 export function drawPreviewBadges(ctx: CanvasRenderingContext2D, cam: Camera, dp: DragPreview, color: string): void {
-  for (const p of previewDrawParts(dp)) if (p.order > 0) orderBadge(ctx, cam, badgeAt(p), p.order, color, p.order === 1 ? 1 : 0.85);
+  const parts = previewDrawParts(dp);
+  const big = bigBeat(parts);
+  for (const p of parts) if (p.order > 0 && (!big || p === big)) orderBadge(ctx, cam, badgeAt(p), p.order, color, p.order === 1 || p === big ? 1 : 0.85);
+}
+
+/** From this many enemy parts on, the preview is drawn merged (one outline, inner marks, only the big beat numbered). */
+const MERGE_PARTS = 3;
+
+/** The merged preview's big beat: the one part that reaches farther than every other (else the first to land). */
+function bigBeat(parts: readonly DrawPart[]): DrawPart | null {
+  const hits = parts.filter(p => p.enemies);
+  if (hits.length < MERGE_PARTS) return null;
+  const reach = (p: DrawPart) => areaReach(p.part.area);
+  const sorted = [...hits].sort((a, b) => reach(b) - reach(a));
+  if (reach(sorted[0]) > reach(sorted[1]) + 1e-6) return sorted[0];
+  return hits.reduce((a, b) => (b.order > 0 && (a.order <= 0 || b.order < a.order) ? b : a));
+}
+
+/** One fill + the union outline (each part's edge outside every other part) + a light tick at each part's middle. */
+function drawMergedParts(ctx: CanvasRenderingContext2D, cam: Camera, hits: readonly DrawPart[], color: string, valid: boolean): void {
+  ctx.beginPath();
+  for (const p of hits) addAreaPath(ctx, cam, p.center, null, p.part.area, 1);
+  ctx.globalAlpha = valid ? 0.22 : 0.16;
+  ctx.fillStyle = color;
+  ctx.fill('nonzero');
+  for (const p of hits) {
+    ctx.save();
+    for (const o of hits) {
+      if (o === p) continue;
+      ctx.beginPath();
+      ctx.rect(-4000, -4000, 12000, 12000);
+      addAreaPath(ctx, cam, o.center, null, o.part.area, 1);
+      ctx.clip('evenodd');
+    }
+    pathArea(ctx, cam, p.center, null, p.part.area, 1);
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#05060a';
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    if (valid) {
+      ctx.globalAlpha = 0.75;
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = WHITE;
+      ctx.setLineDash([8, 7]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = WHITE;
+  for (const p of hits) {
+    ctx.beginPath();
+    ctx.arc(cam.sx(p.center.x), cam.sy(p.center.y), 3, 0, TAU);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 }
 
 /** Union path of every enemy-hitting part (tests / tools). */

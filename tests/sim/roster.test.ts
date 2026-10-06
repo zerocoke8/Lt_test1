@@ -49,25 +49,28 @@ describe('R25 roster: 15 characters, 3 per role (기획 3차 1, 기획 12차: 5 
       expect(c.stats.maxHp).toBeGreaterThan(0);
       expect(c.color).toMatch(/^#[0-9a-f]{6}$/i);
       colors.add(c.color.toLowerCase());
-      for (const a of c.drag.actions) expect(['point', 'self']).toContain(a.center);
+      // 기획 13차: 메딕 주사 picks the most wounded ally near the drop point
+      for (const a of c.drag.actions) expect(['point', 'self', 'woundedAlly']).toContain(a.center);
     }
     expect(colors.size).toBe(15);
   });
 
-  it('every drag skill has a non-circle shape, except cleric (circle heal zone) and mage (multi-circle meteors)', () => {
+  it('every drag skill has a non-circle shape, except cleric (circle bell sanctuary) and the multi-spot ones (mage meteors, shadow clones, puppeteer dolls)', () => {
     for (const c of CHARACTERS) {
       const shapes = c.drag.actions.filter(a => a.affects !== 'self').map(a => a.area.shape);
       if (c.id === 'cleric') {
         expect(shapes.every(s => s === 'circle')).toBe(true);
         expect(c.drag.actions.some(a => a.zone)).toBe(true);
       } else if (c.id === 'mage' || c.id === 'shadow' || c.id === 'puppeteer') {
-        // several circles at fixed offsets / delays
-        const offs = c.drag.actions.map(a => `${a.offset?.x ?? 0},${a.offset?.y ?? 0}`);
-        expect(new Set(offs).size).toBe(c.drag.actions.length);
-        expect(new Set(c.drag.actions.map(a => a.delay ?? 0)).size).toBe(c.drag.actions.length);
+        // several circles at fixed offsets / delays (기획 13차: the first stage of each)
+        const spots = c.drag.actions.filter(a => a.stage === c.drag.actions[0].stage);
+        expect(spots.length).toBeGreaterThanOrEqual(2);
+        expect(new Set(spots.map(a => `${a.offset?.x ?? 0},${a.offset?.y ?? 0}`)).size).toBe(spots.length);
+        expect(new Set(spots.map(a => a.delay ?? 0)).size).toBe(spots.length);
       } else {
-        expect(shapes[0]).not.toBe('circle');
-        expect(['rect', 'cone', 'ring', 'cross']).toContain(shapes[0]);
+        expect(['rect', 'cone', 'ring', 'cross', 'circle']).toContain(shapes[0]);
+        // 기획 13차: a circle may open the sequence (가디언 내려찍기, 버서커 착지) — a fixed shape still follows
+        expect(shapes.some(sh => sh !== 'circle' && sh !== 'single')).toBe(true);
       }
     }
   });
@@ -89,29 +92,42 @@ describe('R25 roster: 15 characters, 3 per role (기획 3차 1, 기획 12차: 5 
     }
   });
 
-  it('drag shapes match the 3차 table (shape, fixed direction, numbers)', () => {
-    const first = (id: string): AreaShape => enemyActions(getCharacter(id).drag.actions)[0]?.area ?? getCharacter(id).drag.actions[0].area;
-    expect(first('guardian')).toEqual({ shape: 'rect', dir: 'right', anchor: 'center', length: 7, width: 2 });
-    expect(first('paladin')).toEqual({ shape: 'cross', length: 3.5, width: 1.3 });
-    expect(first('warden')).toEqual({ shape: 'ring', inner: 0.6, outer: 4 });
-    expect(first('blade')).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.4 });
-    expect(getCharacter('blade').drag.actions[0].dash).toEqual({ dir: 'right', distance: 6 });
-    expect(first('berserker')).toEqual({ shape: 'cone', dir: 'right', radius: 4.5, angle: 100 });
-    expect(getCharacter('shadow').drag.actions.map(a => a.offset ?? { x: 0, y: 0 })).toEqual([{ x: 0, y: 0 }, { x: 2.2, y: 0 }, { x: 4.4, y: 0 }]);
-    expect(first('ranger')).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 12, width: 1.2 });
-    expect(getCharacter('mage').drag.actions).toHaveLength(5);
-    expect(first('gunner')).toEqual({ shape: 'cone', dir: 'left', radius: 5, angle: 70 });
-    expect(getCharacter('gunner').drag.actions[0].effects).toContainEqual({ kind: 'knockback', distance: 2, dir: 'left' });
-    expect(first('bard')).toEqual({ shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 });
-    expect(first('chrono')).toEqual({ shape: 'cross', diagonal: true, length: 3.5, width: 1.3 });
-    expect(getCharacter('chrono').drag.actions.some(a => a.effects.some(e => e.kind === 'swapCooldownReduce' && e.seconds > 0))).toBe(true);
-    // cooldowns after the drag-skill balance pass (docs/balance.md: stronger per cast → longer cooldown)
+  it('drag shapes match the 13차 table (docs/skill-renewal.md 3장: shape, fixed direction, numbers)', () => {
+    const stage = (id: string, name: string) => getCharacter(id).drag.actions.find(a => a.stage === name)!;
+    expect(stage('guardian', 'wave').area).toEqual({ shape: 'rect', dir: 'right', anchor: 'center', length: 9, width: 2.2 });
+    expect(stage('paladin', 'brand').area).toEqual({ shape: 'cross', length: 3.8, width: 1.4 });
+    expect(stage('warden', 'hook').area).toEqual({ shape: 'ring', inner: 0.6, outer: 4.5 });
+    expect(stage('blade', 'dash').area).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.6 });
+    expect(stage('blade', 'dash').dash).toEqual({ dir: 'right', distance: 6, duration: 0.16 });
+    expect(stage('blade', 'return').charge).toEqual({ distance: 6, duration: 0.16, stopAtCenter: true });
+    expect(stage('berserker', 'split').area).toEqual({ shape: 'cone', dir: 'right', radius: 5, angle: 100 });
+    expect(getCharacter('shadow').drag.actions.filter(a => a.stage === 'clone').map(a => a.offset ?? { x: 0, y: 0 })).toEqual([{ x: 0, y: 0 }, { x: 2.2, y: 0 }, { x: 4.4, y: 0 }]);
+    expect(stage('ranger', 'pierce').area).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 14, width: 1.2 });
+    expect(getCharacter('mage').drag.actions.filter(a => a.stage === 'meteor')).toHaveLength(6);
+    expect(stage('gunner', 'blast1').area).toEqual({ shape: 'cone', dir: 'left', radius: 5, angle: 70 });
+    expect(stage('gunner', 'slug').effects).toContainEqual({ kind: 'knockback', distance: 2, dir: 'left' });
+    expect(stage('gunner', 'slug').dash).toEqual({ dir: 'right', distance: 1.2, duration: 0.15, atFire: true });
+    expect(stage('bard', 'beat1').area).toEqual({ shape: 'rect', dir: 'down', anchor: 'center', length: 12, width: 2.6 });
+    expect(stage('chrono', 'rift').area).toEqual({ shape: 'cross', diagonal: true, length: 3.5, width: 1.3 });
+    expect(getCharacter('chrono').drag.actions.some(a => a.effects.some(e => e.kind === 'swapCooldownReduce' && e.seconds === 2))).toBe(true);
+    // cooldowns stay (기획 13차: 쿨·게이지 그대로)
     const cds = Object.fromEntries(CHARACTERS.map(c => [c.id, c.swapCooldown]));
     expect(cds).toEqual({ guardian: 10, paladin: 11, warden: 10, blade: 10, berserker: 11, shadow: 9, ranger: 10, mage: 12, gunner: 10, cleric: 9, medic: 9, exorcist: 10, bard: 9, chrono: 9, puppeteer: 11 });
-    // 기획 12차
-    expect(first('medic')).toEqual({ shape: 'cross', length: 3.5, width: 1.6 });
-    expect(first('exorcist')).toEqual({ shape: 'ring', inner: 0.8, outer: 3.5 });
-    expect(getCharacter('puppeteer').drag.actions.map(a => a.offset)).toEqual([{ x: -2.5, y: 0 }, { x: 2.5, y: 0 }]);
+    expect(stage('medic', 'firstaid').area).toEqual({ shape: 'cross', length: 3.5, width: 1.8 });
+    expect(stage('exorcist', 'seal').area).toEqual({ shape: 'ring', inner: 0.8, outer: 3.5 });
+    expect(getCharacter('puppeteer').drag.actions.filter(a => a.stage === 'toss').map(a => a.offset)).toEqual([{ x: -2.5, y: 0 }, { x: 2.5, y: 0 }]);
+  });
+
+  it('기획 13차: every renewed drag / ult action names its stage, and ults stand still for the cut-in with no effect before 0.45 s', () => {
+    for (const c of CHARACTERS) {
+      for (const a of [...c.drag.actions, ...c.ult.actions]) expect(a.stage, `${c.id}`).toMatch(/^[a-z0-9]+$/);
+      expect(c.ult.castTime, c.id).toBe(0.5);
+      for (const a of c.ult.actions) {
+        // movement-only parts (섀도우 사라지기) may happen at once
+        if (a.effects.length === 0 && !a.summon) continue;
+        expect(a.delay ?? 0, `${c.id} ${a.stage}`).toBeGreaterThanOrEqual(0.45 - 1e-9);
+      }
+    }
   });
 
   it('directional drag descriptions name their direction', () => {
@@ -126,7 +142,7 @@ describe('R25 roster: 15 characters, 3 per role (기획 3차 1, 기획 12차: 5 
       paladin: /십자|\+/,
       chrono: /X자|대각선/,
       warden: /고리/,
-      mage: /다섯/,
+      mage: /여섯/,
       medic: /십자|\+/,
       exorcist: /고리/,
       puppeteer: /좌우/,

@@ -26,6 +26,8 @@ const ULT_REVIVE = (() => {
   const e = ultEffects().find(x => x.kind === 'reviveReduce');
   return e?.kind === 'reviveReduce' ? e.seconds : NaN;
 })();
+/** 대역 인형 summon data (기획 13차: 60 % HP, 7 s). */
+const DOLL = getCharacter('puppeteer').drag.actions.find(a => a.summon)!.summon!;
 /** 대기실 간호 per second. */
 const REGEN = getCharacter('medic').passive.benchRegen ?? NaN;
 const ALLY = (player: number | null, casterId: number | null = null) => ({ casterId, team: 'ally' as const, player, source: 'basic' as const, isDrag: false });
@@ -90,12 +92,23 @@ describe('메딕: bench heal, revive cut, bench regen (기획 12차)', () => {
     p2.party[2].reviveRemaining = 5;
     p0.ult.charge = 1;
     expect(tg.game.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
-    expect(p0.party[1].hp / p0.party[1].maxHp).toBeCloseTo(0.2 + ULT_BENCH, 5);
+    // 기획 13차: the effects land after the 0.45 s cut-in (tick 14 = 0.467 s)
+    advance(tg, 0.4);
+    expect(p1.party[1].hp / p1.party[1].maxHp).toBeCloseTo(0.2, 5);
+    const r1 = p1.party[2].reviveRemaining;
+    clearEvents(tg);
+    advance(tg, 2 / 30);
+    // (the medic's bench regen adds a hair to its own bench)
+    expect(p0.party[1].hp / p0.party[1].maxHp).toBeCloseTo(0.2 + ULT_BENCH, 2);
     expect(p1.party[1].hp / p1.party[1].maxHp).toBeCloseTo(0.2 + ULT_BENCH, 5);
     expect(p2.party[1].hp / p2.party[1].maxHp).toBeCloseTo(0.2, 5);
     expect(p0.party[2].reviveRemaining).toBe(0);
-    expect(p1.party[2].reviveRemaining).toBeCloseTo(25 - ULT_REVIVE, 5);
+    expect(p1.party[2].reviveRemaining).toBeCloseTo(r1 - 2 / 30 - ULT_REVIVE, 5);
     expect(p2.party[2].reviveRemaining).toBe(5);
+    // 기획 13차 'reviveCut' (the HUD rolls the number down): one per cut card, none for the out player
+    const cuts = eventsOf(tg, 'reviveCut');
+    expect(cuts.map(c => [c.player, c.partyIndex])).toEqual([[0, 2], [1, 2]]);
+    expect(cuts[1]).toMatchObject({ seconds: ULT_REVIVE, from: 0 });
     advance(tg, 1 / 30);
     expect(p0.party[2].dead).toBe(false);
     expect(eventsOf(tg, 'revive').some(e => e.player === 0 && e.partyIndex === 2)).toBe(true);
@@ -231,7 +244,7 @@ describe('퇴마사 흡혼 표식 (drain, 기획 12차)', () => {
     expect(eventsOf(tg, 'heal')).toHaveLength(0);
   });
 
-  it('봉인진 marks the enemies in its ring for 6 s', () => {
+  it('봉인진 marks the enemies in its ring for its data time', () => {
     const tg = makeGame({ players: [setup('a', ['guardian', 'exorcist', 'blade'])] });
     quietFloor(tg);
     const e = spawnAt(tg, 'golem', { x: 12, y: 6 });
@@ -239,7 +252,7 @@ describe('퇴마사 흡혼 표식 (drain, 기획 12차)', () => {
     const mark = e.statuses.find(s => s.id === 'drain');
     const eff = getCharacter('exorcist').drag.actions[0].effects.find(x => x.kind === 'status' && x.status === 'drain');
     expect(eff?.kind === 'status' && mark?.value).toBeCloseTo(eff?.kind === 'status' ? eff.value : -1, 5);
-    expect(mark?.remaining).toBeCloseTo(6, 5);
+    expect(mark?.remaining).toBeCloseTo(eff?.kind === 'status' ? eff.duration : -1, 5);
   });
 });
 
@@ -254,7 +267,7 @@ describe('퍼펫티어 종이 인형 (기획 12차)', () => {
     return { tg, dolls, pup: active(tg) };
   }
 
-  it('two dolls land left and right, inheriting 50 % of the caster max HP and its attack', () => {
+  it('two dolls land left and right, inheriting the data share of the caster max HP and its attack', () => {
     const { dolls, pup, tg } = dollSetup();
     expect(dolls).toHaveLength(2);
     expect(dolls.map(d => d.pos.x).sort((a, b) => a - b)).toEqual([9.5, 14.5]);
@@ -262,7 +275,7 @@ describe('퍼펫티어 종이 인형 (기획 12차)', () => {
     for (const d of dolls) {
       expect(d.team).toBe('ally');
       expect(d.kind).toBe('summon');
-      expect(d.maxHp).toBeCloseTo(st.maxHp * 0.5, 5);
+      expect(d.maxHp).toBeCloseTo(st.maxHp * DOLL.inherit!.hp, 5);
       expect(d.rt.base.atk).toBeCloseTo(st.atk, 5);
       expect(d.rt.petPowered).toBe(false);
       expect(d.rt.summonSlot).toBe('drag');
@@ -283,7 +296,7 @@ describe('퍼펫티어 종이 인형 (기획 12차)', () => {
     expect(dolls.every(d => d.targetId === null)).toBe(true);
   });
 
-  it('bursts on death: radius-2 damage + 4 s attack −25 % to enemies', () => {
+  it('bursts on death: damage + attack down to enemies around it (data numbers)', () => {
     const { tg, dolls } = dollSetup();
     const d = dolls[0];
     const m = spawnAt(tg, 'golem', { x: d.pos.x + 1, y: d.pos.y });
@@ -291,7 +304,8 @@ describe('퍼펫티어 종이 인형 (기획 12차)', () => {
     applyDamage(tg.w, { casterId: m.id, team: 'enemy', player: null, source: 'basic', isDrag: false }, d, 1e6, false);
     expect(eventsOf(tg, 'skillCast').some(e => e.skillId === 'paper_doll_death')).toBe(true);
     expect(eventsOf(tg, 'damage').some(e => e.targetId === m.id)).toBe(true);
-    expect(m.statuses.find(s => s.id === 'atkDown')?.value).toBeCloseTo(0.25, 5);
+    const down = getMonster('paper_doll').onDeath!.action!.effects.find(x => x.kind === 'status');
+    expect(m.statuses.find(s => s.id === 'atkDown')?.value).toBeCloseTo(down?.kind === 'status' ? down.value : -1, 5);
   });
 
   it('bursts on expiry too', () => {
@@ -299,7 +313,7 @@ describe('퍼펫티어 종이 인형 (기획 12차)', () => {
     const m = spawnAt(tg, 'golem', { x: 20, y: 2 });
     m.rt.stationary = true;
     clearEvents(tg);
-    advance(tg, 6.5);
+    advance(tg, DOLL.duration + 0.2);
     expect(eventsOf(tg, 'skillCast').filter(e => e.skillId === 'paper_doll_death')).toHaveLength(2);
     expect(tg.w.state.entities.some(e => e.defId === 'paper_doll' && !e.rt.gone)).toBe(false);
   });
@@ -309,7 +323,11 @@ describe('퍼펫티어 종이 인형 (기획 12차)', () => {
     expect(def.inert).toBe(true);
     expect(def.tier).toBe('summon');
     expect(def.stats.atk).toBeGreaterThan(0);
-    expect(getCharacter('puppeteer').drag.actions.every(a => a.summon?.unitId === 'paper_doll')).toBe(true);
+    expect(getCharacter('puppeteer').drag.actions.filter(a => a.summon).every(a => a.summon?.unitId === 'paper_doll')).toBe(true);
+    // 기획 13차: the ult's big doll is the same decoy with a bigger burst
+    const grand = getMonster('paper_doll_grand');
+    expect(grand.inert && grand.tier === 'summon' && grand.stationary).toBe(true);
+    expect(getCharacter('puppeteer').ult.actions.filter(a => a.summon).every(a => a.summon?.unitId === 'paper_doll_grand')).toBe(true);
   });
 });
 
@@ -331,11 +349,14 @@ describe('bots with the new characters (기획 12차 8장)', () => {
 
 describe('기획 12차: parties without the new characters keep their runs (RNG identity)', () => {
   // Captured before any 12차 sim change (pets already ×0.8): w.rng state, positions, HP after 150 s.
+  // 기획 13차: recaptured after the skill renewal (every drag / ult changed on purpose), and again after the round's
+  // balance pass (drag / ult numbers of 11 characters, docs/balance.md 12장); a regression guard from here on.
   const GOLDEN: Record<number, { tick: number; floor: number; draw: number; kills: number; pl: string; ents: number }> = {
-    11: { tick: 4500, floor: 4, draw: 3143111055, kills: 4, pl: '900.00,440.88,450.00;990.00,505.39,422.42;573.59,495.00,744.08', ents: 3363095131 },
-    22: { tick: 4500, floor: 4, draw: 2014898420, kills: 7, pl: '900.00,513.72,450.00;900.00,399.30,520.00;675.39,540.00,900.00', ents: 1494330028 },
-    33: { tick: 4500, floor: 4, draw: 608192097, kills: 9, pl: '904.70,455.00,390.15;900.00,432.13,290.73;551.04,114.08,750.00', ents: 1243138745 },
+    11: { tick: 4500, floor: 4, draw: 935474360, kills: 11, pl: '900.00,563.97,420.43;1080.00,576.00,624.00;660.00,449.95,825.00', ents: 782757958 },
+    22: { tick: 4500, floor: 4, draw: 104238810, kills: 11, pl: '990.00,561.90,259.32;990.00,405.26,572.00;720.00,268.94,826.70', ents: 1376873555 },
+    33: { tick: 4500, floor: 4, draw: 4087076432, kills: 10, pl: '836.49,299.96,314.34;837.17,480.00,520.00;742.68,434.89,1012.50', ents: 2525473704 },
   };
+
   const hash = (s: string) => {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;

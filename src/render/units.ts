@@ -41,13 +41,28 @@ export interface UnitMemo {
   skillT: number;
   /** Render-clock seconds since its current 'appear' began (drop-in pose; stands still during a hit-stop). */
   appearAge: number;
+  /**
+   * 기획 13차 PullLerp: the sim moves a pulled / knocked-back enemy in one tick; the picture slides there over ~0.2 s.
+   * Offset (world units) from its sim position, decaying to 0.
+   */
+  pullX: number;
+  pullY: number;
+  /** A teleport (blink / charge) this frame: no slide. */
+  noLerp: boolean;
 }
+
+/** A one-frame move longer than this (and shorter than PULL_MAX) is a pull / knockback (PullLerp). */
+export const PULL_MIN = 0.6;
+const PULL_MAX = 7;
+/** Slide-out rate: e^(−14 t) ≈ 6 % left after 0.2 s. */
+const PULL_DECAY = 14;
 
 /**
  * Weapon pose for the next drawBody call (set by the renderer around the call, reset to 0 after):
  * swing = radians the held weapon is rotated (wind-up negative, strike positive), recoil = px pushed back.
  */
-export const HERO_POSE = { swing: 0, recoil: 0 };
+/** noGlyph (기획 13차 리뷰): the cut-in portrait hides the role letter (the band's edge cut it in half). */
+export const HERO_POSE = { swing: 0, recoil: 0, noGlyph: false };
 
 export function newMemo(e: Entity, stamp: number): UnitMemo {
   return {
@@ -77,6 +92,9 @@ export function newMemo(e: Entity, stamp: number): UnitMemo {
     ultT: 99,
     skillT: 99,
     appearAge: e.anim === 'appear' ? 0 : 99,
+    pullX: 0,
+    pullY: 0,
+    noLerp: false,
   };
 }
 
@@ -92,6 +110,7 @@ export function syncMemo(m: UnitMemo, e: Entity, stamp: number, dt: number): voi
   m.partyIndex = e.partyIndex;
   m.radius = e.radius;
   m.maxHp = e.maxHp;
+  pullLerp(m, e, dt);
   m.x = e.pos.x;
   m.y = e.pos.y;
   m.facing = e.facing;
@@ -109,6 +128,26 @@ export function syncMemo(m: UnitMemo, e: Entity, stamp: number, dt: number): voi
   if (frac >= m.hpLag) m.hpLag = frac;
   else m.hpLag = Math.max(frac, m.hpLag - dt * 0.6);
   m.stamp = stamp;
+}
+
+/** 기획 13차 PullLerp: an enemy that jumped this frame (pull / knockback) keeps being drawn where it was, sliding in. */
+function pullLerp(m: UnitMemo, e: Entity, dt: number): void {
+  if (m.team === 'enemy' && m.kind !== 'character' && m.tier !== 'boss' && !m.noLerp) {
+    const jx = m.x - e.pos.x;
+    const jy = m.y - e.pos.y;
+    const d2 = jx * jx + jy * jy;
+    if (d2 > PULL_MIN * PULL_MIN && d2 < PULL_MAX * PULL_MAX) {
+      m.pullX += jx;
+      m.pullY += jy;
+    }
+  }
+  m.noLerp = false;
+  if (m.pullX !== 0 || m.pullY !== 0) {
+    const k = Math.exp(-PULL_DECAY * dt);
+    m.pullX *= k;
+    m.pullY *= k;
+    if (Math.abs(m.pullX) < 0.01 && Math.abs(m.pullY) < 0.01) m.pullX = m.pullY = 0;
+  }
 }
 
 /** 0 → 1 progress through the current timed anim. */
@@ -478,6 +517,10 @@ export function drawBody(
       ctx.globalAlpha /= 0.3;
       eyes(ctx, fx + s * w * 0.06, fy - h + w * 0.45, w * 0.15, Math.max(2, w * 0.085), s, '#ffffff', '#141414');
       // role glyph
+      if (HERO_POSE.noGlyph) {
+        heroAccessory(ctx, look, fx, fy, w, h, s, flash);
+        break;
+      }
       const gs = Math.max(11, w * 0.42);
       ctx.font = boldFont(gs);
       ctx.textAlign = 'center';

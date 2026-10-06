@@ -13,6 +13,7 @@
 | `src/data/*` | 임시 콘텐츠: 캐릭터 15 (5역할 × 3, 12차), 펫 8 (12차 쿨 ×0.8), 일반몹 12 + 복사본 + 아군 소환물(포탑·종이 인형), 중형보스 6, 보스 4 (8차 괴담 빌딩, [`content-20f.md`](content-20f.md)), 보상, 유물, 괴담 방 12 + 흔적 20과 그 버튼·결과 문구 함수 (`data/goedam.ts`, 10차) | types |
 | `src/sim/*` | 게임 규칙 전부. DOM/Canvas 접근 금지. 고정 틱(30Hz), 시드 랜덤(`Rng`) | types, config, data |
 | `src/sim/fieldEvents.ts`, `fieldEventPreview.ts`, `botEvents.ts` | 돌발 괴담 (12차): 일정·진행·보상, 드롭 결과 순수 함수(미리보기 = 서버 판정), 봇 규칙. 이벤트 전용 랜덤 (아래 12차 장) | types, config, data |
+| `src/sim/groggy.ts` | 보스 그로기 (13차): 게이지(0~1 비율)·점수·최대치·감소·잠금·쓰러짐/일어남·피해 배율. 난수 없음 (아래 13차 장) | types, config, status, world |
 | `src/sim/bench.ts` | 대기 카드 회복·부활 대기 단축·메딕 패시브 (12차, 아래 12차 장) | types, data |
 | `src/sim/goedam.ts` | 괴담 방 (10차): 일정(`goedamSchedule`, 순수), 방 전용 랜덤(`goedamRng` = 시드 + 층 + 플레이어, `w.rng`는 안 씀), 방 열기·선택·계속·자동 처리, 흔적 추가·만료, 미리 검사 `canGoedamState`, 서버 마감용 `goedamTimeoutCommands` | types, config, data |
 | `src/sim/geometry.ts`, `src/sim/preview.ts` | 순수 함수: 형태 판정(circle/line/rect/cone/ring/cross/fan, 돌진·몬스터 돌진 끝점), 드래그 미리보기 파트(`previewPartsFor`) | types, data |
@@ -71,7 +72,7 @@
 
 | 명령 | 내용 |
 |---|---|
-| `npm test` (`npx vitest run`) | Vitest 46파일 562개: sim 규칙(R1–R52, 12차 돌발 괴담 `tests/sim/field-events.test.ts`·새 힐러 `tests/sim/healers.test.ts`, 10차 괴담 방 `tests/sim/goedam.test.ts`(일정·봇·절대 안 죽음·궁극기 규칙·흔적 만료·대체 처리·'지나간다' = 끔과 비트 단위로 같음·3인 순서 무관), 8차 부채꼴·돌진·순간이동·분열·보스 페이즈·1~20층 계획 `tests/sim/anomalies.test.ts`·`floor.test.ts`, 타격 멈춤·흔들림 `tests/render/juice.test.ts`, 형태 판정 = 미리보기, 15종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
+| `npm test` (`npx vitest run`) | Vitest 50파일 639개: sim 규칙(R1–R52, 13차 스킬 리뉴얼 `tests/sim/skill-stages.test.ts`·새 상태 `tests/sim/statuses-13.test.ts`, 13차 보스 그로기 `tests/sim/groggy.test.ts`, 12차 돌발 괴담 `tests/sim/field-events.test.ts`·새 힐러 `tests/sim/healers.test.ts`, 10차 괴담 방 `tests/sim/goedam.test.ts`(일정·봇·절대 안 죽음·궁극기 규칙·흔적 만료·대체 처리·'지나간다' = 끔과 비트 단위로 같음·3인 순서 무관), 8차 부채꼴·돌진·순간이동·분열·보스 페이즈·1~20층 계획 `tests/sim/anomalies.test.ts`·`floor.test.ts`, 타격 멈춤·흔들림 `tests/render/juice.test.ts`, 형태 판정 = 미리보기, 15종 로스터·드래그스킬 설명 숫자 = 데이터, 멀티 플레이어 보상·봇 교대), 렌더 카메라/불변성/형태/솔로 틱 보간/스킬 연출·숫자(`tests/render/skillfx.test.ts`), UI 로직·스킬 정보 문구(`tests/ui/skillinfo.test.ts`), 게임 서버(`tests/net`: 방·명령·스냅샷·끊김/재접속, 늦은 명령·서버 제한·5초 핑, 스냅샷의 스킬 연출 이벤트), 연결(4001·조용한 끊김·서버 깨우기), `RemoteGame`(보간·끊김 감지), 리뷰 테스트(`tests/review`) |
 | `npx tsc --noEmit` / `npm run typecheck:server` | 타입 검사 (브라우저 + 테스트 / 서버) |
 | `npm run e2e` (`npx playwright test`) | Playwright 3개 프로젝트 (아래). 시작할 때 `vite build` → `vite preview :4173` |
 | `PERF=1 npx playwright test perf` | 실시간 프레임 측정 (40초 일반 플레이 + 몹 30마리·궁극기 스트레스) |
@@ -133,7 +134,7 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 
 | # | 규칙 | 근거 |
 |---|---|---|
-| R38 | 구역 4개 (`FloorPlan.theme`): 1~5 로비·상가 · 6~10 사무실 · 11~15 폐병동 · 16~20 옥상·이계. `planFloor`가 `ZONES`로 몬스터 풀(구역 몬스터 위주 + 앞 구역 몇 종)·중형보스 순서·보스를 고름. 1~4층은 7차까지와 같은 풀. 몬스터 배율은 5층까지 층마다 +12%, 그 뒤 +7.2% (`LATE_STAT_GROWTH`) | 8차 3, 가정 |
+| R38 | 구역 4개 (`FloorPlan.theme`): 1~5 로비·상가 · 6~10 사무실 · 11~15 폐병동 · 16~20 옥상·이계. `planFloor`가 `ZONES`로 몬스터 풀(구역 몬스터 위주 + 앞 구역 몇 종)·중형보스 순서·보스를 고름. 1~4층은 7차까지와 같은 풀. 몬스터 배율은 5층까지 층마다 +12%, 그 뒤 +7.2% (`LATE_STAT_GROWTH`; 13차 밸런스: 그 뒤 +16%, balance.md 12장) | 8차 3, 가정 |
 | R39 | `fan`: 시전자에서 대상 쪽으로 펼쳐지는 부채꼴 (몬스터 자동 조준). 예고 `Telegraph.origin` = 시전자 (`sim/geometry.ts`) | 8차 |
 | R40 | `SkillAction.charge`: 시전 순간 직선 경로 고정(예고 = 실제 판정) → 예고 동안 제자리 → 그 길로 돌진(`dash` 이벤트), 벽이면 같은 직선 위에서 멈춤 | 8차 |
 | R41 | `SkillAction.blink`: 시전 시작에 대상 옆으로 순간이동(`blink` 이벤트) → 새 자리에서 예고 → 판정. 움직이지 않는 몬스터는 순간이동 안 함 | 8차 |
@@ -313,3 +314,148 @@ HUD (`src/ui/hud.ts`, `src/ui/skillinfo.ts`, `styles.css`):
 - 같은 시드에서 새 캐릭터가 없는 판은 이전과 비트 단위로 같음 (`tests/sim/healers.test.ts` 골든).
 - 테스트: `tests/sim/healers.test.ts`(대기 회복·부활 단축·메딕 패시브·`woundedAlly`·흡혼·인형·봇 위급 교체·골든), 로스터·설명 숫자·펫 테스트 갱신, e2e `multi.spec.ts` 「3 players (기획 12차)」(편성 화면에서 메딕을 실제 탭으로 고름 → 서버 파티에 반영, 강제한 금두꺼비가 세 화면에 같은 id·자리·개체로 뜸 → 실제 터치 드롭으로 잡음 → 세 화면 모두 성공 이벤트, 모든 플레이어 궁극기 +40%, 기여 1회). 화면 `docs/screenshots/preset.png`, `combat-event-multi.png`, `combat-event-multi-success.png`, `skill-<캐릭터>-drag.png`·`skill-<캐릭터>-ult.png`.
 - 벤치: `tests/playtest/drag-bench.ts`에 `BENCH_PARTY=same|mixed1|mixed2`와 가치 항목 `benchHealHp`·`drainHealHp`·`decoyHp`·`atkDownHp`, `tests/review/critic-20f.ts` 파티 `h_cleric`…`h_chrono`, `healers2`, `nohealer`.
+
+## 13차: 보스 그로기 (2026-10-05)
+
+설계 [`boss-groggy.md`](boss-groggy.md) (10장 추천 기본값 전부). 보스 HP는 구현 때 바꾸지 않았다 (차수 끝 밸런스 단계에서 10층 보스만 8000 → 9000 — 아래 '13차: 밸런스').
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/types.ts` | `BossDef.groggy {threshold}`, `BossGroggyState`·`GameState.bossGroggy`(보스층만, 나머지 null), 이벤트 `bossGroggy`·`bossGroggyEnd`·`groggyGain`(5점 이상만), 피해 이벤트 `groggy`·`drag`(×2 표시), 튜닝 `bossGroggyThreshold`(0 = 끔)·`Duration`·`DamageMult`·`DragMult`, `ContributionStats.groggyPoints`·`groggyBreaks`·`groggyDamage`, 디버그 `forceGroggy {fill?}` |
+| `src/config.ts`, `src/data/monsters.ts` | `DEFAULT_TUNABLES` 100 / 5 / 1.5 / 2, 구조 상수 `GROGGY`(사람당 0.4, 반복 0.5, 잠금 10, 감소 4초 뒤 4/초, 거의 참 0.8, 일어난 뒤 1.5초, 점수표 10/15/10/5/2), 보스 4명 `groggy.threshold` 0.8 / 1 / 1 / 1.1 |
+| `src/sim/groggy.ts` (새) | `groggyMax`(100 × 보스 × (1 + 0.4 × (사람 − 1)) × (1 + 0.5 × 쓰러진 횟수), 사람 = 봇 아닌 자리, 실시간), `groggyOnAction`(행동이 보스에 닿으면 시전당 한 번), `breakBoss`(같은 틱: 그로기 기절 + 보스가 시작 안 한 준비 동작 전부 끊기), `tickGroggy`(카운트다운·잠금·감소, 일어날 때 `skillGap ≥ 1.5`), `groggyHitMult`, `forceGroggy`, `resetGroggy`/`clearGroggy` |
+| `src/sim/status.ts` | 끊기 부분을 `breakWindup(e)`로 빼서 기절과 그로기가 같이 씀, `applyGroggy`(보스 기절 면역을 이 출처만 건너뜀), `clearStun`. 캐릭터 기절은 보스에게 여전히 안 걸림 |
+| `src/sim/world.ts`·`ctx.ts`·`skills.ts` | `CastCtx.groggyMark`(시전 하나에 객체 하나 — `{...ctx}` 복사·장판도 같은 객체라 메이지 5발 = 10), `noGroggy`(메아리 인장), `applyEffects`가 대상 모은 뒤 효과 전에 `groggyOnAction`. 기본 공격·소환물·유물은 표시 없음 → 0점 |
+| `src/sim/units.ts`·`combat.ts`·`floor.ts`·`game.ts`·`players.ts`·`bot.ts` | 그로기 중 보스는 스킬 쿨·`skillGap`이 멈춤(일반 몬스터는 4차 그대로), `applyDamage`에 ×1.5 / 드래그 ×2(취약 다음, 방어 앞), 층 시작에 새 게이지·클리어/후퇴/런 끝에 지움, 틱 순서 `tickUnits` → `tickGroggy` → `tickProjectiles` → `tickPending`, 메아리 인장 `noGroggy`, 봇 7장 규칙 1~4 (`groggyReact`·`groggyCard`) |
+| `src/ui/groggyHud.ts` (새), `hud.ts`·`styles.css`·`debug.ts`·`tunables.ts`·`result.ts` | HP 바 밑 그로기 줄(호박색, 25/50/75 눈금, 별 아이콘, 얻을 때 하얀 번쩍 + 채운 사람 색 '+N'), 거의 참(깜빡임·⚡·금색 박스), 그로기 중 밝은 금색 줄이 오른쪽→왼쪽으로 줄어듦 + 시전 알약 자리의 '그로기! 4.2초 · 드래그 ×2'(마지막 1.5초 빨강), 잠금 회색 빗금, 준비된 카드 금색 테두리 + '지금!', 페이즈 배너는 일어나고 0.4초 뒤, 처음 한 번 안내, 디버그 슬라이더 4개 + 「그로기」·「그로기 직전」, 결과 화면 '그로기 기여' 열 + 튜닝 로그 줄. 폰(`.stage.is-small`)은 줄 11px, 대신 박스 여백·상태 칸을 줄여 박스 아래 끝 y≈96 그대로 |
+| `src/render/groggyFx.ts`·`bossGroggy.ts` (새), `boss.ts`·`bosses.ts`·`vfx.ts`·`juice.ts`·`index.ts` | 쓰러질 때 멈칫 180ms(`groggyKick`, 1초 예산 밖)·흔들림 2배·흰 번쩍·금색 충격파(반지름 9)·조각 12개·「그로기!」 도장(보스 그림 위, 1.6→1배, 둘째 줄 '받는 피해 ×1.5 · 드래그 ×2', 멀티에서 셋째 줄 쓰러뜨린 사람), 공통 자세(14px 내려앉고 6° 기울고 35% 바램 — `saturation` 합성 한 번, 큰 기절 별) + 보스별 자세(엘리베이터 문 쾅 닫힘·손 늘어짐·'점검중' 팻말 / 야근의 군주 책상에 엎드림·감은 눈·Zzz·서류 흩날림·일어날 때 허우적 / 원장 수술등 지직 꺼짐·메스 바닥에 꽂힘·심전도 '삐—' 일직선, 일어날 때 튐 / 감시자 눈 감김·가끔 빙글빙글·촉수 늘어짐·작은 눈 감김·후광 30%, 일어날 때 핏빛), 거의 참일 때 떨림 ±2/±3px·작은 별 2개·90%부터 금색 금, 피해 숫자 호박색 1.15배 + 드래그는 흰색 '×2' |
+| `server/validate.ts` | `forceGroggy` (`fill` 0~1만) |
+
+- 결정성: 난수 없음(봇이 쓰러짐을 볼 때 봇마다 한 번만 `w.rng`), 같은 시드 = 같은 그로기 틱·같은 스냅샷 (`tests/sim/groggy.test.ts`).
+- 스냅샷: `state.bossGroggy`는 소수 둘째 자리로 약 70바이트, HUD는 상태만 보고 그림(재접속 안전). 이벤트는 번쩍·도장·'+N'만.
+- 테스트: `tests/sim/groggy.test.ts`(점수 출처·시전당 한 번·메아리 0·사람 수 배수·감소·잠금과 반복 증가·끊기·쿨 멈춤·일어난 뒤 1.5초·배율·페이즈/광폭화/소환수·후퇴·정리·끔/켬·봇·결정성), `tests/ui/groggy-hud.test.ts`, 퍼즈(`invariants-fuzz` 9·10번: 그로기 불변식 + 강제 그로기/보스층 점프), 와이어 KEYS(`bossGroggy`·통계 3개), e2e `smoke.spec.ts` 「보스 그로기」(폰: 줄 위치·박스 높이·거의 참·쓰러짐·카운트다운 감소·'지금!'·잠금). 화면: `docs/screenshots/boss-groggy.png`.
+- 벤치: `tests/review/critic-20f.ts`에 `GROGGY=on|off`, 보스 줄 `groggy`(한 싸움 횟수, 첫·둘째 시각 중앙값, 그로기 중 보스 피해 비중).
+
+## 13차: 드래그스킬·궁극기 리뉴얼 — 시뮬·데이터 (2026-10-05)
+
+설계 [`skill-renewal.md`](skill-renewal.md) (7장 추천 기본값 전부, 6장 1~5단계). 연출·컷인은 다음 장, 효과음은 그다음 장 — 둘이 쓰는 이벤트·필드는 아래.
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/types.ts` | `SkillAction`: `stage`, `follow`, `telegraphLead`, `allyRange`, `maxTargets`, `healPerHit`, `blinkChain`, `dash.atFire`, `charge.stopAtCenter`, `blink.behind`. 효과: 피해 `crit:'always'`, 회복 `overflowShield`, `swapCooldownReduce.allPlayers`, 새 `benchStatus`. 상태 `taunt`·`tether`·`root`·`stasis`·`charm`(적, `DEBUFFS`·`CONTROL_STATUSES`) + `splashUp`(아군), `StatusInstance.data`. 이벤트 `ultCast`·`skillStage`·`statusApplied`·`stasisEnd`·`benchBuff`·`reviveCut`·`swapCdCut`, `skillCast.stage/actionIndex/follow/telegraphLead`, `blink.hop/hops` |
+| `src/config.ts` | `ULT_CUTIN {guard 0.5, firstHit 0.45}`, `STASIS {bossTimeMult 0.6, immune 10, bossReboundCap 0.06}` |
+| `src/sim/skills.ts` | 단계 실행기: `castSkill`이 행동 번호를 넘김, `skillCast`에 단계, 터질 때마다 `skillStage`(장판은 틱마다), `follow`(대기 중 예고도 따라감, 터질 때 자리·공격력 다시 읽음, 대상이 죽으면 시전자의 지금 대상, 없으면 마지막 자리), `telegraphLead`, `atFire` 반동(지금 자리에서, 바라보는 방향 유지), `stopAtCenter`, `blinkHop`(안 맞은 적 → 가까운 적 → id, 적당 최대 n), `maxTargets`(면역인 적은 뒤로), `healPerHit`, 넘침 보호막, 상태 적용 시 `statusApplied`, 정지된 시전자의 준비 동작·예고는 멈춤(끊김 아님), 플레이어 효과 `playerEffects`(쿨 감소·대기 회복·부활 감소·대기 버프 — `allPlayers`면 관전 아닌 모두) |
+| `src/sim/status.ts` | `statusImmune`(보스·중형·정지 유닛·소환물·돌발 괴담 규칙), `mergeStatus`(필드·대기 공용), `applyStatus(…, opts {anchor, sourceEntityId})` + 상태 데이터, `constrainTether`, `storeStasisDamage`, 보스·중형 정지 ×0.6 |
+| `src/sim/units.ts` | 정지: 공격·스킬 쿨·`skillGap`·시전 잠금·애니 멈춤, 끝나면 `endStasis`(반동 고정 피해 + `stasisEnd` + 10초 면역). 도발·조종은 `updateTarget`의 강제 대상(조종 > 도발), 도발한 유닛이 사라지면 그 틱에 풀림. 속박은 걷지 않음, 묶기·속박은 분리 밀기 뒤에 잘라냄. `splashUp`은 기본 공격 범위에 더함. 조종된 적은 스킬을 쓰지 않음 |
+| `src/sim/ctx.ts`·`combat.ts` | 조종된 적의 `unitCtx`는 아군 편·건 플레이어·출처 '궁극기'. `hitDamage(…, forceCrit)`, 피해 배율을 `hitMults`로 묶고 `DmgSrc.pure`(정지 반동), 정지 중 받은 피해 저장, 폭발형 기본 공격도 ctx 편 기준. 드래그 `woundedAlly` = 놓은 곳 `allyRange` 안 가장 낮은 HP 비율(90% 제한 없음) |
+| `src/sim/players.ts`·`bench.ts` | `useUlt`: `ultCast` → 무적 0.5초 → 시전. `benchStatus`(대기 카드 상태 + `benchBuff`), `reduceRevive`가 `reviveCut`을 냄 |
+| `src/sim/preview.ts`·`bot.ts`·`fieldEventPreview.ts` | `partActions`(미리보기 조각 ↔ 행동 짝, 메딕 주사 제외), 되돌아 베기는 지나간 띠(rect)로, `atFire`는 이동만. 봇 힐러 드래그는 다친 아군 먼저(적 점수 ×0.15) |
+| `src/data/characters.ts`·`monsters.ts` | 15명 드래그·궁극기 + 설명문, 종이 인형 폭발 숫자, 새 `paper_doll_grand`. 궁극기 전부 `castTime 0.5` |
+| `src/ui/format.ts`·`skillinfo.ts` | 새 상태 이름·글자, 스킬 시트 줄(대기 버프, 모두의 쿨 감소, 회복 ×n) |
+
+- 결정성: 난수는 그대로(확정 치명은 굴리지 않음, 순보·대상 제한은 거리 → id 순). 같은 시드 = 같은 스냅샷 (`tests/sim/skill-stages.test.ts` 3인 15명).
+- 그로기: 점수는 그로기 트랙 규칙 그대로(기절 초에서 나옴). 정지는 기절처럼 전체 시간으로 셈.
+- 테스트: `tests/sim/skill-stages.test.ts`(단계 이벤트·follow·telegraphLead·확정 치명·반동·stopAtCenter·컷인 0.45초 전 0·무적·순보·대상 제한·healPerHit·넘침 보호막·메딕 주사·대기 버프·모두 쿨 감소·시전자 교체/사망/탈락 뒤에도 단계가 감·3인 결정성), `tests/sim/statuses-13.test.ts`(상태마다 걸림·풀림·면역, 정지 반동 상한·10초 면역·미뤄진 준비 동작, 조종 공로, 그로기 25), `roster`·`roster-descriptions`(단계 이름, 궁극기 0.45초 규칙, 한 명당 피해 = 단계 합), 퍼즈 11·12번(15명 + 상태 불변식), 봇 조준(`bot.test.ts`).
+
+## 13차: 드래그스킬·궁극기 리뉴얼 — 연출 (2026-10-05)
+
+설계 [`skill-renewal.md`](skill-renewal.md) 2장 + 3장 캐릭터별 연출 한 줄 (6장 7단계). 화면 쪽 전용 — sim·와이어 변경 없음, `skillCast`·`skillStage`·`ultCast`·`statusApplied`·`stasisEnd`·`benchBuff`·`reviveCut`·`swapCdCut` 이벤트와 상태(`StatusInstance.data`)만 읽는다.
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/render/fxparts.ts` | 새 부품(풀링된 `SkillFx` 기록): `Fall`(커지는 그림자 + 방패·유성·철창·포탄·초승달·종·빛의 창·거대 화살), `Tether`(처짐·떨림·끊김: 사슬·실·점선·전기), `Glyph`(滅·印), `Hex`(육각 패널), `Rune`, `Brand`(가운데서 타 들어가는 모양 + 빨라지는 맥박), `Staff`(오선지), `Talisman`, `Bolt`, `Encase`(얼음·회색), `Crosshair`, `Scorch`(크레이터·먹물 웅덩이), `Wings`, `Spirit`, `Moon`, `AimLine`(›››). 입자 모양 `Pk`(깃털·종이·먹물·유리·음표·금가루·꽃잎·불씨·바위·연기) |
+| `src/render/stagefx.ts` | `PREP[skillId:stage]`(시전 순간 준비: `skillCast` 때, `delay`로 터지는 순간에 맞춤) · `LAND[skillId:stage]`(`skillStage`가 터진 자리·히트마다). `StageHost`(Vfx): `spray`·`afterimage`·`hop`·`screen`·`enemiesIn`·`allies`. 드래그의 0초 박자는 착지(`DASH_LAND`)를 기다림 |
+| `src/render/impact.ts` | Impact 표: `skillId:stage` → 멈춤 ms(기본 75ms 설정 기준 배율)·흔들림·범위 번쩍임·화면 번쩍임(궁극기 마무리)·`only`(연타의 마지막 / 같은 단계의 n번째 행동만 큰 박자) |
+| `src/render/cutin.ts` | `CutIn`(내 궁극기 띠 0.5초 — 띠 그림은 컷인마다 한 번 오프스크린 캔버스에 그려 두고 매 프레임 `drawImage` + 속도선, 변형 7종, 「컷인 짧게」 0.25초 작은 띠, 다른 사람 궁극기 왼쪽 위 0.6초 띠) + `ScreenFx`(월드 어둡게·채도 빼기·스포트라이트 = 월드 층 / 비네트·심장 박동·화면 가로 섬광·화면 번쩍임 = 맨 위 층). 설정 `CUTIN.short` (`swapTower.cutin.v1`, 일시정지 메뉴) |
+| `src/render/marks.ts` | `SkillMarks`: 지연 단계의 `skillCast`가 남긴 힌트(같은 모양·가까운 자리)로 새 아군 텔레그래프를 묶고(`follow`는 9칸까지), 장판은 그 단계의 첫 `skillStage`(hit 0, 같은 중심)로 묶음. `drawStyledTelegraph`(모티프 8종), `drawZoneDecor`(장식 9종, 짝 장판은 한 번만) |
+| `src/render/statusfx.ts` | `StatusFx`: 프레임마다 조종·광란·정지 집합(할당 없음), 머리 아이콘 최대 2개, 정지 Σ, 회색(정지: `saturation` 합성)·분홍(조종) 덧칠, 묶기 사슬·속박 덩굴·광란 불 고리, 낙인 모양은 마지막 스킬 피해의 주인(팔라딘 십자·섀도우 X) |
+| `src/render/vfx.ts` | `onStage`(LAND + 장판 묶기 + Impact: 내 것은 `Kick` 대기열 → 멈춤·흔들림·화면 번쩍임, 남의 마무리는 보이면 번쩍임 절반), `prepStage`(PREP + 텔레그래프 힌트; 리뉴얼 단계는 옛 `castFx`·범위 번쩍임 생략), `onUltCast`(컷인 / 작은 띠, 섀도우 숨기기, 레인저 점프, 클레릭 날개), `onStasisEnd`, 순보 `blink.hop` 잔상 + 흰 섬광, 조종된 적의 분홍 공격·광란 균열. 리뉴얼 드래그의 착지 멈춤은 60ms, 지연 단계는 옛 `partHits` 대신 Impact 표. 잔상 유령 모드 2, 입자 소프트 상한 220(넘으면 뿌리는 수 절반 + 모양 입자를 네모로) |
+| `src/render/units.ts`·`index.ts` | PullLerp(`UnitMemo.pullX/pullY/noLerp`: 0.6~7칸 한 프레임 이동 = 끌려옴, e^−14t), 정지된 유닛은 자세·애니 멈춤, 숨김·점프, 컷인 월드 층 패스(어둡게 → 시전자 다시 그림), 스타일 텔레그래프·장판 장식·상태 그림 연결, `vfx.updateReal`(컷인은 멈춤 중에도 실제 시간으로 흐름) |
+| `src/ui/cardFx.ts`·`hud.ts`·`pause.ts`·`styles.css` | 대기 카드 효과(앙코르 '♪' 배지 + 남은 시간 링, '−20' 부활 숫자, 반시계 쓸기 + '−2초'), 일시정지 「궁극기 컷인: 기본 / 짧게」 |
+
+- 테스트 `tests/render/stagefx.test.ts`: 모든 단계에 LAND·Impact가 있음(빠지면 실패, 남는 키도 실패), 2-2 예산(드래그는 멈추는 박자 하나 ≤ 90ms·흔들림 ≤ 7·화면 번쩍임 없음 / 궁극기 ≤ 단일 멈춤 상한·번쩍임 0.3~0.4), 모든 PREP·LAND가 그려지고 풀 안에서 정리됨, 컷인 0.5초(= `ULT_CUTIN.guard`)·어둡게 40%·짧게 0.25초·남의 것은 작은 띠만, 내 큰 박자는 멈춤 75ms·남의 것은 0, PullLerp, 머리 아이콘 2개, 15명 실제 판(드래그·궁극기)을 Vfx로 끝까지 그림(스타일 텔레그래프·장판 장식이 묶이고 풀 상한 유지).
+- 화면 확인: `tests/visual/new-chars.mjs`(15명 × 드래그·궁극기, 폰 844×390@3x, 가짜 시계로 큰 박자 직후) → `docs/screenshots/skills-renewal.png`(모음), `ult-cutin.png`.
+- 프레임(폰, `tests/playtest/perf.mjs phone <배속> boss` — 새 시나리오 C: 20층 보스, 3자리 9명, 모두의 궁극기를 계속 충전, 2초마다 실제 교체, 중간에 그로기 / `?mute=1`로 소리 빼고 비교):
+
+  | 장면 | 전 (12차 + 그로기 + 리뉴얼 sim) | 후 (연출) |
+  |---|---|---|
+  | 보스 스트레스, 4× CPU | 12.2 / 12.0 / 12.4 / 11.8 fps (JS 평균 22.5~23.4ms) | 10.6~11.5 fps (JS 24~25.7ms); 「컷인 짧게」 11.5~12.3 |
+  | 보스 스트레스, 1× | 46.6 fps (JS 8.2ms) | 40.2~41.2 fps (JS 9.7ms) |
+  | 일반층 A / 몬스터 무리 B, 4× | 15.9 / 10.5 fps | 15.2 / 10.9 fps |
+
+  차이의 대부분은 1초마다 다시 뜨는 내 컷인(실제 판에서는 30초에 한 번). 띠 그림 캐시·입자 소프트 상한·연타 번쩍임 한 번으로 줄였고, 남은 몫은 측정 잡음(±0.6 fps) 근처.
+
+## 13차: 효과음 (2026-10-05)
+
+설계 [`sfx.md`](sfx.md) (남은 위험 장 추천 기본값 전부). 화면 쪽 전용 — `src/sim`·`src/net/protocol`·`server/`는 `src/audio`를 가져오지 않는다(테스트로 막음). 서버 이벤트·스냅샷을 그대로 듣기만 하므로 멀티 동기화는 새로 없음.
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/audio/synth/prims.ts` | 소리 재료를 **순수 JS로 렌더**(32kHz 모노 Float32Array): 톤(파형·미끄러짐·떨림·FM), 노이즈(흰·분홍·갈색 + SVF 필터 스윕 + 알갱이), 종(비정수 배음), 왜곡·메아리·Schroeder 잔향·뒤집기·이음매 없는 반복. `renderSteps`는 층마다 끊어 가는 제너레이터 |
+| `src/audio/synth/voices.ts`·`recipes.ts` | `CHAR_VOICE` 15명(기준음·재질·화음·밝기·역할), 보스 모티프. id → 레시피 표(약 390개): 역할 틀 × 재질 덧칠 + 리뉴얼 단계마다 전용 소리 |
+| `src/audio/ids.ts` | id 묶음별 행: 버스(ui·sfx·hero·bg), 우선순위, 크기 dB, 최소 간격, 동시 개수 묶음, 변형 수. 묶음 기본 소리(`drag._role.<역할>` …) |
+| `src/audio/stages.ts` | 캐릭터 × 드래그/궁극기 × 단계 → 소리 신호(`land`·`hit`(음 올림)·`cast`·`zone`(반복·틱·끝), 준비 시간 `lead`, 직전 정적 `duck`, 다른 사람에게 들리는 마지막 박자 `fin`). 표에 없는 단계는 역할 기본 |
+| `src/audio/director.ts` | `Director.route(events, state, view)` → 소리 요청 + 버스 제어(덕킹·로우패스·반복 정지). 모든 `GameEvent` 종류가 `EVENT_SOUNDS`에 있음(새 종류는 타입 오류). 상태 비교: 예고 떨어짐 vs 끊김, 카드 준비, 남은 시간 틱, 낮은 HP, 보호막·상태 생김, 궁극기 10초 알림, 보상 열림, 돌발 괴담 급함·인쇄, 배경음·광폭화 반복. 한 프레임 뭉치기 `mergeFrame` |
+| `src/audio/engine.ts` | AudioContext 하나: 버스 → 덕(효과·배경) → 볼륨 → 끄기 → 마스터 → 리미터(−10dB). 멀리 버스(−8dB + 3.5kHz). 동시 개수·묶음 개수·최소 간격, 덕킹(겹치면 가장 낮은 값, 효과 −14dB 하한), 반복음(키로 정지), 파일 버퍼 우선 |
+| `src/audio/bake.ts`·`manifest.ts` | 처음 쓸 때 굽기(변형 3개), 판 시작에 그 판 캐릭터·펫·공용 소리를 큐에 넣고 쉬는 틈 8ms씩. 전투 중 우선순위 < 3 소리는 굽지 않고 큐만. `import.meta.glob('./files/*.{mp3,m4a,wav}')` + `SFX_MANIFEST`, 찾는 순서 스킬 파일 → id 파일 → 레시피 → 묶음 기본 → 무음 |
+| `src/audio/index.ts`·`settings.ts`·`uiSfx.ts`·`devboard.ts` | `sfx` 싱글턴: 첫 손 뗌에 컨텍스트 생성(+무음 1샘플, `audioSession.type='ambient'`), `interrupted`면 다시 대기, 탭 숨김 → suspend. `frame`(0.25초 넘게 밀린 묶음은 우선순위 4 이상만), `scene`, `setPaused`, `ui`(토스트는 우선순위 3 이상 직후 생략), `recent` 64개. 설정 `swapTower.audio.v1`, `?mute=1`(컨텍스트를 만들지 않음). 앱 루트 클릭 하나로 버튼 소리(`data-sfx`, 클래스·글자 표). 디버그 보드 + `window.__proto.sfx {play, ids, recent, unlocked, muted}` |
+| `src/ui/app.ts` 외 | 연결 몇 줄: app(attach·frame·scene·일시정지·궁극기 누름/거절·보상 고름·결과 최고 칸·방 인원·연결), drag(들기·취소), hud(거절·스킬 시트), toast, pause·preset(`soundPanel.ts` + `sound.css`), debug(효과음 보드) |
+
+- 시간: 모든 소리는 `ctx.currentTime + 지연`. 스킬 지연은 `gameSpeed`로 나눔. 지연 0 드래그 박자는 `DASH_LAND`(0.12초) 뒤. 준비가 있는 소리(`lead`)는 `skillCast` 때 예약해 터지는 순간과 맞춤.
+- 테스트 `tests/ui/audio.test.ts`(가짜 AudioContext): 이벤트 종류마다 소리, 문서 id 전부 존재, 단계 표 = 데이터, 착지 +0.12·gameSpeed·멀리 버전·연타 상한·10타 → 1회, 상태 비교, 간격·동시 개수·묶음 개수·덕킹 하한·멀리 버스·반복·끄기, 파일 교체 순서·실패 시 합성, 설정·버튼·굽기 시간 조각, import 경계. e2e `smoke.spec.ts` 「효과음」(`?mute=1` 기록·일시정지 슬라이더·첫 손 뗌에 켜짐), 나머지 e2e는 실제 소리를 켠 채 콘솔 오류 0.
+
+## 13차: 밸런스 (차수 끝, 2026-10-06)
+
+측정·결정은 [`balance.md`](balance.md) 12장. 코드 쪽으로는 데이터 숫자와 벤치 도구만 바뀌었다 (sim 규칙 변경 없음).
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/config.ts` | `LATE_STAT_GROWTH.factor` 0.7 → 1.33 (6층부터 몬스터 HP·공격 성장, 1~5층 그대로) |
+| `src/data/monsters.ts` | 야근의 군주 HP 8000 → 9000, 종이 인형 폭발 150 → 200% |
+| `src/data/characters.ts` | 드래그 9명·궁극기 3명 숫자와 설명문 (skill-renewal.md 3장 '13차 밸런스') |
+| `tests/playtest/bench-run.ts` (새) | 드래그·궁극기 벤치가 같이 쓰는 한 판: 플레이어 0 리듬, 스킬 한 칸(`drag` / `ult`)의 효과를 값 읽는 순간의 getter 표시 + p0 `stats.healing` setter로 정확히 귀속 (늦은 회복·장판·대기 카드 회복·흡혈), 아군 보호막 장부, 취약·도발·조종·정지·재생, `BENCH_PATCH` |
+| `tests/playtest/ult-bench.ts` (새) | 궁극기 시전 1번 가치, 중앙값 대비 배율 (목표 0.6~1.6) |
+| `tests/playtest/drag-bench.ts`, `drag-value.ts` | 판은 `bench-run.ts`로 옮김, 새 가치 항목 (`vulnDmg`, `tauntHp`, `charmHp`, `holdSec`, `reviveSec`) |
+| `tests/review/critic-20f.ts` | 보스 칸에 그로기 창 안/밖 드래그 비중, 누워 있는 시간, 사람 자리가 쓰러뜨린 비율 |
+| `tests/sim/healers.test.ts` | RNG 골든 다시 잡음 (드래그·궁극기 숫자가 바뀜) |
+
+## 13차: 통합 (2026-10-06)
+
+그로기·리뉴얼(sim·연출)·효과음·밸런스 네 갈래를 한 빌드로 합쳐 확인한 장. 세 갈래는 **sim 이벤트 하나를 같이 듣는** 구조라 서로 코드를 부르지 않는다:
+
+```
+src/sim (서버·혼자 하기 공통, 결정적)
+  └─ GameEvent: skillCast(stage) · skillStage · ultCast · statusApplied · stasisEnd · bossGroggy · bossGroggyEnd · groggyGain …
+      + GameState: bossGroggy · StatusInstance.data
+          ├─ src/render  (vfx.ts → stagefx PREP/LAND · impact 표 · cutin · marks · statusfx · groggyFx/bossGroggy)
+          ├─ src/ui      (groggyHud 줄·알약·'지금!' 카드, cardFx 대기 카드 효과)
+          └─ src/audio   (director.route → STAGE_CUES · 그로기 소리 → engine)   ← sim·protocol·server는 audio를 가져오지 않음
+```
+
+- **그로기** (`src/sim/groggy.ts`): 점수는 스킬 데이터의 기절 시간에서 나오므로 리뉴얼·밸런스 숫자가 바뀌어도 따로 손댈 곳 없음. 화면은 HUD 줄(`groggyHud.ts`) + 보스 자세(`bossGroggy.ts`) + 쓰러짐 도장(`groggyFx.ts`), 소리는 같은 이벤트 3개.
+- **연출 부품** (`fxparts.ts` 부품 19종 + 입자 10종) → 단계별 이야기 `stagefx.ts`(PREP/LAND, 키 `skillId:stage`) → 멈춤·흔들림·번쩍임은 `impact.ts` 한 표. 단계 이름이 바뀌면 `stagefx`·`impact`·`audio/stages.ts` 세 표가 같이 바뀌어야 하고, 셋 다 "데이터의 모든 단계가 표에 있음" 테스트가 막는다.
+- **효과음** (`src/audio/`): 화면 쪽 전용 싱글턴 `sfx`. `app.ts`가 매 프레임 `renderer.render` 뒤에 `sfx.frame(state, events, …)`. 멀티에서도 서버 이벤트를 그대로 들으므로 동기화할 것이 없음.
+
+**통합하면서 바꾼 것**
+
+| 무엇 | 왜 | 어디 |
+|---|---|---|
+| 캔버스 해상도 조절기 | 3인 보스전 + 궁극기 연타(4× CPU)에서 12차 14.5fps → 13차 11.3fps(소리 켜면 10.6). 프로필의 약 80%가 캔버스 래스터(`Commit`)라 한 군데 문제가 아니라 새 연출 층(장판 장식·스타일 예고·상태·컷인 어둡게)의 합. 백 버퍼를 1.625 → 1.125배로 낮추면 같은 장면 8.1 → 12.7fps라서, **못 따라가는 기기만** 해상도를 낮춤: 평활 프레임 시간이 24fps 아래로 1.5초 → 1/8 단계 내림(최저 1배 = 논리 px당 1), 40fps 위로 6초 → 1/8 올림. 잘 도는 기기(1× 보스 스트레스 38fps 포함)는 그대로 | `src/render/quality.ts`, `index.ts` `ensureBackingStore` |
+| 효과음 굽기 조각 | 굽기가 `requestIdleCallback`의 남은 시간과 상관없이 늘 8ms를 썼고, 바쁜 페이지에서는 300ms 시간 초과로 불려 전투 프레임 안에서 8ms씩 먹음(보스 스트레스 초반 소리 켬 −16%). 이제 브라우저가 준 한가한 시간만(최대 8ms), 시간 초과면 2ms | `src/audio/bake.ts` `bakeBudget`, `index.ts` `pumpSoon` |
+| '끊김!' 겹침 | 그로기가 시작 안 한 준비 동작을 한꺼번에 끊어 보스 머리 위에 '끊김!'이 3~4개 겹쳐 찍힘 → 0.25초 안 같은 자리(2.5칸)는 하나만 | `vfx.ts` `freshLabelNear` |
+| 테스트 고리 `ui.cutIns` | 멀티 e2e에서 "내 화면은 전체 컷인, 남의 화면은 작은 띠"를 확인하려고 화면이 보여 준 컷인을 최근 8개 기록 (그리기에는 안 쓰임) | `cutin.ts` `CutIn.shown`, `Renderer.cutInLog`, `app.ts` |
+
+**프레임** (폰 844×390@3x, 헤드리스·GPU 없음, `node tests/playtest/perf.mjs phone <배속> boss` = 20층 보스, 3자리 9명, 궁극기를 계속 충전, 2초마다 실제 교체, 중간에 그로기. 12차 = 13차 시작 전 커밋을 같은 날 같은 스크립트로)
+
+| 장면 | 12차 | 13차 통합 전 | 13차 통합 후 |
+|---|---|---|---|
+| 보스 스트레스 4×, 소리 끔 | 14.2~14.8 fps | 11.2~11.4 | **14.2~15.3** |
+| 보스 스트레스 4×, 소리 켬 | — | 10.4~10.8 | **14.6~14.7** |
+| 일반층 / 몹 무리 4× (`all`) | 15.1 / 10.9 | — | 23.9 / 15.7 (조절기가 둘 다 내림) |
+| 보스 스트레스 1× | 56.7 | 37.6~38.1 | 37.6~38.1 (조절기 안 움직임: 24fps 위) |
+
+- **13차 리뷰 뒤**: 조절기 기준을 45fps 아래 1.5초 → 내림 / 55fps 위 6초 → 올림으로 좁힘(30fps 폰이 그대로 있던 것), 다른 사람·봇의 단계 연출은 빛기둥 없이·고리 절반(`stagefx.ts` `STAGE_DETAIL`), 테두리 빛은 사각형 4개(`cutin.ts` `edgeGlow`). 리뷰 스크립트(3자리 궁극기를 150ms마다 다시 충전, 30초, 1×): 보스 35.4 → 41.7~44.4fps, 일반층+중형+돌발 괴담 30~31.7 → 43.9fps(조절기가 2080 → 1280px까지 내림). 12차(54.4 / 43.4)보다는 아직 느림 — 궁극기를 이 빈도로 쓰는 장면은 실제 플레이의 약 10배.
+- 1×에서도 12차보다 느린 것은 같은 이유(새 연출 층의 래스터). 이 PC 헤드리스는 캔버스를 CPU로 그려서 실제 폰(GPU 래스터)보다 래스터 몫이 크게 나온다. 실제 폰에서 30fps 아래로 떨어지면 조절기가 받아 줌 — 실기기 확인 필요.
+- 스냅샷 크기는 multiplayer.md 7-1.
+
+**확인한 것**: `npx tsc --noEmit`, `npm run typecheck:server`, `npx vitest run`(53파일 689개), `npm run build:all`, `npm run build:artifact`, `npx playwright test` 전체(폰·PC·멀티) 3번. 새 e2e: 멀티 「보스 그로기·궁극기 컷인 (13차)」(세 화면 같은 게이지·같은 쓰러짐·컷인은 내 화면만), 아티팩트 테스트에 효과음(첫 클릭에 켜짐, 드래그 단계 소리, 요청 0·콘솔 오류 0). 12차 뒤 한 번 실패했던 멀티 첫 테스트는 이번에 전체 실행 3번 + 따로 6번 + CPU 2코어를 일부러 바쁘게 한 채 4번, 모두 통과 — 원래 오류 기록이 남아 있지 않아 원인은 못 찾음(추정했던 "드래그 미리보기가 마지막 터치 이동보다 늦게 갱신"은 6× CPU 실험에서 재현 안 됨).

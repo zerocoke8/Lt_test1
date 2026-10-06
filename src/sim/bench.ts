@@ -2,7 +2,9 @@
 // Bench members have no entity: their HP lives on the PartyMember card, so these heal the card directly and emit
 // 'benchHeal' for the HUD (the card flashes '+N').
 
+import type { DamageSource, Effect } from '../types';
 import { PULSE_INTERVAL } from './constants';
+import { mergeStatus } from './status';
 import { activeEntity, emit, type SimPlayer, type World } from './world';
 
 /**
@@ -23,9 +25,29 @@ export function benchHeal(w: World, p: SimPlayer, frac: number, healMult: number
   return total;
 }
 
-/** Dead members come back `seconds` sooner (min 0 → revived on the next tick by tickPlayers). */
-export function reduceRevive(p: SimPlayer, seconds: number): void {
-  for (const m of p.party) if (m.dead) m.reviveRemaining = Math.max(0, m.reviveRemaining - seconds);
+/**
+ * Dead members come back `seconds` sooner (min 0 → revived on the next tick by tickPlayers). 기획 13차: each cut card
+ * emits 'reviveCut' (the HUD rolls its revive number down).
+ */
+export function reduceRevive(w: World, p: SimPlayer, seconds: number, from: number | null = null): void {
+  p.party.forEach((m, idx) => {
+    if (!m.dead) return;
+    const cut = Math.min(m.reviveRemaining, Math.max(0, seconds));
+    m.reviveRemaining -= cut;
+    if (cut > 0) emit(w, { type: 'reviveCut', player: p.id, partyIndex: idx, seconds: cut, from });
+  });
+}
+
+/**
+ * 기획 13차 (바드 앙코르): a status on every living bench card of `p` — it ticks on the bench (tickPlayers) and comes onto
+ * the field with the card (the entity takes the member's status list). Same merge rule as on the field.
+ */
+export function benchStatus(w: World, p: SimPlayer, eff: Extract<Effect, { kind: 'benchStatus' }>, from: number | null, src?: DamageSource): void {
+  p.party.forEach((m, idx) => {
+    if (idx === p.activeIndex || m.dead || !(eff.duration > 0)) return;
+    mergeStatus(m.statuses, eff.status, eff.duration, eff.value, from, src);
+    emit(w, { type: 'benchBuff', player: p.id, partyIndex: idx, status: eff.status, duration: eff.duration, value: eff.value, from });
+  });
 }
 
 /** Players a benchHeal / reviveReduce reaches: the caster's own, or every player still in the run (allPlayers). */

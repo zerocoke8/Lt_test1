@@ -1,13 +1,18 @@
-// Clean frame-rate measurement (no screenshots while measuring). Usage: node tests/playtest/perf.mjs [phone|desktop] [cpuThrottle=1]
+// Clean frame-rate measurement (no screenshots while measuring).
+// Usage: node tests/playtest/perf.mjs [phone|desktop] [cpuThrottle=1] [all|boss]
 // A) floor 1 at gameSpeed 1 with real swaps every ~4 s (25 s)
 // B) heavy fight: floor 4, many monsters alive (wave interval 2 s, cap 60, monster HP ×4, bots weakened), my character
 //    invincible, ults spammed (debug chargeUlt + real tap), real swaps every 2 s (25 s)
+// C) 기획 13차 heavy boss fight ('boss' runs only this one): floor 20 boss (HP ×8, summons), 3 seats with 9 different
+//    renewed characters, every seat's ult charged as soon as it is spent (bots ult on their own), real swaps every 2 s,
+//    one forced groggy break midway (25 s)
 import fs from 'node:fs';
 import { BASE, center, launch, readyCard, realSwap, sleep, snap, tapUlt, waitPhase } from './lib.mjs';
 
 const profile = process.argv[2] ?? 'phone';
 const throttle = Number(process.argv[3] ?? 1);
-const pt = await launch(profile, { tag: `${profile}-perf-x${throttle}` });
+const only = process.argv[4] ?? 'all';
+const pt = await launch(profile, { tag: `${profile}-perf-x${throttle}${only === 'all' ? '' : '-' + only}` });
 const { page, context } = pt;
 if (throttle > 1) {
   const cdp = await context.newCDPSession(page);
@@ -69,6 +74,10 @@ try {
   await page.evaluate(() => window.__proto.startRun({ seed: 5150 }));
   await waitPhase(page, 'combat');
   await probe();
+  if (only === 'boss') {
+    await bossScenario();
+    throw null;
+  }
   await page.waitForFunction(() => window.__proto.game.state.monstersAlive >= 3, undefined, { timeout: 20000 });
   // A
   await start();
@@ -116,8 +125,53 @@ try {
   console.log('heavy', res.heavy);
   await pt.shot('heavy', 'heavy fight (after measurement)');
 } catch (e) {
-  console.log('ERR', String(e?.stack ?? e));
+  if (e !== null) console.log('ERR', String(e?.stack ?? e));
 }
 res.errors = pt.errors;
-fs.writeFileSync(`/tmp/playtest-${profile}-perf-x${throttle}.json`, JSON.stringify(res, null, 1));
+fs.writeFileSync(`/tmp/playtest-${profile}-perf-x${throttle}${only === 'all' ? '' : '-' + only}.json`, JSON.stringify(res, null, 1));
 await pt.browser.close();
+
+async function bossScenario() {
+  await page.evaluate(() => {
+    const pets = ['frog_bomb', 'owl_frost', 'cat_void'];
+    window.__proto.startRun({
+      seed: 7070,
+      startFloor: 20,
+      players: [
+        { name: '나', isBot: false, characters: ['mage', 'blade', 'guardian'], pets },
+        { name: 'BOT 1', isBot: true, characters: ['berserker', 'ranger', 'paladin'], pets },
+        { name: 'BOT 2', isBot: true, characters: ['chrono', 'puppeteer', 'gunner'], pets },
+      ],
+      tunables: { monsterHpMult: 8, normalFloorTime: 300 },
+    });
+  });
+  await waitPhase(page, 'combat');
+  await page.evaluate(() => (window.__proto.game.tunables.invincible = true));
+  await sleep(2500);
+  await start();
+  const t0 = Date.now();
+  let last = 0;
+  let ults = 0;
+  let broke = false;
+  while (Date.now() - t0 < 25000) {
+    const s = await snap(page);
+    if (s.app !== 'combat') break;
+    await page.evaluate(() => {
+      const g = window.__proto.game;
+      for (const p of g.state.players) if (p.ult.charge < 1) g.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: p.id } });
+    });
+    if (s.me.ult >= 1 && s.me.active != null && (await tapUlt(pt))) ults++;
+    if (!broke && Date.now() - t0 > 12000) {
+      broke = true;
+      await page.evaluate(() => window.__proto.game.dispatch({ type: 'debug', action: { kind: 'forceGroggy' } }));
+    }
+    if (Date.now() - last > 2000) {
+      const i = await readyCard(page, [0, 1, 2].filter(k => k !== s.me.active));
+      if (i >= 0) (await realSwap(pt, i, { opts: { includeBoss: true } }), (last = Date.now()));
+    }
+    await sleep(150);
+  }
+  res.boss = { ...(await stop()), ults };
+  console.log('boss', res.boss);
+  await pt.shot('boss', 'heavy boss fight (after measurement)');
+}

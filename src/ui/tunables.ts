@@ -41,6 +41,11 @@ export const SLIDERS: SliderSpec[] = [
   { group: '층 구성', key: 'goedamRoomsPerZone', label: '괴담 방 (구역당)', min: 0, max: 2, step: 1, unit: '개' },
   // 기획 12차: 0 = 돌발 괴담 off entirely (also the floor-2 toad)
   { group: '층 구성', key: 'fieldEventChance', label: '돌발 괴담 확률', min: 0, max: 1, step: 0.05, unit: '×' },
+  // 기획 13차 보스 그로기: gauge base 0 = off
+  { group: '보스 그로기', key: 'bossGroggyThreshold', label: '그로기 게이지 (0=끔)', min: 0, max: 300, step: 10 },
+  { group: '보스 그로기', key: 'bossGroggyDuration', label: '그로기 시간', min: 1, max: 10, step: 0.5, unit: '초' },
+  { group: '보스 그로기', key: 'bossGroggyDamageMult', label: '그로기 받는 피해', min: 1, max: 3, step: 0.1, unit: '×' },
+  { group: '보스 그로기', key: 'bossGroggyDragMult', label: '그로기 드래그 피해', min: 1, max: 4, step: 0.1, unit: '×' },
   { group: '진행', key: 'gameSpeed', label: '게임 속도', min: 0.25, max: 4, step: 0.25, unit: '×' },
 ];
 

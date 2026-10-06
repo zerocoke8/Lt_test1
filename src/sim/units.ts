@@ -1,7 +1,8 @@
 // Per-tick unit behaviour: timers, DoT/regen/aura pulses, targeting (R6–R8), movement,
 // basic attacks, auto normal skills, monster skills, separation.
 
-import type { BasicAttack, BossDef } from '../types';
+import type { BasicAttack, BossDef, MonsterSkill } from '../types';
+import { STASIS } from '../config';
 import { ATTACK_ANIM, MONSTER_SKILL_GAP, PULSE_INTERVAL } from './constants';
 import { applyDamage, basicHit, explode, fireProjectile, heal } from './combat';
 import { normalCooldownFor } from './cooldowns';
@@ -9,9 +10,10 @@ import { LOCK_RELEASE } from '../data';
 import { charCtx, findWoundedAlly, unitCtx, usesWoundedAlly } from './ctx';
 import { clampUnit } from './entities';
 import { onMonsterDeath } from './ondeath';
+import { isGroggy } from './groggy';
 import { castSkill, startAction } from './skills';
 import { effStats } from './stats';
-import { hasStatus, tickStatusTimers } from './status';
+import { constrainTether, hasStatus, isBossy, statusValue, tickStatusTimers } from './status';
 import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type PendingHit, type SimEntity, type SimStatus, type World } from './world';
 
 export function tickUnits(w: World, dt: number): void {
@@ -26,6 +28,8 @@ export function tickUnits(w: World, dt: number): void {
     if (isAlive(e)) act(w, e, dt);
   }
   separate(w);
+  // 기획 13차 묶기 / 속박: nothing walks or gets shoved out of its tether
+  for (const e of ents) if (isAlive(e) && e.statuses.length && constrainTether(e)) clampUnit(w, e);
 }
 
 /** Count a timer down, snapping float dust to 0. */
@@ -39,12 +43,20 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
   e.invulnTime = dec(e.invulnTime, dt);
   rt.sinceAppear += dt;
   if (e.targetId != null) e.targetHeldFor += dt;
+  if (rt.stasisImmune) rt.stasisImmune = dec(rt.stasisImmune, dt);
+  // 기획 13차 정지: attack timer, pattern cooldowns, cast lock and anim all stand still
+  const stopped = hasStatus(e, 'stasis');
   // 기획 4차: 기절 중에는 공격 대기시간이 멈춤 (풀리자마자 바로 때리지 못함).
-  if (!hasStatus(e, 'stun')) rt.attackCd = dec(rt.attackCd, dt);
-  for (let i = 0; i < rt.skillCds.length; i++) rt.skillCds[i] = dec(rt.skillCds[i], dt);
-  rt.skillGap = dec(rt.skillGap, dt);
-  rt.lockTime = dec(rt.lockTime, dt);
-  e.animTime = dec(e.animTime, dt);
+  if (!stopped && !hasStatus(e, 'stun')) rt.attackCd = dec(rt.attackCd, dt);
+  // 기획 13차: a groggy boss's pattern cooldowns stand still (monsters keep the 4차 rule: they run during a stun)
+  if (!stopped && !(e.tier === 'boss' && isGroggy(w, e))) {
+    for (let i = 0; i < rt.skillCds.length; i++) rt.skillCds[i] = dec(rt.skillCds[i], dt);
+    rt.skillGap = dec(rt.skillGap, dt);
+  }
+  if (!stopped) {
+    rt.lockTime = dec(rt.lockTime, dt);
+    e.animTime = dec(e.animTime, dt);
+  }
   if (e.shield > 0) {
     rt.shieldTime -= dt;
     if (rt.shieldTime <= 0) {
@@ -68,7 +80,13 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
     pulse(w, e);
     if (!isAlive(e)) return;
   }
+  const stasis = stopped ? e.statuses.find(x => x.id === 'stasis') : undefined;
   tickStatusTimers(e.statuses, dt);
+  if (e.team === 'enemy' && e.statuses.length) tauntSource(w, e); // 기획 13차: a taunt ends with its taunter (also while stunned)
+  if (stasis && !e.statuses.includes(stasis)) {
+    endStasis(w, e, stasis as SimStatus);
+    if (!isAlive(e)) return;
+  }
   if (e.kind === 'character') {
     const mx = effStats(w, e).maxHp;
     if (Math.abs(mx - e.maxHp) > 1e-9) {
@@ -76,6 +94,22 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
       e.hp = Math.min(e.hp, mx);
     }
   }
+}
+
+/**
+ * 기획 13차 정지 끝: the unit takes value × the damage it stored (a boss at most STASIS.bossReboundCap of its max HP) as
+ * fixed damage, credited to the player who stopped it; bosses / mid bosses are immune to stasis for a while.
+ */
+function endStasis(w: World, e: SimEntity, s: SimStatus): void {
+  if (isBossy(e)) e.rt.stasisImmune = STASIS.immune;
+  let amount = Math.max(0, s.value) * (s.data?.stored ?? 0);
+  if (e.tier === 'boss') amount = Math.min(amount, STASIS.bossReboundCap * e.maxHp);
+  let dealt = 0;
+  if (amount > 0) {
+    const src = { casterId: null, team: otherTeam(e.team), player: s.sourcePlayer, source: s.src ?? 'ult', isDrag: false, pure: true } as const;
+    dealt = applyDamage(w, src, e, amount, false);
+  }
+  emit(w, { type: 'stasisEnd', entityId: e.id, amount: dealt, player: s.sourcePlayer });
 }
 
 /** Burn / regen / healing aura, applied every PULSE_INTERVAL. */
@@ -103,6 +137,7 @@ function basicOf(e: SimEntity): BasicAttack {
 }
 
 function act(w: World, e: SimEntity, dt: number): void {
+  if (hasStatus(e, 'stasis')) return; // 기획 13차 정지: frozen mid-motion (render greys it)
   if (hasStatus(e, 'stun')) {
     e.anim = 'stunned';
     return;
@@ -119,7 +154,7 @@ function act(w: World, e: SimEntity, dt: number): void {
 
   const t = updateTarget(w, e);
   if (e.kind === 'character') tryNormalSkill(w, e, t);
-  else tryMonsterSkills(w, e, t);
+  else if (!hasStatus(e, 'charm')) tryMonsterSkills(w, e, t); // 기획 13차: a charmed enemy only swings at its own side
   if (e.rt.lockTime > 0 || !isAlive(e)) return;
 
   if (!t || !isAlive(t)) {
@@ -130,7 +165,7 @@ function act(w: World, e: SimEntity, dt: number): void {
   const d = edgeDist(e, t);
   e.facing = Math.atan2(t.pos.y - e.pos.y, t.pos.x - e.pos.x);
   if (d > st.range) {
-    if (e.rt.stationary) {
+    if (e.rt.stationary || hasStatus(e, 'root')) {
       if (e.animTime <= 0) e.anim = 'idle';
       return;
     }
@@ -174,7 +209,47 @@ export function pickTarget(w: World, e: SimEntity, extra?: (o: SimEntity) => boo
   return nearestEnemy(w, e, o => o.eventTag !== 'ward' && ok(o));
 }
 
+/** 기획 13차 도발: the unit that taunted e while it is still on the field (else the taunt is dropped). */
+function tauntSource(w: World, e: SimEntity): SimEntity | null {
+  const i = e.statuses.findIndex(s => s.id === 'taunt');
+  if (i < 0) return null;
+  const src = getEntity(w, e.statuses[i].data?.sourceEntityId);
+  if (src && src.team !== e.team) return src;
+  e.statuses.splice(i, 1);
+  return null;
+}
+
+/** 기획 13차 조종: the nearest other unit of its own side (돌발 괴담 units excluded), held until it dies. */
+function charmTarget(w: World, e: SimEntity): SimEntity | null {
+  const cur = getEntity(w, e.targetId);
+  if (cur && cur.team === e.team && cur !== e) return cur;
+  let best: SimEntity | null = null;
+  let bd = Infinity;
+  for (const o of w.state.entities) {
+    if (o === e || o.team !== e.team || !isAlive(o) || o.eventTag) continue;
+    const d = edgeDist(e, o);
+    if (d < bd) {
+      bd = d;
+      best = o;
+    }
+  }
+  return best;
+}
+
+/** Forced targets of an enemy (기획 13차): charm first, then taunt. Undefined = the normal rules. */
+function forcedTarget(w: World, e: SimEntity): SimEntity | null | undefined {
+  if (e.team !== 'enemy' || e.statuses.length === 0) return undefined;
+  if (hasStatus(e, 'charm')) return charmTarget(w, e);
+  return tauntSource(w, e) ?? undefined;
+}
+
 export function updateTarget(w: World, e: SimEntity): SimEntity | null {
+  const forced = forcedTarget(w, e);
+  if (forced !== undefined) {
+    if (forced?.id !== e.targetId) e.targetHeldFor = 0;
+    e.targetId = forced ? forced.id : null;
+    return forced;
+  }
   let t = getEntity(w, e.targetId);
   if (t && t.team === e.team) t = null;
   // 기획 12차 (rule 3): a held event target farther than LOCK_RELEASE is let go
@@ -237,14 +312,21 @@ export function monsterCdMult(e: SimEntity): number {
   return en * e.rt.phaseCdMult;
 }
 
+/** A blink / charge pattern (it would carry the caster out of a 기획 13차 묶기 / 속박 anchor). */
+function movesCaster(sk: MonsterSkill): boolean {
+  return (sk.extra ? [sk.action, ...sk.extra] : [sk.action]).some(a => !!a.blink || !!a.charge);
+}
+
 function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
   const def = e.rt.monDef;
   const skills = e.rt.skills;
   if (!def || skills.length === 0 || !t || e.rt.skillGap > 0) return;
+  const pinned = hasStatus(e, 'tether') || hasStatus(e, 'root');
   for (let i = 0; i < skills.length; i++) {
     const sk = skills[i];
     if (e.rt.skillCds[i] > 0) continue;
     if (sk.castRange != null && edgeDist(e, t) > sk.castRange) continue;
+    if (pinned && movesCaster(sk)) continue;
     e.rt.skillCds[i] = sk.cooldown * monsterCdMult(e);
     e.rt.skillGap = MONSTER_SKILL_GAP;
     // a telegraphed skill is wound up until it lands: a stun in between breaks every part of it (status.ts)
@@ -279,11 +361,13 @@ function basicAttack(w: World, e: SimEntity, t: SimEntity, atkSpeed: number): vo
   const ctx = e.kind === 'character' ? charCtx(w, e, 'basic', null) : unitCtx(w, e, `${e.defId}_basic`, '');
   emit(w, { type: 'attack', sourceId: e.id, targetId: t.id, ranged: basic.kind === 'projectile' });
   const onHit = e.rt.charDef?.passive.onHitStatus ?? null;
+  // 기획 13차 splashUp (버서커 혈귀 강림): a wider (or a new) splash
+  const splash = (basic.splashRadius ?? 0) + statusValue(e, 'splashUp');
   if (basic.kind === 'melee') {
-    basicHit(w, ctx, t, copy(t.pos), 1, basic.splashRadius ?? 0, onHit);
+    basicHit(w, ctx, t, copy(t.pos), 1, splash, onHit);
   } else {
     const color = e.rt.charDef?.color ?? e.rt.monDef?.color ?? '#ffffff';
-    fireProjectile(w, ctx, e, t, basic.speed, 1, basic.splashRadius ?? 0, onHit, color);
+    fireProjectile(w, ctx, e, t, basic.speed, 1, splash, onHit, color);
   }
 }
 

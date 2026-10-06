@@ -427,6 +427,7 @@ describe('꺼지는 비상등', () => {
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 2, pos: { ...l0.pos } }).ok).toBe(true);
     expect(l0.doneBy).toBe(0);
     expect(slime.statuses.some(x => x.id === 'stun')).toBe(true);
+    slime.rt.gone = true; // (기획 13차 meteors leave it alive: the mage would walk off to it)
     // standing
     const me = active(tg);
     me.pos = { x: l2.pos.x + 0.5, y: l2.pos.y };
@@ -454,7 +455,9 @@ describe('깨우면 안 되는 아이', () => {
     advance(tg, 1);
     expect(ev.progress).toBe(0);
     const s = tg.w.state;
-    expect(dropOutcome(s, 0, 'swap', 1, { ...ch.pos })!.startle).toBe(false); // cleric spring: allies only
+    // a heal-only footprint (fairy pet; 기획 13차: the cleric's bell now hits enemies too)
+    expect(dropOutcome(s, 0, 'pet', 1, { ...ch.pos })!.startle).toBe(false);
+    expect(dropOutcome(s, 0, 'swap', 1, { ...ch.pos })!.startle).toBe(true); // cleric: its bell is an enemy footprint
     expect(dropOutcome(s, 0, 'swap', 2, { ...ch.pos })!.startle).toBe(true); // mage meteors
     // escort: stand next to it
     for (const e of s.entities) if (e.kind === 'character') e.pos = { x: ch.pos.x, y: ch.pos.y + 1 };

@@ -66,6 +66,8 @@ export interface EntityRt {
   phaseCdMult: number;
   /** 기획 12차: 돌발 괴담 unit moved by src/sim/fieldEvents.ts (act() skips it). */
   eventAi?: FieldEventAi | null;
+  /** 기획 13차: seconds a boss / mid boss stays immune to stasis after one ended (STASIS.immune). */
+  stasisImmune?: number;
 }
 export interface SimEntity extends Entity {
   rt: EntityRt;
@@ -89,6 +91,8 @@ export interface BotBrain {
   fieldEventSwapDone?: number;
   fieldEventPetDone?: number;
   fieldEventReactAt?: number | null;
+  /** 기획 13차: the boss groggy (w.groggy.breakSerial, run-wide) this bot already reacted to. */
+  groggySeen?: number;
 }
 export interface PlayerRt {
   bot: BotBrain;
@@ -139,10 +143,43 @@ export interface CastCtx {
   origin: Vec2;
   isDrag: boolean;
   summonMult: number;
+  /**
+   * 기획 13차 보스 그로기: points this cast already gave (a drag counts once however many parts / hits reach the boss).
+   * One object per cast, shared by every copy of the ctx ({...ctx} retargets, zones). Absent = the cast gives none.
+   */
+  groggyMark?: GroggyMark;
+  /** 기획 13차: echo_seal recast — never fills the gauge (one swap = one score). */
+  noGroggy?: boolean;
+  /**
+   * 기획 13차: an ult cast (shared by every copy of the ctx). landed = one of its parts fired; a floor clear during the
+   * cut-in drops the rest and refunds the gauge only while none has (players.ts refundUnlandedUlts).
+   */
+  ultCast?: { landed: boolean };
+}
+
+export interface GroggyMark {
+  /** The drag-hit points were given. */
+  hit: boolean;
+  /** Stun seconds already turned into points (the longest stun of the cast counts). */
+  stun: number;
+  /**
+   * This cast broke the boss: none of its hits (the breaking beat and the later ones) get the groggy multiplier — the
+   * stun card breaks, the next card finishes (docs/boss-groggy.md 5장).
+   */
+  broke?: boolean;
+}
+
+/** 기획 13차: run-time groggy bookkeeping (the public part is state.bossGroggy). */
+export interface GroggyRt {
+  /** Seconds since the gauge last gained points (decay starts after GROGGY.decayAfter). */
+  sinceGain: number;
+  /** Breaks this run (never reset): bots key their once-per-break reaction on it, not on the per-floor count. */
+  breakSerial: number;
 }
 
 export interface SimZone extends Zone {
-  rt: { ctx: CastCtx; action: SkillAction; nextTick: number; tickInterval: number };
+  /** actionIndex / tickNo (기획 13차): for the 'skillStage' event of a staged zone tick. */
+  rt: { ctx: CastCtx; action: SkillAction; nextTick: number; tickInterval: number; actionIndex: number; tickNo: number };
 }
 
 export interface SimProjectile extends Projectile {
@@ -170,6 +207,15 @@ export interface PendingHit {
   cancelled?: boolean;
   /** SkillAction.charge (기획 8차): where the caster ends its rush when the hit lands (fixed at cast time = telegraph). */
   chargeTo?: Vec2;
+  /** 기획 13차: index of the action in its skill ('skillStage'), hits landed so far. */
+  actionIndex: number;
+  hitNo: number;
+  /** 기획 13차: echo_seal recast — no dash / charge / recoil movement. */
+  noDash?: boolean;
+  /** 기획 13차 telegraphLead: the telegraph appears when `remaining` drops to this (not shown yet). */
+  telegraphLead?: number;
+  /** 기획 13차 blinkChain: hops per enemy id so far. */
+  blinkHits?: Record<number, number>;
 }
 export interface PendingEcho {
   kind: 'echo';
@@ -239,6 +285,8 @@ export interface World {
   goedam: GoedamRt;
   /** 기획 12차: 돌발 괴담 plan / history (the open one is state.fieldEvent). */
   fieldEvents: FieldEventRt;
+  /** 기획 13차: boss groggy bookkeeping. */
+  groggy: GroggyRt;
 }
 
 // ─────────────────────────── Helpers ───────────────────────────
@@ -357,6 +405,7 @@ export function endRun(w: World, outcome: RunResult['outcome'], reason: RunResul
   w.humanOffers = null;
   s.goedam = null;
   s.fieldEvent = null; // closed by the fieldEvents hook above; kept as a guard
+  s.bossGroggy = null; // 기획 13차
   s.runResult = { outcome, reason, floorReached: s.floor, duration: s.time };
   emit(w, { type: 'runOver', result: s.runResult });
 }

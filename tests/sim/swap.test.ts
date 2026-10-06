@@ -56,7 +56,7 @@ describe('R2–R4 swap', () => {
     expect(s.entities.find(e => e.id === old.id)).toBeUndefined();
     const e = active(tg);
     expect(e.defId).toBe('blade');
-    // blade's drag skill (질풍 돌파) appears at the drop point, then dashes 6 to the right (R28)
+    // blade's drag skill (질풍 삼연섬) appears at the drop point, then dashes 6 to the right (R28)
     expect(eventsOf(tg, 'appear')[0].pos).toEqual({ x: 10, y: 4 });
     expect(eventsOf(tg, 'dash')[0]).toMatchObject({ entityId: e.id, from: { x: 10, y: 4 }, to: { x: 16, y: 4 } });
     expect(e.pos).toEqual({ x: 16, y: 4 });
@@ -64,8 +64,9 @@ describe('R2–R4 swap', () => {
     expect(e.invulnTime).toBeCloseTo(tg.game.tunables.appearInvulnTime);
     const types = eventsOf(tg, 'leave').length + eventsOf(tg, 'appear').length;
     expect(types).toBe(2);
+    // 기획 13차: every beat is cast (telegraphed) at once — dash, rush back, burst
     const casts = eventsOf(tg, 'skillCast').filter(c => c.slot === 'drag');
-    expect(casts.length).toBe(1);
+    expect(casts.map(c => c.stage)).toEqual(['dash', 'return', 'burst']);
     expect(casts[0].center).toEqual({ x: 10, y: 4 });
     expect(s.players[0].stats.swaps).toBe(1);
   });
@@ -157,11 +158,11 @@ describe('R2–R4 swap', () => {
   it('previewArea shows the drag skill area with radius rewards', () => {
     const tg = makeGame();
     const p = tg.game.state.players[0];
-    expect(tg.game.previewArea(0, 'swap', 1)).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.4 });
+    expect(tg.game.previewArea(0, 'swap', 1)).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.6 });
     p.rewards.push({ rewardId: 'dragrad_epic', partyIndex: 1 });
     const a = tg.game.previewArea(0, 'swap', 1);
     expect(a.shape === 'rect' && a.length).toBeCloseTo(6 * 1.5);
-    expect(a.shape === 'rect' && a.width).toBeCloseTo(1.4 * 1.5);
+    expect(a.shape === 'rect' && a.width).toBeCloseTo(1.6 * 1.5);
     expect(tg.game.previewParts(0, 'swap', 1)[0].dash?.distance).toBeCloseTo(6 * 1.5);
     expect(tg.game.previewArea(0, 'pet', 0)).toEqual({ shape: 'circle', radius: 2.5 });
   });

@@ -112,19 +112,20 @@ describe('relics', () => {
     tg.game.state.players[0].party[1].normalCooldownRemaining = 99;
     clearEvents(tg);
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 20, y: 6 } });
+    active(tg).rt.base.atk = 0;
+    // the echo telegraphs its footprint for the relic delay (기획 13차: the rush back shares the dash's band)
+    expect(tg.game.state.telegraphs.filter(t => Math.abs(t.total - 1) < 1e-9)).toHaveLength(2);
+    advance(tg, 0.9); // the whole first pass (dash, rush back, burst)
     const first = 1e6 - m.hp;
     expect(first).toBeGreaterThan(0);
-    expect(tg.game.state.telegraphs.length).toBe(1);
-    active(tg).rt.base.atk = 0;
-    advance(tg, 0.9);
     const beforeEcho = m.hp;
-    advance(tg, 0.15);
+    advance(tg, 0.9);
     const second = beforeEcho - m.hp;
     expect(second).toBeGreaterThan(0);
     expect(second).toBeLessThan(first);
     const casts = eventsOf(tg, 'skillCast').filter(c => c.slot === 'drag');
-    expect(casts.length).toBe(2);
-    expect(casts[1].center).toEqual({ x: 20, y: 6 });
+    expect(casts.length).toBe(6);
+    expect(casts[3].center).toEqual({ x: 20, y: 6 });
   });
 
   it('vanguard_helm: +40% atk for 4 s after appearing', () => {

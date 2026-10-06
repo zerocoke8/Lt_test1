@@ -57,7 +57,6 @@ function castEvents(skill: SkillDef, slot: 'normal' | 'drag' | 'ult', x: number,
 
 describe('per-skill flavour', () => {
   it('every character skill spawns its own effects, draws without errors and cleans itself up', () => {
-    const fx = new SkillFx();
     const cam = new Camera();
     cam.setArena(36, 12);
     cam.snap(12);
@@ -65,27 +64,29 @@ describe('per-skill flavour', () => {
     const memos = new Map([[1, { x: 12, y: 6 } as never]]);
     for (const c of CHARACTERS) {
       for (const [skill, slot] of [[c.normal, 'normal'], [c.drag, 'drag'], [c.ult, 'ult']] as const) {
-        const before = fx.pool.count;
+        // one pool per skill (기획 13차: the renewed multi-beat skills fill a shared pool to its cap)
+        const fx = new SkillFx();
         for (const { ev, action } of castEvents(skill, slot, 12, 6)) {
           const info: CastInfo = { ev, action, ox: 11, oy: 6, src: 1, face: 1, color: c.color, k: 1, local: true, dashTravel: 0.18 };
           castFx(fx, host, info);
         }
-        expect(fx.pool.count, `${skill.id} spawns something`).toBeGreaterThan(before);
+        expect(fx.pool.count, `${skill.id} spawns something`).toBeGreaterThan(0);
+        // play everything out (meteors, flurries, blizzard snow, the berserker's 8 s finale)
+        for (let t = 0; t < 10; t += 1 / 30) {
+          fx.update(1 / 30, host, memos);
+          fx.drawGround(ctx, cam, memos, t);
+          fx.drawAir(ctx, cam, memos, t);
+        }
+        expect(fx.pool.count, `${skill.id} cleans up`).toBe(0);
       }
     }
-    // play everything out (meteors, flurries, 5 s of blizzard snow)
-    for (let t = 0; t < 7; t += 1 / 30) {
-      fx.update(1 / 30, host, memos);
-      fx.drawGround(ctx, cam, memos, t);
-      fx.drawAir(ctx, cam, memos, t);
-    }
-    expect(fx.pool.count).toBe(0);
     expect(sets.has('shadowBlur')).toBe(false);
   });
 
-  it('maps a skillCast to its data action by order (meteor 3 of 5, guardian ult shield part)', () => {
+  it('maps a skillCast to its data action by order (meteor 3 of 6, guardian ult aegis part)', () => {
     expect(actionFor('mage_d', 'drag', 2)).toBe(getCharacter('mage').drag.actions[2]);
-    expect(actionFor('guardian_u', 'ult', 1)?.affects).toBe('allies');
+    expect(actionFor('guardian_u', 'ult', 0)?.affects).toBe('allies');
+    expect(actionFor('guardian_u', 'ult', 1)?.affects).toBe('enemies');
     expect(actionFor('frog_bomb', 'pet', 0)?.delay).toBeGreaterThan(0);
     expect(actionFor('nope_x', 'monster', 0)).toBeNull();
   });
@@ -137,7 +138,7 @@ describe('damage numbers and hit timing', () => {
     const v = new Vfx();
     const c = ctx();
     v.handle(hit({ source: 'basic' }), c);
-    v.handle(hit({ source: 'drag', skillName: '질풍 돌파', targetId: 1, targetTeam: 'enemy' }), c);
+    v.handle(hit({ source: 'drag', skillName: '질풍 돌파', targetId: 1, targetTeam: 'enemy', pos: { x: 20, y: 6 } }), c);
     v.handle(hit({ source: 'drag', skillName: '질풍 돌파' }), c);
     v.handle(hit({ source: 'passive' }), c);
     const kinds = v.floaters.items.slice(0, v.floaters.count).map(f => [f.kind, f.size, f.label] as const);
@@ -147,6 +148,17 @@ describe('damage numbers and hit timing', () => {
     expect(skills.every(s => s[1] > basic[1])).toBe(true);
     expect(skills.every(s => s[2] === '')).toBe(true);
     expect(kinds.some(k => k[0] === 5)).toBe(true); // DoT / passive: small and warm
+  });
+
+  it('기획 13차 리뷰: one skill on neighbouring targets sums into one number per cluster; a far target gets its own', () => {
+    const v = new Vfx();
+    const c = ctx();
+    v.handle(hit({ source: 'ult', skillName: '심판', targetId: 1, amount: 45, pos: { x: 11, y: 6 } }), c);
+    v.handle(hit({ source: 'ult', skillName: '심판', targetId: 2, amount: 45, pos: { x: 12, y: 6.5 } }), c);
+    v.handle(hit({ source: 'ult', skillName: '심판', targetId: 3, amount: 45, pos: { x: 11.5, y: 5.2 } }), c);
+    v.handle(hit({ source: 'ult', skillName: '심판', targetId: 4, amount: 45, pos: { x: 22, y: 6 } }), c);
+    const live = v.floaters.items.slice(0, v.floaters.count).filter(f => f.kind === 4);
+    expect(live.map(f => f.text).sort()).toEqual(['135', '45']);
   });
 
   it('hits on one target add up (a crit turns the sum into a crit); other numbers there stack above, not on it', () => {
@@ -215,7 +227,7 @@ describe('sim fills the optional render fields', () => {
     expect(dmg.every(d => d.source !== undefined)).toBe(true);
     const drag = dmg.filter(d => d.source === 'drag' && d.skillName);
     expect(drag.length).toBeGreaterThan(0);
-    expect(drag.every(d => d.skillName === '유성우')).toBe(true);
+    expect(drag.every(d => d.skillName === getCharacter('mage').drag.name)).toBe(true);
     expect(dmg.filter(d => d.source === 'basic').every(d => d.skillName === undefined)).toBe(true);
     // a multi-hit ult announces its hits
     g.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 0 } });
@@ -223,9 +235,13 @@ describe('sim fills the optional render fields', () => {
     for (let i = 0; i < 30; i++) g.step(1 / 30);
     g.drainEvents();
     expect(g.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
-    const ult = g.drainEvents().find((e): e is SkillCastEvent => e.type === 'skillCast' && e.skillId === 'blade_u');
-    expect(ult?.hits).toBe(getCharacter('blade').ult.actions[0].hits);
-    expect(ult?.hitInterval).toBe(getCharacter('blade').ult.actions[0].hitInterval);
+    // 기획 13차: the cut-in comes first, then every beat is cast with its stage; the blade storm announces its hits
+    const ultEvs = g.drainEvents();
+    expect(ultEvs.findIndex(e => e.type === 'ultCast')).toBeLessThan(ultEvs.findIndex(e => e.type === 'skillCast' && e.skillId === 'blade_u'));
+    const storm = ultEvs.find((e): e is SkillCastEvent => e.type === 'skillCast' && e.skillId === 'blade_u' && e.stage === 'storm');
+    const stormData = getCharacter('blade').ult.actions.find(a => a.stage === 'storm')!;
+    expect(storm?.hits).toBe(stormData.hits);
+    expect(storm?.hitInterval).toBe(stormData.hitInterval);
   });
 });
 
@@ -257,5 +273,19 @@ describe('skill-name callouts', () => {
         expect(overlap, `${ls[i].text} / ${ls[j].text}`).toBe(false);
       }
     }
+  });
+});
+
+describe('interrupt callouts (기획 13차)', () => {
+  it('a groggy break that cancels several wind-ups at once shows one "끊김!", not a stack', () => {
+    const v = new Vfx();
+    const g = createGame({ seed: 3, players: [{ name: 'a', isBot: false, characters: ['guardian', 'blade', 'mage'], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] }], tunables: DEFAULT_TUNABLES });
+    const c = { state: g.state as GameState, memos: new Map(), localPlayer: 0 };
+    const cut = (telegraphId: number, x: number): GameEvent => ({ type: 'interrupt', sourceId: 99, telegraphId, pos: { x, y: 4 }, name: '문 쾅' });
+    for (const id of [1, 2, 3]) v.handle(cut(id, 10 + id * 0.2), c);
+    // a different monster far away still gets its own
+    v.handle(cut(4, 20), c);
+    const texts = v.labels.items.slice(0, v.labels.count).map(l => l.text);
+    expect(texts.filter(t => t === '끊김!')).toHaveLength(2);
   });
 });
