@@ -24,6 +24,11 @@
 //   GOEDAM_DUMP=/path.json          also write one row per run (seed, victory, death floor, player 0's 수첩)
 //   FIELD_EVENTS=off                기획 12차 돌발 괴담: off (default, old numbers) | on (tunables.fieldEventChance, default 0.6)
 //                                   | forced:<id> (that event at 8 s of every normal floor 2–19). Output 'fieldEvents' = report.
+//   GROGGY=on                       기획 13차 보스 그로기: on (default, tunables as in the game) | off (bossGroggyThreshold 0).
+//                                   Boss rows get groggy: breaks per fight, first / second break time, share of boss
+//                                   damage dealt while it was down.
+//                                   기획 13차 밸런스: + drag share of the boss damage inside / outside the windows
+//                                   (dragShareDownPct / dragShareUpPct), time down (downTimePct), breaks by a POLICY seat.
 //   FE_SEAT=play                    the human seats (active/dodge) with events on: play (react like a bot: once-per-event swap,
 //                                   event pet rules, event drop score) | ignore (event-blind: the bots alone do the events)
 //
@@ -72,6 +77,8 @@ const FE_FORCED = FIELD_EVENTS.startsWith('forced:') ? FIELD_EVENTS.slice(7) : n
 if (FE_FORCED != null && !isFieldEventId(FE_FORCED)) throw new Error(`FIELD_EVENTS: unknown event ${FE_FORCED}`);
 const FE_SEAT = env.FE_SEAT === 'ignore' ? 'ignore' : 'play';
 const feTunables = (): Partial<Tunables> => (FIELD_EVENTS === 'on' ? {} : { fieldEventChance: 0 });
+const GROGGY = env.GROGGY ?? 'on';
+const groggyTunables = (): Partial<Tunables> => (GROGGY === 'off' ? { bossGroggyThreshold: 0 } : {});
 
 const PETS_DEFAULT = [
   ['frog_bomb', 'fairy_heal', 'cat_void'],
@@ -167,6 +174,16 @@ interface BossRec {
   wipeSeg: number | null;
   /** character deaths within 5 s after a phase change (phase 2, phase 3) */
   deathsAfterPhase: number[];
+  /** 기획 13차: floor times of the breaks, boss damage while down / in all. */
+  groggyAt: number[];
+  groggyDmg: number;
+  bossDmg: number;
+  /** 기획 13차 밸런스: drag damage on the boss while down / up, all damage while up, seconds down, breaks by a POLICY seat. */
+  dragDown: number;
+  dragUp: number;
+  dmgUp: number;
+  downSec: number;
+  humanBreaks: number;
 }
 interface FloorRec {
   floor: number;
@@ -346,7 +363,7 @@ const inc = (o: Record<string, number>, k: string, v = 1) => {
 };
 
 function runOnce(seed: number): RunRec {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...TUN, ...goedamTunables(GOEDAM) };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...groggyTunables(), ...TUN, ...goedamTunables(GOEDAM) };
   const comp = COMPS[COMP];
   if (!comp) throw new Error(`unknown COMP ${COMP}`);
   const humanCount = POLICY === 'bot' || POLICY === 'idle' || POLICY === 'botseat' ? Math.max(1, HUMANS) : HUMANS;
@@ -418,7 +435,7 @@ function runOnce(seed: number): RunRec {
     eventCredit: null,
     boss2:
       s.plan.kind === 'boss'
-        ? { phases: [], enragedAt: null, hpAtEnrage: null, deathsBySeg: [0, 0, 0, 0], outsBySeg: [0, 0, 0, 0], maxTele: 0, wipeAt: null, wipeSeg: null, deathsAfterPhase: [0, 0] }
+        ? { phases: [], enragedAt: null, hpAtEnrage: null, deathsBySeg: [0, 0, 0, 0], outsBySeg: [0, 0, 0, 0], maxTele: 0, wipeAt: null, wipeSeg: null, deathsAfterPhase: [0, 0], groggyAt: [], groggyDmg: 0, bossDmg: 0, dragDown: 0, dragUp: 0, dmgUp: 0, downSec: 0, humanBreaks: 0 }
         : null,
     swaps: s.players[0].stats.swaps,
     dodges: 0,
@@ -527,6 +544,15 @@ function runOnce(seed: number): RunRec {
             while (arr.length && s.time - arr[0].t > 2) arr.shift();
             recentDmg.set(ev.targetId, arr);
           }
+          if (rec.boss2 && ev.targetId === s.bossId && ev.targetTeam === 'enemy') {
+            rec.boss2.bossDmg += ev.amount;
+            if (ev.groggy) rec.boss2.groggyDmg += ev.amount;
+            else rec.boss2.dmgUp += ev.amount;
+            if (ev.source === 'drag') {
+              if (ev.groggy) rec.boss2.dragDown += ev.amount;
+              else rec.boss2.dragUp += ev.amount;
+            }
+          }
           break;
         }
         case 'heal': {
@@ -594,6 +620,12 @@ function runOnce(seed: number): RunRec {
         case 'bossPhase':
           if (rec.boss2) rec.boss2.phases.push({ phase: ev.phase, t: s.floorTime });
           break;
+        case 'bossGroggy':
+          if (rec.boss2) {
+            rec.boss2.groggyAt.push(s.floorTime);
+            if (ev.player != null && !s.players[ev.player]?.isBot) rec.boss2.humanBreaks++;
+          }
+          break;
         case 'enrage':
           if (rec.boss2) {
             rec.boss2.enragedAt = s.floorTime;
@@ -617,6 +649,7 @@ function runOnce(seed: number): RunRec {
       fresh.forEach((tg, i) => teleKey.set(tg.id, delayedCasts[i] ?? '?'));
     }
     for (const tg of s.telegraphs) if (!seen.has(tg.id)) seen.set(tg.id, s.time);
+    if (rec.boss2 && s.phase === 'combat' && (s.bossGroggy?.left ?? 0) > 0) rec.boss2.downSec += 1 / TICK_RATE;
     if (rec.boss2 && s.phase === 'combat') {
       const bossSkills = new Set<string>();
       for (const tg of s.telegraphs) {
@@ -811,6 +844,17 @@ for (let f = START; f <= LAST; f++) {
       wipeAtMed: r1(pctl(bs.map(b => b.wipeAt ?? NaN).filter(Number.isFinite), 0.5)),
       maxTeleP90: pctl(bs.map(b => b.maxTele), 0.9),
       deathsIn5sAfterP2P3: [0, 1].map(i => r2(bs.reduce((a, b) => a + b.deathsAfterPhase[i], 0) / bs.length)),
+      groggy: {
+        breaksPerFight: r2(bs.reduce((a, b) => a + b.groggyAt.length, 0) / bs.length),
+        firstMed: r1(pctl(bs.map(b => b.groggyAt[0] ?? NaN).filter(Number.isFinite), 0.5)),
+        secondMed: r1(pctl(bs.map(b => b.groggyAt[1] ?? NaN).filter(Number.isFinite), 0.5)),
+        downDmgPct: r1((bs.reduce((a, b) => a + b.groggyDmg, 0) / Math.max(1, bs.reduce((a, b) => a + b.bossDmg, 0))) * 100),
+        // 기획 13차 밸런스: drag share of the boss damage inside vs outside the windows ('지금이다!' = higher inside)
+        dragShareDownPct: r1((bs.reduce((a, b) => a + b.dragDown, 0) / Math.max(1, bs.reduce((a, b) => a + b.groggyDmg, 0))) * 100),
+        dragShareUpPct: r1((bs.reduce((a, b) => a + b.dragUp, 0) / Math.max(1, bs.reduce((a, b) => a + b.dmgUp, 0))) * 100),
+        downTimePct: r1((bs.reduce((a, b) => a + b.downSec, 0) / Math.max(1, recs.reduce((a, r) => a + r.seconds, 0))) * 100),
+        humanBreakPct: r1((bs.reduce((a, b) => a + b.humanBreaks, 0) / Math.max(1, bs.reduce((a, b) => a + b.groggyAt.length, 0))) * 100),
+      },
       overlap2SecBySeg: [0, 1, 2, 3].map(i => r1(recs.reduce((a, r) => a + r.overlapSec[i], 0) / recs.length)),
       overlap3SecBySeg: [0, 1, 2, 3].map(i => r1(recs.reduce((a, r) => a + r.overlap3Sec[i], 0) / recs.length)),
     };

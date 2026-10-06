@@ -11,6 +11,7 @@ import { ROLE_GLYPH } from './format';
 import { petGlyph } from './preset';
 import type { Hud } from './hud';
 import type { Stage } from './stage';
+import { sfx } from '../audio';
 
 /** Logical px between finger and drop point. */
 export const LIFT = 80;
@@ -180,7 +181,10 @@ export class DragController {
     if (!pv.valid) {
       const r = this.can(p.kind, p.index);
       if (!r.ok) this.deps.hud()?.refuse(p.kind, p.index, r);
-      else this.deps.hud()?.toast('취소됨 · 필드 위에서 놓아 주세요');
+      else {
+        sfx.ui('ui.card.cancel');
+        this.deps.hud()?.toast('취소됨 · 필드 위에서 놓아 주세요');
+      }
       return;
     }
     const res =
@@ -207,6 +211,7 @@ export class DragController {
 
   private startDrag(p: Press): void {
     p.dragging = true;
+    sfx.ui(p.kind === 'swap' ? 'ui.card.lift' : 'ui.pet.lift');
     const me = this.deps.game()?.state.players[this.lp];
     if (p.kind === 'swap') {
       const def = getCharacter(me?.party[p.index]?.defId ?? '');

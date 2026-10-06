@@ -4,7 +4,7 @@ import type { BossDef, DamageSource, PetDef, SkillDef, SkillSlot, Vec2 } from '.
 import { TURRET_POWER } from './constants';
 import { hasRelic, relicParam, skillMod } from './modifiers';
 import { effStats, petPower } from './stats';
-import { copy, dist, getEntity, isAlive, type CastCtx, type SimEntity, type SimPlayer, type World } from './world';
+import { copy, dist, getEntity, isAlive, type CastCtx, type SimEntity, type SimPlayer, type SimStatus, type World } from './world';
 
 type RewardSlot = 'normal' | 'drag' | 'ult' | 'basic';
 const REWARD_SLOTS: readonly SkillSlot[] = ['normal', 'drag', 'ult', 'basic'];
@@ -41,8 +41,12 @@ export function charCtx(w: World, e: SimEntity, slot: SkillSlot, skill: { id: st
     origin: copy(e.pos),
     isDrag: slot === 'drag',
     summonMult: 1,
+    ...(GROGGY_SLOTS.includes(slot) ? { groggyMark: { hit: false, stun: 0 } } : null),
   };
 }
+
+/** 기획 13차: character casts that can fill the boss groggy gauge (basic attacks never do). */
+const GROGGY_SLOTS: readonly SkillSlot[] = ['normal', 'drag', 'ult'];
 
 // ─────────────────────────── 기획 12차: woundedAlly (메딕 응급 주사) ───────────────────────────
 
@@ -57,14 +61,17 @@ export function isWoundedAllyCandidate(e: SimEntity): boolean {
 /** 기획 12차: the 깨어나지 않는 환자 unit (src/data/fieldEvents.ts FIELD_EVENT_UNIT.sleeping_patient). */
 const PATIENT_UNIT = 'fe_patient';
 
-/** The ally with the lowest hp/maxHp below 90 % within castRange (edge distance) of the caster; ties → nearer. */
-export function findWoundedAlly(w: World, caster: SimEntity, castRange: number): SimEntity | null {
+/**
+ * The ally with the lowest hp/maxHp below maxFrac (default 90 %) within castRange (edge distance) of the caster; ties →
+ * nearer. 기획 13차 drag skills pass maxFrac Infinity (always somebody: the drop point is the caster's spot).
+ */
+export function findWoundedAlly(w: World, caster: SimEntity, castRange: number, maxFrac = WOUNDED_ALLY_HP_FRAC): SimEntity | null {
   let best: SimEntity | null = null;
   let bestRatio = Infinity;
   let bestD = Infinity;
   for (const e of w.state.entities) {
     if (!isAlive(e) || e.team !== caster.team || !isWoundedAllyCandidate(e)) continue;
-    if (!(e.hp < WOUNDED_ALLY_HP_FRAC * e.maxHp)) continue;
+    if (!(e.hp < maxFrac * e.maxHp)) continue;
     const d = dist(caster.pos, e.pos) - e.radius;
     if (d > castRange) continue;
     const ratio = e.hp / e.maxHp;
@@ -82,12 +89,17 @@ export function usesWoundedAlly(skill: SkillDef | null | undefined): boolean {
   return !!skill && skill.actions.some(a => a.center === 'woundedAlly');
 }
 
+/**
+ * The woundedAlly pick of a cast. Normal skills: within castRange, below 90 %. 기획 13차 drag skills (메딕 주사): within
+ * the action's allyRange of the drop point — the character appears there — whoever is lowest.
+ */
 function woundedAllyFor(w: World, e: SimEntity, slot: SkillSlot): number | null {
   const def = e.rt.charDef;
   if (!def || (slot !== 'normal' && slot !== 'drag' && slot !== 'ult')) return null;
   const skill = def[slot];
   if (!usesWoundedAlly(skill)) return null;
-  return findWoundedAlly(w, e, skill.castRange ?? 99)?.id ?? null;
+  const range = skill.actions.find(a => a.center === 'woundedAlly')?.allyRange ?? skill.castRange ?? 99;
+  return findWoundedAlly(w, e, range, slot === 'normal' ? WOUNDED_ALLY_HP_FRAC : Infinity)?.id ?? null;
 }
 
 /**
@@ -99,8 +111,23 @@ function summonSource(e: SimEntity): DamageSource {
   return slot === 'normal' || slot === 'drag' || slot === 'ult' ? slot : 'summon';
 }
 
+/**
+ * 기획 13차 조종: a charmed enemy fights for the player who charmed it — its hits come from the ally side and count for
+ * that player (under the charm's source, the puppeteer's ult).
+ */
+function charmOf(e: SimEntity): SimStatus | null {
+  if (e.team !== 'enemy') return null;
+  return (e.statuses.find(s => s.id === 'charm') as SimStatus | undefined) ?? null;
+}
+
 /** Monsters, bosses and ally summons. */
 export function unitCtx(w: World, e: SimEntity, skillId: string, name: string): CastCtx {
+  const charm = charmOf(e);
+  if (charm) return { ...baseUnitCtx(w, e, skillId, name), team: 'ally', player: charm.sourcePlayer, source: charm.src ?? 'ult' };
+  return baseUnitCtx(w, e, skillId, name);
+}
+
+function baseUnitCtx(w: World, e: SimEntity, skillId: string, name: string): CastCtx {
   const st = effStats(w, e);
   const t = getEntity(w, e.targetId);
   const def = e.rt.monDef;
@@ -168,5 +195,6 @@ export function petCtx(w: World, p: SimPlayer, def: PetDef, point: Vec2): CastCt
     origin: copy(point),
     isDrag: false,
     summonMult: 1,
+    groggyMark: { hit: false, stun: 0 },
   };
 }

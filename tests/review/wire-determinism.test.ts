@@ -9,16 +9,16 @@ import type { Command, GameState } from '../../src/types';
 import { makeGame, type TestGame } from '../sim/helpers';
 
 const KEYS: Record<string, string[]> = {
-  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'runResult'],
+  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'bossGroggy', 'runResult'],
   plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'bossId', 'theme'],
   wave: ['at', 'spawns'],
   entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged', 'eventTag'],
-  status: ['id', 'remaining', 'total', 'value', 'sourcePlayer'],
+  status: ['id', 'remaining', 'total', 'value', 'sourcePlayer', 'data'], // data: 기획 13차 taunt / tether / root / stasis
   player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog'],
   member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId'],
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
-  stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents'],
+  stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage'],
   telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total'],
   zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
   projectile: ['id', 'team', 'pos', 'targetId', 'targetPos', 'speed', 'color'],
@@ -33,6 +33,8 @@ const KEYS: Record<string, string[]> = {
   // 기획 12차 돌발 괴담
   fieldEvent: ['id', 'stage', 'warnRemaining', 'remaining', 'total', 'pos', 'entityIds', 'marks', 'progress', 'goal', 'creditPlayer', 'startled', 'printIn', 'printed'],
   fieldEventMark: ['pos', 'radius', 'doneBy'],
+  // 기획 13차 보스 그로기
+  bossGroggy: ['fill', 'left', 'total', 'lock', 'lockTotal', 'count', 'near', 'breaker'],
 };
 
 function extra(kind: string, o: object | null): string[] {
@@ -68,6 +70,10 @@ function audit(s: GameState, seen: Set<string>): string[] {
     seen.add('fieldEvent');
     bad.push(...extra('fieldEvent', s.fieldEvent));
     for (const m of s.fieldEvent.marks) bad.push(...extra('fieldEventMark', m));
+  }
+  if (s.bossGroggy) {
+    seen.add(s.bossGroggy.left > 0 ? 'bossGroggy:down' : 'bossGroggy');
+    bad.push(...extra('bossGroggy', s.bossGroggy));
   }
   for (const e of s.entities) if (e.eventTag) seen.add('entity:event');
   for (const t of s.telegraphs) (seen.add('telegraph'), bad.push(...extra('telegraph', t)));
@@ -130,7 +136,15 @@ describe('wire snapshot = contract only', () => {
       const ev = JSON.parse(wireJson(tg.game.drainEvents())) as unknown[];
       expect(JSON.stringify(ev)).not.toMatch(/"(rt|src)":/);
     });
+    // 기획 13차: a boss floor with the groggy gauge filling, down (countdown) and locked
+    const boss = makeGame({ seed: 5, players: [{ name: '나', isBot: false, characters: ['guardian', 'paladin', 'chrono'], pets: ['owl_frost', 'cat_void', 'frog_bomb'] }], tunables: { invincible: true }, startFloor: 5 });
+    for (let t = 0; t < 30 * 40 && boss.w.state.phase === 'combat'; t++) {
+      if (t === 60) boss.game.dispatch({ type: 'debug', action: { kind: 'forceGroggy' } });
+      tick(boss.w);
+      if (t % 15 === 0) for (const b of audit(cleanState(boss.w.state), seen)) bad.add(b);
+    }
     expect([...bad]).toEqual([]);
+    for (const k of ['bossGroggy', 'bossGroggy:down']) expect(seen.has(k), k).toBe(true);
     // the run really exercised every kind
     for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog', 'fieldEvent', 'entity:event']) expect(seen.has(k), k).toBe(true);
   });

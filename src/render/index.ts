@@ -22,6 +22,7 @@ import { CHARACTERS } from '../data';
 import { areaCentroid } from '../sim/geometry';
 import { drawAimedDirection, drawAreaDirection, drawFieldEventPreview, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
 import { FieldEventFx } from './fieldEvents';
+import { GroggyFx } from './groggyFx';
 import { TAU, addAreaPath, areaReach, pathArea, pathCapsule } from './shapes';
 import {
   HERO_POSE,
@@ -47,6 +48,9 @@ import { TeleSequencer, type TeleSeqInfo } from './teleseq';
 import { screenBoostFor } from './juice';
 import { DASH_LAND } from './dashtime';
 import { CREATURE_POSE, midAura } from './creatures';
+import { drawStyledTelegraph, drawZoneDecor } from './marks';
+import { governScale, newGovernor } from './quality';
+import { isStopped } from './statusfx';
 
 export { Camera } from './camera';
 
@@ -85,7 +89,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   let arenaH = 0;
   let snapPending = true;
   const lastBoss = { x: 0, y: 0, radius: 3, color: '#3a0ca3', defId: '', phase: 1 };
-  const bossOpts: BossDrawOpts = { color: '', time: 0, enraged: false, flash: 0, retreat: 0, lookX: null, lookY: null, charge: 0, shake: 0, phase: 1, phaseFlash: 0 };
+  const bossOpts: BossDrawOpts = { color: '', time: 0, enraged: false, flash: 0, retreat: 0, lookX: null, lookY: null, charge: 0, shake: 0, phase: 1, phaseFlash: 0, groggy: 0, groggyWake: 0, groggyNear: 0 };
+  /** 기획 13차: boss groggy pose timing, break effects and the 「그로기!」 stamp. */
+  const groggyFx = new GroggyFx();
   const pruneMemo = (m: UnitMemo, id: number) => {
     if (m.stamp !== stamp) memos.delete(id);
   };
@@ -102,6 +108,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   // The displayed width is re-read only on resize-type events and about once a second (avoids forced layouts).
   let shownScale = 1;
   let scaleCheckIn = 0;
+  /** 기획 13차 통합: backing-scale governor (slow device → fewer backing pixels). */
+  const quality = newGovernor();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     const dirty = () => {
       scaleCheckIn = 0;
@@ -126,7 +134,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const raw = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
     // device px per logical px, in 1/8 steps so tiny layout jitter never reallocates; never below 1, at most 2
     const shown = readShownScale(dt);
-    const want = Math.max(1, Math.min(2, Math.round(raw * shown * 8) / 8));
+    // 기획 13차 통합: a device that can't keep up renders fewer backing pixels (render/quality.ts)
+    const cap = governScale(quality, dt, dpr);
+    const want = Math.max(1, Math.min(2, cap, Math.round(raw * shown * 8) / 8));
     // 기획 8차 리뷰: the shake is felt in CSS px — a phone's 0.54× stage gets ~1.5× the logical kick
     vfx.juice.screenBoost = screenBoostFor(shown);
     const w = Math.round(LOGICAL_W * want);
@@ -154,6 +164,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const c = ctx!;
     for (const z of state.zones) {
       if (!cam.visibleX(z.center.x, (z.area ? areaReach(z.area) : z.radius) + 1)) continue;
+      // 기획 13차: a renewed skill's field is border decor only (render/marks.ts)
+      const deco = vfx.marks.zone(z.id);
+      if (deco) {
+        if (!deco.skip) drawZoneDecor(c, cam, z, deco, time);
+        continue;
+      }
       const color =
         vfx.zoneTint(z.center.x, z.center.y) ??
         (z.kind === 'heal'
@@ -265,6 +281,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const color = COLORS.telegraphAlly;
     for (const t of state.telegraphs) {
       if (t.team !== 'ally') continue;
+      // 기획 13차: a renewed beat's warning in the character's colour + motif (render/marks.ts)
+      const st = vfx.marks.tele(t.id);
+      if (st) {
+        drawStyledTelegraph(c, cam, t, st, time);
+        continue;
+      }
       const p = t.total > 0 ? Math.max(0, Math.min(1, 1 - t.remaining / t.total)) : 1;
       const area = t.area.shape === 'circle' && t.area.radius > 30 ? BIG_CIRCLE : t.area;
       pathArea(c, cam, t.center, t.origin, area, 1);
@@ -656,7 +678,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const p = animProgress(e, m);
     const cf = Math.cos(e.facing);
     const sf = Math.sin(e.facing);
-    switch (e.anim) {
+    // 기획 13차: a stopped (정지) unit holds still in whatever pose; a pulled one slides in; a hop lifts the body
+    const frozen = isStopped(e);
+    switch (frozen ? 'idle' : e.anim) {
       case 'attack': {
         if (m.look.ranged) {
           // kick back at the shot, ease forward again
@@ -754,6 +778,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       lean = 0.3;
       swing = 1.2;
     }
+    if (frozen) {
+      hMul = 1;
+      wMul = 1;
+      z = 0;
+    }
+    ox += m.pullX;
+    oy += m.pullY;
+    z += vfx.liftOf(e.id);
     pose.fx = cam.sx(e.pos.x + ox);
     pose.fy = cam.sy(e.pos.y + oy);
     if (m.joltT > 0) {
@@ -776,13 +808,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function drawUnitGround(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     const c = ctx!;
     let lift = e.anim === 'appear' && m.appearAge < DASH_LAND ? 1 - (m.appearAge / DASH_LAND) ** 2 : 0;
-    let gx = e.pos.x;
-    let gy = e.pos.y;
+    let gx = e.pos.x + m.pullX;
+    let gy = e.pos.y + m.pullY;
     if (vfx.dashPose(e.id, dashOff)) {
       gx += dashOff.ox;
       gy += dashOff.oy;
       lift = Math.min(1, dashOff.z / 1.6);
     }
+    lift = Math.max(lift, Math.min(1, vfx.liftOf(e.id) / 1.6));
+    if (vfx.hidden(e.id)) return;
     drawShadow(c, cam, gx, gy, e.radius * (m.look.shape === 'hero' ? 0.9 : 1), 1 - lift * 0.6, 1 - lift * 0.5);
     const sx0 = cam.sx(gx);
     const sy0 = cam.sy(gy);
@@ -828,6 +862,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       }
       c.globalAlpha = 1;
     }
+    if (e.statuses.length > 0) vfx.status.drawGround(c, cam, e, sx0, sy0, time);
     if (hasStatus(e, 'slow')) {
       // frost on the ground: a pale-blue ring with ice shards (one stroke + one fill)
       const r = e.radius * 1.15;
@@ -856,6 +891,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function drawUnitBody(e: Entity, m: UnitMemo): void {
     const c = ctx!;
+    if (vfx.hidden(e.id)) return;
     computePose(e, m);
     const look = m.look;
     const w = bodyWidth(e.radius) * pose.wMul;
@@ -892,7 +928,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       CREATURE_POSE.moving = e.anim === 'move';
       CREATURE_POSE.skill = lastMonsterSkill.get(e.id) ?? '';
     }
-    drawBody(c, look, e.tier, fx, fy, w, h, s, time, m.phase, m.flash > 0);
+    const frozen = e.statuses.length > 0 && isStopped(e);
+    drawBody(c, look, e.tier, fx, fy, w, h, s, frozen ? m.phase : time, m.phase, m.flash > 0 && !frozen);
+    if (e.statuses.length > 0) vfx.status.drawBodyOverlay(c, e, fx, fy, w, h);
     HERO_POSE.swing = 0;
     HERO_POSE.recoil = 0;
     CREATURE_POSE.act = 0;
@@ -942,6 +980,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       y -= 3;
     }
     if (e.statuses.length > 0) y -= drawStatusPips(c, pose.fx, y, e.statuses);
+    // 기획 13차: up to two status icons over an enemy (도발 · 족쇄 · 정지 · 조종 · 낙인 …)
+    if (e.statuses.length > 0 && e.team === 'enemy') y -= vfx.status.drawHead(c, e, pose.fx, y - 4, time);
     const stunned = e.anim === 'stunned' || hasStatus(e, 'stun');
     if (stunned) drawStunStars(c, pose.fx, top + 2, w, time + m.phase);
     // 기획 5차: who is who — name tag over every player character ("나" = mine)
@@ -1177,6 +1217,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
           o.shake = 0;
           o.phase = lastBoss.phase;
           o.phaseFlash = 0;
+          o.groggy = 0;
+          o.groggyWake = 0;
+          o.groggyNear = 0;
           drawBossArt(c, cam, lastBoss.defId, lastBoss.x, lastBoss.y, lastBoss.radius, o);
         }
       }
@@ -1203,6 +1246,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       o.shake = shake;
       o.phase = bossPhaseOf(e.defId, e.hp, e.maxHp);
       o.phaseFlash = vfx.phaseFlash;
+      const gp = groggyFx.pose(state);
+      o.groggy = gp.groggy;
+      o.groggyWake = gp.groggyWake;
+      o.groggyNear = gp.groggyNear;
       drawBossArt(c, cam, e.defId, e.pos.x, e.pos.y, e.radius, o);
       lastBoss.x = e.pos.x;
       lastBoss.y = e.pos.y;
@@ -1223,6 +1270,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // a drag in progress always sees the live field
     const juice = vfx.juice;
     juice.update(realStep);
+    vfx.updateReal(realStep);
     if (ui.dragPreview) juice.cancelFreeze();
     const dt = juice.frozen && freezeOk ? 0 : realStep;
     time += dt;
@@ -1235,6 +1283,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         memos.clear();
         vfx.reset();
         fieldFx.reset();
+        groggyFx.reset();
         teleSeq.reset();
         lastMonsterSkill.clear();
         arenaFloor = -1;
@@ -1249,6 +1298,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (arenaFloor !== -1) {
         vfx.reset();
         fieldFx.reset();
+        groggyFx.reset();
         teleSeq.reset();
       }
       arenaFloor = state.floor;
@@ -1267,9 +1317,11 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     vc.state = state;
     vc.localPlayer = ui.localPlayer;
     vc.camX = cam.x;
+    vfx.status.frame(state);
     for (const ev of events) {
       vfx.handle(ev, vc);
       fieldFx.handle(ev, state);
+      groggyFx.handle(ev, state, ui.localPlayer, vfx);
       teleSeq.noteEvent(ev);
       if (ev.type === 'skillCast' && ev.slot === 'monster' && ev.sourceId != null) lastMonsterSkill.set(ev.sourceId, ev.skillId);
       else if (ev.type === 'death') lastMonsterSkill.delete(ev.entityId);
@@ -1303,6 +1355,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     teleSeq.track(state.telegraphs);
     vfx.update(dt, vc);
     fieldFx.update(dt);
+    groggyFx.update(dt, state);
 
     // camera
     const target = localTargetX(state, ui.localPlayer);
@@ -1365,6 +1418,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     drawProjectiles(state);
     vfx.drawAir(c, cam, time);
+    if (vfx.screen.worldActive()) drawWorldScreen(state, sorted);
     tagBoxes.length = 0;
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
@@ -1372,6 +1426,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     if (ui.dragPreview) drawFieldEventPreview(c, cam, state, ui.dragPreview, ui.localPlayer, time);
     vfx.drawOverlay(c, cam);
+    groggyFx.drawStamp(c, cam, state);
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (startsFreeze) {
       // hold this picture for the hit-stop (no DOM → no freeze: tests, workers)
@@ -1380,8 +1435,35 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     drawOffscreenEnemies(state);
     fieldFx.drawScreen(c, cam, state, time);
-    vfx.drawScreen(c);
+    vfx.drawScreen(c, cam, time);
     c.globalAlpha = 1;
+  }
+
+  /**
+   * 기획 13차 컷인: the world dims / drains (HUD is DOM, numbers come after), then the caster is drawn again on top so
+   * it stays bright; the puppeteer's spotlight goes here too.
+   */
+  function drawWorldScreen(state: GameState, units: readonly Entity[]): void {
+    const c = ctx!;
+    vfx.screen.drawWorld(c, cam, entityPos);
+    const id = vfx.screen.cutin.casterId;
+    if (id < 0 || vfx.screen.cutin.dim() <= 0) return;
+    for (const e of units) {
+      if (e.id !== id) continue;
+      const m = memos.get(e.id);
+      if (!m) break;
+      drawUnitBody(e, m);
+      if (e.ownerPlayer === vc.localPlayer) drawLocalOutline(e, m, playerColor(state, vc.localPlayer));
+      break;
+    }
+  }
+
+  function entityPos(id: number, out: { x: number; y: number }): boolean {
+    const m = memos.get(id);
+    if (!m) return false;
+    out.x = m.x;
+    out.y = m.y;
+    return true;
   }
 
   /** Copy of the world layer of the frame where a hit-stop began (backing-store pixels). */
@@ -1422,7 +1504,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.drawImage(fc, 0, 0, fc.width, fc.height, o.x, o.y, LOGICAL_W, LOGICAL_H);
     drawOffscreenEnemies(state);
     fieldFx.drawScreen(c, cam, state, time);
-    vfx.drawScreen(c);
+    vfx.drawScreen(c, cam, time);
     c.globalAlpha = 1;
   }
 
@@ -1433,6 +1515,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     },
     worldToScreen(v: Vec2): Vec2 {
       return cam.toScreen(v, { x: 0, y: 0 });
+    },
+    cutInLog() {
+      return vfx.screen.cutin.shown;
     },
   };
 

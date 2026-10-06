@@ -2,6 +2,7 @@
 
 import type { Tunables } from '../types';
 import { type JuiceSettings, sanitizeJuice } from '../render/juice';
+import { type CutInSettings, sanitizeCutIn } from '../render/cutin';
 import { CHARACTERS, PETS } from '../data';
 import { diffFromDefaults, sanitizeOverrides } from './tunables';
 
@@ -129,4 +130,16 @@ export function loadJuice(): JuiceSettings {
 
 export function saveJuice(j: JuiceSettings): void {
   write(JUICE_KEY, sanitizeJuice(j));
+}
+
+// ─────────────── 기획 13차: ult cut-in length ("컷인 짧게"), per device ───────────────
+
+const CUTIN_KEY = 'swapTower.cutin.v1';
+
+export function loadCutIn(): CutInSettings {
+  return sanitizeCutIn(read(CUTIN_KEY));
+}
+
+export function saveCutIn(c: CutInSettings): void {
+  write(CUTIN_KEY, sanitizeCutIn(c));
 }

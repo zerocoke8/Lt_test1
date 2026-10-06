@@ -56,6 +56,9 @@ function stats(): ContributionStats {
     ultDelayTotal: 0,
     ultDelayCount: 0,
     fieldEvents: 0,
+    groggyPoints: 0,
+    groggyBreaks: 0,
+    groggyDamage: 0,
   };
 }
 
@@ -191,6 +194,7 @@ function emptyState(floor: number, kind: 'normal' | 'boss', w: number, h: number
     rewardOffersByPlayer: [],
     goedam: null,
     fieldEvent: null,
+    bossGroggy: null,
     runResult: null,
   };
 }

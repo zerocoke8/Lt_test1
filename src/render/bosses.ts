@@ -70,13 +70,15 @@ export function drawElevatorKeeper(ctx: CanvasRenderingContext2D, cam: Camera, x
   ctx.globalAlpha = alpha;
   // the doors never quite close: they twitch, open on attacks, and gape in phase 2
   const want = 0.2 + 0.32 * o.charge + (o.phase >= 2 ? 0.18 : 0) + (o.enraged ? 0.08 : 0);
-  const gap = W * 2 * 0.82 * Math.min(0.85, want + 0.02 * Math.sin(t * 9) * (o.phase >= 2 ? 3 : 1));
+  // 기획 13차 그로기: the doors finally slam shut (the only time they close); standing up they creak open again
+  const gap = W * 2 * 0.82 * Math.min(0.85, want + 0.02 * Math.sin(t * 9) * (o.phase >= 2 ? 3 : 1)) * (1 - o.groggy);
   const inner = W * 0.86;
   // shaft: darkness with light spilling onto the floor
   ctx.fillStyle = '#050407';
   ctx.fillRect(cx - inner, top, inner * 2, bottom - top);
   const spill = o.phase >= 2 ? '#ff2a3d' : '#ffd36b';
-  ctx.globalAlpha = alpha * (0.1 + 0.08 * o.charge);
+  // light pours out again as it stands up
+  ctx.globalAlpha = alpha * (0.1 + 0.08 * o.charge + (o.groggyWake > 0 ? 0.3 * (1 - o.groggyWake) : 0));
   ctx.fillStyle = spill;
   ctx.beginPath();
   ctx.moveTo(cx - gap / 2, bottom);
@@ -157,9 +159,12 @@ export function drawElevatorKeeper(ctx: CanvasRenderingContext2D, cam: Camera, x
   const hands = o.phase >= 2 ? 4 : 2;
   for (let i = 0; i < hands; i++) {
     const side = i % 2 === 0 ? -1 : 1;
-    const hy = cy + 22 + (i >> 1) * 44 + (side > 0 ? 14 : 0) + Math.sin(t * 2.3 + i) * 4;
-    const hx = cx + side * (gap / 2);
-    drawHand(ctx, hx, hy, side, 24 - (i >> 1) * 3, t + i, o);
+    // knocked down: the hands that held the gap hang limp
+    const hy = cy + 22 + (i >> 1) * 44 + (side > 0 ? 14 : 0) + Math.sin(t * 2.3 + i) * 4 * (1 - o.groggy) + 46 * o.groggy;
+    const hx = cx + side * (gap / 2 + 10 * o.groggy);
+    ctx.globalAlpha = alpha * (1 - 0.35 * o.groggy);
+    drawHand(ctx, hx, hy, side, 24 - (i >> 1) * 3, t * (1 - o.groggy) + i, o);
+    ctx.globalAlpha = alpha;
   }
   // frame + sill
   ctx.fillStyle = darken(steel, 0.45);
@@ -302,6 +307,9 @@ export function drawOvertimeLord(ctx: CanvasRenderingContext2D, cam: Camera, x: 
   const suit = tinted('#24324d', o);
   const skin = o.phase >= 2 ? '#c9d8e8' : '#d8e4ee';
   const speed = o.phase >= 2 || o.enraged ? 2.4 : 1.4;
+  const g = o.groggy;
+  // 기획 13차 그로기: asleep on the desk (arms dropped); standing up, an alarm-clock flail
+  const flail = o.groggyWake > 0 ? Math.sin(o.groggyWake * Math.PI) : 0;
   ctx.globalAlpha = alpha;
   // aura of cold monitor light
   glowEllipse(ctx, cx, cy - 10, R * 1.3, R * 0.75, o.phase >= 2 ? '#ff5d73' : '#5aa9ff', alpha * (0.12 + 0.1 * o.charge));
@@ -313,7 +321,8 @@ export function drawOvertimeLord(ctx: CanvasRenderingContext2D, cam: Camera, x: 
   for (let side = -1; side <= 1; side += 2) {
     for (let i = 0; i < n; i++) {
       const k = i / Math.max(1, n - 1);
-      const base = -0.15 - k * 1.05 + Math.sin(t * speed + i * 1.3 + side) * 0.12 - o.charge * 0.25;
+      const awake = -0.15 - k * 1.05 + Math.sin(t * speed + i * 1.3 + side) * 0.12 - o.charge * 0.25 + Math.sin(t * 27 + i * 2.1) * 0.55 * flail;
+      const base = awake * (1 - g) + (0.75 + k * 0.2) * g;
       const a1 = side < 0 ? Math.PI - base : base;
       const len1 = R * (0.75 + 0.1 * k);
       const ex = sh.x + side * R * 0.45 + Math.cos(a1) * len1;
@@ -372,7 +381,7 @@ export function drawOvertimeLord(ctx: CanvasRenderingContext2D, cam: Camera, x: 
   ctx.fill();
   // head: long pale face, eye bags, glowing eyes that follow the target, messy hair
   const hx = cx;
-  const hy = cy + 8 + Math.sin(t * 1.2) * 3;
+  const hy = cy + 8 + Math.sin(t * 1.2) * 3 * (1 - g) + 44 * g;
   const hr = R * 0.36;
   const { lx, ly } = lookDir(cam, hx, hy, o);
   ctx.fillStyle = '#141820';
@@ -401,6 +410,15 @@ export function drawOvertimeLord(ctx: CanvasRenderingContext2D, cam: Camera, x: 
   for (const k of [-1, 1]) {
     const ex = hx + k * hr * 0.38;
     const ey = hy + hr * 0.02;
+    if (g > 0.4) {
+      // asleep: closed eyes (two arcs)
+      ctx.strokeStyle = '#0b0e14';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(ex, ey - hr * 0.05, hr * 0.18, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+      continue;
+    }
     ctx.fillStyle = '#5b4a7a';
     ctx.beginPath();
     ctx.ellipse(ex, ey + hr * 0.2, hr * 0.27, hr * 0.13, 0, 0, TAU);
@@ -441,7 +459,8 @@ export function drawOvertimeLord(ctx: CanvasRenderingContext2D, cam: Camera, x: 
     const a = t * (0.6 + hash01(i, 7) * 0.5) * (i % 2 ? 1 : -1) + i * 1.7;
     const rr = R * (0.95 + hash01(i, 8) * 0.55);
     const px = cx + Math.cos(a) * rr;
-    const py = cy + 10 + Math.sin(a) * rr * 0.35;
+    // knocked down: the papers flutter down onto the desk
+    const py = cy + 10 + Math.sin(a) * rr * 0.35 + g * (40 + hash01(i, 9) * 30);
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(a * 2);
@@ -528,7 +547,9 @@ export function drawSurgeonDirector(ctx: CanvasRenderingContext2D, cam: Camera, 
   const { lx, ly } = lookDir(cam, lampX, lampY, o);
   const tx = o.lookX !== null ? cam.sx(o.lookX) : cx;
   const ty = o.lookY !== null ? cam.sy(o.lookY) : cy + 200;
-  const flick = o.phase >= 3 ? (Math.sin(t * 37) > -0.2 ? 1 : 0.35) : 1;
+  // 기획 13차 그로기: the lamp sputters out (and snaps back on when it stands up)
+  const lampOn = o.groggyWake > 0 ? 1 : o.groggy <= 0 ? 1 : o.groggy >= 1 ? 0.04 : Math.sin(t * 53) > 0 ? 1 - o.groggy : 0.08;
+  const flick = (o.phase >= 3 ? (Math.sin(t * 37) > -0.2 ? 1 : 0.35) : 1) * lampOn;
   const lightCol = red ? '#ff6b6b' : '#e6fbff';
   ctx.globalAlpha = alpha * 0.1 * flick * (1 + o.charge);
   ctx.fillStyle = lightCol;
@@ -586,7 +607,7 @@ export function drawSurgeonDirector(ctx: CanvasRenderingContext2D, cam: Camera, 
       const mx = sx0 + Math.cos(a) * reach * 0.6;
       const my = sy0 - Math.abs(Math.sin(a)) * reach * 0.35 - 10;
       const hx = mx + side * reach * 0.45;
-      const hy = my + 34 + Math.sin(t * 3 + i) * 6;
+      const hy = my + 34 + Math.sin(t * 3 + i) * 6 + 44 * o.groggy; // knocked down: arms droop
       ctx.strokeStyle = darken(gown, 0.35);
       ctx.lineWidth = i === 0 ? 18 : 9;
       ctx.beginPath();
@@ -602,12 +623,15 @@ export function drawSurgeonDirector(ctx: CanvasRenderingContext2D, cam: Camera, 
       ctx.beginPath();
       ctx.arc(hx, hy, i === 0 ? 8 : 5, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = '#e9eef5';
-      ctx.lineWidth = i === 0 ? 4 : 3;
-      ctx.beginPath();
-      ctx.moveTo(hx, hy);
-      ctx.lineTo(hx + side * 4, hy + (i === 0 ? 28 : 20));
-      ctx.stroke();
+      // 기획 13차: knocked down, the main scalpels have dropped (stuck in the floor: bossGroggy.ts)
+      if (i > 0 || o.groggy < 0.5) {
+        ctx.strokeStyle = '#e9eef5';
+        ctx.lineWidth = i === 0 ? 4 : 3;
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(hx + side * 4, hy + (i === 0 ? 28 : 20));
+        ctx.stroke();
+      }
       ctx.strokeStyle = '#59636d';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -639,7 +663,7 @@ export function drawSurgeonDirector(ctx: CanvasRenderingContext2D, cam: Camera, 
   ctx.stroke();
   // head: cap, round glasses with glare, mask
   const hx = cx;
-  const hy = cy + 12 + Math.sin(t * 1.1) * 2;
+  const hy = cy + 12 + Math.sin(t * 1.1) * 2 + 20 * o.groggy;
   const hr = R * 0.34;
   ctx.beginPath();
   ctx.ellipse(hx, hy, hr * 0.92, hr * 1.06, 0, 0, TAU);

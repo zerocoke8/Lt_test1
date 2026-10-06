@@ -107,6 +107,9 @@ function player(id: number, chars: string[], active: number | null, entityId: nu
       ultDelayTotal: 0,
       ultDelayCount: 0,
       fieldEvents: 0,
+      groggyPoints: 0,
+      groggyBreaks: 0,
+      groggyDamage: 0,
     },
   };
 }
@@ -160,6 +163,7 @@ function makeState(kind: 'normal' | 'boss', localX: number, floor = 1): GameStat
     rewardOffersByPlayer: [],
     goedam: null,
     fieldEvent: null,
+    bossGroggy: null,
     runResult: null,
   };
 }

@@ -1,6 +1,7 @@
 // Short stacked messages (cosmetic; auto-dismiss). Same text within 0.6 s is coalesced.
 
 import { h } from './dom';
+import { sfx } from '../audio';
 
 export type ToastKind = 'info' | 'warn' | 'good';
 
@@ -19,6 +20,7 @@ export function createToaster(parent: HTMLElement, cls = ''): Toaster {
       if (text === last && now - lastAt < 600) return;
       last = text;
       lastAt = now;
+      sfx.ui(`ui.toast.${kind}`);
       const t = h('div', `toast toast-${kind}`, box, text);
       while (box.childElementCount > 3) box.firstElementChild?.remove();
       setTimeout(() => t.classList.add('is-leaving'), 1500);

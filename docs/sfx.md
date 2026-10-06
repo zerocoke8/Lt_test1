@@ -1,6 +1,7 @@
 # 효과음 (기획 13차)
 
-> 상태: 설계 완료, 구현 대기 (12차 작업 뒤)
+> 상태: **구현됨 (기획 13차, 남은 위험 장 추천 기본값 전부)** — 5장 1~8단계. 9단계(기획자와 함께 듣고 숫자 줄이기)는 남음. 구현 메모: ① 굽기는 OfflineAudioContext 대신 **순수 JS 렌더**(같은 32kHz 모노, node 테스트에서도 구워 봄, 층마다 끊어 8ms 조각) ② 그로기 이벤트는 그로기 트랙 이름 `bossGroggy`·`bossGroggyEnd`·`groggyGain` ③ 테스트는 `tests/audio/` 대신 `tests/ui/audio.test.ts` 한 파일 ④ UI 음량은 슬라이더 없이 효과음 × 0.7 ⑤ 표에 없던 보조 id 몇 개(`hit.multi`, `ult.mage.tick`, `ult.bard.beat.last`, `drag.puppeteer.scratch`, `gd.pick.gamble`·`.cost`). 구현 위치는 prototype-architecture.md 13차 효과음 장.
+> **통합 확인 (13차 통합, 2026-10-06)**: 아티팩트 한 파일에 소리 포함(첫 클릭에 켜짐, 드래그 단계 소리 재생, 네트워크 요청 0·콘솔 오류 0 — e2e), 전체 e2e를 소리 켠 채 3번 통과. 통합 때 바꾼 것: 굽기 조각이 브라우저가 준 한가한 시간만 쓰도록(최대 8ms, 바빠서 시간 초과로 불리면 2ms) — 느린 폰 보스전 초반에 소리 켬이 프레임을 16% 깎던 것. 9단계(함께 듣기)는 여전히 남음.
 > 요청 원문: "그리고 일단 효과음들도 나중에 교체하더라도 다 넣어주고."
 > 스킬 단계 이름 (`stage`)은 [skill-renewal.md](skill-renewal.md) 3장과 같다. 효과음은 리뉴얼된 스킬 기준.
 

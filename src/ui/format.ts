@@ -43,6 +43,13 @@ export const STATUS_LABEL: Record<StatusId, string> = {
   vulnerable: '취약',
   lifesteal: '흡혈',
   drain: '흡혼 표식', // 기획 12차 (퇴마사)
+  // 기획 13차 스킬 리뉴얼
+  taunt: '도발',
+  tether: '묶기',
+  root: '속박',
+  stasis: '정지',
+  charm: '조종',
+  splashUp: '공격 범위 증가',
 };
 
 /** One-character pip glyph. */
@@ -58,6 +65,12 @@ export const STATUS_GLYPH: Record<StatusId, string> = {
   vulnerable: '취',
   lifesteal: '흡',
   drain: '혼',
+  taunt: '!',
+  tether: '묶',
+  root: '속',
+  stasis: '정',
+  charm: '조',
+  splashUp: '범',
 };
 
 export const SOURCE_LABEL: Record<DamageSource, string> = {

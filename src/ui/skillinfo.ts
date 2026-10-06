@@ -50,6 +50,13 @@ const STATUS_SHORT: Record<StatusId, (value: number, duration: number) => string
   vulnerable: v => `받는 피해 +${pct(v)}`,
   lifesteal: v => `흡혈 ${pct(v)}`,
   drain: v => `흡혼 표식 ${pct(v)}`,
+  // 기획 13차
+  taunt: (_v, d) => `도발 ${num(d)}초`,
+  tether: v => `묶기 반경 ${num(v)}`,
+  root: (_v, d) => `속박 ${num(d)}초`,
+  stasis: (_v, d) => `정지 ${num(d)}초`,
+  charm: (_v, d) => `조종 ${num(d)}초`,
+  splashUp: v => `공격 범위 +${num(v)}`,
 };
 
 function effectLabel(e: Effect, hits: number, spots: number): string {
@@ -59,7 +66,7 @@ function effectLabel(e: Effect, hits: number, spots: number): string {
       return `피해 ${pct(e.amount)}${reps}`;
     }
     case 'heal':
-      return `회복 ${pct(e.amount)}`;
+      return `회복 ${pct(e.amount)}${hits > 1 ? `×${hits}` : ''}`;
     case 'shield':
       return `보호막 ${pct(e.amount)}`;
     case 'status':
@@ -71,12 +78,15 @@ function effectLabel(e: Effect, hits: number, spots: number): string {
     case 'cleanse':
       return '정화';
     case 'swapCooldownReduce':
-      return `대기 캐릭터 쿨 -${num(e.seconds)}초`;
+      return `${e.allPlayers ? '모두의 ' : ''}대기 캐릭터 쿨 -${num(e.seconds)}초`;
     // 기획 12차 (메딕)
     case 'benchHeal':
       return `${e.allPlayers ? '모두의 ' : ''}대기 캐릭터 회복 ${pct(e.amount)}`;
     case 'reviveReduce':
       return `${e.allPlayers ? '모두의 ' : ''}부활 대기 -${num(e.seconds)}초`;
+    // 기획 13차 (바드 앙코르)
+    case 'benchStatus':
+      return `${e.allPlayers ? '모두의 ' : ''}대기 캐릭터 ${STATUS_SHORT[e.status](e.value, e.duration)}`;
   }
 }
 
@@ -124,7 +134,7 @@ export function skillSummary(skill: Pick<SkillDef, 'actions'>): string {
       }
     }
     // player-level effects (cooldown cut, bench heal, revive cut) are not "자신"
-    const onlyCd = effs.every(e => e.kind === 'swapCooldownReduce' || e.kind === 'benchHeal' || e.kind === 'reviveReduce');
+    const onlyCd = effs.every(e => e.kind === 'swapCooldownReduce' || e.kind === 'benchHeal' || e.kind === 'reviveReduce' || e.kind === 'benchStatus');
     const who = a.affects === 'allies' ? '아군 ' : a.affects === 'self' && !onlyCd ? '자신 ' : '';
     // a field repeats its effects: say how often, or "회복 2%" reads as 2% in total
     const every = a.zone ? `${num(a.zone.tickInterval)}초마다 ` : '';

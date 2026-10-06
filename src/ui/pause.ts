@@ -7,6 +7,9 @@ import { getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, g
 import { button, h } from './dom';
 import { formatClock } from './format';
 import { toggleFullscreen } from './stage';
+import { createSoundPanel, type SoundPanel } from './soundPanel';
+import { CUTIN } from '../render/cutin';
+import { loadCutIn, saveCutIn } from './storage';
 
 export interface PauseCallbacks {
   onResume(): void;
@@ -31,6 +34,8 @@ export class PauseMenu {
   private readonly debugBtn: HTMLButtonElement;
   private readonly quitBtn: HTMLButtonElement;
   private readonly lists: HTMLElement;
+  /** 기획 13차 효과음: 🔊/🔇 + 전체 · 효과음 · 배경음. */
+  private readonly sound: SoundPanel;
   private armed = false;
   private view: PauseView = { multi: false, isHost: true };
 
@@ -44,6 +49,13 @@ export class PauseMenu {
     this.resumeBtn = button('btn btn-primary', '계속', btns, () => cb.onResume());
     this.debugBtn = button('btn btn-secondary', '디버그', btns, () => cb.onDebug());
     button('btn btn-secondary', '전체 화면', btns, () => void toggleFullscreen());
+    // 기획 13차: "컷인 짧게" — my ult's cut-in becomes a 0.25 s banner (the ult's timing is the same either way)
+    Object.assign(CUTIN, loadCutIn());
+    const cutBtn = button('btn btn-secondary btn-cutin', cutInLabel(), btns, () => {
+      CUTIN.short = !CUTIN.short;
+      saveCutIn(CUTIN);
+      cutBtn.textContent = cutInLabel();
+    });
     this.quitBtn = button('btn btn-danger', '포기', btns, () => {
       if (!this.armed) {
         this.armed = true;
@@ -52,6 +64,7 @@ export class PauseMenu {
       }
       cb.onQuit();
     });
+    this.sound = createSoundPanel(box);
     this.note = h('div', 'pause-note is-hidden', box);
     this.lists = h('div', 'pause-lists is-hidden', wrap);
     this.lists.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
@@ -81,6 +94,7 @@ export class PauseMenu {
       : '';
     this.info.textContent = s ? `${s.floor}층 · ${s.plan.kind === 'boss' ? '보스층' : '일반층'} · 진행 ${formatClock(s.time)}` : '';
     this.renderLists(s?.players[view.localPlayer ?? 0] ?? null);
+    this.sound.sync();
     this.el.classList.remove('is-hidden');
   }
 
@@ -118,4 +132,8 @@ export class PauseMenu {
   hide(): void {
     this.el.classList.add('is-hidden');
   }
+}
+
+function cutInLabel(): string {
+  return CUTIN.short ? '궁극기 컷인: 짧게' : '궁극기 컷인: 기본';
 }

@@ -27,7 +27,10 @@ import { ultChargeTimeFor } from '../sim/players';
 import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
+import { GroggyHud, groggyDown } from './groggyHud';
+import { CardFx } from './cardFx';
 import { FieldEventHud } from './fieldEventHud';
+import { sfx } from '../audio';
 
 /** Solo runs: the human is player 0. Multiplayer passes the server slot as HudOptions.localPlayer. */
 export const LOCAL_PLAYER = 0;
@@ -190,6 +193,8 @@ function sx(f: number): string {
 export class Hud {
   readonly root: HTMLElement;
   readonly charCards: CharCard[] = [];
+  /** 기획 13차: bench-card effects of the renewed skills (앙코르 badge, revive cut, rewind). */
+  private readonly cardFx = new CardFx(() => this.charCards);
   readonly petCards: PetCard[] = [];
   readonly localPlayer: number;
   readonly multi: boolean;
@@ -271,6 +276,8 @@ export class Hud {
   private readonly pendingToasts: string[] = [];
   /** 기획 12차: 돌발 괴담 pill / banner / toasts / reward pulses (ui/fieldEventHud.ts). */
   private fieldEvent!: FieldEventHud;
+  /** 기획 13차: boss groggy row / pill / held phase banner (ui/groggyHud.ts). */
+  private readonly groggy: GroggyHud;
 
   constructor(layer: HTMLElement, game: Game, cb: HudCallbacks, opts: HudOptions = {}) {
     this.game = game;
@@ -324,6 +331,13 @@ export class Hud {
     this.bossPips = makePips(this.bossBox, 16, 'boss-pips');
     // over the (mostly empty) status-pip row: right under the HP bar but clear of the boss's big eye below the box
     this.bossCast = h('div', 'boss-cast is-hidden', this.bossBox);
+    // 기획 13차: the groggy row right under the HP bar (above the status pips)
+    this.groggy = new GroggyHud(this.bossBox, bbar.nextElementSibling as HTMLElement, {
+      localPlayer: this.localPlayer,
+      toast: (text, kind) => this.toast(text, kind),
+      phaseBanner: e => this.phaseBanner(e),
+      tunables: () => this.game.tunables,
+    });
     this.floorBox = h('div', 'floorinfo hud-block', tc);
     const frow = h('div', 'fi-row', this.floorBox);
     this.floorNum = h('span', 'fi-floor', frow);
@@ -453,6 +467,7 @@ export class Hud {
 
   destroy(): void {
     this.cancelLongPress();
+    this.cardFx.destroy();
     this.root.remove();
   }
 
@@ -573,6 +588,7 @@ export class Hud {
     });
     show(this.sheet, true);
     replayClass(this.sheet, 'is-new');
+    sfx.ui('ui.sheet.open');
     this.updateSheet(s, me);
   }
 
@@ -653,6 +669,7 @@ export class Hud {
 
   /** Toast with the reason a card can't be used right now. */
   refuse(kind: 'swap' | 'pet', index: number, reason: { ok: boolean; reason?: string }): void {
+    sfx.ui('ui.refuse');
     const me = this.game.state.players[this.localPlayer];
     const m = kind === 'swap' ? me.party[index] : undefined;
     const pet = kind === 'pet' ? me.pets[index] : undefined;
@@ -714,6 +731,8 @@ export class Hud {
     const retreat = events.some(e => e.type === 'bossRetreat');
     let revivedAll = false;
     for (const e of events) {
+      if (this.groggy.onEvent(s, e)) continue; // 기획 13차: a phase crossed while the boss is down waits for it to stand up
+      if (this.cardFx.onEvent(e, this.localPlayer)) continue;
       switch (e.type) {
         case 'floorStart':
           if (e.kind === 'boss') {
@@ -744,9 +763,7 @@ export class Hud {
           this.banner('보스 광폭화!', '공격력 · 공격 속도 · 소환량 증가', 'enrage');
           break;
         case 'bossPhase':
-          // 기획 8차: "2페이즈 · 추락" — new patterns join, the boss speeds up
-          this.banner(`${e.phase}페이즈`, e.name && !/^\d+페이즈$/.test(e.name) ? `${e.name} — 새 패턴이 추가돼요` : '새 패턴이 추가돼요', 'phase');
-          replayClass(this.bossBox, 'is-phase');
+          this.phaseBanner(e);
           break;
         case 'skillCast':
           if (e.player === this.localPlayer && (e.slot === 'normal' || e.slot === 'drag') && e.sourceId != null) {
@@ -803,6 +820,12 @@ export class Hud {
           break;
       }
     }
+  }
+
+  /** 기획 8차: "2페이즈 · 추락" — new patterns join, the boss speeds up. */
+  private phaseBanner(e: Extract<GameEvent, { type: 'bossPhase' }>): void {
+    this.banner(`${e.phase}페이즈`, e.name && !/^\d+페이즈$/.test(e.name) ? `${e.name} — 새 패턴이 추가돼요` : '새 패턴이 추가돼요', 'phase');
+    replayClass(this.bossBox, 'is-phase');
   }
 
   /** 기획 12차: a bench card healed by 메딕 (no entity on the field, so the card itself shows it). */
@@ -907,6 +930,7 @@ export class Hud {
     show(this.bossBox, bossFloor);
     show(this.enrageVignette, bossFloor && s.bossEnraged && s.bossId !== null);
     show(this.floorBox, !bossFloor);
+    this.groggy.update(s); // 기획 13차
     if (bossFloor) {
       const boss = s.bossId != null ? s.entities.find(e => e.id === s.bossId) : undefined;
       const name = bossName(s.plan.bossId);
@@ -923,7 +947,8 @@ export class Hud {
       this.bossLagFrac = this.bossLagFrac < f ? f : Math.max(f, this.bossLagFrac - dt * 0.35);
       setStyle(this.bossLag, 'transform', sx(this.bossLagFrac));
       updatePips(this.bossPips, boss ? boss.statuses : [], true);
-      show(this.bossCast, !!boss && s.phase === 'combat' && performance.now() < this.castUntil);
+      // 기획 13차: a groggy boss casts nothing — its spot shows the groggy pill
+      show(this.bossCast, !!boss && s.phase === 'combat' && performance.now() < this.castUntil && !groggyDown(s));
     } else {
       show(this.bossCast, false);
       this.castUntil = 0;
@@ -1000,6 +1025,8 @@ export class Hud {
       setClass(c.el, 'is-dead', m.dead);
       setClass(c.el, 'is-cool', cooling || locked);
       setClass(c.el, 'is-ready', ready);
+      // 기획 13차: the boss is down — every ready card says '지금!' (the finishing swap)
+      setClass(c.el, 'is-now', ready && groggyDown(s));
       // re-appear cooldown = drag-skill cooldown (기획서 4장): the seconds are the big number on the portrait only
       setText(c.state, me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : cooling ? '쿨타임' : ready ? '교체가능' : '교체불가');
       // big countdown: revive time when dead, else the re-appear cooldown of a benched card.

@@ -52,6 +52,10 @@ function parseDebug(v: unknown): DebugAction | null {
     case 'goedamNext':
       if (v.room === undefined) return { kind: 'goedamNext' };
       return goedamId(v.room) ? { kind: 'goedamNext', room: v.room } : null;
+    case 'forceGroggy':
+      // 기획 13차: fill the boss groggy gauge (default full)
+      if (v.fill === undefined) return { kind: 'forceGroggy' };
+      return isNum(v.fill) && v.fill >= 0 && v.fill <= 1 ? { kind: 'forceGroggy', fill: v.fill } : null;
     case 'fieldEventNext':
       // 기획 12차: a known 돌발 괴담 id, or none (any that fits)
       if (v.id === undefined) return { kind: 'fieldEventNext' };

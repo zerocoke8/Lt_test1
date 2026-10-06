@@ -5,11 +5,12 @@ import { PROJECTILE_MAX_LIFE } from './constants';
 import { unitCtx } from './ctx';
 import { WEAK_MULT } from '../data';
 import { fieldEventDeath } from './fieldEvents';
+import { groggyHitMult } from './groggy';
 import { damageTakenMult, hasRelic, relicParam } from './modifiers';
 import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
 import { benchMaxHp, effStats } from './stats';
-import { applyStatus, statusValue } from './status';
+import { applyStatus, statusValue, storeStasisDamage } from './status';
 import {
   aliveEnemiesOf,
   copy,
@@ -34,6 +35,8 @@ export interface DmgSrc {
   isDrag: boolean;
   /** Skill name (CastCtx carries it); only copied onto the cosmetic damage event. */
   name?: string;
+  /** 기획 13차 (정지 반동): fixed damage — no vulnerable / weak / groggy / bot / relic / defense / trace multipliers. */
+  pure?: boolean;
 }
 
 /** Damage sources whose hits carry the skill name on the damage event (render shows it under the number). */
@@ -49,10 +52,10 @@ export interface OnHit {
   value: number;
 }
 
-/** amount × caster atk × mults, with a crit roll. */
-export function hitDamage(w: World, ctx: CastCtx, target: SimEntity, amount: number): number {
+/** amount × caster atk × mults, with a crit roll (forceCrit 기획 13차: a guaranteed crit, no roll). */
+export function hitDamage(w: World, ctx: CastCtx, target: SimEntity, amount: number, forceCrit = false): number {
   if (!isAlive(target)) return 0;
-  const crit = ctx.critChance > 0 && w.rng.chance(ctx.critChance);
+  const crit = forceCrit || (ctx.critChance > 0 && w.rng.chance(ctx.critChance));
   const raw = ctx.atk * amount * ctx.dmgMult * (crit ? ctx.critMult : 1);
   return applyDamage(w, ctx, target, raw, crit);
 }
@@ -68,16 +71,15 @@ function weakHit(w: World, src: DmgSrc): boolean {
   return slot === 'pet' || slot === 'drag';
 }
 
-/** Apply raw (pre-mitigation) damage. Returns the mitigated hit (incl. shield-absorbed, incl. overkill). */
-export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: number, crit: boolean): number {
-  if (target.eventTag === 'ward') return 0; // 기획 12차: the patient / sleepwalker never take damage
-  if (!isAlive(target) || !(raw > 0)) return 0;
-  if (target.team === src.team) return 0;
-  if (target.invulnTime > 0) return 0;
-  if (w.tunables.invincible && target.kind === 'character') return 0;
+/** Every multiplier of a hit (vulnerable, 약점, groggy, bot, relic, defense, 괴담 trace) applied to raw. */
+function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg: number; weak: boolean; groggy: boolean } {
   let dmg = raw * (1 + statusValue(target, 'vulnerable'));
   const weak = target.eventTag === 'target' && weakHit(w, src);
   if (weak) dmg *= WEAK_MULT;
+  // 기획 13차: a groggy boss takes ×1.5, a drag cast's hit ×2 (after vulnerable, before defense; stacks with the rest)
+  const groggyMult = target.tier === 'boss' ? groggyHitMult(w, target, src.isDrag) : 1;
+  const groggy = groggyMult !== 1;
+  dmg *= groggyMult;
   const sp = src.player != null ? w.state.players[src.player] : undefined;
   if (sp) {
     if (sp.isBot) dmg *= Math.max(0, w.tunables.botDamageMult);
@@ -88,6 +90,21 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
   dmg *= 1 - effStats(w, target).def;
   // 기획 10차: 괴담 traces change the damage my characters take (once per hit)
   if (target.kind === 'character' && target.ownerPlayer != null) dmg *= damageTakenMult(w.state.players[target.ownerPlayer]);
+  return { dmg, weak, groggy };
+}
+
+/** Apply raw (pre-mitigation) damage. Returns the mitigated hit (incl. shield-absorbed, incl. overkill). */
+export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: number, crit: boolean): number {
+  if (target.eventTag === 'ward') return 0; // 기획 12차: the patient / sleepwalker never take damage
+  if (!isAlive(target) || !(raw > 0)) return 0;
+  if (target.team === src.team) return 0;
+  if (target.invulnTime > 0) return 0;
+  if (w.tunables.invincible && target.kind === 'character') return 0;
+  const sp = src.player != null ? w.state.players[src.player] : undefined;
+  const m = src.pure ? { dmg: raw, weak: false, groggy: false } : hitMults(w, src, target, raw);
+  const dmg = m.dmg;
+  const weak = m.weak;
+  const groggy = m.groggy;
   if (!(dmg > 0)) return 0;
   const hpBefore = Math.max(0, target.hp);
   const absorbed = Math.min(target.shield, dmg);
@@ -105,11 +122,14 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     source: src.source,
     ...(src.name && SKILL_NAMED.has(src.source) ? { skillName: src.name } : null),
     ...(weak ? { weak: true as const } : null),
+    ...(groggy ? { groggy: true as const, ...(src.isDrag ? { drag: true as const } : null) } : null),
   });
   const dealt = absorbed + Math.min(dmg - absorbed, hpBefore);
+  storeStasisDamage(target, dealt); // 기획 13차 정지: stored for the rebound
   if (sp) {
     sp.stats.damageDealt += dealt;
     if (target.tier === 'boss') sp.stats.damageToBoss += dealt;
+    if (groggy) sp.stats.groggyDamage += dealt;
     sp.stats.damageBySource[src.source] += dealt;
   }
   if (target.kind === 'character' && target.ownerPlayer != null) w.state.players[target.ownerPlayer].stats.damageTaken += dealt;
@@ -317,10 +337,11 @@ export function explode(w: World, e: SimEntity, radius: number, amount: number):
     name: ctx.name,
     center: copy(e.pos),
     area: { shape: 'circle', radius },
-    team: e.team,
+    team: ctx.team,
   });
-  for (const t of aliveEnemiesOf(w, e.team)) {
-    if (dist(e.pos, t.pos) <= radius + t.radius) hitDamage(w, ctx, t, amount);
+  // 기획 13차: a charmed bomb (ctx team flipped) blows up its own side
+  for (const t of aliveEnemiesOf(w, ctx.team)) {
+    if (t !== e && dist(e.pos, t.pos) <= radius + t.radius) hitDamage(w, ctx, t, amount);
   }
   killEntity(w, e, null);
 }

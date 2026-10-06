@@ -52,13 +52,15 @@ describe('cast events over the wire', () => {
       const snap = await b.snap(() => true, 4000);
       seen.push(...snap.events);
       const casts = seen.filter((e): e is Cast => e.type === 'skillCast' && e.skillId === 'mage_d');
-      if (casts.length >= 5 && seen.some(e => e.type === 'damage' && e.source === 'drag')) break;
+      if (casts.length >= MAGE.length && seen.some(e => e.type === 'damage' && e.source === 'drag')) break;
       await sleep(10);
     }
     const meteors = seen.filter((e): e is Cast => e.type === 'skillCast' && e.skillId === 'mage_d');
-    expect(meteors.map(m => m.player)).toEqual([0, 0, 0, 0, 0]);
-    expect(meteors.map(m => m.slot)).toEqual(['drag', 'drag', 'drag', 'drag', 'drag']);
-    expect(meteors.map(m => m.delay)).toEqual(getCharacter('mage').drag.actions.map(x => x.delay));
+    // 기획 13차: six small meteors, the big one and the lava — every part with its timing and stage
+    expect(meteors.map(m => m.player)).toEqual(MAGE.map(() => 0));
+    expect(meteors.map(m => m.slot)).toEqual(MAGE.map(() => 'drag'));
+    expect(meteors.map(m => m.delay)).toEqual(MAGE.map(x => x.delay));
+    expect(meteors.map(m => m.stage)).toEqual(MAGE.map(x => x.stage));
     const dmg = seen.filter((e): e is Dmg => e.type === 'damage' && e.targetTeam === 'enemy');
     expect(dmg.length).toBeGreaterThan(0);
     expect(dmg.every(d => typeof d.source === 'string')).toBe(true);
@@ -66,9 +68,11 @@ describe('cast events over the wire', () => {
     expect(drag.length).toBeGreaterThan(0);
     // every drag hit carries its skill's name; the bot (3rd seat) may swap in the same window with its own drag skill
     expect(drag.every(d => typeof d.skillName === 'string' && d.skillName.length > 0)).toBe(true);
-    expect(drag.some(d => d.skillName === '유성우')).toBe(true);
+    expect(drag.some(d => d.skillName === getCharacter('mage').drag.name)).toBe(true);
   }, 30_000);
 });
+
+const MAGE = getCharacter('mage').drag.actions;
 
 /** What the renderer spawned (kinds/texts/counts; particle positions are random and left out). */
 function signature(v: Vfx): string {

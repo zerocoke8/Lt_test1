@@ -5,6 +5,7 @@ import { Camera, PX_PER_UNIT } from './camera';
 import { darken, lighten, mix } from './look';
 import { TAU, hash01 } from './shapes';
 import { BOSS_DROP, drawElevatorKeeper, drawOvertimeLord, drawSurgeonDirector } from './bosses';
+import { beginGroggyPose, endGroggyPose, drawGroggyProps } from './bossGroggy';
 import { getBoss } from '../data';
 
 export interface BossDrawOpts {
@@ -26,6 +27,12 @@ export interface BossDrawOpts {
   phase: number;
   /** 0..1 flash right after a phase change. */
   phaseFlash: number;
+  /** 기획 13차 그로기: 0..1 how far down the boss is (eases in over 0.25 s, back up over 0.8 s). */
+  groggy: number;
+  /** 기획 13차: 0..1 progress of standing up again (0 = not standing up). */
+  groggyWake: number;
+  /** 기획 13차: the gauge is almost full — 0 no, 1 (≥ 80 %), 2 (≥ 90 %): the art trembles. */
+  groggyNear: number;
 }
 
 /** Phase from HP vs the boss's thresholds (robust to joining mid-fight; the 'bossPhase' event only adds the flash). */
@@ -42,8 +49,19 @@ export function bossPhaseOf(defId: string, hp: number, maxHp: number): number {
   return n;
 }
 
-/** Draws the boss set piece for `defId` (unknown ids get the watcher). */
+/**
+ * Draws the boss set piece for `defId` (unknown ids get the watcher). 기획 13차 그로기: the shared knocked-down base
+ * (sunk 14 px, tilted 6°, 35 % washed out, big stun stars) and the 'almost full' tremble wrap the boss's own pose
+ * (bossGroggy.ts adds the props: 점검중 sign, Zzz, flat ECG …).
+ */
 export function drawBossArt(ctx: CanvasRenderingContext2D, cam: Camera, defId: string, x: number, y: number, radius: number, o: BossDrawOpts): void {
+  const posed = beginGroggyPose(ctx, cam, x, y, o);
+  drawBossPiece(ctx, cam, defId, x, y, radius, o);
+  if (posed) endGroggyPose(ctx, cam, x, y, radius, o);
+  drawGroggyProps(ctx, cam, defId, x, y, radius, o);
+}
+
+function drawBossPiece(ctx: CanvasRenderingContext2D, cam: Camera, defId: string, x: number, y: number, radius: number, o: BossDrawOpts): void {
   switch (defId) {
     case 'elevator_keeper':
       drawElevatorKeeper(ctx, cam, x, y, radius, o);
@@ -102,7 +120,8 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
   {
     const p = 0.5 + 0.5 * Math.sin(t * 1.7);
     const hr = 1.25 + 0.12 * (o.phase - 1) + 0.04 * p;
-    ctx.globalAlpha = alpha * (0.1 + 0.05 * o.phase);
+    // 기획 13차: knocked down, the rift halo dims to 30 %
+    ctx.globalAlpha = alpha * (0.1 + 0.05 * o.phase) * (1 - 0.7 * o.groggy);
     ctx.fillStyle = o.phase >= 3 ? '#ff4fa3' : '#9d4edd';
     ctx.beginPath();
     ctx.ellipse(cx, cy - ry * 0.1, rx * hr, ry * (hr + 0.25), 0, 0, TAU);
@@ -134,15 +153,17 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
     const a = TENTACLE_ANGLES[i] * Math.PI;
     let px = cx + Math.cos(a) * rx * 0.82;
     let py = cy + Math.sin(a) * ry * 0.7;
-    const dirA = a * 0.55 + (Math.PI / 2) * 0.45;
-    const len = (150 + hash01(i, 3) * 70) * (1 - o.retreat * 0.6);
+    // 기획 13차: knocked down, the tentacles hang limp to the floor
+    const g = o.groggy;
+    const dirA = (a * 0.55 + (Math.PI / 2) * 0.45) * (1 - g * 0.8) + (Math.PI / 2) * g * 0.8;
+    const len = (150 + hash01(i, 3) * 70) * (1 - o.retreat * 0.6) * (1 + 0.25 * g);
     const segLen = len / SEGS;
     let ang = dirA;
     for (let k = 0; k < SEGS; k++) {
       const u = k / SEGS;
       const sway = Math.sin(t * speed + i * 1.37 + u * 3.2) * (0.18 + u * 0.35);
       const curl = (i < 3 ? -1 : 1) * u * u * 0.9;
-      ang = dirA + sway + curl;
+      ang = dirA + (sway + curl) * (1 - g * 0.85);
       const nx = px + Math.cos(ang) * segLen;
       const ny = py + Math.sin(ang) * segLen * 0.75;
       ctx.lineWidth = 26 * (1 - u) + 4;
@@ -271,7 +292,7 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
     const ex = cx + ox * rx;
     const ey = cy + oy * ry;
     const r = rr * rx;
-    const blink = eyeOpen(t, i + 1);
+    const blink = eyeOpen(t, i + 1) * (1 - o.groggy);
     drawEye(ctx, ex, ey, r, r * 0.8 * blink, lx, ly, o.enraged, false);
   }
   // main eye
@@ -285,7 +306,18 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
     ctx.fill();
     ctx.globalAlpha = alpha;
   }
-  drawEye(ctx, cx, cy + ry * 0.02, eyeR, eyeR * 0.72 * open, lx, ly, o.enraged, true);
+  // 기획 13차: knocked down, the big eye is shut — now and then it peeks (a dizzy swirl); standing up it flashes blood red
+  const shut = o.groggy > 0 ? groggyPeek(t) * o.groggy + (1 - o.groggy) : 1;
+  drawEye(ctx, cx, cy + ry * 0.02, eyeR, eyeR * 0.72 * open * shut, lx, ly, o.enraged || o.groggyWake > 0, true);
+  if (o.groggy > 0.5 && shut > 0.12) drawDizzySwirl(ctx, cx, cy + ry * 0.02, eyeR * 0.5, eyeR * 0.72 * shut * 0.7, t, alpha);
+  if (o.groggyWake > 0) {
+    ctx.globalAlpha = alpha * 0.55 * (1 - o.groggyWake);
+    ctx.fillStyle = '#ff0022';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + ry * 0.02, eyeR * 1.6, eyeR * 1.15, 0, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = alpha;
+  }
 
   // overlays: enraged red pulse + hit flash
   if (o.enraged) {
@@ -303,6 +335,30 @@ export function drawBoss(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+}
+
+/** 기획 13차: the knocked-down eye's peek — shut, opening a slit for ~0.5 s every ~1.8 s. */
+function groggyPeek(t: number): number {
+  const ph = t % 1.8;
+  return ph < 0.5 ? 0.3 * Math.sin((ph / 0.5) * Math.PI) : 0;
+}
+
+/** Dizzy spiral over a peeking eye. */
+function drawDizzySwirl(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, t: number, alpha: number): void {
+  ctx.globalAlpha = alpha * 0.9;
+  ctx.strokeStyle = '#3a0c4a';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let k = 0; k <= 24; k++) {
+    const u = k / 24;
+    const a = u * TAU * 2 + t * 6;
+    const px = x + Math.cos(a) * rx * u;
+    const py = y + Math.sin(a) * ry * u;
+    if (k === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = alpha;
 }
 
 function eyeOpen(t: number, seed: number): number {

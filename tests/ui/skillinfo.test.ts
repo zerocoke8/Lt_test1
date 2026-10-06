@@ -42,7 +42,8 @@ describe('skill sheet rows', () => {
   it('shapes read as the field shows them (fixed directions, multi-spot, dash)', () => {
     expect(skillSummary(getCharacter('blade').drag)).toMatch(/^→ \d+(\.\d+)?칸 돌진/);
     expect(skillSummary(getCharacter('gunner').drag)).toContain('← 부채꼴');
-    expect(skillSummary(getCharacter('mage').drag)).toContain('5곳');
+    expect(skillSummary(getCharacter('mage').drag)).toContain('6곳');
+    expect(skillSummary(getCharacter('paladin').ult)).toContain('8곳'); // 기획 13차 빛의 창
     expect(skillSummary(getCharacter('shadow').drag)).toContain('3곳');
     expect(skillSummary(getCharacter('bard').drag)).toContain('세로 띠');
     expect(skillSummary(getCharacter('guardian').drag)).toContain('가로 띠');
@@ -55,7 +56,7 @@ describe('skill sheet rows', () => {
     const zone = spring.actions.find(a => a.zone)!;
     const heal = zone.effects.find(e => e.kind === 'heal')!;
     expect(heal.kind === 'heal' && skillSummary(spring)).toContain(`${zone.zone!.tickInterval}초마다 회복 ${pct(heal.amount)} · ${zone.zone!.duration}초 장판`);
-    expect(skillSummary(getCharacter('mage').ult)).toContain('0.5초마다 피해 50%');
+    expect(skillSummary(getCharacter('mage').ult)).toContain('0.5초마다 피해 45%');
   });
 
   it('seconds read like a countdown (decimals only under 10 s)', () => {

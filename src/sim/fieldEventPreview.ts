@@ -6,7 +6,7 @@ import type { Entity, GameState, PreviewPart, SkillAction, Vec2 } from '../types
 import { getCharacter, getFieldEvent, getMonster, getPet, lockRadius } from '../data';
 import { ARENA_MARGIN } from './constants';
 import { hitsArea } from './geometry';
-import { previewPartsFor } from './preview';
+import { partActions, previewPartsFor } from './preview';
 
 export interface DropOutcome {
   /** Event target the dropped character (or the pet's summon) locks onto (rule 2), else null. */
@@ -41,7 +41,7 @@ function actionsOf(state: GameState, player: number, kind: 'swap' | 'pet', index
   if (!p) return [];
   if (kind === 'swap') {
     const m = p.party[index];
-    return m ? getCharacter(m.defId).drag.actions : [];
+    return m ? partActions(getCharacter(m.defId).drag.actions) : []; // 기획 13차: one per preview part
   }
   const pet = p.pets[index];
   return pet ? [getPet(pet.defId).action] : [];

@@ -13,7 +13,8 @@ import {
 import { previewPartsFor } from '../../src/sim/preview';
 import { charCtx } from '../../src/sim/ctx';
 import { castSkill } from '../../src/sim/skills';
-import type { AreaShape, GameEvent, Vec2 } from '../../src/types';
+import { applyStatus } from '../../src/sim/status';
+import type { AreaShape, GameEvent, SkillAction, Vec2 } from '../../src/types';
 import { active, advance, clearEvents, eventsOf, HUMAN, makeGame, quietFloor, spawnAt } from './helpers';
 
 const C: Vec2 = { x: 10, y: 6 };
@@ -242,42 +243,55 @@ describe('executor: every drag skill hits exactly what its preview shows (R27)',
           enemies.push(m);
         }
       }
+      // 기획 13차: parts ↔ actions (a woundedAlly pick has no part); only damaging parts that land within the window
       const parts = tg.game.previewParts(0, 'swap', 1);
-      const want = new Map<number, number>();
+      const actions = def.drag.actions.filter(a => a.center !== 'woundedAlly');
+      const window = watchWindow(def.drag.actions);
+      expect(parts).toHaveLength(actions.length);
+      const want = new Set<number>();
       for (const e of enemies) {
-        let n = 0;
-        for (const p of parts) {
-          if (p.affects !== 'enemies') continue;
+        parts.forEach((p, i) => {
+          const a = actions[i];
+          if (p.affects !== 'enemies' || !a.effects.some(x => x.kind === 'damage') || p.delay > window - 0.2) return;
           const c = { x: drop.x + p.offset.x, y: drop.y + p.offset.y };
-          if (hitsArea(p.area, c, c, e.pos, e.radius)) n++;
-        }
-        if (n > 0) want.set(e.id, n);
+          if (hitsArea(p.area, c, c, e.pos, e.radius)) want.add(e.id);
+        });
       }
       expect(want.size).toBeGreaterThan(2);
       clearEvents(tg);
       expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: drop }).ok).toBe(true);
       active(tg).rt.base.atk = 0; // no basic attacks muddying the count
-      const got = new Map<number, number>();
+      const got = new Set<number>();
       const count = (evs: GameEvent[]) => {
-        for (const ev of evs) if (ev.type === 'damage' && ev.targetTeam === 'enemy' && ev.amount > 0) got.set(ev.targetId, (got.get(ev.targetId) ?? 0) + 1);
+        for (const ev of evs) if (ev.type === 'damage' && ev.targetTeam === 'enemy' && ev.amount > 0) got.add(ev.targetId);
       };
       count(tg.game.drainEvents());
       // tick by tick; DoT statuses are wiped so only direct hits produce damage events
-      for (let i = 0; i < 45; i++) {
+      for (let i = 0; i < Math.round(window * 30); i++) {
         for (const e of enemies) e.statuses.length = 0;
         advance(tg, 1 / 30);
         count(tg.events.splice(0));
       }
-      expect(Object.fromEntries(got)).toEqual(Object.fromEntries(want));
+      expect([...got].sort((a, b) => a - b)).toEqual([...want].sort((a, b) => a - b));
     });
   }
 });
 
+/**
+ * Seconds the R27 check watches: past the last damaging beat (at least 1.5 s; cleric's bell lands at 4 s), never as long
+ * as the 종이 인형 live (their burst is not part of the preview).
+ */
+function watchWindow(actions: readonly SkillAction[]): number {
+  const last = Math.max(0, ...actions.filter(a => !a.zone && a.effects.some(e => e.kind === 'damage')).map(a => a.delay ?? 0));
+  return Math.max(1.5, last + 0.3);
+}
+
 describe('executor: shapes in play', () => {
-  it('blade dashes right 6 (clamped at the wall) and hits along the path; dash event for the renderer', () => {
+  it('blade dashes right 6 (clamped at the wall), hits along the path, then rushes back to the drop point (기획 13차)', () => {
     const tg = gameWith('blade');
     const near = spawnAt(tg, 'golem', { x: 31, y: 6 });
     near.hp = near.maxHp = near.rt.base.maxHp = 1e9;
+    applyStatus(near, 'stun', 100, 0, null);
     clearEvents(tg);
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 30, y: 6 } });
     const e = active(tg);
@@ -285,17 +299,31 @@ describe('executor: shapes in play', () => {
     expect(e.pos.x).toBeCloseTo(a.width - 0.5);
     const d = eventsOf(tg, 'dash');
     expect(d).toHaveLength(1);
-    expect(d[0]).toMatchObject({ entityId: e.id, from: { x: 30, y: 6 }, duration: 0.18 });
+    expect(d[0]).toMatchObject({ entityId: e.id, from: { x: 30, y: 6 }, duration: 0.16 });
     expect(near.hp).toBeLessThan(1e9);
+    const afterDash = near.hp;
+    advance(tg, 0.4);
+    // stopAtCenter: back on the drop point, not past it; the way back hits again
+    expect(e.pos.x).toBeCloseTo(30, 1); // (it may already step toward its target)
+    expect(eventsOf(tg, 'dash')).toHaveLength(2);
+    expect(near.hp).toBeLessThan(afterDash);
   });
 
-  it('gunner knockback always pushes left; warden pulls ring targets toward the drop point', () => {
+  it('gunner knockback always pushes left (two blasts and the slug), the recoil shoves the gunner right; warden pulls ring targets toward the drop point', () => {
     const tg = gameWith('gunner');
     const m = spawnAt(tg, 'golem', { x: 12, y: 6.5 });
     m.hp = m.maxHp = m.rt.base.maxHp = 1e9;
+    applyStatus(m, 'stun', 100, 0, null); // stands still, knockback still moves it
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 15, y: 6 } });
-    expect(m.pos.x).toBeCloseTo(10);
+    const g = active(tg);
+    clearEvents(tg);
+    advance(tg, 1);
+    expect(m.pos.x).toBeCloseTo(8); // 1 + 1 + 2 left
     expect(m.pos.y).toBeCloseTo(6.5);
+    // atFire recoil at 0.85 s: 1.2 right from where the gunner stood, facing kept
+    const recoil = eventsOf(tg, 'dash').filter(d => d.entityId === g.id);
+    expect(recoil).toHaveLength(1);
+    expect(recoil[0].to.x - recoil[0].from.x).toBeCloseTo(1.2);
 
     const tw = gameWith('warden');
     const r = spawnAt(tw, 'golem', { x: 18, y: 6 });
@@ -304,21 +332,22 @@ describe('executor: shapes in play', () => {
     r.hp = r.maxHp = r.rt.base.maxHp = 1e9;
     inHole.hp = inHole.maxHp = inHole.rt.base.maxHp = 1e9;
     tw.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 15, y: 6 } });
-    expect(r.pos.x).toBeCloseTo(15.5); // 3 away, pulled 2.5
+    expect(r.pos.x).toBeCloseTo(15.3); // 3 away, pulled 2.8 (never closer than 0.3)
     expect(r.hp).toBeLessThan(1e9);
     expect(inHole.hp).toBe(1e9); // inside the hole of the ring
   });
 
-  it('mage meteors are telegraphed at their offsets and land in order', () => {
+  it('mage meteors are telegraphed at their offsets and land in order, the big one last', () => {
     const tg = gameWith('mage');
     clearEvents(tg);
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 15, y: 6 } });
     const tele = tg.game.state.telegraphs;
-    expect(tele.map(t => [t.center.x, t.center.y])).toEqual([[15, 6], [13, 4.5], [17, 4.5], [13, 7.5], [17, 7.5]]);
-    expect(tele.map(t => t.total)).toEqual([0.3, 0.45, 0.6, 0.75, 0.9]);
+    const r = (v: number) => Math.round(v * 100) / 100;
+    expect(tele.map(t => [r(t.center.x), r(t.center.y)])).toEqual([[12.4, 6], [13.6, 4.4], [16.4, 4.4], [17.6, 6], [16.4, 7.6], [13.6, 7.6], [15, 6]]);
+    expect(tele.map(t => t.total)).toEqual([0.3, 0.38, 0.46, 0.54, 0.62, 0.7, 1.15]); // lava: telegraphLead 0
     advance(tg, 0.5);
-    expect(tg.game.state.telegraphs).toHaveLength(3);
-    advance(tg, 0.5);
+    expect(tg.game.state.telegraphs).toHaveLength(4);
+    advance(tg, 0.7);
     expect(tg.game.state.telegraphs).toHaveLength(0);
   });
 
@@ -375,28 +404,33 @@ describe('executor: shapes in play', () => {
     expect(outside.hp).toBe(1e9);
   });
 
-  it('echo_seal repeats a dash skill without moving the caster again', () => {
+  it('echo_seal repeats a dash skill without moving the caster again (no dash, no rush back)', () => {
     const tg = gameWith('blade');
     tg.game.state.players[0].relics.push('echo_seal');
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
     const e = active(tg);
     expect(e.pos.x).toBeCloseTo(16);
-    advance(tg, 1.2);
-    expect(eventsOf(tg, 'dash')).toHaveLength(1);
+    advance(tg, 1.8);
+    expect(e.pos.x).toBeCloseTo(10);
+    expect(eventsOf(tg, 'dash')).toHaveLength(2);
   });
 
-  it('echo_seal telegraphs every part of a multi-spot skill (mage: all five meteors), then clears them', () => {
+  it('echo_seal telegraphs every part of a multi-spot skill (mage: six meteors, the big one, the lava), then clears them', () => {
     const tg = gameWith('mage');
     tg.game.state.players[0].relics.push('echo_seal');
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
     // the echo's telegraphs last the relic delay (1 s); the meteors' own ones are shorter
     const echoTgs = tg.game.state.telegraphs.filter(t => Math.abs(t.total - 1) < 1e-9);
-    expect(echoTgs.map(t => [t.center.x, t.center.y])).toEqual([
+    const r = (v: number) => Math.round(v * 100) / 100;
+    expect(echoTgs.map(t => [r(t.center.x), r(t.center.y)])).toEqual([
+      [7.4, 6],
+      [8.6, 4.4],
+      [11.4, 4.4],
+      [12.6, 6],
+      [11.4, 7.6],
+      [8.6, 7.6],
       [10, 6],
-      [8, 4.5],
-      [12, 4.5],
-      [8, 7.5],
-      [12, 7.5],
+      [10, 6],
     ]);
     advance(tg, 1.05);
     expect(tg.game.state.telegraphs.some(t => echoTgs.some(e => e.id === t.id))).toBe(false);
@@ -408,15 +442,30 @@ describe('preview parts', () => {
     const tg = makeGame({ players: [{ ...HUMAN, characters: ['mage', 'blade', 'chrono'] }] });
     const s = tg.game.state;
     const mage = previewPartsFor(s, 0, 'swap', 0);
-    expect(mage.map(p => p.offset)).toEqual([{ x: 0, y: 0 }, { x: -2, y: -1.5 }, { x: 2, y: -1.5 }, { x: -2, y: 1.5 }, { x: 2, y: 1.5 }]);
-    expect(mage.map(p => p.delay)).toEqual([0.3, 0.45, 0.6, 0.75, 0.9]);
+    expect(mage.map(p => p.offset)).toEqual([
+      { x: -2.6, y: 0 },
+      { x: -1.4, y: -1.6 },
+      { x: 1.4, y: -1.6 },
+      { x: 2.6, y: 0 },
+      { x: 1.4, y: 1.6 },
+      { x: -1.4, y: 1.6 },
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+    ]);
+    expect(mage.map(p => p.delay)).toEqual([0.3, 0.38, 0.46, 0.54, 0.62, 0.7, 1.15, 1.15]);
     const blade = previewPartsFor(s, 0, 'swap', 1);
-    expect(blade).toEqual([{ area: getCharacter('blade').drag.actions[0].area, offset: { x: 0, y: 0 }, delay: 0, affects: 'enemies', dash: { dir: 'right', distance: 6 } }]);
+    const bd = getCharacter('blade').drag.actions;
+    expect(blade).toEqual([
+      { area: bd[0].area, offset: { x: 0, y: 0 }, delay: 0, affects: 'enemies', dash: { dir: 'right', distance: 6 } },
+      // 기획 13차: the rush back is drawn as the band it sweeps (dash end → drop point)
+      { area: { shape: 'rect', dir: 'right', anchor: 'start', length: 6, width: 1.6 }, offset: { x: 0, y: 0 }, delay: 0.32, affects: 'enemies' },
+      { area: bd[2].area, offset: { x: 3, y: 0 }, delay: 0.58, affects: 'enemies' },
+    ]);
     const chrono = previewPartsFor(s, 0, 'swap', 2);
-    expect(chrono.map(p => p.affects)).toEqual(['enemies', 'self']);
+    expect(chrono.map(p => p.affects)).toEqual(['enemies', 'self', 'enemies', 'enemies']);
     s.players[0].rewards.push({ rewardId: 'dragrad_rare', partyIndex: 1 });
     const scaled = previewPartsFor(s, 0, 'swap', 1)[0];
-    expect(scaled.area).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6 * 1.3, width: 1.4 * 1.3 });
+    expect(scaled.area).toEqual({ shape: 'rect', dir: 'right', anchor: 'start', length: 6 * 1.3, width: 1.6 * 1.3 });
     expect(scaled.dash).toEqual({ dir: 'right', distance: 6 * 1.3 });
     // game facade = pure function; previewArea = first part
     expect(tg.game.previewParts(0, 'swap', 1)).toEqual(previewPartsFor(s, 0, 'swap', 1));
@@ -440,10 +489,11 @@ describe('preview parts', () => {
   it('radius rewards scale the executed area exactly like the preview', () => {
     const tg = gameWith('ranger');
     tg.game.state.players[0].rewards.push({ rewardId: 'dragrad_epic', partyIndex: 1 });
-    const far = spawnAt(tg, 'golem', { x: 10 + 12 * 1.5 - 0.3, y: 6 });
+    const far = spawnAt(tg, 'golem', { x: 10 + 14 * 1.5 - 0.3, y: 6 });
     far.rt.stationary = true;
     far.hp = far.maxHp = far.rt.base.maxHp = 1e9;
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
+    advance(tg, 1); // 기획 13차: the volley lands from 0.25 s
     expect(far.hp).toBeLessThan(1e9);
   });
 });

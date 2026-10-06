@@ -1,7 +1,8 @@
 // E2E: the claude.ai Artifact build (solo only, 기획 3차) on a plain static host with no game server.
 // The artifact fragment (scripts/make-artifact.mjs) is wrapped in a document like the Artifact host does; every other
 // path answers 404. Expect: no request besides the page (no /healthz probe, no WebSocket), zero console errors, a neutral
-// "혼자 하기 전용" note, and 출발 → solo run with bots that plays (a swap goes through).
+// "혼자 하기 전용" note, and 출발 → solo run with bots that plays (a swap goes through) — with the synthesized sound live
+// (기획 13차: the first click unlocks audio, the drop's drag stages are played).
 // For comparison the regular build on the same host: exactly one /healthz probe (404, no retries) → solo only.
 
 import { expect, test, type Page } from '@playwright/test';
@@ -76,6 +77,7 @@ test('artifact build: solo only, no network probe, zero console errors, plays', 
   const box = (await page.locator('.preset .btn-start').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await page.waitForFunction(() => window.__proto?.phase === 'combat', undefined, { timeout: 10_000 });
+  expect(await page.evaluate(() => window.__proto!.sfx.recent.map(e => e.id))).toContain('ui.start');
   expect(await page.evaluate(() => [window.__proto!.mode, window.__proto!.localPlayer, window.__proto!.game!.state.players.map(p => p.isBot)])).toEqual([
     'solo',
     0,
@@ -88,6 +90,11 @@ test('artifact build: solo only, no network probe, zero console errors, plays', 
   });
   expect(r.ok).toBe(true);
   await page.waitForFunction(() => window.__proto!.game!.state.players[0].activeIndex === 1);
+  // 기획 13차 효과음: the synth sound table is inside the single file; the 출발 click unlocked the AudioContext and the
+  // drop is heard (button → drag stages), all without a request or a console error
+  expect(await page.evaluate(() => window.__proto!.sfx.ids().length)).toBeGreaterThan(300);
+  await page.waitForFunction(() => window.__proto!.sfx.unlocked && !window.__proto!.sfx.muted);
+  await page.waitForFunction(() => window.__proto!.sfx.recent.some(e => e.id.startsWith('drag.')), undefined, { timeout: 3000 });
   await page.waitForTimeout(1500);
 
   // 기획 10차: a forced 괴담 room (inline SVG art, no files) → pick → result card → 계속 → floor 2

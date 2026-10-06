@@ -121,13 +121,19 @@ describe('preview parts as drawn', () => {
     return { pos, area: parts[0].area, parts };
   };
   it('self parts are hidden, identical ally+enemy bands merge (바드), delayed multi-hits are numbered', () => {
-    expect(previewDrawParts(at('guardian'))).toHaveLength(1);
+    // 기획 13차: the guardian's slam circle, then the wave band merged with its wall (allies + enemies)
+    const guardian = previewDrawParts(at('guardian'));
+    expect(guardian).toHaveLength(2);
+    expect(guardian[1].enemies && guardian[1].allies).toBe(true);
     const bard = previewDrawParts(at('bard'));
-    expect(bard).toHaveLength(1);
+    expect(bard.map(p => p.order)).toEqual([1, 2, 3, 4]);
     expect(bard[0].enemies && bard[0].allies).toBe(true);
-    expect(previewDrawParts(at('mage')).map(p => p.order)).toEqual([1, 2, 3, 4, 5]);
-    expect(previewDrawParts(at('shadow')).map(p => p.order)).toEqual([1, 2, 3]);
-    expect(previewDrawParts(at('paladin')).map(p => p.order)).toEqual([0, 0]);
+    expect(previewDrawParts(at('mage')).map(p => p.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(previewDrawParts(at('shadow')).map(p => p.order)).toEqual([1, 2, 3, 4]);
+    // the cleric's spring, sanctuary and bell share one circle: one drawn part, no numbers
+    expect(previewDrawParts(at('cleric')).map(p => p.order)).toEqual([0]);
+    // the blade's rush back shares the dash band
+    expect(previewDrawParts(at('blade'))).toHaveLength(2);
     expect(previewDrawParts(at('ranger'))[0].center).toEqual({ x: 10, y: 6 });
     expect(previewDrawParts(at('shadow'))[2].center).toEqual({ x: 14.4, y: 6 });
   });

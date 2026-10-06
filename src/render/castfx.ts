@@ -7,7 +7,7 @@ import type { AreaShape, GameEvent, SkillAction } from '../types';
 import { DIR_VEC, rectFrame } from '../sim/geometry';
 import { PX_PER_UNIT } from './camera';
 import { DASH_LAND } from './dashtime';
-import { Fx, type FxHost, Impact, type SkillFx, dirAngle, screenAngle } from './skillfx';
+import { Fx, type FxHost, Impact, type Sfx, type SkillFx, dirAngle, screenAngle } from './skillfx';
 
 export type SkillCastEvent = Extract<GameEvent, { type: 'skillCast' }>;
 
@@ -35,7 +35,7 @@ const GOLD = '#ffd166';
 const HOLY = '#fff3b0';
 const ICE = '#7fdcff';
 
-function radiusOf(a: AreaShape): number {
+export function radiusOf(a: AreaShape): number {
   switch (a.shape) {
     case 'circle':
       return a.radius;
@@ -55,22 +55,24 @@ function radiusOf(a: AreaShape): number {
 }
 
 /** Area wave over the exact footprint. */
-function wave(fx: SkillFx, x: number, y: number, area: AreaShape, dur: number, color: string, k: number, wait = 0): void {
+export function wave(fx: SkillFx, x: number, y: number, area: AreaShape, dur: number, color: string, k: number, wait = 0): Sfx {
   const f = fx.add(Fx.Wave, x, y, dur, color, k);
   f.area = area;
   f.wait = wait;
+  return f;
 }
 
-function star(fx: SkillFx, x: number, y: number, z: number, px: number, color: string, k: number, wait = 0, n = 8): void {
+export function star(fx: SkillFx, x: number, y: number, z: number, px: number, color: string, k: number, wait = 0, n = 8): Sfx {
   const f = fx.add(Fx.Star, x, y, 0.28, color, k);
   f.z = z;
   f.r = px;
   f.n = n;
   f.ang = Math.random() * 0.8;
   f.wait = wait;
+  return f;
 }
 
-function slash(fx: SkillFx, x: number, y: number, z: number, ang: number, px: number, color: string, k: number, wait = 0, heavy = false): void {
+export function slash(fx: SkillFx, x: number, y: number, z: number, ang: number, px: number, color: string, k: number, wait = 0, heavy = false): Sfx {
   const f = fx.add(Fx.Slash, x, y, heavy ? 0.3 : 0.22, color, k);
   f.z = z;
   f.ang = ang;
@@ -79,79 +81,89 @@ function slash(fx: SkillFx, x: number, y: number, z: number, ang: number, px: nu
   f.flip = Math.random() < 0.5 ? 1 : -1;
   f.wait = wait;
   f.n = heavy ? 1 : 0;
+  return f;
 }
 
-function xslash(fx: SkillFx, x: number, y: number, z: number, px: number, color: string, k: number, wait = 0, ang = 0): void {
+export function xslash(fx: SkillFx, x: number, y: number, z: number, px: number, color: string, k: number, wait = 0, ang = 0): Sfx {
   const f = fx.add(Fx.XSlash, x, y, 0.3, color, k);
   f.z = z;
   f.r = px;
   f.ang = ang;
   f.wait = wait;
+  return f;
 }
 
-function pillar(fx: SkillFx, x: number, y: number, w: number, h: number, color: string, k: number, dur = 0.6, follow = -1): void {
+export function pillar(fx: SkillFx, x: number, y: number, w: number, h: number, color: string, k: number, dur = 0.6, follow = -1): Sfx {
   const f = fx.add(Fx.Pillar, x, y, dur, color, k);
   f.r = w;
   f.z = h;
   f.follow = follow;
+  return f;
 }
 
-function rings(fx: SkillFx, x: number, y: number, from: number, to: number, n: number, dur: number, color: string, k: number, follow = -1, width = 4): void {
+export function rings(fx: SkillFx, x: number, y: number, from: number, to: number, n: number, dur: number, color: string, k: number, follow = -1, width = 4): Sfx {
   const f = fx.add(Fx.Rings, x, y, dur, color, k);
   f.r2 = from;
   f.r = to;
   f.n = n;
   f.w = width;
   f.follow = follow;
+  return f;
 }
 
-function clock(fx: SkillFx, x: number, y: number, r: number, dur: number, color: string, k: number, follow = -1): void {
+export function clock(fx: SkillFx, x: number, y: number, r: number, dur: number, color: string, k: number, follow = -1): Sfx {
   const f = fx.add(Fx.Clock, x, y, dur, color, k);
   f.r = r;
   f.flip = 1;
   f.follow = follow;
+  return f;
 }
 
-function chains(fx: SkillFx, x: number, y: number, outer: number, inner: number, dur: number, color: string, k: number, follow = -1): void {
+export function chains(fx: SkillFx, x: number, y: number, outer: number, inner: number, dur: number, color: string, k: number, follow = -1): Sfx {
   const f = fx.add(Fx.Chains, x, y, dur, color, k);
   f.r = outer;
   f.r2 = inner;
   f.flip = Math.random() < 0.5 ? 1 : -1;
   f.follow = follow;
+  return f;
 }
 
-function notes(fx: SkillFx, x: number, y: number, r: number, color: string, k: number, follow = -1): void {
+export function notes(fx: SkillFx, x: number, y: number, r: number, color: string, k: number, follow = -1): Sfx {
   const f = fx.add(Fx.Notes, x, y, 1.1, color, k);
   f.r = r;
   f.follow = follow;
+  return f;
 }
 
-function arrow(fx: SkillFx, x0: number, y0: number, x1: number, y1: number, dur: number, size: number, color: string, k: number, wait = 0): void {
+export function arrow(fx: SkillFx, x0: number, y0: number, x1: number, y1: number, dur: number, size: number, color: string, k: number, wait = 0): Sfx {
   const f = fx.add(Fx.Arrow, x0, y0, dur, color, k);
   f.x2 = x1;
   f.y2 = y1;
   f.z = 0.7;
   f.r = size;
   f.wait = wait;
+  return f;
 }
 
-function beam(fx: SkillFx, x0: number, y0: number, x1: number, y1: number, w: number, dur: number, color: string, k: number, wait = 0): void {
+export function beam(fx: SkillFx, x0: number, y0: number, x1: number, y1: number, w: number, dur: number, color: string, k: number, wait = 0): Sfx {
   const f = fx.add(Fx.Beam, x0, y0, dur, color, k);
   f.x2 = x1;
   f.y2 = y1;
   f.z = 0.7;
   f.w = w;
   f.wait = wait;
+  return f;
 }
 
-function muzzle(fx: SkillFx, x: number, y: number, z: number, px: number, ang: number, color: string, k: number): void {
+export function muzzle(fx: SkillFx, x: number, y: number, z: number, px: number, ang: number, color: string, k: number): Sfx {
   const f = fx.add(Fx.Muzzle, x, y, 0.1, color, k);
   f.z = z;
   f.r = px;
   f.ang = ang;
+  return f;
 }
 
-function fall(fx: SkillFx, x: number, y: number, r: number, wait: number, dur: number, impact: Impact, color: string, k: number): void {
+export function fall(fx: SkillFx, x: number, y: number, r: number, wait: number, dur: number, impact: Impact, color: string, k: number): void {
   const f = fx.add(Fx.Meteor, x, y, dur, color, k);
   f.x2 = x;
   f.y2 = y;
@@ -541,7 +553,7 @@ const PUPPET = '#ff5fa2';
 const HANJI = '#f3e9d2';
 
 /** 메딕 응급 처치: white-on-teal first-aid cross along the exact arms, a white pillar, '+' stars rising at the arm tips. */
-function medicCross(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: number, a: AreaShape, k: number): void {
+export function medicCross(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: number, a: AreaShape, k: number): void {
   wave(fx, cx, cy, a, 0.7, MEDIC, k);
   wave(fx, cx, cy, a, 0.45, '#ffffff', k * 0.6, 0.08);
   pillar(fx, cx, cy, 0.7, 4.5, '#ffffff', k, 0.6);
@@ -559,7 +571,7 @@ function medicCross(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: numb
 }
 
 /** 퇴마사 봉인진: two red ink rings on the band edges, a wave over the band, `n` yellow talismans pinned around it. */
-function sealCircle(fx: SkillFx, host: FxHost, cx: number, cy: number, a: AreaShape, k: number, n: number, dur: number): void {
+export function sealCircle(fx: SkillFx, host: FxHost, cx: number, cy: number, a: AreaShape, k: number, n: number, dur: number): void {
   const inner = a.shape === 'ring' ? a.inner : 0.6;
   const outer = radiusOf(a);
   host.ring(cx, cy, outer * 0.85, outer, dur + 0.2, INK, 5, 0.05 * k);
@@ -574,7 +586,7 @@ function sealCircle(fx: SkillFx, host: FxHost, cx: number, cy: number, a: AreaSh
 }
 
 /** 퍼펫티어 인형: a paper doll arcs from the puppeteer to the spot, a pink thread lingers, paper puff on landing. */
-function dollThrow(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: number, a: AreaShape, k: number, wait: number): void {
+export function dollThrow(fx: SkillFx, host: FxHost, c: CastInfo, cx: number, cy: number, a: AreaShape, k: number, wait: number): void {
   const o = fx.add(Fx.Orb, c.ox, c.oy, 0.28, HANJI, k);
   o.x2 = cx;
   o.y2 = cy;

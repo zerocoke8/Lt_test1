@@ -1,6 +1,7 @@
 // Player-level rules: swap (R1–R4, R12), ult (R9), pets (R14), revive (R10), bench timers.
 
 import type { CommandResult, GameState, PlayerState, Tunables, Vec2 } from '../types';
+import { ULT_CUTIN } from '../config';
 import { getCharacter, getPet } from '../data';
 import { tickBenchRegen } from './bench';
 import { APPEAR_SHIELD_DURATION } from './constants';
@@ -133,7 +134,8 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
   castSkill(w, ctx, def.drag.actions);
   if (hasRelic(p, 'echo_seal')) {
     const power = relicParam('echo_seal', 'power');
-    const echo: CastCtx = { ...ctx, dmgMult: ctx.dmgMult * power, healMult: ctx.healMult * power, shieldMult: ctx.shieldMult * power };
+    // 기획 13차: the echo never fills the boss groggy gauge (one swap = one score)
+    const echo: CastCtx = { ...ctx, dmgMult: ctx.dmgMult * power, healMult: ctx.healMult * power, shieldMult: ctx.shieldMult * power, noGroggy: true };
     const delay = relicParam('echo_seal', 'delay');
     // telegraph every part of the footprint (e.g. all five meteors), each spot once (bard's two bands share one).
     // Self-only parts (shields, cooldown cuts) have no footprint on the field — the drag preview hides them too.
@@ -187,6 +189,10 @@ export function useUlt(w: World, pi: number): CommandResult {
   p.stats.ultsUsed++;
   p.ult.charge = 0;
   p.ult.fullSince = null;
+  // 기획 13차 컷인 (docs/skill-renewal.md 2-3): the cut-in starts on every screen; the sim keeps running, the caster is
+  // invulnerable for the guard and stands still for castTime, and the effects land from ULT_CUTIN.firstHit s on
+  emit(w, { type: 'ultCast', player: p.id, entityId: e.id, defId: def.id, skillId: sk.id, name: sk.name });
+  e.invulnTime = Math.max(e.invulnTime, ULT_CUTIN.guard);
   castSkill(w, charCtx(w, e, 'ult', sk), sk.actions);
   if (sk.castTime && sk.castTime > 0) {
     e.rt.lockTime = Math.max(e.rt.lockTime, sk.castTime);

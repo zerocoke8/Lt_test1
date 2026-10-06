@@ -882,7 +882,7 @@ export function applyReward(w: World, r: FieldEventReward): void {
         const e = getEntity(w, p.activeIndex != null ? p.party[p.activeIndex].entityId : null);
         if (e) heal(w, null, e, r.pct * e.maxHp);
         benchHeal(w, p, r.pct, 1, null);
-        reduceRevive(p, r.reviveCut);
+        reduceRevive(w, p, r.reviveCut);
       }
       syncMembers(w);
       return;

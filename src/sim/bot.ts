@@ -3,7 +3,8 @@
 
 import type { Command, CommandResult, PreviewPart, Vec2 } from '../types';
 import { VIEW_WIDTH_UNITS } from '../config';
-import { getPet } from '../data';
+import type { SkillDef } from '../types';
+import { getCharacter, getPet } from '../data';
 import { BOT } from './constants';
 import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botEvents';
 import { aimSamples, containsPoint, hitsArea } from './geometry';
@@ -19,6 +20,7 @@ export function tickBots(w: World, dt: number, dispatch: Dispatch): void {
     const b = p.rt.bot;
     const me = activeEntity(w, p);
     if (me) b.viewX = me.pos.x;
+    groggyReact(w, p);
     b.thinkIn -= dt;
     if (b.thinkIn > 1e-9) continue;
     b.thinkIn += BOT.thinkInterval;
@@ -104,6 +106,9 @@ function allyScore(parts: PreviewPart[], drop: Vec2, allies: SimEntity[], perAll
 
 const hurtWeight = (a: SimEntity) => 0.2 + (1 - a.hp / a.maxHp);
 
+/** 기획 13차: how much a healer's drop also counts the enemies its damage parts reach (allies come first). */
+const HEALER_ENEMY_WEIGHT = 0.15;
+
 /**
  * Candidate drop points that put a unit on a representative spot of some part (its offset + aim samples):
  * fixed-direction shapes get candidates BEHIND the unit (e.g. LEFT of a cluster for a 'right' rect / cone / dash).
@@ -142,9 +147,12 @@ export function bestDropPoint(w: World, p: SimPlayer, idx: number): Vec2 {
   const view = botView(w, p);
   const enemies = enemiesAlive(w);
   const allies = alliesAlive(w).filter(a => a.kind === 'character');
-  if (!parts.some(pt => pt.affects === 'enemies')) {
+  // 기획 13차: a healer's renewed drag also hits enemies (종, 제세동) — it still aims at the hurt allies first
+  const healer = getCharacter(p.party[idx].defId).role === 'healer' && parts.some(pt => pt.affects === 'allies');
+  if (!parts.some(pt => pt.affects === 'enemies') || healer) {
     const hurt = allies.filter(a => a.hp < a.maxHp * 0.9);
-    const score = (c: Vec2) => allyScore(parts, c, allies, hurtWeight) + eventDropBonus(w, p, 'swap', idx, c);
+    const foes = (c: Vec2) => (healer ? enemyScore(parts, c, enemies) * HEALER_ENEMY_WEIGHT : 0);
+    const score = (c: Vec2) => allyScore(parts, c, allies, hurtWeight) + foes(c) + eventDropBonus(w, p, 'swap', idx, c);
     const best = bestDrop(w, parts, hurt.length ? hurt : allies, 'allies', score, near, view);
     if (best) return best.pos;
   } else {
@@ -175,6 +183,8 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
   // Ult: 0.5–3 s after full.
   if (p.ult.charge >= 1) {
     if (b.ultAt == null) b.ultAt = (p.ult.fullSince ?? s.time) + w.rng.range(BOT.ultDelay[0], BOT.ultDelay[1]);
+    // 기획 13차: a full ult goes into a groggy boss soon (never saved up for one)
+    if (groggyDown(w)) b.ultAt = Math.min(b.ultAt, s.time + BOT.ultGroggy);
     if (s.time >= b.ultAt && enemies.length > 0 && p.activeIndex != null) {
       if (dispatch({ type: 'ult', player: p.id }).ok) b.ultAt = null;
     }
@@ -209,7 +219,7 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
     if (ready.length > 0 && me.hp < me.maxHp * BOT.lowHpFrac) {
       swapTo(emergencyCard(p, ready, byHp));
     } else if (ready.length > 0 && enemies.length > 0 && s.time >= b.nextSwapAt) {
-      swapTo(periodicCard(p, ready) ?? w.rng.pick(ready));
+      swapTo(groggyCard(w, p, ready) ?? periodicCard(p, ready) ?? w.rng.pick(ready));
     }
   }
   if (s.phase !== 'combat') return;
@@ -283,3 +293,67 @@ function periodicCard(p: SimPlayer, ready: number[]): number | null {
 }
 
 const BENCH_LOW_HP_FRAC = 0.6;
+
+// ─────────────────────────── 기획 13차: boss groggy (docs/boss-groggy.md 7장) ───────────────────────────
+// Same gauge rules as a human (no seat weights); emergency swaps and the 돌발 괴담 rules come first.
+
+function groggyDown(w: World): boolean {
+  return (w.state.bossGroggy?.left ?? 0) > 0;
+}
+
+/** The boss just broke: a bot with a ready card pulls its next periodic swap to 0.5–1.5 s from now (one draw per break). */
+function groggyReact(w: World, p: SimPlayer): void {
+  const g = w.state.bossGroggy;
+  const b = p.rt.bot;
+  if (!g || g.left <= 0 || b.groggySeen === g.count) return;
+  b.groggySeen = g.count;
+  if (!p.party.some((_, i) => canSwap(w, p.id, i).ok)) return;
+  b.nextSwapAt = Math.min(b.nextSwapAt, w.state.time + w.rng.range(BOT.reaction[0], BOT.reaction[1]));
+}
+
+function stunOf(sk: SkillDef): number {
+  let d = 0;
+  for (const a of sk.actions) for (const e of a.effects) if (e.kind === 'status' && e.status === 'stun' && a.affects === 'enemies') d = Math.max(d, e.duration);
+  return d;
+}
+
+function damageOf(sk: SkillDef): number {
+  let n = 0;
+  for (const a of sk.actions) {
+    if (a.affects !== 'enemies') continue;
+    for (const e of a.effects) if (e.kind === 'damage') n += e.amount * Math.max(1, a.hits ?? 1);
+  }
+  return n;
+}
+
+/**
+ * Periodic pick around a groggy boss: while it is down the finisher (no-stun drag with the most damage); while the
+ * gauge is almost full (not locked) the stun drag with the longest stun (the breaker). Null = as before.
+ */
+export function groggyCard(w: World, p: SimPlayer, ready: number[]): number | null {
+  const g = w.state.bossGroggy;
+  if (!g || ready.length === 0) return null;
+  const drag = (i: number) => getCharacter(p.party[i].defId).drag;
+  let best: number | null = null;
+  let bestV = 0;
+  if (g.left > 0) {
+    for (const i of ready) {
+      const sk = drag(i);
+      const v = stunOf(sk) > 0 ? 0 : damageOf(sk);
+      if (v > bestV + 1e-9) {
+        best = i;
+        bestV = v;
+      }
+    }
+    return best;
+  }
+  if (g.lock > 0 || g.fill < BOT.nearFull) return null;
+  for (const i of ready) {
+    const v = stunOf(drag(i));
+    if (v > bestV + 1e-9) {
+      best = i;
+      bestV = v;
+    }
+  }
+  return best;
+}

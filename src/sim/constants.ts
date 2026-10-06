@@ -46,4 +46,7 @@ export const BOT = {
   ultDelay: [0.5, 3] as const,
   healPetHpFrac: 0.6,
   shieldPetHpFrac: 0.7,
+  // 기획 13차 보스 그로기: 'almost full' → a stun drag first; a full ult is used within ultGroggy s of a groggy boss
+  nearFull: 0.8,
+  ultGroggy: 0.5,
 };

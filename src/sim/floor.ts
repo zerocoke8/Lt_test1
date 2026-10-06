@@ -7,6 +7,7 @@ import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVES } from './c
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
 import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvents';
+import { clearGroggy, resetGroggy } from './groggy';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { revive, syncMembers } from './players';
 import { applyOffer, rollOffers } from './rewards';
@@ -165,6 +166,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
     s.bossId = e.id;
     emit(w, { type: 'spawn', entityId: e.id, pos: copy(e.pos), tier: 'boss' });
   }
+  resetGroggy(w); // 기획 13차: a fresh gauge on a gauge boss's floor, none elsewhere
   s.monstersAlive = countEnemies(w);
   emit(w, { type: 'floorStart', floor: s.floor, kind: s.plan.kind });
 }
@@ -322,6 +324,7 @@ export function floorClear(w: World): void {
   s.zones.length = 0;
   s.zones.push(...zones);
   for (const e of s.entities) if (e.team === 'enemy') e.rt.gone = true;
+  clearGroggy(w); // 기획 13차 (also a retreat during groggy)
   // 기획 12차: an unfinished 돌발 괴담 fails quietly; its units (also the ally-side patient / child) go
   closeFieldEvent(w);
   compactEntities(w);

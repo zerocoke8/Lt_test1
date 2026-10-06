@@ -677,6 +677,159 @@ test('3 players (기획 12차): B picks 메딕 on the preset screen; a forced �
   }
 });
 
+type GroggyEv = Extract<GameEvent, { type: 'bossGroggy' | 'bossGroggyEnd' | 'groggyGain' | 'ultCast' }>;
+
+/** Record the groggy and ult cut-in events this client receives (wraps the live game's drainEvents). */
+async function recordGroggy(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __gg: GameEvent[] };
+    w.__gg = [];
+    const g = window.__proto!.game!;
+    const orig = g.drainEvents.bind(g);
+    g.drainEvents = () => {
+      const evs = orig();
+      for (const e of evs) if (e.type === 'bossGroggy' || e.type === 'bossGroggyEnd' || e.type === 'groggyGain' || e.type === 'ultCast') w.__gg.push(e);
+      return evs;
+    };
+  });
+}
+
+const groggyEvents = (page: Page) => page.evaluate(() => (window as unknown as { __gg: GroggyEv[] }).__gg);
+
+/** Finger (client px) of a drop just below the boss, when that spot is on this phone's field; else null. */
+const bossFinger = (page: Page) =>
+  page.evaluate(() => {
+    const api = window.__proto!;
+    const s = api.game!.state;
+    const boss = s.entities.find(e => e.id === s.bossId);
+    if (!boss) return null;
+    const canvas = document.querySelector('canvas.stage-canvas');
+    for (const dy of [boss.radius + 0.4, boss.radius + 0.9, boss.radius + 1.4]) {
+      const f = api.ui.fingerFor({ x: boss.pos.x, y: boss.pos.y + dy });
+      if (document.elementFromPoint(f.x, f.y) === canvas && f.x > 40 && f.x < window.innerWidth - 40) return f;
+    }
+    return null;
+  });
+
+test('3 players (기획 13차): the boss groggy gauge fills and breaks the same on all three screens; my ult is the full cut-in, the others see the corner banner', async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const A = await openPlayer(browser, 'A', { characters: ['blade', 'guardian', 'berserker'], pets: ['frog_bomb', 'fairy_heal', 'cat_void'] });
+  const B = await openPlayer(browser, 'B');
+  const C = await openPlayer(browser, 'C');
+  const all = [A, B, C];
+  try {
+    await toLobby(A, '에이');
+    await tap(A, '.lb-create');
+    await waitPhase(A.page, 'room');
+    const code = (await A.page.evaluate(() => window.__proto!.net.roomCode))!;
+    for (const [p, nick] of [[B, '비'], [C, '씨']] as const) {
+      await toLobby(p, nick);
+      await p.page.locator('.lb-code-input').fill(code);
+      await tap(p, '.lb-join');
+      await waitPhase(p.page, 'room');
+    }
+    await tap(A, '.lb-start');
+    for (const p of all) await waitPhase(p.page, 'combat', 20_000);
+
+    // host: straight to the 5층 boss, nobody dies, no 괴담 room / 돌발 괴담 in the way
+    const dbg = (action: object) => A.page.evaluate(a => window.__proto!.game!.dispatch({ type: 'debug', action: a as never }), action);
+    const tune = (patch: object) => A.page.evaluate(pa => window.__proto!.game!.dispatch({ type: 'tunables', patch: pa as never }), patch);
+    expect((await tune({ invincible: true, fieldEventChance: 0, goedamRoomsPerZone: 0 })).ok).toBe(true);
+    expect((await dbg({ kind: 'jumpFloor', floor: 5 })).ok).toBe(true);
+    for (const p of all) {
+      await p.page.waitForFunction(() => {
+        const s = window.__proto!.game!.state;
+        return s.floor === 5 && s.phase === 'combat' && s.bossId != null && s.bossGroggy != null && s.floorTime > 1.5;
+      }, undefined, { timeout: 15_000 });
+      await expect(p.page.locator('.boss-groggy')).toBeVisible();
+      await recordGroggy(p.page);
+    }
+    // three humans: the gauge is 100 × 0.8 (5층) × 1.8 on every screen
+    const totals = await Promise.all(all.map(p => state<number>(p.page, 's.bossGroggy.total')));
+    expect(totals).toEqual([totals[0], totals[0], totals[0]]);
+
+    // ── a real touch drop of A's 가디언 next to the boss: the same points reach every screen ──
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && (await state<number>(A.page, 's.bossGroggy.fill')) === 0) {
+      const finger = await bossFinger(A.page);
+      const idx = await A.page.evaluate(() => {
+        const g = window.__proto!.game!;
+        return [1, 2].find(i => g.canSwap(0, i).ok && g.state.players[0].activeIndex !== i) ?? null;
+      });
+      if (finger && idx != null) await touchDrag(A, await center(A.page, `.ccard[data-idx="${idx}"]`), finger);
+      await sleep(1200);
+    }
+    const fillA = await state<number>(A.page, 's.bossGroggy.fill');
+    expect(fillA).toBeGreaterThan(0);
+    for (const p of [B, C]) await p.page.waitForFunction(f => window.__proto!.game!.state.bossGroggy!.fill === f, fillA, { timeout: 3000 });
+    const gains = await Promise.all(all.map(p => groggyEvents(p.page).then(evs => evs.filter(e => e.type === 'groggyGain'))));
+    expect(gains[0].length).toBeGreaterThan(0);
+    expect(gains[0][0]).toMatchObject({ player: 0, why: 'drag' });
+    expect(gains[1]).toEqual(gains[0]);
+    expect(gains[2]).toEqual(gains[0]);
+
+    // ── almost full → the ⚡ row on every screen; full → the same break, the same countdown ──
+    expect((await dbg({ kind: 'forceGroggy', fill: 0.85 })).ok).toBe(true);
+    for (const p of all) await expect(p.page.locator('.boss-groggy')).toHaveClass(/is-near/);
+    expect((await dbg({ kind: 'forceGroggy' })).ok).toBe(true);
+    for (const p of all) {
+      await expect(p.page.locator('.boss-gpill')).toHaveText(/^그로기! [345]\.\d초 · 드래그 ×2$/);
+      await expect(p.page.locator('.boss-groggy')).toHaveClass(/is-down/);
+    }
+    const breaks = await Promise.all(all.map(p => groggyEvents(p.page).then(evs => evs.filter(e => e.type === 'bossGroggy'))));
+    expect(breaks[0]).toHaveLength(1);
+    expect(breaks[0][0]).toMatchObject({ count: 1, duration: 5 });
+    expect(breaks[1]).toEqual(breaks[0]);
+    expect(breaks[2]).toEqual(breaks[0]);
+    const downs = await Promise.all(all.map(p => state<{ left: number; count: number; total: number }>(p.page, '({ left: s.bossGroggy.left, count: s.bossGroggy.count, total: s.bossGroggy.total })')));
+    for (const d of downs) {
+      expect(d.count).toBe(1);
+      expect(d.total).toBe(downs[0].total);
+      expect(Math.abs(d.left - downs[0].left)).toBeLessThan(0.6); // the three reads are a few snapshots apart
+    }
+    await shot(B, 'multi-groggy-b');
+
+    // ── A's ult while the boss is down: the full cut-in on A's screen, the corner banner on B's and C's ──
+    expect((await dbg({ kind: 'chargeUlt' })).ok).toBe(true);
+    await A.page.waitForFunction(() => window.__proto!.game!.state.players[0].ult.charge >= 1, undefined, { timeout: 5000 });
+    await tap(A, '.ult');
+    const ultName = await A.page.waitForFunction(() => window.__proto!.ui.cutIns.find(c => c.kind === 'full')?.name ?? null, undefined, { timeout: 5000 });
+    const name = (await ultName.jsonValue()) as string;
+    expect(name.length).toBeGreaterThan(0);
+    expect(await A.page.evaluate(() => window.__proto!.ui.cutIns.filter(c => c.kind === 'mini').length)).toBe(0);
+    for (const p of [B, C]) {
+      await p.page.waitForFunction(n => window.__proto!.ui.cutIns.some(c => c.kind === 'mini' && c.name === n), name, { timeout: 5000 });
+      const kinds = await p.page.evaluate(() => window.__proto!.ui.cutIns.map(c => `${c.kind}:${c.who}`));
+      expect(kinds).toEqual(['mini:에이']);
+    }
+    const ults = await Promise.all(all.map(p => groggyEvents(p.page).then(evs => evs.filter(e => e.type === 'ultCast'))));
+    expect(ults[0]).toHaveLength(1);
+    expect(ults[0][0]).toMatchObject({ player: 0, name });
+    expect(ults[1]).toEqual(ults[0]);
+    expect(ults[2]).toEqual(ults[0]);
+
+    // ── stands up: the same end on every screen, then the lock ──
+    for (const p of all) {
+      await p.page.waitForFunction(() => (window as unknown as { __gg: GameEvent[] }).__gg.some(e => e.type === 'bossGroggyEnd'), undefined, { timeout: 10_000 });
+      await expect(p.page.locator('.boss-groggy')).toHaveClass(/is-lock/);
+      await expect(p.page.locator('.boss-gpill')).toBeHidden();
+    }
+    const ends = await Promise.all(all.map(p => groggyEvents(p.page).then(evs => evs.filter(e => e.type === 'bossGroggyEnd'))));
+    expect(ends[1]).toEqual(ends[0]);
+    expect(ends[2]).toEqual(ends[0]);
+    const after = await Promise.all(all.map(p => state<string>(p.page, 'JSON.stringify({ floor: s.floor, phase: s.phase, count: s.bossGroggy.count, total: s.bossGroggy.total, stats: s.players.map(q => [q.stats.groggyBreaks, q.stats.ultsUsed]) })')));
+    expect(after[1]).toBe(after[0]);
+    expect(after[2]).toBe(after[0]);
+
+    const errors = all.flatMap(p => p.errors);
+    expect(errors, errors.join('\n')).toEqual([]);
+  } finally {
+    for (const p of all) await p.ctx.close().catch(() => {});
+  }
+});
+
 test('1-human room: the host plays with 2 bots', async ({ browser }) => {
   const A = await openPlayer(browser, 'A');
   try {

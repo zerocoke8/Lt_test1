@@ -29,6 +29,8 @@ type Col = { label: string; get: (p: PlayerState) => number; fmt?: (n: number) =
 const COLS: Col[] = [
   { label: '딜량', get: p => p.stats.damageDealt },
   { label: '보스 피해', get: p => p.stats.damageToBoss },
+  // 기획 13차: boss groggy points filled (no reward — a record only)
+  { label: '그로기 기여', get: p => p.stats.groggyPoints ?? 0 },
   { label: '받은 피해', get: p => p.stats.damageTaken },
   { label: '처치', get: p => p.stats.kills },
   { label: '회복', get: p => p.stats.healing },
@@ -111,6 +113,10 @@ export function createResultScreen(
     if (fe.length) {
       const credits = s.players.filter(p => (p.stats.fieldEvents ?? 0) > 0).map(p => `${p.id === LOCAL ? '나' : p.name} ×${p.stats.fieldEvents}`);
       kvRow('돌발 괴담', `${fe.filter(x => x.success).length}/${fe.length} 성공${credits.length ? ` · ${credits.join(' · ')}` : ''}`);
+    }
+    // 기획 13차: my boss groggy record (breaks = I filled it last)
+    if (me && (me.stats.groggyPoints ?? 0) > 0) {
+      kvRow('그로기', `${me.stats.groggyBreaks ?? 0}번 쓰러뜨림 · 그로기 중 피해 ${Math.round(me.stats.groggyDamage ?? 0).toLocaleString('ko-KR')}`);
     }
     const log = me?.goedamLog ?? [];
     if (log.length) {

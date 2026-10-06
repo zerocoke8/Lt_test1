@@ -8,6 +8,7 @@ import { tickBots } from './bot';
 import { killEntity, tickProjectiles } from './combat';
 import { createCharacterEntity } from './entities';
 import { forceFieldEvent, newFieldEventRt, tickFieldEvents } from './fieldEvents';
+import { forceGroggy, tickGroggy } from './groggy';
 import { chooseReward, clearRewardOffers, enrage, floorClear, goedamCommand, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
 import { skillMod } from './modifiers';
 import { previewPartsFor } from './preview';
@@ -58,6 +59,7 @@ export function createWorld(setup: GameSetup): World {
     rewardOffersByPlayer: [],
     goedam: null,
     fieldEvent: null,
+    bossGroggy: null,
     runResult: null,
   };
   const w: World = {
@@ -76,6 +78,7 @@ export function createWorld(setup: GameSetup): World {
     humanOffers: null,
     goedam: { forced: null, seen: [] },
     fieldEvents: newFieldEventRt(),
+    groggy: { sinceGain: 0 },
   };
 
   const n = setup.players.length;
@@ -158,6 +161,7 @@ export function tick(w: World): void {
   tickSpawner(w, dt);
   tickFieldEvents(w, dt);
   tickUnits(w, dt);
+  if (s.phase === 'combat') tickGroggy(w, dt); // 기획 13차: countdown / lock / decay
   if (s.phase === 'combat') tickProjectiles(w, dt);
   if (s.phase === 'combat') tickPending(w, dt);
   if (s.phase === 'combat') tickZones(w, dt);
@@ -274,6 +278,9 @@ function debug(w: World, a: DebugAction): CommandResult {
       if (a.id != null && !isFieldEventId(a.id)) return { ok: false, reason: '알 수 없는 돌발 괴담' };
       forceFieldEvent(w, a.id);
       return { ok: true };
+    case 'forceGroggy':
+      // 기획 13차: fill the boss groggy gauge (1 = break now)
+      return forceGroggy(w, a.fill ?? 1) ? { ok: true } : { ok: false, reason: '그로기 불가' };
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };
 }
