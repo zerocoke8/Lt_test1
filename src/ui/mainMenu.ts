@@ -1,5 +1,6 @@
 // 기획 15차: 메인 화면 (docs/expedition.md 8-1) — two mode cards before the preset: 「클래식 탑」 (today's game, unchanged)
 // and 「원정」 (실험). The last picked mode is highlighted. Sound / fullscreen toggles as on the preset screen.
+// 기획 16차: with a run in progress the 원정 card's foot says so (orange): 「진행 중: N단계 대기 · 가방 M」.
 
 import type { GearLoadout } from '../data/gear';
 import { button, h, ICON_FULLSCREEN } from './dom';
@@ -12,6 +13,8 @@ export interface MainMenuInfo {
   stashCount: number;
   maxStage: number;
   lastMode: GameMode | null;
+  /** 기획 16차: the run in progress (next stage, bag size), else null. */
+  run: { stage: number; bag: number; complete: boolean } | null;
 }
 
 export interface MainMenu {
@@ -70,7 +73,7 @@ export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onE
   const heroes = h('div', 'mm-heroes', art);
   for (const s of SHOWCASE) createDoll(heroes, 'mm-hero', 120, 150, s.id, showcaseLoadout(s.tier));
   h('div', 'mm-card-title', exp, '원정');
-  h('div', 'mm-card-sub', exp, '12단계 × 3층 · 장비 파밍 · 나가면 장비를 지켜요');
+  h('div', 'mm-card-sub', exp, '12단계 · 단계마다 로비 · 나가면 장비를 지켜요');
   const foot = h('div', 'mm-card-foot mm-exp-foot', exp);
 
   let visible = false;
@@ -83,7 +86,12 @@ export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onE
       visible = true;
       if (!sound) right.insertBefore((sound = createSoundToggle(right)), fs);
       el.classList.remove('is-hidden');
-      foot.textContent = `보관함 ${info.stashCount}개 · ${info.maxStage}단계부터 출발 가능`;
+      foot.textContent = info.run
+        ? info.run.complete
+          ? `원정 완주 · 가방 ${info.run.bag} 수령 대기`
+          : `진행 중: ${info.run.stage}단계 대기 · 가방 ${info.run.bag}`
+        : `보관함 ${info.stashCount}개 · ${info.maxStage}단계부터 출발 가능`;
+      foot.classList.toggle('is-run', !!info.run);
       classic.classList.toggle('is-last', info.lastMode === 'classic');
       exp.classList.toggle('is-last', info.lastMode === 'expedition');
     },

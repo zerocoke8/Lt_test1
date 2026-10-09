@@ -49,8 +49,8 @@ export interface ServerOptions {
   sessionTtlMs: number;
   /** 기획 15차 원정: a stage queue waits this long (from its first joiner) before bots fill the empty seats. */
   expQueueSec: number;
-  /** 기획 15차 원정: stage-clear choice time; then 「수령하고 나가기」 for whoever has not chosen. */
-  expChoiceSec: number;
+  /** 기획 16차 원정: a stage result is kept by run id this long (reconnect / expStatus), then pruned lazily. */
+  expResultKeepMs: number;
   /** 기획 15차 원정: a full queue shows its final seats (bots included) this long before the game starts. */
   expLaunchMs: number;
   /** 기획 15차 원정: honour the client's debug 「단계 전부 해금」 (start above maxStartStage). Prototype default: on. */
@@ -110,8 +110,6 @@ export interface RoomMode {
   onRemove(room: Room, m: Member): void;
   /** The game stops (run over linger done, nobody connected, sim error) — before the members are dropped. */
   onEnd(room: Room, g: Game, why: EndReason): void;
-  /** Server ms of the open stage-clear choice deadline (null = none). */
-  choiceDeadline(): number | null;
 }
 
 const SHARED_DEBUG_REFUSED = '다른 플레이어가 있는 원정 방에서는 디버그를 쓸 수 없어요';
@@ -375,7 +373,6 @@ export class Room {
       case 'ult':
       case 'chooseReward':
       case 'goedam':
-      case 'expeditionChoice':
         c = { ...cmd, player: pi };
         break;
       case 'debug':
@@ -524,15 +521,13 @@ export class Room {
     if (!g || m.playerIndex == null) return null;
     const over = g.state.phase === 'runOver' || g.state.phase === 'stageClear';
     const telemetry = over ? `,"telemetry":${wireJson(g.telemetry(m.playerIndex))}` : '';
-    const choiceDeadline = this.mode?.choiceDeadline();
-    const choice = choiceDeadline != null ? `,"choiceDeadline":${choiceDeadline}` : '';
     const tunables = tunablesJson != null ? `,"tunables":${tunablesJson}` : '';
     // null outside the room: a disconnect can start the next floor before the next tick's checkGoedam clears it
     const goedamDeadline = g.state.phase === 'goedam' ? this.goedamDeadline : null;
     return (
       `{"t":"snap","tick":${g.state.tick},"serverTime":${Date.now()},"state":${stateJson},"events":${eventsJson}` +
       `${tunables},"hostPlayerIndex":${this.hostPlayerIndex},"rewardDeadline":${this.rewardDeadline ?? 'null'}` +
-      `,"goedamDeadline":${goedamDeadline ?? 'null'}${telemetry}${choice}}`
+      `,"goedamDeadline":${goedamDeadline ?? 'null'}${telemetry}}`
     );
   }
 

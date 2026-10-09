@@ -1,12 +1,13 @@
 // Strict parsing of client messages (src/net/protocol.ts). Anything malformed → null (ignored by the server).
 // Returned objects are rebuilt from scratch: no extra fields, no prototype tricks reach the sim.
 
-import type { ClientMsg, PresetChoice } from '../src/net/protocol';
+import type { ClientMsg, ExpRunInfo, PresetChoice } from '../src/net/protocol';
 import { GOEDAM_OPTION_RE } from '../src/net/protocol';
-import type { Command, DebugAction, Vec2 } from '../src/types';
-import type { GearLoadout } from '../src/data/gear';
+import type { Command, DebugAction, ExpeditionCarry, Vec2 } from '../src/types';
+import type { GearLoadout, GearSpec } from '../src/data/gear';
 import { CHARACTERS, PETS, isFieldEventId } from '../src/data';
 import { EXPEDITION_STAGES } from '../src/data/stages';
+import { RUN_ID_RE } from '../src/expedition/runCheck';
 
 type Obj = Record<string, unknown>;
 
@@ -49,6 +50,7 @@ function parseDebug(v: unknown): DebugAction | null {
     case 'skipFloor':
     case 'forceEnrage':
     case 'expeditionClearStage':
+    case 'wipeParty': // 기획 16차
       return { kind: v.kind };
     case 'jumpFloor':
       return isInt(v.floor, 1, 1000) ? { kind: 'jumpFloor', floor: v.floor } : null;
@@ -88,9 +90,6 @@ export function parseCommand(v: unknown): Command | null {
       return goedamId(v.option) ? { type: 'goedam', player: 0, option: v.option } : null;
     case 'quit':
       return { type: 'quit' };
-    case 'expeditionChoice':
-      // 기획 15차 원정: 「수령하고 나가기」 / 「다음 단계 도전」 (the sim checks the phase)
-      return v.choice === 'extract' || v.choice === 'continue' ? { type: 'expeditionChoice', player: 0, choice: v.choice } : null;
     case 'debug': {
       const action = parseDebug(v.action);
       return action ? { type: 'debug', action } : null;
@@ -106,9 +105,58 @@ export function parseCommand(v: unknown): Command | null {
   return null;
 }
 
+/** 기획 16차: size bounds of a run sent with expQueue (beyond them the message is junk). */
+export const RUN_LIMITS = { bag: 64, rewards: 48, traces: 16, seen: 64 } as const;
+
+const arr = (v: unknown, max: number): unknown[] | null => (Array.isArray(v) && v.length <= max ? v : null);
+const pick = (v: unknown, keys: readonly string[]): Obj => {
+  const o: Obj = {};
+  if (isObj(v)) for (const k of keys) if (k in v) o[k] = v[k];
+  return o;
+};
+
+function parseCarry(v: unknown): ExpeditionCarry | null | undefined {
+  if (v === null) return null;
+  if (!isObj(v)) return undefined;
+  const rewards = arr(v.rewards, RUN_LIMITS.rewards);
+  const traces = arr(v.goedamTraces, RUN_LIMITS.traces);
+  const ult = arr(v.ult, 3);
+  const seen = v.goedamSeen === undefined ? [] : arr(v.goedamSeen, RUN_LIMITS.seen);
+  if (!rewards || !traces || !ult || !seen) return undefined;
+  return {
+    rewards: rewards.map(r => pick(r, ['rewardId', 'partyIndex'])) as unknown as ExpeditionCarry['rewards'],
+    goedamTraces: traces.map(t => pick(t, ['id', 'floorsLeft'])) as unknown as ExpeditionCarry['goedamTraces'],
+    ult: ult as number[],
+    goedamSeen: seen as string[],
+  };
+}
+
+/**
+ * 기획 16차: the continuing run of an expQueue — shape and sizes only, rebuilt from known fields. Whether it is a run
+ * that can exist (tiers, counts, ids) is the lobby's runJoinProblem ('bad_run'). undefined = malformed.
+ */
+export function parseExpRun(v: unknown): ExpRunInfo | null | undefined {
+  if (v === undefined || v === null) return null;
+  if (!isObj(v) || typeof v.id !== 'string' || !RUN_ID_RE.test(v.id)) return undefined;
+  if (!isInt(v.startStage, 1, EXPEDITION_STAGES) || !isInt(v.cleared, 0, EXPEDITION_STAGES)) return undefined;
+  const bag = arr(v.bag, RUN_LIMITS.bag);
+  const boss = arr(v.bossClears, EXPEDITION_STAGES);
+  const carry = parseCarry(v.carry);
+  if (!bag || !boss || carry === undefined) return undefined;
+  return {
+    id: v.id,
+    startStage: v.startStage,
+    cleared: v.cleared,
+    bag: bag.map(g => pick(g, ['slot', 'tier', 'rarity', 'optionId', 'relicId'])) as unknown as GearSpec[],
+    carry,
+    bossClears: boss as number[],
+  };
+}
+
 /**
  * 기획 15차 원정 expQueue: stage, party (same rules as a preset), gear (any JSON shape; the expedition lobby checks it
- * with cleanPartyGear and answers 'bad_gear' instead of silently ignoring it) and the boss stages already cleared once.
+ * with cleanPartyGear and answers 'bad_gear' instead of silently ignoring it), the boss stages already cleared once and
+ * (기획 16차) the continuing run (parseExpRun; null = fresh).
  */
 function parseExpQueue(v: Obj): ClientMsg | null {
   if (!isInt(v.stage, 1, EXPEDITION_STAGES)) return null;
@@ -116,8 +164,10 @@ function parseExpQueue(v: Obj): ClientMsg | null {
   if (!preset) return null;
   const fbc = v.firstBossClears === undefined ? [] : v.firstBossClears;
   if (!Array.isArray(fbc) || fbc.length > EXPEDITION_STAGES || !fbc.every(x => isInt(x, 1, EXPEDITION_STAGES))) return null;
+  const run = parseExpRun(v.run);
+  if (run === undefined) return null;
   const gear = Array.isArray(v.gear) ? (v.gear as GearLoadout[]) : ([] as GearLoadout[]);
-  const msg: ClientMsg = { t: 'expQueue', stage: v.stage, ...preset, gear, firstBossClears: [...new Set(fbc as number[])] };
+  const msg: ClientMsg = { t: 'expQueue', stage: v.stage, ...preset, gear, firstBossClears: [...new Set(fbc as number[])], run };
   return v.debugUnlock === true ? { ...msg, debugUnlock: true } : msg;
 }
 
@@ -179,8 +229,11 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return { t: 'expCancel' };
     case 'expStartNow':
       return { t: 'expStartNow' };
-    case 'expChoice':
-      return v.choice === 'extract' || v.choice === 'continue' ? { t: 'expChoice', choice: v.choice } : null;
+    case 'expStatus':
+      // 기획 16차: the result of a run's stage (optional `stage`: only a result of that stage answers)
+      if (typeof v.runId !== 'string' || !RUN_ID_RE.test(v.runId)) return null;
+      if (v.stage === undefined) return { t: 'expStatus', runId: v.runId };
+      return isInt(v.stage, 1, EXPEDITION_STAGES) ? { t: 'expStatus', runId: v.runId, stage: v.stage } : null;
   }
   return null;
 }

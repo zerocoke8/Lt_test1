@@ -8,7 +8,7 @@ import type { Rarity, StatMods } from '../types';
 import { RELICS } from './relics';
 import { EXPEDITION_STAGES } from './stages';
 
-export { EXPEDITION, MID_BY_STAGE, isBossStage, equivFloor, stageTheme, clampStage } from './stages';
+export { EXPEDITION, STAGE_FOE, isBossStage, equivFloor, maxStageLoot, stageTheme, clampStage } from './stages';
 
 export type GearSlot = 'weapon' | 'armor' | 'charm' | 'relic';
 export const GEAR_SLOTS: readonly GearSlot[] = ['weapon', 'armor', 'charm', 'relic'];

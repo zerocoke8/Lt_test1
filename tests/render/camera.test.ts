@@ -70,10 +70,17 @@ describe('quarter-view projection', () => {
 });
 
 describe('camera clamp + follow', () => {
-  it('clamps to the normal arena so the view never leaves it', () => {
+  it('기획 16차: the normal arena is the screen width (24), so the camera stays centered', () => {
+    expect(ARENA_NORMAL.width).toBe(VIEW_WIDTH_UNITS);
     expect(clampCameraX(0, ARENA_NORMAL.width)).toBe(12);
-    expect(clampCameraX(100, ARENA_NORMAL.width)).toBe(ARENA_NORMAL.width - 12);
-    expect(clampCameraX(17, ARENA_NORMAL.width)).toBe(17);
+    expect(clampCameraX(100, ARENA_NORMAL.width)).toBe(12);
+    expect(clampCameraX(17, ARENA_NORMAL.width)).toBe(12);
+  });
+
+  it('clamps an arena wider than the screen so the view never leaves it', () => {
+    expect(clampCameraX(0, 36)).toBe(12);
+    expect(clampCameraX(100, 36)).toBe(36 - 12);
+    expect(clampCameraX(17, 36)).toBe(17);
   });
 
   it('centers boss / narrow arenas (no scroll)', () => {

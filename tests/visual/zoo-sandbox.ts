@@ -10,7 +10,7 @@
 //   enraged=1
 
 import { createRenderer } from '../../src/render';
-import { BOSS_POS, PLAYER_COLORS } from '../../src/config';
+import { ARENA_NORMAL, BOSS_POS, PLAYER_COLORS } from '../../src/config';
 import { getCharacter } from '../../src/data';
 import { CREATURE_ART } from '../../src/render/creatures';
 import type { ContributionStats, Entity, FloorTheme, GameEvent, GameState, PlayerState, RenderUiState, Telegraph, Vec2, Zone } from '../../src/types';
@@ -151,7 +151,7 @@ function galleryScene(zone: FloorTheme): Scene {
 }
 
 function packScene(zone: FloorTheme): Scene {
-  const s = baseState(ZONE_FLOOR[zone], 'normal', 36, zone);
+  const s = baseState(ZONE_FLOOR[zone], 'normal', ARENA_NORMAL.width, zone);
   const me = addParty(s, 10, 6.5);
   const ids = ZONE_PACK[zone];
   const spots: Vec2[] = [[14, 4.6], [15.5, 7.2], [17.2, 5.2], [13.4, 9.4], [18.8, 8.6], [16.2, 2.6], [20, 4]].map(([x, y]) => ({ x, y }));
@@ -206,7 +206,7 @@ function zoneOf(team: 'enemy' | 'ally', center: Vec2, radius: number, kind: Zone
 
 /** New mechanics: blink, charge, fan spray, split on death, monster heal, landing (hit-stop). */
 function fxScene(zone: FloorTheme, fx: string): Scene {
-  const s = baseState(ZONE_FLOOR[zone], 'normal', 36, zone);
+  const s = baseState(ZONE_FLOOR[zone], 'normal', ARENA_NORMAL.width, zone);
   const me = addParty(s, 10, 6.5);
   const script: Scene['script'] = [];
   const at = (t: number, ev: GameEvent) => script.push({ at: t, ev });
@@ -302,7 +302,7 @@ const pending: GameEvent[] = [];
 
 /** bench=<id>: 40 of one look moving/attacking over the zone floor (render cost per look, ms/frame). */
 function benchScene(zone: FloorTheme, id: string): Scene {
-  const s = baseState(ZONE_FLOOR[zone], 'normal', 36, zone);
+  const s = baseState(ZONE_FLOOR[zone], 'normal', ARENA_NORMAL.width, zone);
   const me = addParty(s, 12, 6);
   for (let i = 0; i < 40; i++) s.entities.push(mon(id, 2 + (i % 10) * 2.2, 1 + Math.floor(i / 10) * 3, { targetId: me.id, anim: i % 2 ? 'move' : 'attack', animTime: 0.3, hp: 150 }));
   return {

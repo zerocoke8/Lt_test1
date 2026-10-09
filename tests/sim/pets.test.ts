@@ -9,13 +9,13 @@ describe('R14 pets', () => {
     quietFloor(tg);
     const p = tg.game.state.players[0];
     const me = active(tg);
-    const m = spawnAt(tg, 'golem', { x: 25, y: 6 });
+    const m = spawnAt(tg, 'golem', { x: 20, y: 6 }); // 기획 16차: inside the 24-wide arena
     applyStatus(m, 'stun', 100, 0, null);
     const hp0 = m.hp;
     const swapCds = p.party.map(x => x.swapCooldownRemaining);
     clearEvents(tg);
     // frog_bomb: 0.5 s telegraph then explosion
-    expect(tg.game.dispatch({ type: 'pet', player: 0, petIndex: 0, pos: { x: 25, y: 6 } }).ok).toBe(true);
+    expect(tg.game.dispatch({ type: 'pet', player: 0, petIndex: 0, pos: { x: 20, y: 6 } }).ok).toBe(true);
     expect(p.pets[0].cooldownRemaining).toBeCloseTo(getPet('frog_bomb').cooldown);
     expect(tg.game.canUsePet(0, 0)).toEqual({ ok: false, reason: '쿨타임' });
     expect(tg.game.canUsePet(0, 1).ok).toBe(true);
@@ -27,7 +27,7 @@ describe('R14 pets', () => {
     expect(p.stats.swaps).toBe(0);
     expect(p.stats.petsUsed).toBe(1);
     expect(tg.game.state.telegraphs.length).toBe(1);
-    expect(eventsOf(tg, 'skillCast')[0]).toMatchObject({ slot: 'pet', skillId: 'frog_bomb', center: { x: 25, y: 6 } });
+    expect(eventsOf(tg, 'skillCast')[0]).toMatchObject({ slot: 'pet', skillId: 'frog_bomb', center: { x: 20, y: 6 } });
     advance(tg, 0.6);
     expect(tg.game.state.telegraphs.length).toBe(0);
     expect(m.hp).toBeLessThan(hp0);

@@ -1,11 +1,17 @@
 // 기획 15차 원정 허브 (docs/expedition.md 8-2): my party as gear dolls (tap = that character's equip screen), the 4 × 3
 // stage map (locked / startable / recommended / selected; boss stages wide with a gold edge) and 「N단계부터 출발」.
 // Debug (8-9) opens from DBG: grants, 단계 전부 해금, 보관함 초기화 (두 번 탭), 장비 그림 코드 / 파일.
+// 기획 16차: this is the 원정 lobby every stage ends in. With a run in progress (StashData.run, 8-3) the party is locked
+// (dolls with a lock and their ult %, 「편성 바꾸기」 refused with the reason, 「버프 N개」 list) and the map gives way to
+// the run panel: the 12-stage path, the bag grid (NEW = the stage just cleared), the next-stage card, the red risk line,
+// and the two big buttons 「수령」 / 「N단계 매칭」 (a double tap while the bag is at stake). DBG grants / reset are locked.
 
 import { getCharacter, getPet } from '../data';
 import { EXPEDITION_STAGES, isBossStage } from '../data/stages';
-import type { GearSlot } from '../data/gear';
+import { BAND_COLOR, bandOf, type GearSlot } from '../data/gear';
+import type { ExpeditionRun } from '../expedition/run';
 import {
+  RUN_LOCK_REASON,
   canStartAt,
   grantPartySet,
   grantRandom,
@@ -15,12 +21,16 @@ import {
   loadoutsFor,
   maxStartStageFor,
   resetStash,
+  stashLocked,
 } from '../expedition/stash';
 import { battleGearFiles, setBattleGearFiles } from '../render/gearArt';
+import { sfx } from '../audio';
 import { button, h } from './dom';
 import type { ExpCtx } from './expeditionCtx';
-import { createDoll, slotPips, type Doll } from './expeditionDoll';
-import { bossNameOfStage, guardianNameOfStage, nextStageHint, stageLootText, ZONE_NAME_KO } from './expeditionFormat';
+import { createDoll, slotPips } from './expeditionDoll';
+import { MAP_LEGEND, bossNameOfStage, buffLines, guardianNameOfStage, nextStageHint, stageLootText, ZONE_NAME_KO } from './expeditionFormat';
+import { inspectTiles, type GearInspect } from './expeditionInfo';
+import { LootReveal, confirmTap, isArmed, runLobbyView, type RevealView } from './expeditionRun';
 import { saveGearArtFiles } from './expeditionStore';
 import { petIcon } from './preset';
 
@@ -29,6 +39,10 @@ export interface HubCallbacks {
   onEquip(charId: string | null, slot?: GearSlot): void;
   onPreset(): void;
   onStart(stage: number): void;
+  /** 기획 16차: 「수령」 (the bag into the stash, the run ends). */
+  onClaim(): void;
+  /** 기획 16차: 「N단계 매칭」 (the next stage with the bag at stake). */
+  onMatch(): void;
 }
 
 export interface Hub {
@@ -36,6 +50,10 @@ export interface Hub {
   readonly visible: boolean;
   show(): void;
   hide(): void;
+  /** Redraw from the current stash (another tab / a result changed it). */
+  refresh(): void;
+  /** 기획 16차: the cleared stage's loot flips over the lobby, then pops into the bag grid. */
+  reveal(v: RevealView): void;
   /** Stage the start button would use. */
   readonly selected: number;
 }
@@ -46,7 +64,7 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
   const el = h('div', 'screen exp-hub exp-screen is-hidden', parent);
   const bar = h('div', 'exp-bar', el);
   button('btn btn-secondary exp-back', '← 메인', bar, () => cb.onMain());
-  h('div', 'exp-title', bar, '원정');
+  const title = h('div', 'exp-title', bar, '원정');
   const stashChip = button('exp-chip exp-stash-chip', '', bar, () => cb.onEquip(null));
   h('div', 'exp-bar-gap', bar);
   const dbgBtn = button('icon-btn exp-dbg', 'DBG', bar, () => toggleDebug());
@@ -54,21 +72,35 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
 
   const main = h('div', 'exp-hub-main', el);
   const left = h('div', 'exp-panel exp-party', main);
-  h('div', 'exp-panel-title', left, '내 원정대');
+  const partyHead = h('div', 'exp-party-head', left);
+  h('div', 'exp-panel-title', partyHead, '내 원정대');
+  // 기획 16차: the run's carried buffs (tap = the list)
+  const buffChip = button('exp-chip exp-buff-chip is-hidden', '', partyHead, () => buffList.classList.toggle('is-hidden'));
   const dollRow = h('div', 'exp-party-dolls', left);
   const petRow = h('div', 'exp-party-pets', left);
   const partyFoot = h('div', 'exp-party-foot', left);
-  button('btn btn-secondary exp-edit-party', '편성 바꾸기', partyFoot, () => cb.onPreset());
+  const editBtn = button('btn btn-secondary exp-edit-party', '편성 바꾸기', partyFoot, () => {
+    if (stashLocked(ctx.stash)) {
+      ctx.toast(RUN_LOCK_REASON, 'warn');
+      sfx.ui('ui.warn');
+      return;
+    }
+    cb.onPreset();
+  });
+  const lockLine = h('div', 'exp-lock-line is-hidden', left, '🔒 원정 중에는 장비·편성을 못 바꿔요 · 수령하면 바뀝니다');
   const startInfo = h('div', 'exp-start-info', left);
   const hint = button('exp-hint', '', left, () => {
     const hn = currentHint();
     if (hn) cb.onEquip(hn.charId, hn.slot);
   });
+  const buffList = h('div', 'exp-buff-list is-hidden', left);
+  buffList.addEventListener('click', () => buffList.classList.add('is-hidden'));
 
+  // ── right: the stage map (no run) ──
   const right = h('div', 'exp-panel exp-map', main);
   const mapHead = h('div', 'exp-map-head', right);
   h('div', 'exp-panel-title', mapHead, '단계 지도');
-  h('div', 'exp-map-legend', mapHead, '단계 = 3층 · 금 테두리 = 보스 단계 (유물 확률)');
+  h('div', 'exp-map-legend', mapHead, MAP_LEGEND);
   const grid = h('div', 'exp-map-grid', right);
   const startBtn = button('btn btn-primary exp-go', '', right, () => {
     const party = ctx.party().characters;
@@ -78,6 +110,49 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
     }
     cb.onStart(selected);
   });
+
+  // ── right: the run panel (기획 16차, run in progress) ──
+  const runPanel = h('div', 'exp-panel exp-run is-hidden', main);
+  const runTitle = h('div', 'exp-run-title', runPanel);
+  const pathRow = h('div', 'exp-run-path', runPanel);
+  const bagHead = h('div', 'exp-run-baghead', runPanel);
+  const bagGrid = h('div', 'exp-run-bag', runPanel);
+  const nextCard = h('div', 'exp-run-next', runPanel);
+  const riskLine = h('div', 'exp-run-risk', runPanel);
+  const waitLine = h('div', 'exp-run-wait is-hidden', runPanel, '지난 단계 결과를 확인하는 중…');
+  const runBtns = h('div', 'exp-run-btns', runPanel);
+  const claimBtn = button('exp-choice-btn exp-claim', '', runBtns, () => {
+    if (ctx.stash.run?.status === 'inStage') return;
+    cb.onClaim();
+  });
+  claimBtn.dataset.sfx = '';
+  const matchBtn = button('exp-choice-btn exp-continue exp-next-match', '', runBtns, () => tapMatch());
+  matchBtn.dataset.sfx = '';
+  let armedAt: number | null = null;
+  let armTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const reveal = new LootReveal(el);
+
+  function tapMatch(): void {
+    const run = ctx.stash.run;
+    if (!run || run.status === 'inStage') return;
+    const r = confirmTap(armedAt, performance.now(), run.bag.length > 0);
+    armedAt = r.armedAt;
+    if (!r.go) {
+      sfx.ui('ui.warn');
+      renderRun(run);
+      if (armTimer) clearTimeout(armTimer);
+      // the guard runs out by itself (back to the normal label)
+      armTimer = setTimeout(() => {
+        armTimer = null;
+        if (!isArmed(armedAt, performance.now())) armedAt = null;
+        if (visible && ctx.stash.run) renderRun(ctx.stash.run);
+      }, 3100);
+      return;
+    }
+    sfx.ui('ui.start');
+    cb.onMatch();
+  }
 
   // ── debug drawer ──
   const dbg = h('div', 'exp-dbg-panel is-hidden', el);
@@ -91,6 +166,9 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
     h('span', 'exp-dbg-title', head, '원정 디버그');
     button('dbg-hbtn', '✕', head, () => dbg.classList.add('is-hidden'));
     const party = ctx.party().characters;
+    // 기획 16차: grants and the reset are locked while a run exists (8-9)
+    const locked = stashLocked(ctx.stash);
+    if (locked) h('div', 'exp-dbg-note', dbg, '🔒 원정 중에는 장비 지급·초기화가 잠겨요 (수령하면 풀려요)');
     const who = h('div', 'exp-dbg-row', dbg);
     h('span', 'exp-dbg-label', who, '선택 캐릭터');
     party.forEach((id, i) => {
@@ -100,33 +178,43 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
       });
       b.dataset.char = id;
     });
+    const grantBtn = (cls: string, label: string, row: HTMLElement, fn: () => void) => {
+      const b = button(`dbg-btn ${cls}${locked ? ' is-locked' : ''}`, label, row, () => {
+        if (stashLocked(ctx.stash)) {
+          ctx.toast(RUN_LOCK_REASON, 'warn');
+          return;
+        }
+        fn();
+      });
+      return b;
+    };
     const one = h('div', 'exp-dbg-row', dbg);
     h('span', 'exp-dbg-label', one, '모든 칸 지급');
     for (const t of DEBUG_TIERS)
-      button('dbg-btn exp-dbg-grant', `T${t}`, one, () => {
-        grantSet(ctx.stash, party[dbgChar], t);
+      grantBtn('exp-dbg-grant', `T${t}`, one, () => {
+        ctx.update(s => grantSet(s, party[dbgChar], t));
         done(`${getCharacter(party[dbgChar]).name} T${t} 한 벌 지급`);
       }).dataset.tier = String(t);
     const all = h('div', 'exp-dbg-row', dbg);
     h('span', 'exp-dbg-label', all, '원정대 3명');
     for (const t of DEBUG_TIERS)
-      button('dbg-btn exp-dbg-party', `T${t}`, all, () => {
-        grantPartySet(ctx.stash, party, t);
+      grantBtn('exp-dbg-party', `T${t}`, all, () => {
+        ctx.update(s => grantPartySet(s, party, t));
         done(`원정대 T${t} 한 벌씩 지급`);
       }).dataset.tier = String(t);
     const misc = h('div', 'exp-dbg-row', dbg);
-    button('dbg-btn', '무작위 장비 10개', misc, () => {
-      grantRandom(ctx.stash, 10);
+    grantBtn('exp-dbg-random', '무작위 장비 10개', misc, () => {
+      ctx.update(s => grantRandom(s, 10));
       done('무작위 장비 10개 지급');
     });
-    button('dbg-btn', '유물 8종 지급', misc, () => {
-      grantRelics(ctx.stash, 3);
+    grantBtn('exp-dbg-relics', '유물 8종 지급', misc, () => {
+      ctx.update(s => grantRelics(s, 3));
       done('유물 8종 지급 (T3)');
     });
     const flags = h('div', 'exp-dbg-row', dbg);
     button(`dbg-btn exp-dbg-unlock${ctx.stash.unlockAll ? ' is-on' : ''}`, `단계 전부 해금 ${ctx.stash.unlockAll ? '켬' : '끔'}`, flags, () => {
-      ctx.stash.unlockAll = !ctx.stash.unlockAll;
-      done(ctx.stash.unlockAll ? '단계 전부 해금 (규칙 무시)' : '단계 해금 규칙 다시 적용');
+      const on = ctx.update(s => (s.unlockAll = !s.unlockAll));
+      done(on ? '단계 전부 해금 (규칙 무시)' : '단계 해금 규칙 다시 적용');
     });
     const art = battleGearFiles();
     button(`dbg-btn${art ? ' is-on' : ''}`, `장비 그림: ${art ? '파일' : '코드'}`, flags, () => {
@@ -137,9 +225,9 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
     });
     const danger = h('div', 'exp-dbg-row', dbg);
     const armed = resetIsArmed();
-    button('dbg-btn exp-dbg-reset', armed ? '한 번 더 누르면 초기화' : '보관함 초기화', danger, () => {
+    grantBtn('exp-dbg-reset', armed ? '한 번 더 누르면 초기화' : '보관함 초기화', danger, () => {
       if (resetIsArmed()) {
-        ctx.replace(resetStash(ctx.stash));
+        ctx.replace(resetStash);
         resetArmed = null;
         done('보관함을 비웠어요');
         return;
@@ -149,7 +237,6 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
     });
   }
   function done(text: string): void {
-    ctx.save();
     selected = maxStartStageFor(ctx.stash, ctx.party().characters);
     ctx.toast(`디버그: ${text}`, 'good');
     render();
@@ -163,7 +250,8 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
 
   let selected = 1;
   let visible = false;
-  let dolls: Doll[] = [];
+  /** Bag indices to pop in after the reveal closes. */
+  let popFrom: number | null = null;
 
   function currentHint() {
     const party = ctx.party().characters;
@@ -171,20 +259,36 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
     return ctx.stash.unlockAll ? null : nextStageHint(party, loadoutsFor(ctx.stash, party), max + 1);
   }
 
+  /** The party the lobby shows: the run's locked party (with its ult charge) or the expedition preset. */
+  function partyNow(run: ExpeditionRun | null): { characters: string[]; pets: string[]; gear: ReturnType<typeof loadoutOf>[]; ult: number[] | null } {
+    if (run) return { characters: run.lock.characters, pets: run.lock.pets, gear: run.lock.gear, ult: run.carry?.ult ?? [0, 0, 0] };
+    const p = ctx.party();
+    return { characters: p.characters, pets: p.pets, gear: loadoutsFor(ctx.stash, p.characters), ult: null };
+  }
+
+  function inspectNow(run: ExpeditionRun | null): GearInspect {
+    const p = partyNow(run);
+    return { party: p.characters, loadouts: p.gear };
+  }
+
   function render(): void {
-    const party = ctx.party();
-    const max = maxStartStageFor(ctx.stash, party.characters);
-    if (selected > max || selected < 1) selected = max;
+    const run = ctx.stash.run;
+    const party = partyNow(run);
+    el.classList.toggle('is-run', !!run);
+    title.textContent = run ? '원정 로비' : '원정';
     stashChip.textContent = `보관함 ${ctx.stash.items.length}`;
     dollRow.replaceChildren();
-    dolls = party.characters.map(id => {
-      const card = button('exp-party-card', '', dollRow, () => cb.onEquip(id));
+    party.characters.forEach((id, i) => {
+      const card = button(`exp-party-card${run ? ' is-locked' : ''}`, '', dollRow, () => cb.onEquip(id));
       card.dataset.char = id;
-      const l = loadoutOf(ctx.stash, id);
-      const d = createDoll(card, '', 130, 160, id, l);
+      const l = party.gear[i];
+      createDoll(card, '', 130, 160, id, l);
       h('div', 'exp-party-name', card, getCharacter(id).name);
       slotPips(card, l);
-      return d;
+      if (party.ult) {
+        h('div', 'exp-party-lock', card, '🔒');
+        h('div', 'exp-party-ult', card, `궁 ${Math.round((party.ult[i] ?? 0) * 100)}%`);
+      }
     });
     petRow.replaceChildren();
     h('span', 'exp-pets-label', petRow, '펫');
@@ -193,12 +297,77 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
       petIcon(getPet(id), 'pet-icon-xs', p);
       h('span', '', p, getPet(id).name);
     }
+    editBtn.classList.toggle('is-locked', !!run);
+    editBtn.textContent = run ? '🔒 편성 바꾸기' : '편성 바꾸기';
+    lockLine.classList.toggle('is-hidden', !run);
+    startInfo.classList.toggle('is-hidden', !!run);
+    hint.classList.toggle('is-hidden', !!run);
+    right.classList.toggle('is-hidden', !!run);
+    runPanel.classList.toggle('is-hidden', !run);
+    const lines = run ? buffLines(run.carry, run.lock.characters) : [];
+    buffChip.classList.toggle('is-hidden', !run);
+    buffChip.textContent = `버프 ${lines.length}개 ▾`;
+    buffList.replaceChildren();
+    h('div', 'exp-buff-title', buffList, lines.length ? '들고 가는 버프 · 수령하면 사라져요' : '들고 가는 버프가 없어요 · 일반 단계를 깨면 층 보상 1장');
+    for (const t of lines) h('div', 'exp-buff-row', buffList, t);
+    if (!run) buffList.classList.add('is-hidden');
+    if (run) renderRun(run);
+    else renderNoRun();
+  }
+
+  function renderNoRun(): void {
+    const max = maxStartStageFor(ctx.stash, ctx.party().characters);
+    if (selected > max || selected < 1) selected = max;
     startInfo.textContent = ctx.stash.unlockAll ? `출발 가능: ${EXPEDITION_STAGES}단계까지 (디버그 해금)` : `출발 가능: ${max}단계까지`;
     const hn = currentHint();
     hint.textContent = hn ? `다음 ▶ ${hn.text}` : max >= EXPEDITION_STAGES ? '모든 단계에서 출발할 수 있어요' : '';
     hint.classList.toggle('is-hidden', !hint.textContent);
     renderMap(max);
     startBtn.textContent = `${selected}단계부터 출발`;
+  }
+
+  function renderRun(run: ExpeditionRun): void {
+    const v = runLobbyView(run);
+    runTitle.textContent = v.title;
+    pathRow.replaceChildren();
+    for (const p of v.path) {
+      const d = h('div', `exp-path-dot is-${p.dot}${p.boss ? ' is-boss' : ''}`, pathRow, p.dot === 'done' ? '✓' : p.boss ? '☠' : String(p.stage));
+      d.dataset.stage = String(p.stage);
+    }
+    bagHead.replaceChildren();
+    h('span', 'exp-run-bagcount', bagHead, v.bagHead);
+    for (const [tier, n] of v.tiers) {
+      const chip = h('span', 'exp-risk-chip', bagHead, `T${tier}×${n}`);
+      chip.style.setProperty('--bc', BAND_COLOR[bandOf(tier)]);
+    }
+    bagGrid.replaceChildren();
+    const inspect = inspectNow(run);
+    const tiles = inspectTiles(bagGrid, el, run.bag, inspect, i => ({ family: run.lock.characters[0] ?? null, isNew: v.isNew[i], size: 96 }));
+    if (popFrom != null) tiles.forEach((t, i) => v.isNew[i] && t.classList.add('is-pop'));
+    popFrom = null;
+    if (!run.bag.length) h('div', 'exp-run-bag-empty', bagGrid, '아직 비어 있어요 · 단계를 깨면 장비가 들어와요');
+    nextCard.replaceChildren();
+    nextCard.classList.toggle('is-boss', v.nextBoss);
+    nextCard.classList.toggle('is-hidden', v.complete);
+    h('div', 'exp-run-next-label', nextCard, '다음');
+    h('div', 'exp-run-next-line', nextCard, v.nextLine);
+    h('div', 'exp-run-next-loot', nextCard, v.nextLoot);
+    riskLine.textContent = v.risk;
+    riskLine.classList.toggle('is-hidden', v.complete);
+    waitLine.classList.toggle('is-hidden', !v.waiting);
+    runBtns.classList.toggle('is-waiting', v.waiting);
+    claimBtn.replaceChildren();
+    h('div', 'exp-exit-icon', claimBtn);
+    const ct = h('div', 'exp-choice-text', claimBtn);
+    h('div', 'exp-choice-title', ct, '수령');
+    h('div', 'exp-choice-sub', ct, v.claimSub);
+    matchBtn.replaceChildren();
+    matchBtn.classList.toggle('is-hidden', v.complete);
+    const armed = isArmed(armedAt, performance.now());
+    matchBtn.classList.toggle('is-armed', armed);
+    const mt = h('div', 'exp-choice-text', matchBtn);
+    h('div', 'exp-choice-title', mt, v.matchTitle);
+    h('div', 'exp-choice-sub', mt, armed ? `한 번 더 누르면 매칭 · 가방 ${v.bagCount}개가 걸려요` : v.matchSub);
   }
 
   function renderMap(max: number): void {
@@ -222,7 +391,7 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
         c.dataset.stage = String(s);
         h('div', 'exp-stage-num', c, String(s));
         const info = h('div', 'exp-stage-info', c);
-        // the gold border marks a boss stage; the name line says who waits on floor 3
+        // the gold border marks a boss stage; a normal stage names its 수문장 (기획 16차: one floor, the guardian in it; the legend says so)
         h('div', boss ? 'exp-stage-boss' : 'exp-stage-floor', info, boss ? `☠ ${bossNameOfStage(s)}` : guardianNameOfStage(s));
         h('div', 'exp-stage-loot', info, stageLootText(s));
         if (locked) h('div', 'exp-stage-lock', c, `🔒 전원 T${s - 1} 필요`);
@@ -241,14 +410,28 @@ export function createHub(parent: HTMLElement, ctx: ExpCtx, cb: HubCallbacks): H
     show() {
       visible = true;
       selected = maxStartStageFor(ctx.stash, ctx.party().characters);
+      armedAt = null;
+      reveal.hide();
       el.classList.remove('is-hidden');
       render();
       if (!dbg.classList.contains('is-hidden')) buildDebug();
     },
     hide() {
       visible = false;
+      reveal.hide();
+      buffList.classList.add('is-hidden');
       el.classList.add('is-hidden');
-      void dolls;
+    },
+    refresh() {
+      if (!visible) return;
+      render();
+      if (!dbg.classList.contains('is-hidden')) buildDebug();
+    },
+    reveal(v) {
+      reveal.show({ ...v, inspect: v.inspect ?? inspectNow(ctx.stash.run) }, () => {
+        popFrom = 0;
+        if (visible) render();
+      });
     },
   };
 }

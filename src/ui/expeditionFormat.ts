@@ -1,8 +1,9 @@
 // 기획 15차 원정: player-facing text of gear and stages (Korean). Pure (no DOM): names (docs/gear-art-prompts.md 6장),
 // main-stat lines, effect / relic text (docs/expedition.md 4-4, tier multiplier applied), item comparison, the party
-// stat preview and the stage names / hints used by the hub, the choice and the HUD pill.
+// stat preview and the stage names / hints used by the hub, the lobby and the HUD pill (기획 16차: one floor per stage).
 
-import { getCharacter, getMonster, RELICS } from '../data';
+import { GOEDAM_TRACES, getCharacter, getMonster, getReward, RELICS } from '../data';
+import type { ExpeditionCarry } from '../types';
 import {
   BAND_NAME_KO,
   BASE_SLOTS,
@@ -100,7 +101,7 @@ export function gearSource(fromStage: number): string {
 }
 
 export function bossNameOfStage(stage: number): string {
-  const id = EXPEDITION.mids[stage - 1]?.[2];
+  const id = EXPEDITION.foes[stage - 1];
   return BOSS_NAME[id ?? ''] ?? '보스';
 }
 
@@ -111,9 +112,9 @@ const BOSS_NAME: Record<string, string> = {
   abyss_watcher: '심연의 감시자',
 };
 
-/** The guardian (floor 3 of a normal stage) of a stage. */
+/** The guardian (수문장) of a normal stage. */
 export function guardianNameOfStage(stage: number): string {
-  const id = EXPEDITION.mids[stage - 1]?.[2] ?? '';
+  const id = EXPEDITION.foes[stage - 1] ?? '';
   try {
     return getMonster(id).name;
   } catch {
@@ -126,14 +127,50 @@ export function stageTitle(stage: number): string {
   return `${stage}단계 · ${ZONE_NAME_KO[stageZoneIndex(stage)]}`;
 }
 
-/** Loot line of a stage (3-3): '장비 2' / '장비 3 · 유물 확률'. */
+/** Loot line of a stage on the map (기획 16차, 3-3): '장비 1' / '장비 2 · 유물 확률' (boss: 1 + the boss box). */
 export function stageLootText(stage: number): string {
-  return isBossStage(stage) ? '장비 3 · 유물 확률' : '장비 2';
+  return isBossStage(stage) ? '장비 2 · 유물 확률' : '장비 1';
 }
 
-/** Stage-start banner sub line (8-4). */
+/** Stage-start banner sub line (기획 16차, 8-5; review: the boss loot reads like the map / lobby, '장비 2 · 유물 확률'). */
 export function stageBannerSub(stage: number): string {
-  return isBossStage(stage) ? '보스 단계 · 장비 3개 + 유물 확률' : '3층을 깨면 장비 2개';
+  return isBossStage(stage) ? `보스 단계 · ${stageLootText(stage)}` : '깨면 장비 1개';
+}
+
+/** 기획 16차: the stage map's legend (8-2). */
+export const MAP_LEGEND = '단계 = 1층 · 이름 = 수문장 · 금 테두리 = 보스 단계';
+
+/** 기획 16차: the lobby's next-stage card (8-3): main line + loot line. */
+export function nextStageCard(stage: number): { line: string; loot: string; boss: boolean } {
+  const boss = isBossStage(stage);
+  return boss
+    ? { line: `${stageTitle(stage)} · ☠ ${bossNameOfStage(stage)}`, loot: `보스 단계 · ${stageLootText(stage)}`, boss }
+    : { line: `${stageTitle(stage)} · 수문장 ${guardianNameOfStage(stage)}`, loot: '장비 1', boss };
+}
+
+/**
+ * 기획 16차: what a run carries into its next stage, one line each (the lobby's 「버프 N개」 list): floor rewards (with
+ * the character they are bound to) and 괴담 traces with the stages left ('N단계 남음' — a trace ticks once per stage).
+ */
+export function buffLines(carry: ExpeditionCarry | null | undefined, party: readonly string[]): string[] {
+  if (!carry) return [];
+  const out: string[] = [];
+  for (const r of carry.rewards) {
+    let name = r.rewardId;
+    try {
+      name = getReward(r.rewardId).name;
+    } catch {
+      /* unknown id: show it raw */
+    }
+    const who = r.partyIndex != null && party[r.partyIndex] ? getCharacter(party[r.partyIndex]).name : '';
+    out.push(`✦ ${name.includes('{char}') ? name.replace('{char}', who || '캐릭터') : who ? `${name} · ${who}` : name}`);
+  }
+  for (const t of carry.goedamTraces) {
+    const def = GOEDAM_TRACES.find(d => d.id === t.id);
+    const left = t.floorsLeft == null ? '원정 끝까지' : `${t.floorsLeft}단계 남음`;
+    out.push(`${def?.icon ?? '◆'} ${def?.name ?? t.id} · ${left}`);
+  }
+  return out;
 }
 
 // ─────────────────────────── comparison / stats ───────────────────────────

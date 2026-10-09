@@ -34,7 +34,7 @@
 ## 화면 좌표
 
 - 논리 해상도 1280×720. Canvas와 HUD를 같은 배율로 확대해 레터박스 처리.
-- 월드 단위: 캐릭터 지름 ≈ 1. 일반층 아레나 36×12(가로 1.5화면), 보스층 24×12(한 화면).
+- 월드 단위: 캐릭터 지름 ≈ 1. 일반층·보스층 아레나 모두 24×12(한 화면, 카메라 고정 — 16차; 그 전 일반층은 36×12, 가로 1.5화면).
 - 쿼터뷰: 바닥 평면 (x, y)를 y축으로 눌러 그림. y가 클수록 화면 아래(카메라 쪽). y값으로 정렬해서 그림.
 - 카메라는 내 필드 캐릭터를 가로로만 따라감. 필드가 비면 멈춤. 드래그 중에는 고정.
 - 혼자 하기: sim은 30Hz, 화면은 60Hz → 렌더러에는 직전 틱과 지금 틱 사이를 이은 위치를 넘김 (`render/smooth.ts`, 최대 1틱 ≈ 0.03초 늦음, sim 상태는 건드리지 않음). 멀티는 `RemoteGame`이 스냅샷 사이를 보간.
@@ -57,7 +57,7 @@
 | R12 | 대기 중: 쿨만 돎, HP 회복 없음, 피해 없음, 버프·디버프 시간은 흐름. 내려간 캐릭터의 장판·소환물은 남음 | 1차 19 |
 | R13 | 패시브는 필드에 있을 때만. 스킬 대상·조준은 데이터로 지정 | 1차 20, 21 |
 | R14 | 펫: 8종 중 3마리. 드래그해서 놓은 지점에서 발동, 교체 아님. 펫마다 쿨 | 1차 4, 2차 Q6 |
-| R15 | 일반층: 웨이브를 waveInterval마다 스폰(4~6마리, 동시 최대 maxAliveMonsters, 넘치면 미룸), 스폰 1초 전 바닥 마커, 가장자리 6~8곳. 웨이브 수는 정해져 있음(`FLOOR_WAVES`: 1층 5, 층 번호마다 +1, 최대 8 — 8차에서 10 → 8). 중형보스 1마리: midBossKillTrigger 처치 또는 midBossTimeTrigger초에 등장. 중형보스도 동시 최대에 걸리면 미룸, 적 소환은 남은 자리만큼 | 1차 12, 13, 가정 |
+| R15 | 일반층(16차): 첫 웨이브 1초, 그 뒤 웨이브는 살아 있는 적(중형보스 3마리로 셈)이 2마리 이하 + 앞 경고에서 2초, 또는 최대 간격(`waveInterval` 8초, 원정 `plan.maxGap` 11초) 중 먼저 오는 쪽. 동시 최대 maxAliveMonsters(넘치면 미룸), 스폰 1초 전 바닥 마커. 자리는 돌아가며 정한 목표 캐릭터에서 5~8칸(우리 편과 4칸 이상, 화면 안). 웨이브 수는 구역별(`ZONES[].waves` 5·5·6·6). 중형보스 1마리: 끝에서 `midBossFromEnd`(2)번째 웨이브 경고 때 또는 midBossTimeTrigger초. 마지막 웨이브는 돌발 괴담이 예정·진행 중이면 끝난 뒤 2초까지 기다림. (16차 전: waveInterval마다, 가장자리 6~8곳, 처치 수 12) | 1차 12, 13, 16차 |
 | R16 | 일반층 클리어 = 모든 웨이브 스폰 완료 + 중형보스 스폰 완료 + 살아 있는 적 0 | 1차 13 |
 | R17 | 일반층 제한시간(normalFloorTime) 초과 = 런 실패 | 2차 Q2 |
 | R18 | 보스층: 보스는 고정, 잡몹 소환(4~6, 광폭화 ×1.5) + 광역공격(예고 후 판정). 시간 초과 시 광폭화. 보스 HP 0 = 퇴각하며 클리어(쓰러지지 않음). 같은 틱에 퇴각과 전멸이 겹치면 퇴각(클리어)이 먼저. 광폭화 뒤 필드에 아군 캐릭터가 `BOSS_ENRAGED_EMPTY_FIELD_FAIL`(30)초 연속 없으면 실패(방치 방지) | 1차 22, 2차 Q2, 해석, 가정 |
@@ -534,7 +534,7 @@ src/sim (서버·혼자 하기 공통, 결정적)
 
 ## 15차: 원정 모드 — 시뮬·데이터 핵심 (2026-10-09)
 
-규칙은 [`expedition.md`](expedition.md). 게임 한 판 = 단계 하나(3층). 클래식 탑은 한 비트도 안 바뀜(골든 그대로).
+규칙은 [`expedition.md`](expedition.md). 게임 한 판 = 단계 하나(3층 — 16차에 1층으로 바뀜, 아래 「16차」 절). 클래식 탑은 한 비트도 안 바뀜(골든 그대로).
 
 | 경로 | 하는 일 |
 |---|---|
@@ -568,9 +568,49 @@ src/sim (서버·혼자 하기 공통, 결정적)
 
 **처음 화면**: 사람은 메인 화면. 브라우저 자동화(`navigator.webdriver`)는 예전처럼 클래식 편성 화면에서 시작해서 옛 e2e·플레이테스트 스크립트가 그대로 돈다. `?main=1`이면 자동화도 메인 화면.
 
-**app.ts 갈림길** (원정을 버리면 지울 곳): 메인 화면·`ExpeditionFlow` 만들기, `AppPhase`의 원정 단계 7개(`main`, `expHub`, `expEquip`, `expMatch`, `expPlaying`, `expChoice`, `expResult`), `start.mode === 'expedition'` → `remoteExp`(끝나도 매칭 화면으로 안 감, 나가기는 늘 나만, 결과 표 대신 실패 화면), 프레임마다 `expFlow.frame`, 편성 화면 원정판. 다른 클래식 파일: `preset.ts`(원정판·「← 메인」), `hud.ts`(「N단계 M층」·배너·`topCenter`), `reward.ts`(제목), `debug.ts`(「원정」 칸, 원정일 때만), `pause.ts`(원정 멀티 나가기 안내), `units.ts`/`render/index.ts`(장비 없으면 그대로 그림 — 그리기 호출 목록이 클래식과 같음, 테스트), 서버 `room.ts`(`RoomMode` 고리)·`hub.ts`·`validate.ts`·`protocol.ts`(버전 3).
+**app.ts 갈림길** (원정을 버리면 지울 곳; 16차에 바뀐 것은 아래 「16차」 절): 메인 화면·`ExpeditionFlow` 만들기, `AppPhase`의 원정 단계 7개(`main`, `expHub`, `expEquip`, `expMatch`, `expPlaying`, `expChoice`, `expResult`), `start.mode === 'expedition'` → `remoteExp`(끝나도 매칭 화면으로 안 감, 나가기는 늘 나만, 결과 표 대신 실패 화면), 프레임마다 `expFlow.frame`, 편성 화면 원정판. 다른 클래식 파일: `preset.ts`(원정판·「← 메인」), `hud.ts`(「N단계 M층」·배너·`topCenter`), `reward.ts`(제목), `debug.ts`(「원정」 칸, 원정일 때만), `pause.ts`(원정 멀티 나가기 안내), `units.ts`/`render/index.ts`(장비 없으면 그대로 그림 — 그리기 호출 목록이 클래식과 같음, 테스트), 서버 `room.ts`(`RoomMode` 고리)·`hub.ts`·`validate.ts`·`protocol.ts`(버전 3).
 
 **통합 확인 (2026-10-09)**
 - `tsc`·서버 타입 검사·vitest 전부, `build:all`·`build:artifact`(그림 폴더 비어도, 더미 PNG 넣으면 data: URI로 들어감), Playwright 전 프로젝트 2번.
 - 온라인 원정 e2e `tests/e2e/multi-expedition.spec.ts`(폰 2개 + 서버): 같은 단계 대기열 → 15초 뒤 봇 → 상대 장비가 내 스냅샷에도 → 클리어 때 두 화면 전리품 표 같음 → 한 명 수령·한 명 도전 → 혼자 2단계 재매칭(봇 2) → 층 보상 유지 → 수령. 도중 나가기 = 가방만 잃음.
 - 아티팩트(서버 없음): 원정 혼자 하기 끝까지 + 새로고침 뒤 보관함 유지 + 콘솔 에러 0 (`tests/e2e/artifact.spec.ts`).
+
+## 16차: 템포 — 웨이브 바로 이어 나옴 · 파티 근처 스폰 · 맵 폭 24 (두 모드, 2026-10-09)
+
+규칙은 [`tempo.md`](tempo.md). 클래식 탑과 원정의 일반층이 같은 코드(스포너)를 씀 — 원정 전용 코드는 `plan.maxGap` 한 칸뿐.
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/config.ts` | `ARENA_NORMAL` 24×12(보스 맵과 같음), `ZoneDef.waves`(구역별 5·5·6·6, 옛 `FLOOR_WAVES` 삭제), `LATE_STAT_GROWTH.factor` 1.36, 튜닝 `midBossFromEnd`(2, 옛 `midBossKillTrigger`), `waveInterval` = 최대 간격 |
+| `src/sim/constants.ts` | `WAVE_NEXT {alive 2, midWeight 3, minGap 2}`, `SPAWN_RING {5~8칸, 우리 편과 4칸, 12번 시도, 안쪽 칸}`, `MID_RING {6~8칸, 5칸}` |
+| `src/sim/floor.ts` | `weightedAlive`(중형보스 3, 대기 중 포함, 돌발 괴담·보스 0) → `nextWaveDue`(첫 웨이브는 `at`, 그 뒤는 「2마리 이하 + 2초」 또는 최대 간격 `plan.maxGap ?? waveInterval`, 마지막 웨이브는 돌발 괴담 예정·진행 중 + 끝난 뒤 2초 기다림, 동시 30마리 넘으면 미룸, 틱당 1웨이브) · `wavePoint`(목표 플레이어 돌아가며, `targetOffset`은 층마다 판 난수) · `midPoint`(가운데점) · 중형보스 = 끝에서 `midBossFromEnd`번째 웨이브 경고 때(45초 안전장치) |
+| `src/sim/world.ts` | `SpawnerState`에 `lastWarnAt`·`targetOffset`·`fieldEventSeenAt`(선택 칸, startFloor가 채움). `points`(테두리 지점)는 돌발 괴담 자리용으로만 남음 |
+| `src/sim/fieldEvents.ts` · `src/data/fieldEvents.ts` | 시작 창 `fieldEventWindow` = [8, 12]초(`FIELD_EVENT_LATEST`), 마지막 웨이브 기다림 `FIELD_EVENT_LAST_WAVE_HOLD` 2초, 「비상등」 구역 2~5 · 10~14 · 19~22 |
+| `src/sim/telemetry.ts` · `src/ui/tunables.ts` | 튜닝 범위 `midBossFromEnd [1, 6, 정수]`, 슬라이더 「웨이브 최대 간격」·「중형보스: 끝에서 N번째 웨이브」. 옛 키는 저장소·`start` 메시지 모두 조용히 버림 |
+
+- 렌더: 카메라·화면 끝 화살표는 맵이 화면보다 좁거나 같으면 원래 가운데 고정·안 그림이라 코드는 그대로. 배경 4구역은 폭 24에서 눈으로 확인(병동 오른쪽 커튼이 조금 잘림, 그대로 둠).
+- 테스트: 새 `tests/sim/spawner.test.ts`(11개: 다 잡으면 2초 안에 다음, 적이 남아도 최대 간격, 중형보스 3마리, 동시 30마리, 스폰 자리 안쪽·4칸 이상·8칸 안, 목표 돌아가기, 끝에서 N번째, 같은 시드 같은 스폰). 골든 다시 잡음(`default-off-golden` 풍부한 판, `healers.test.ts` 난수 동일성 3개; 메모 「기획 16차 템포」). 폭 36을 가정한 좌표는 24 안으로.
+- 벤치: `tests/review/critic-20f.ts`에 층별 템포 지표(빈 시간, 2마리 이하 시간, 스폰 거리 중앙값·p90, 1번 자리 화면 밖 스폰 비율, 마주칠 때까지 시간, 돌발 괴담 층/아닌 층 빈 시간). `PATCH`의 `WAVES`는 `ZONES.N.waves`로.
+
+## 16차: 원정 1단계 = 1층 + 원정 로비 (2026-10-09)
+
+규칙은 [`expedition.md`](expedition.md). 게임 한 판 = 단계 하나 = **층 하나**. 게임 안 선택 단계(`expeditionChoice`)가 없어지고, 단계가 끝나면 각자의 원정 로비로.
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/data/stages.ts` | `EXPEDITION {stages 12, stageMult[12], waves[12](보스 0), waveGap 11, timeLimit 150, guardianHp 0.8, guardianAtk 1, bossHp 0.8, bossEnrage 120, fieldEventChance 0.4, roomChance 0.2, lootNormal 1, lootBossBase 1, foes}`(벤치가 고치는 보통 객체), `STAGE_FOE`(단계별 수문장/보스), `equivFloor(stage)` |
+| `src/sim/expedition.ts` | `planExpeditionFloor(stage, …)`(늘 1층: 일반 = 맵 24, 웨이브, `maxGap` 11, 수문장 = 중형보스 자리 / 보스 = 보스 맵), `expeditionCombatClear`(전투를 이긴 순간 결과 확정 + 사람마다 전리품 + `stageClear` 이벤트; 보스 → 바로 단계 끝, 일반 → 층 보상 → 괴담 방 20% → 단계 끝 `'stageClear'`), `stageResultFromState`(UI·서버가 읽는 결과), 돌발 괴담 일정(1단계 금두꺼비) |
+| `src/sim/game.ts` | 이긴 뒤 「나가기」 = 모두 봇이 이어서(보상 무작위, 방 「지나간다」) → 클리어, 디버그 `jumpFloor`는 1층, `expeditionClearStage`, 통합 때 더한 `wipeParty`(두 모드, 전투 중 패배) |
+| `src/expedition/run.ts` | 런 v2 `{id, seed, startStage, stage(다음), cleared, bag, carry, bossClears, lock, status 'lobby'·'matching'·'inStage', pending}` · `startRun`·`beginStage`·`applyStageResult`(런 번호·단계가 맞을 때 한 번만)·`runToJoin`·`stageGameSetup`(봇이 빈자리) |
+| `src/expedition/runCheck.ts` | `runJoinProblem` — 런 정보가 나올 수 있는 값인지(다음 단계 = 시작 + 깬 수, 가방 등급·개수·유물 단계, 보상·흔적·방 id, 궁극기 0~1 등). 서버 대기열과 보관함 읽기가 같이 씀 |
+| `src/expedition/stash.ts` | 보관함 v2(`run` 칸, v1은 「런 없음」으로 올림). 런이 있으면 장착·해제·버리기·자동 장착·편성·지급·초기화 잠금(`RUN_LOCK_REASON`). `beginRun`·`applyResult`(실패면 런 지움)·`claimRun`(가방 → 보관함 + 런 지움, 한 번에)·`dropEmptyRun` |
+| `src/ui/expeditionStore.ts` | 「읽고 → 바꾸고 → 저장」 `updateStash`, 다른 창 변경 `onStashChanged`(storage 이벤트), 탭 번호, 단계 중 2초마다 생존 표시, `reconcileDecision`(단계 중이던 런 정리: 온라인 부팅 번호가 다르면 취소 / 같으면 서버에 묻기 / 혼자 하기 10초 넘게 끊김이면 실패) |
+| `src/ui/expeditionSolo.ts` | `ExpeditionFlow`: 출발 → 매칭 → 단계 → (클리어 배너 1.5초) → 결과 적용 → 로비(전리품 공개) / 실패 화면 / 「수령 완료!」·「원정 완주!」. 혼자 하기는 `stageResultFromState`, 온라인은 `expStageResult` |
+| `src/ui/expeditionHub.ts` · `expeditionRun.ts` · `expeditionEquip.ts` | 로비 런 진행 중 모드(잠긴 인형·버프 칩·12칸 진행 줄·가방 격자·다음 단계 카드·위험 줄·「수령」/「N단계 매칭」), `LootReveal`, 매칭(「바로 출발」·「취소」), 장비 화면 읽기만 |
+| `server/expedition.ts` · `src/net/expeditionNet.ts` · `src/net/protocol.ts` | 통신 버전 4: `expQueue`에 `run`, `expStatus`, `expStageResult`·`expNoStage`, `welcome.bootId`, 오류 `bad_run`·`run_busy`. 서버는 대기·진행 중에만 런을 들고, 결과는 런 번호로 24시간(`EXP_RESULT_KEEP_MS`) ([`multiplayer.md`](multiplayer.md) 5-6) |
+
+- 클래식 코드의 갈림길(16차에 바뀐 것): `floor.ts` floorClear의 원정 줄(`expeditionCombatClear`)과 클래식 최고층 승리 검사의 `!w.expedition`, `finishRewardIfDone`·`finishGoedamIfDone`(원정이면 단계 끝), `world.ts` endRun(이긴 단계는 못 짐), `goedam.ts` 원정 방(일반 단계만), `app.ts` `expChoice` 단계 삭제(원정 단계 6개: `main`, `expHub`, `expEquip`, `expMatch`, `expPlaying`, `expResult`), `hud.ts`(「N단계 · 구역」, 단계 배너, 「수문장 등장!」), `reward.ts`(「N단계 클리어!」 + 「수령하면 이 보상은 사라져요」), `debug.ts`(「단계 즉시 클리어」, 「전멸 (패배)」), `pause.ts`(정보 줄 「N단계 · 구역」), `mainMenu.ts`(진행 중 런 줄).
+- 없어진 것: `STAGE_FLOORS`·`stageFloor`·`noteExpeditionFloor`, 명령·이벤트 `expeditionChoice`, `ExpeditionState.choices`, 서버 `expChoice`·`choiceDeadline`·`EXP_CHOICE_SEC`, 메시지 `expStageClear`·`expExtracted`·`expBagLost`, 화면 `ChoiceScreen`.
+- 테스트: `tests/sim/expedition.test.ts`(12개 1층 계획, 일반/보스 흐름, 이긴 뒤 나가기, 전리품 수, 방·돌발 괴담 확률, 흔적은 단계당 한 칸), 새 `expedition-run.test.ts`(한 번만 적용·취소·실패·수령·완주·`runJoinProblem` 표), `expedition-stash.test.ts`(v1 → v2, 잠금, 수령 거절), `tests/net/expedition.test.ts`(이어 가는 참가, `bad_run`·`run_busy`, 끊긴 뒤·`expStatus` 결과, 오류 = 취소, 2명 중 한 명이 이긴 뒤 나감 = 클리어, `bootId`), `tests/ui/expedition-store.test.ts`·`expedition-logic.test.ts`(정리 판단 표, 두 창 중복 수령 막기, 로비 화면 모델), e2e `expedition.spec.ts`·`multi-expedition.spec.ts`(3개)·`artifact.spec.ts`.
+- 클래식 골든(`default-off-golden`)은 원정 코어가 바꾸지 않음 — 원정은 `if (w.expedition)` 길만.
+

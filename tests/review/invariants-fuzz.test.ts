@@ -8,7 +8,8 @@ import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
 import { CONTROL_STATUSES, type Command, type DebugAction, type PlayerSetup } from '../../src/types';
 import { gearSpecProblem, type GearLoadout } from '../../src/data/gear';
-import { expeditionChoiceTimeoutCommands, rollStageLoot } from '../../src/sim/expedition';
+import { EXPEDITION } from '../../src/data/stages';
+import { rollStageLoot, stageResultFromState } from '../../src/sim/expedition';
 import { BOT1, BOT2, HUMAN, makeGame, type TestGame } from '../sim/helpers';
 
 function check(tg: TestGame, where: string): string[] {
@@ -242,7 +243,7 @@ describe('invariants under random commands', () => {
   }
 });
 
-// ─────────────────────────── 기획 15차 원정 ───────────────────────────
+// ─────────────────────────── 기획 15차 원정 (기획 16차: one floor per stage) ───────────────────────────
 
 /** Expedition-only invariants on top of check(). */
 function checkExpedition(tg: TestGame, where: string): string[] {
@@ -250,20 +251,23 @@ function checkExpedition(tg: TestGame, where: string): string[] {
   const ex = s.expedition!;
   const errs: string[] = [];
   const bad = (m: string) => errs.push(`${where} t=${s.time.toFixed(2)} f${s.floor}: ${m}`);
-  if (!(s.floor >= 1 && s.floor <= 3) || ex.stageFloor !== s.floor || s.plan.stage !== ex.stage || s.plan.floor !== s.floor) bad(`floor ${s.floor} / ${ex.stageFloor} / plan ${s.plan.stage}-${s.plan.floor}`);
-  if ((s.phase === 'stageClear') !== (ex.outcome === 'cleared')) bad(`phase ${s.phase} outcome ${ex.outcome}`);
+  if (s.floor !== 1 || s.plan.stage !== ex.stage || s.plan.floor !== 1) bad(`floor ${s.floor} / plan ${s.plan.stage}-${s.plan.floor}`);
+  if (s.phase === 'stageClear' && ex.outcome !== 'cleared') bad(`phase ${s.phase} outcome ${ex.outcome}`);
+  if (ex.outcome === 'cleared' && ex.boss && s.phase !== 'stageClear') bad(`boss stage cleared but phase ${s.phase}`);
+  if (ex.outcome === 'cleared' && !['reward', 'goedam', 'stageClear'].includes(s.phase)) bad(`cleared but phase ${s.phase}`);
   if ((s.phase === 'runOver') !== (ex.outcome === 'failed')) bad(`phase ${s.phase} outcome ${ex.outcome}`);
-  if (s.plan.kind === 'boss' && (s.floor !== 3 || ex.stage % 3 !== 0)) bad('boss floor off a boss stage floor 3');
+  if ((s.plan.kind === 'boss') !== (ex.stage % 3 === 0)) bad(`plan ${s.plan.kind} on stage ${ex.stage}`);
+  if (ex.boss && s.rewardOffersByPlayer.some(o => o != null)) bad('floor reward on a boss stage');
   if (s.phase === 'reward' && s.rewardOffersByPlayer.some(o => o?.some(x => x.isRelic))) bad('relic offer in an expedition');
   if (s.players.some(p => p.relics.length > 0)) bad('party relic in an expedition');
   ex.loot.forEach((l, i) => {
     if (!ex.humans[i] && l.length) bad(`bot seat ${i} got loot`);
     if (ex.outcome !== 'cleared' && l.length) bad(`loot before the clear`);
-    if (ex.outcome === 'cleared' && ex.humans[i] && l.length !== (ex.boss ? 3 : 2)) bad(`p${i} loot ${l.length}`);
+    if (ex.outcome === 'cleared' && ex.humans[i] && l.length !== (ex.boss ? EXPEDITION.lootBossBase + 1 : EXPEDITION.lootNormal)) bad(`p${i} loot ${l.length}`);
     for (const g of l) if (gearSpecProblem(g) || g.tier !== ex.stage) bad(`bad loot ${JSON.stringify(g)}`);
   });
-  if (s.phase === 'stageClear') s.players.forEach((p, i) => p.isBot && ex.choices[i] == null && bad(`bot p${i} has not chosen`));
-  if (s.phase !== 'stageClear' && ex.choices.some(c => c != null)) bad('choice outside stageClear');
+  if (s.phase === 'stageClear') ex.humans.forEach((h, i) => h && !stageResultFromState(s, i) && bad(`no result for p${i}`));
+  if (s.phase !== 'stageClear' && ex.humans.some((_, i) => stageResultFromState(s, i))) bad('a result before the stage end');
   if (s.goedam && s.goedam.roomId === 'cursed_relic') bad('저주받은 유물 room in an expedition');
   return errs;
 }
@@ -280,7 +284,7 @@ function randomGear(r: Rng, stage: number): GearLoadout[] {
   return party;
 }
 
-describe('기획 15차 원정: invariants under random commands', () => {
+describe('기획 15차 원정 (16차 one-floor stages): invariants under random commands', () => {
   const EXP_DEBUG: DebugAction[] = [{ kind: 'jumpFloor', floor: 3 }, { kind: 'jumpFloor', floor: 20 }, { kind: 'forceGroggy' }];
   const cases = [
     { seed: 21, stage: 1, t: { reviveTime: 8, fieldEventChance: 1, goedamRoomsPerZone: 3 } },
@@ -291,7 +295,7 @@ describe('기획 15차 원정: invariants under random commands', () => {
     { seed: 26, stage: 11, t: { reviveTime: 30, monsterDmgMult: 2 } },
   ];
   for (const { seed, stage, t } of cases) {
-    it(`stage ${stage} seed ${seed} ${JSON.stringify(t)}: geared seats, choices, no broken invariant`, () => {
+    it(`stage ${stage} seed ${seed} ${JSON.stringify(t)}: geared seats, the stage end, no broken invariant`, () => {
       const r = new Rng(seed * 104729);
       const players: PlayerSetup[] = [
         { ...HUMAN, gear: randomGear(r, stage) },
@@ -306,11 +310,9 @@ describe('기획 15차 원정: invariants under random commands', () => {
         if (s.phase === 'combat') tick(tg.w);
         errs.push(...check(tg, 'tick'), ...checkExpedition(tg, 'tick'));
         if (r.chance(0.06)) {
-          const cmd: Command = r.chance(0.05)
-            ? { type: 'expeditionChoice', player: r.int(-1, 3), choice: r.pick(['extract', 'continue', 'stay'] as const) as never }
-            : r.chance(0.02)
-              ? { type: 'debug', action: s.time > 150 && r.chance(0.3) ? { kind: 'expeditionClearStage' } : r.pick(EXP_DEBUG) }
-              : randomCommand(r, s.players.length);
+          const cmd: Command = r.chance(0.03)
+            ? { type: 'debug', action: s.time > 40 && r.chance(0.3) ? { kind: 'expeditionClearStage' } : r.pick(EXP_DEBUG) }
+            : randomCommand(r, s.players.length);
           tg.game.dispatch(cmd);
           errs.push(...check(tg, `after ${JSON.stringify(cmd)}`), ...checkExpedition(tg, `after ${JSON.stringify(cmd)}`));
         }
@@ -324,16 +326,20 @@ describe('기획 15차 원정: invariants under random commands', () => {
           }
         }
         if (s.phase === 'stageClear') {
-          for (const c of expeditionChoiceTimeoutCommands(s)) tg.game.dispatch(c);
-          errs.push(...checkExpedition(tg, 'choices'));
-          expect(s.expedition!.choices.every(c => c != null)).toBe(true);
+          // terminal: nothing changes it any more
+          const before = JSON.stringify(s);
+          tg.game.step(1);
+          tg.game.dispatch({ type: 'quit' });
+          tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
+          if (JSON.stringify(s) !== before) errs.push('state changed after the stage end');
+          errs.push(...checkExpedition(tg, 'stage end'));
           break;
         }
         procs += tg.game.drainEvents().filter(e => e.type === 'gearProc').length;
         if (errs.length > 20) break;
       }
       expect(errs.slice(0, 20)).toEqual([]);
-      expect(s.tick).toBeGreaterThan(300); // it really fought before the stage ended (random skipFloor / wipes end some early)
+      expect(s.tick).toBeGreaterThan(300); // it really fought before the stage ended (random clears / wipes end some early)
       if (stage >= 6) expect(procs).toBeGreaterThan(0);
     });
   }

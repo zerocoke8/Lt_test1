@@ -10,7 +10,7 @@ import {
   FIELD_EVENT_EARLIEST,
   FIELD_EVENT_FIRST_FLOOR,
   FIELD_EVENT_LAST_FLOOR,
-  FIELD_EVENT_MARGIN,
+  FIELD_EVENT_LATEST,
   FIELD_EVENT_MAX_PER_RUN,
   FIELD_EVENT_SALT,
   FIELD_EVENT_SPREAD,
@@ -133,12 +133,12 @@ export function fieldEventSpan(def: FieldEventDef): number {
   return def.warn + def.duration + (def.id === 'midnight_surge' ? def.params.spawnIn : 0);
 }
 
-/** [earliest, latest] start second on a floor plan, or null when the event cannot end ≥ 2 s before the last wave. */
+/**
+ * [earliest, latest] start second on a floor plan (null without waves). 기획 16차 템포: a fixed window — the spawner
+ * holds the last wave while the event is planned / open and FIELD_EVENT_LAST_WAVE_HOLD s after, so any event fits.
+ */
 export function fieldEventWindow(def: FieldEventDef, plan: Pick<FloorPlan, 'waves'>): [number, number] | null {
-  const last = plan.waves[plan.waves.length - 1];
-  if (!last) return null;
-  const hi = last.at - fieldEventSpan(def) - FIELD_EVENT_MARGIN;
-  return hi >= FIELD_EVENT_EARLIEST ? [FIELD_EVENT_EARLIEST, hi] : null;
+  return plan.waves.length > 0 ? [FIELD_EVENT_EARLIEST, FIELD_EVENT_LATEST] : null;
 }
 
 /** Which event (if any) a floor rolls: floor 2 = the toad; else chance, then zone weights (no repeat, ≤ 2 per run). */

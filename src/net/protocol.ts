@@ -2,15 +2,18 @@
 // Server-authoritative: the Node server runs the same src/sim, clients send Commands and render snapshots.
 // Transport: one WebSocket per client at `/ws` on the same origin that served the page. JSON messages.
 
-import type { Command, ExpeditionChoice, GameEvent, GameState, Telemetry, Tunables } from '../types';
+import type { Command, ExpeditionCarry, GameEvent, GameState, Telemetry, Tunables } from '../types';
 import type { GearLoadout, GearSpec } from '../data/gear';
 
 /**
  * 2 = 기획 10차 (괴담 방: 'goedam' command, phase and snapshot deadline).
  * 3 = 기획 15차 원정: exp* messages (per-stage queues, stage-clear choice, extract / bag lost), 'start.mode',
  *     'snap.choiceDeadline'.
+ * 4 = 기획 16차 원정: one floor per stage, the run lives in the browser — expQueue carries the run (ExpRunInfo), one
+ *     expStageResult per stage (kept by run id), expStatus / expNoStage, welcome.bootId; the in-game choice is gone
+ *     (expChoice, expStageClear, expExtracted, expBagLost, snap.choiceDeadline removed).
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const MAX_ROOM_PLAYERS = 3;
 /** Snapshot broadcast rate (Hz). The server sim still ticks at 30 Hz. */
 export const SNAPSHOT_HZ = 15;
@@ -24,8 +27,6 @@ export const GOEDAM_OPTION_RE = /^[a-z0-9_]{1,32}$/;
 export const MAX_COMMAND_AGE_MS = 2000;
 /** 기획 15차 원정: real seconds a stage queue waits for players (from its first joiner) before bots fill the seats. */
 export const EXP_QUEUE_SEC = 15;
-/** 기획 15차 원정: real seconds for the stage-clear choice; then 「장비 수령하고 나가기」 for whoever has not chosen. */
-export const EXP_CHOICE_SEC = 20;
 /** 기획 15차 원정: a full (or timed-out) queue shows its seats, bots included, this long before the game starts. */
 export const EXP_LAUNCH_MS = 1000;
 /** Room codes: 4 chars from this alphabet (no 0/O/1/I). */
@@ -73,16 +74,38 @@ export interface ExpSeatInfo {
   /** Equipped gear per party index (bots: T(stage − 1) commons, [] on stage 1). */
   gear: GearLoadout[];
   isBot: boolean;
-  /** Came from a 「다음 단계 도전」 (has a bag and carried buffs). */
+  /** A continuing run (기획 16차: 「N단계 매칭」 from the lobby — has a bag and carried buffs). */
   continuing: boolean;
   /** Floor-reward buffs carried in. */
   buffs: number;
 }
 
-/** Why the bag went to the stash: own pick, the 20 s choice timeout, dropped at the clear, quit the queue, stage 12 done, server error. */
-export type ExpExtractReason = 'choice' | 'timeout' | 'disconnect' | 'cancel' | 'complete' | 'error';
-/** Why the bag was lost: party wiped, time ran out, left the game mid-stage, game abandoned. */
-export type ExpLostReason = 'wipe' | 'timeout' | 'quit' | 'abandon';
+/**
+ * 기획 16차 원정: why a stage was lost ('failed': party wiped, time ran out, left mid-stage, game abandoned) or voided
+ * ('void': the server restarted / the game broke before the clear — the bag is kept, the same stage is played again).
+ */
+export type ExpResultReason = 'wipe' | 'timeout' | 'quit' | 'abandon' | 'server' | 'error';
+
+/**
+ * 기획 16차 원정: a continuing run as the client sends it with expQueue (the browser keeps the run; the server only
+ * checks it with runJoinProblem, src/expedition/runCheck.ts). The stage to play = startStage + cleared.
+ */
+export interface ExpRunInfo {
+  /** Run id (8–40 chars of A–Z a–z 0–9 _ -). */
+  id: string;
+  startStage: number;
+  /** Stages cleared this run. */
+  cleared: number;
+  /** Unclaimed loot (tier = the stage it came from). */
+  bag: GearSpec[];
+  /** Floor rewards, traces, ult charges, rooms seen (null before the first clear). */
+  carry: ExpeditionCarry | null;
+  /** Boss stages cleared this run. */
+  bossClears: number[];
+}
+
+/** 기획 16차 원정: what a stage game meant for one player's run (expStageResult). */
+export type ExpStageOutcome = 'cleared' | 'failed' | 'void';
 
 // ─────────────── client → server ───────────────
 
@@ -105,22 +128,37 @@ export type ClientMsg =
   | { t: 'cmd'; seq: number; cmd: Command; atTick?: number }
   | { t: 'ping'; at: number }
   /**
-   * 기획 15차 원정: start a run at `stage` (1..12) and join that stage's queue. `gear` = the party's equipped gear (3
-   * loadouts, checked for shape / ids / tiers; stage ≤ maxStartStage(gear) unless `debugUnlock` and the server allows it).
-   * `firstBossClears` = boss stages this player has already cleared once (the stash's record).
+   * 기획 15차 원정: join the queue of `stage` (1..12). `gear` = the party's equipped gear (3 loadouts, checked for shape /
+   * ids / tiers). `firstBossClears` = boss stages this player has already cleared once (the stash's record).
+   * 기획 16차: `run` = the continuing run (null = a fresh run: stage ≤ maxStartStage(gear) unless `debugUnlock` and the
+   * server allows it); checked by runJoinProblem ('bad_run'), one live stage per run id ('run_busy').
    */
-  | { t: 'expQueue'; stage: number; characters: string[]; pets: string[]; gear: GearLoadout[]; firstBossClears: number[]; debugUnlock?: boolean }
-  /** Leave the stage queue. A run with stages cleared extracts its bag (expExtracted), a fresh one just ends (expCancelled). */
+  | {
+      t: 'expQueue';
+      stage: number;
+      characters: string[];
+      pets: string[];
+      gear: GearLoadout[];
+      firstBossClears: number[];
+      debugUnlock?: boolean;
+      run: ExpRunInfo | null;
+    }
+  /** Leave the stage queue (never claims anything — the bag stays in the browser's run): expCancelled. */
   | { t: 'expCancel' }
   /** Start my queue now: empty seats become bots. */
   | { t: 'expStartNow' }
-  /** The stage-clear choice (same as the in-game command 'expeditionChoice'). */
-  | { t: 'expChoice'; choice: ExpeditionChoice };
+  /**
+   * 기획 16차: the result of the run's last stage game, if the server has one (expStageResult, else expNoStage). With
+   * `stage`, only a result of that stage answers: an older stage's result counts as none (expNoStage when the run is
+   * not queued / playing here).
+   */
+  | { t: 'expStatus'; runId: string; stage?: number };
 
 // ─────────────── server → client ───────────────
 
 export type ServerMsg =
-  | { t: 'welcome'; v: number; sessionId: string; token: string; name: string }
+  /** `bootId` (기획 16차) = random per server process: a stage that was running under another bootId is gone (void). */
+  | { t: 'welcome'; v: number; sessionId: string; token: string; name: string; bootId: string }
   | { t: 'rooms'; rooms: RoomSummary[] }
   /** Your current room (null = not in a room). Sent on every change. */
   | { t: 'room'; room: RoomInfo | null }
@@ -139,7 +177,11 @@ export type ServerMsg =
         /** 기획 15차 원정: the gear sent with expQueue is not legal gear. */
         | 'bad_gear'
         /** 기획 15차 원정: the start stage is above what the party's gear allows. */
-        | 'stage_locked';
+        | 'stage_locked'
+        /** 기획 16차 원정: the run sent with expQueue is not a run that can exist (runJoinProblem). */
+        | 'bad_run'
+        /** 기획 16차 원정: this run id is already queued / playing (another tab). */
+        | 'run_busy';
       message: string;
     }
   /** Game started (or you reconnected into it). `playerIndex` = your PlayerState index = RenderUiState.localPlayer. */
@@ -152,7 +194,6 @@ export type ServerMsg =
    * `goedamDeadline` = server ms timestamp when the 괴담 room is auto-finished (null outside the 'goedam' phase).
    * `tunables` = only when they changed, on the first snapshot (start / reconnect) and about once a second.
    * `telemetry` = the receiving player's tuning log, only once `state.phase` is 'runOver' or 'stageClear'.
-   * `choiceDeadline` = 기획 15차 원정: server ms when the stage-clear choice auto-extracts (absent outside 'stageClear').
    */
   | {
       t: 'snap';
@@ -165,7 +206,6 @@ export type ServerMsg =
       rewardDeadline: number | null;
       goedamDeadline: number | null;
       telemetry?: Telemetry;
-      choiceDeadline?: number | null;
     }
   | { t: 'cmdResult'; seq: number; ok: boolean; reason?: string }
   /** The game ended and the room returned to 'waiting' (or closed). */
@@ -186,17 +226,23 @@ export type ServerMsg =
       continuing: boolean;
       bagCount: number;
     }
-  /** I left the queue of a run that had cleared nothing (nothing to claim). */
+  /** I left the queue (expCancel). Nothing changed on the server; the run's bag stays where it is (the browser). */
   | { t: 'expCancelled' }
   /**
-   * 기획 15차 원정: the stage is cleared. `loot` = mine this stage (already in `bag`); choose within `choiceSeconds`
-   * (`deadline` server ms). `nextStage` null = stage 12 was the last (extract only).
+   * 기획 16차 원정: my stage game is over for my run `runId` at `stage` — sent when it ends for me, kept by run id for
+   * opts.expResultKeepMs and sent again after a reconnect / on expStatus. Apply once (run id + stage must match):
+   * 'cleared' = `loot` into the bag, `carry` for the next stage, `bossClear` = a boss stage was cleared;
+   * 'failed' (`reason`) = the bag is lost; 'void' (`reason` 'error' / 'server') = nothing happened, the same stage again.
    */
-  | { t: 'expStageClear'; stage: number; loot: GearSpec[]; bag: GearSpec[]; choiceSeconds: number; deadline: number; nextStage: number | null }
-  /**
-   * The run ended with a claim: put `items` into the stash (also delivered after a reconnect). `bossClears` = boss
-   * stages this player has cleared (record them: an offline seat never got that stage's expStageClear).
-   */
-  | { t: 'expExtracted'; stage: number; items: GearSpec[]; reason: ExpExtractReason; bossClears: number[] }
-  /** The run failed: the bag (`count` items) is gone; equipped gear is untouched. */
-  | { t: 'expBagLost'; stage: number; count: number; reason: ExpLostReason };
+  | {
+      t: 'expStageResult';
+      runId: string;
+      stage: number;
+      outcome: ExpStageOutcome;
+      reason?: ExpResultReason;
+      loot: GearSpec[];
+      carry: ExpeditionCarry | null;
+      bossClear: boolean;
+    }
+  /** 기획 16차 원정: expStatus answer — this server has no result for that run (e.g. it restarted): treat as void. */
+  | { t: 'expNoStage'; runId: string };

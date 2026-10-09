@@ -163,7 +163,7 @@ test('artifact build (기획 15차): per-character ult gauges with the debug 「
   expect(w.requests).toEqual(['/']);
 });
 
-test('artifact build (기획 15차 원정): solo expedition without a server, the stash survives a reload, zero console errors', async ({ page }) => {
+test('artifact build (기획 15차 · 16차 원정): solo expedition without a server, the run and the stash survive a reload, zero console errors', async ({ page }) => {
   pageMode = 'artifact';
   const w = watch(page);
   const tapSel = async (sel: string) => {
@@ -172,6 +172,21 @@ test('artifact build (기획 15차 원정): solo expedition without a server, th
     await l.click();
   };
   const phase = (p: string) => page.waitForFunction(x => window.__proto?.phase === x, p, { timeout: 15_000 });
+  /** After the debug clear: the floor reward (and a 괴담 room, if one opens) until the 원정 lobby. */
+  const toLobby = async () => {
+    for (let i = 0; i < 80; i++) {
+      const p = await page.evaluate(() => window.__proto!.phase);
+      if (p === 'expHub') return;
+      if (p === 'reward') await page.evaluate(() => window.__proto!.game!.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 }));
+      else if (p === 'goedam') await page.evaluate(() => {
+          // the room: 「지나간다」, then read the result card away
+          window.__proto!.game!.dispatch({ type: 'goedam', player: 0, option: 'leave' });
+          window.__proto!.game!.dispatch({ type: 'goedam', player: 0, option: 'continue' });
+        });
+      await page.waitForTimeout(250);
+    }
+    throw new Error('never reached the lobby');
+  };
   await page.goto(`${base}?main=1`);
   await phase('main');
   await tapSel('.mm-exp');
@@ -182,20 +197,22 @@ test('artifact build (기획 15차 원정): solo expedition without a server, th
   await phase('combat');
   expect(await page.evaluate(() => [window.__proto!.mode, window.__proto!.game!.state.expedition?.stage])).toEqual(['solo', 1]);
   await page.evaluate(() => window.__proto!.game!.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } }));
-  await phase('expChoice');
-  await tapSel('.exp-extract');
-  await phase('expResult');
-  await expect(page.locator('.exp-rs-title')).toHaveText('탈출 성공!');
-  await tapSel('.exp-rs-hub');
-  await phase('expHub');
-  await expect(page.locator('.exp-stash-chip')).toHaveText('보관함 2');
+  await toLobby();
+  await tapSel('.exp-reveal-ok');
+  await expect(page.locator('.exp-run-bag .exp-tile')).toHaveCount(1);
 
-  // reload: the stash (localStorage, inside the artifact's own origin) is still there
+  // reload in the lobby: the run (localStorage, inside the artifact's own origin) is still there → 수령
   await page.reload();
   await phase('main');
   await tapSel('.mm-exp');
   await phase('expHub');
-  await expect(page.locator('.exp-stash-chip')).toHaveText('보관함 2');
+  await expect(page.locator('.exp-run-bag .exp-tile')).toHaveCount(1);
+  await tapSel('.exp-claim');
+  await phase('expResult');
+  await expect(page.locator('.exp-rs-title')).toHaveText('수령 완료!');
+  await tapSel('.exp-rs-hub');
+  await phase('expHub');
+  await expect(page.locator('.exp-stash-chip')).toHaveText('보관함 1');
   expect(w.errors, w.errors.join('\n')).toEqual([]);
   expect(w.requests.every(r => r === '/')).toBe(true);
 });

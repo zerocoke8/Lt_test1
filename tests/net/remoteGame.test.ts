@@ -198,7 +198,7 @@ describe('RemoteGame', () => {
     expect(rg.goedamDeadline).toBeNull();
   });
 
-  it('기획 15차 원정 choice: the sim\'s own check, sent for my slot, one tap only; the choice deadline rides along', () => {
+  it('기획 16차 원정 stage game: the floor reward for my slot, then the terminal stageClear; no in-game choice', () => {
     const tg = makeGame({ players: [HUMAN, HUMAN2, BOT1], expedition: { stage: 1 } });
     const conn = new FakeConn();
     const rg = new RemoteGame(conn as unknown as Connection, {
@@ -210,23 +210,17 @@ describe('RemoteGame', () => {
       mode: 'expedition',
     });
     conn.emit(snapOf(tg.game));
-    expect(rg.choiceDeadline).toBeNull();
-    expect(rg.dispatch({ type: 'expeditionChoice', player: 1, choice: 'continue' })).toEqual({ ok: false, reason: '단계 클리어가 아님' });
     expect(tg.game.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } }).ok).toBe(true);
-    const deadline = Date.now() + 20_000;
-    conn.emit(snapOf(tg.game, { choiceDeadline: deadline }));
+    conn.emit(snapOf(tg.game));
+    expect(rg.state.phase).toBe('reward');
+    expect(rg.state.expedition?.outcome).toBe('cleared');
+    expect(rg).not.toHaveProperty('choiceDeadline');
+    expect(rg.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 })).toEqual({ ok: true });
+    expect(conn.cmds()[0].cmd).toEqual({ type: 'chooseReward', player: 1, offerIndex: 0 });
+    for (const player of [0, 1]) tg.game.dispatch({ type: 'chooseReward', player, offerIndex: 0 });
+    conn.emit(snapOf(tg.game));
     expect(rg.state.phase).toBe('stageClear');
-    expect(rg.choiceDeadline).toBe(deadline);
-    expect(rg.dispatch({ type: 'expeditionChoice', player: 0, choice: 'continue' })).toEqual({ ok: true });
-    expect(conn.cmds()[0].cmd).toEqual({ type: 'expeditionChoice', player: 1, choice: 'continue' });
-    expect(rg.dispatch({ type: 'expeditionChoice', player: 1, choice: 'extract' })).toEqual({ ok: false, reason: '이미 골랐음' });
-    expect(conn.cmds()).toHaveLength(1);
-    // the server's state shows the choice: still refused (by the sim rule now)
-    tg.game.dispatch(conn.cmds()[0].cmd);
-    conn.emit({ t: 'cmdResult', seq: conn.cmds()[0].seq, ok: true });
-    conn.emit(snapOf(tg.game, { choiceDeadline: deadline }));
-    expect(rg.state.expedition?.choices[1]).toBe('continue');
-    expect(rg.dispatch({ type: 'expeditionChoice', player: 1, choice: 'extract' })).toEqual({ ok: false, reason: '이미 골랐음' });
+    expect(rg.state.expedition).not.toHaveProperty('choices');
   });
 
   it('host: debug-panel edits of game.tunables are diffed and sent; the server value wins afterwards', () => {

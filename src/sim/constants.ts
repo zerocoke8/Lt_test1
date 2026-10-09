@@ -11,11 +11,34 @@ export const ATTACK_ANIM = 0.25;
 export const PULSE_INTERVAL = 0.5;
 /** Seconds between a spawn marker and the spawn (기획서 9-1: 스폰 1초 전 바닥 마커). */
 export const SPAWN_WARNING_TIME = 1;
+/**
+ * 기획 16차 (review): wave 0 is warned at floor second 0, while the 2.3 s floor-start banner (src/ui/hud.ts, screen
+ * y ≈ 112–270 of 720 = arena y 0–4.1) is up — its groups (and their members) stay at y ≥ this, below the banner text.
+ */
+export const FIRST_WAVE_Y_TOP = 4.5;
+/** Perimeter points of a normal floor (돌발 괴담 placement only since 기획 16차; waves spawn on SPAWN_RING). */
 export const SPAWN_POINTS = { min: 6, max: 8 };
 /** Balance numbers live in src/config.ts; re-exported here under the names the sim (and tools) use. */
-export { FLOOR_WAVES as WAVES, WAVE_SIZE } from '../config';
+export { WAVE_SIZE } from '../config';
 /** Monsters of a group are scattered this far around their spawn point. */
 export const SPAWN_SCATTER = 1.1;
+/**
+ * 기획 16차 템포 (docs/tempo.md 2-1): the next wave is warned once at most `alive` enemies are left (a mid boss counts
+ * `midWeight`, queued spawns count) and `minGap` s passed since the last warning — or after the max gap anyway.
+ */
+export const WAVE_NEXT = { alive: 2, midWeight: 2, minGap: 2 };
+/**
+ * 기획 16차 템포 (2-2): a wave group spawns on a ring min..max around the wave's target character, inside the box
+ * x ∈ [xMargin, W − xMargin], y ∈ [yTop, H − yBottom] (the top stays clear of the HUD), at least `clear` from every
+ * ally field character; `tries` samples, else the sample farthest from the party. Each scattered member is then kept
+ * at least `memberClear` from every ally field character (pushed out without using the rng, review fix).
+ */
+export const SPAWN_RING = { min: 5, max: 8, clear: 4, memberClear: 2.5, tries: 12, xMargin: 1.2, yTop: 1.5, yBottom: 1.2 };
+/**
+ * 기획 16차 템포: the mid boss / 수문장 ring around the centroid of the ally field characters (with nobody on the field,
+ * every ring is around the arena centre).
+ */
+export const MID_RING = { min: 6, max: 8, clear: 5 };
 /** Summoned units appear this far around the action center. */
 export const SUMMON_SPREAD = 1.4;
 /** Hard floor for a character's swap cooldown after rewards (기획서 보상: 최소 4초). */

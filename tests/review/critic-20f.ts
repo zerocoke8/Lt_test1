@@ -27,7 +27,8 @@
 //   PATCH='[["red_mask.skills.0.action.delay",0.7],["ZONES.3.waveSize.max",5],["LATE.factor",0.5],["head_nurse.stats.maxHp","*0.9"]]'
 //                                   data edits applied before the run (value "*x" multiplies); first segment = a
 //                                   monster/boss/character id, a 돌발 괴담 id or event unit id (기획 12차: e.g.
-//                                   ["lucky_toad.reward.value",0] = the event without its reward), or ZONES / LATE (LATE_STAT_GROWTH) / WAVES (FLOOR_WAVES)
+//                                   ["lucky_toad.reward.value",0] = the event without its reward), or ZONES / LATE (LATE_STAT_GROWTH)
+//                                   (기획 16차: waves per normal floor = ["ZONES.0.waves",4] — the old WAVES / FLOOR_WAVES is gone)
 //   DETAIL=1                        also print per-floor top damage sources / killers
 //   GOEDAM=leave                    기획 10차 괴담 room policy for the humans: off|leave|random|first|greedy|forced:<room>:<opt>
 //                                   (tests/playtest/goedam-policy.ts; START > 1 forces off). Output 'goedam' = room report.
@@ -49,8 +50,12 @@
 // Per floor: clear/timeout/wipe, character deaths + "burst" deaths (≥ 70 % HP 2 s before), killers, mid-boss life and
 // heals received by source, last enemy alive, split copies / deferred queue / max alive, boss enrage, phase timing,
 // deaths per phase, deaths ≤ 5 s after a phase change, seconds with ≥ 2 / ≥ 3 boss patterns telegraphed at once.
+// 기획 16차 템포 (normal floors, row 'tempo' + out.tempo): emptySec = combat seconds with 0 enemies alive, low2Sec = with
+// ≤ 2; wave / mid spawns: distance to the nearest ally field character (med / p90), off-screen share for seat 0 (camera x =
+// its field character's x clamped to [12, W − 12]), engage = seconds from spawn to the first hit / attack / cast or an ally
+// within 2.2.
 
-import { BOT_PRESETS, DEFAULT_TUNABLES, FLOOR_WAVES, LATE_STAT_GROWTH, TICK_RATE, ZONES } from '../../src/config';
+import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE, VIEW_WIDTH_UNITS, ZONES } from '../../src/config';
 import { BOSSES, CHARACTERS, MONSTERS, getPet } from '../../src/data';
 import fs from 'node:fs';
 import { bestDropPoint, tickBots } from '../../src/sim/bot';
@@ -62,7 +67,7 @@ import { canSwap, canUsePet } from '../../src/sim/players';
 import { fieldUltGauge, memberUltGauge } from '../../src/sim/ultMode';
 import { BOT } from '../../src/sim/constants';
 import { applyOffer, rollOffers } from '../../src/sim/rewards';
-import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
+import { activeEntity, clampToArena, countEnemies, dist, isAlive, type PendingSpawn, type SimEntity, type World } from '../../src/sim/world';
 import type { BossDef, Effect, GameEvent, MonsterDef, PlayerSetup, SimPhase, SkillAction, Tunables, Vec2 } from '../../src/types';
 import { goedamPilot, goedamRunRec, goedamSummary, goedamTunables, parseGoedamPolicy, type GoedamRunRec, type RewardPick } from '../playtest/goedam-policy';
 
@@ -120,7 +125,6 @@ function applyPatch(path: string, value: number | string | boolean): void {
   const head = segs.shift()!;
   if (head === 'ZONES') obj = ZONES as unknown as Record<string, unknown>;
   else if (head === 'LATE') obj = LATE_STAT_GROWTH as unknown as Record<string, unknown>;
-  else if (head === 'WAVES') obj = FLOOR_WAVES as unknown as Record<string, unknown>;
   else {
     const def = [...MONSTERS, ...BOSSES, ...CHARACTERS, ...FIELD_EVENT_DEFS, ...FIELD_EVENT_UNITS].find(d => d.id === head);
     if (!def) throw new Error(`PATCH: unknown def ${head}`);
@@ -240,6 +244,13 @@ interface FloorRec {
   swaps: number;
   dodges: number;
   maxTeleAll: number;
+  /** 기획 16차 템포 (normal floors). */
+  emptySec: number;
+  low2Sec: number;
+  spawnDist: number[];
+  spawns: number;
+  offscreen: number;
+  engage: number[];
 }
 interface RunRec {
   floors: FloorRec[];
@@ -249,6 +260,65 @@ interface RunRec {
   seed: number;
   goedam: GoedamRunRec;
   seat: SeatRec;
+}
+
+// ─────────────────────────── 기획 16차 템포 telemetry ───────────────────────────
+
+interface TempoTrack {
+  /** Wave / mid entities not engaged yet → spawn floorTime. */
+  born: Map<number, number>;
+  /** Seat 0's last field x (camera follow). */
+  camX: number | null;
+}
+const newTempoTrack = (): TempoTrack => ({ born: new Map(), camX: null });
+
+function allyFieldChars(w: World): SimEntity[] {
+  return w.state.players.map(p => activeEntity(w, p)).filter((e): e is SimEntity => isAlive(e));
+}
+
+/** Seat 0's camera centre: its field character's x clamped to [12, W − 12] (the arena centre when W ≤ 24). */
+function seat0CamX(w: World, t: TempoTrack): number {
+  const a = w.state.plan.arena;
+  const me = activeEntity(w, w.state.players[0]);
+  if (isAlive(me)) t.camX = me.pos.x;
+  const half = VIEW_WIDTH_UNITS / 2;
+  if (a.width <= VIEW_WIDTH_UNITS) return a.width / 2;
+  return Math.max(half, Math.min(a.width - half, t.camX ?? a.width / 2));
+}
+
+/** One tick of a normal floor: empty / low seconds, wave + mid spawns (distance, off-screen), engage times. */
+function trackTempo(w: World, t: TempoTrack, rec: FloorRec, pendBefore: PendingSpawn[], evs: GameEvent[], combat: boolean): void {
+  const s = w.state;
+  const chars = allyFieldChars(w);
+  const camX = seat0CamX(w, t);
+  const gone = pendBefore.filter(p => (p.wave >= 0 || p.mid) && !p.printed && !w.spawner.pending.includes(p));
+  for (const ev of evs) {
+    if (ev.type !== 'spawn' || !gone.some(p => p.pos.x === ev.pos.x && p.pos.y === ev.pos.y)) continue;
+    rec.spawns++;
+    if (chars.length) rec.spawnDist.push(Math.min(...chars.map(c => dist(c.pos, ev.pos))));
+    if (Math.abs(ev.pos.x - camX) > VIEW_WIDTH_UNITS / 2) rec.offscreen++;
+    t.born.set(ev.entityId, s.floorTime);
+  }
+  const engage = (id: number) => {
+    const t0 = t.born.get(id);
+    if (t0 == null) return;
+    rec.engage.push(s.floorTime - t0);
+    t.born.delete(id);
+  };
+  for (const ev of evs) {
+    if (ev.type === 'damage' && ev.targetTeam === 'enemy') engage(ev.targetId);
+    else if (ev.type === 'attack') engage(ev.sourceId);
+    else if (ev.type === 'skillCast' && ev.slot === 'monster' && ev.sourceId != null) engage(ev.sourceId);
+  }
+  for (const id of [...t.born.keys()]) {
+    const e = w.byId.get(id);
+    if (!isAlive(e)) t.born.delete(id);
+    else if (chars.some(c => dist(c.pos, e.pos) <= 2.2)) engage(id);
+  }
+  if (!combat) return;
+  const n = countEnemies(w);
+  if (n === 0) rec.emptySec += 1 / TICK_RATE;
+  if (n <= 2) rec.low2Sec += 1 / TICK_RATE;
 }
 
 function petTarget(w: World, pi: number, petIdx: number): Vec2 | null {
@@ -533,12 +603,19 @@ function runOnce(seed: number): RunRec {
     swaps: s.players[0].stats.swaps,
     dodges: 0,
     maxTeleAll: 0,
+    emptySec: 0,
+    low2Sec: 0,
+    spawnDist: [],
+    spawns: 0,
+    offscreen: 0,
+    engage: [],
   });
   let rec = newRec();
   let thinkIn = 0;
   let midId: number | null = null;
   const lastKey = new Map<number, string>();
   const recentDmg = new Map<number, { t: number; key: string; amt: number }[]>();
+  const tempo = newTempoTrack();
 
   const seg = (b: BossRec): number => (s.bossEnraged ? 3 : Math.min(2, b.phases.length));
   const finish = (outcome: FloorRec['outcome'], seconds: number) => {
@@ -586,6 +663,7 @@ function runOnce(seed: number): RunRec {
     }
     const outBefore = s.players.map(p => p.out);
     const wavesBefore = w.spawner.nextWave;
+    const pendBefore = [...w.spawner.pending];
     CUR = w;
     MARKS.clear();
     tick(w);
@@ -759,6 +837,7 @@ function runOnce(seed: number): RunRec {
       for (const k of [...teleKey.keys()]) if (!live.has(k)) teleKey.delete(k);
     }
     const phaseAfter = s.phase as SimPhase;
+    if (s.floor === floorBefore && rec.kind === 'normal') trackTempo(w, tempo, rec, pendBefore, evs, phaseAfter === 'combat');
     if (s.floor === floorBefore && w.spawner.nextWave > wavesBefore) rec.lastWaveAt = s.floorTime;
     if (s.floor === floorBefore && phaseAfter === 'combat') {
       s.players.forEach((p, pi) => {
@@ -803,6 +882,7 @@ function runOnce(seed: number): RunRec {
       if (phaseAfter === 'reward') pilot.settle(humans, rewardPick);
       rec = newRec();
       midId = null;
+      tempo.born.clear();
       lastKey.clear();
       recentDmg.clear();
       for (const b of brains.values()) {
@@ -919,6 +999,7 @@ for (let f = START; f <= LAST; f++) {
     row.maxAliveP90 = pctl(recs.map(r => r.maxAlive), 0.9);
     row.maxAliveMax = Math.max(...recs.map(r => r.maxAlive));
     row.tailMed = r1(pctl(clears.filter(r => r.lastWaveAt != null).map(r => r.seconds - r.lastWaveAt!), 0.5));
+    row.tempo = tempoRow(recs);
     {
       const lk: Record<string, number> = {};
       for (const r of clears) if (r.lastKillDef) inc(lk, r.lastKillDef);
@@ -1028,6 +1109,24 @@ function fieldEventReport(rs: RunRec[]): unknown {
     floor20: { reached: f20.length, deathsAvg: r2(f20.reduce((a, f) => a + f.deaths, 0) / Math.max(1, f20.length)), clearPct: r1((f20.filter(f => f.outcome === 'clear').length / Math.max(1, f20.length)) * 100) },
   };
 }
+/** 기획 16차 템포: empty / low-2 seconds (cleared floors, mean), spawn distance, off-screen %, engage (all floors' spawns). */
+function tempoRow(recs: FloorRec[]): unknown {
+  const cl = recs.filter(r => r.outcome === 'clear');
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+  const dists = recs.flatMap(r => r.spawnDist);
+  const eng = recs.flatMap(r => r.engage);
+  const spawns = recs.reduce((a, r) => a + r.spawns, 0);
+  return {
+    emptySec: r1(mean(cl.map(r => r.emptySec))),
+    // a 돌발 괴담 floor holds its last wave until the event is over: the party plays the event on an empty field
+    emptySecByEvent: { event: r1(mean(cl.filter(r => r.event != null).map(r => r.emptySec))), none: r1(mean(cl.filter(r => r.event == null).map(r => r.emptySec))) },
+    low2Sec: r1(mean(cl.map(r => r.low2Sec))),
+    spawnDist: { med: r1(pctl(dists, 0.5)), p90: r1(pctl(dists, 0.9)) },
+    offscreenPct: r1((recs.reduce((a, r) => a + r.offscreen, 0) / Math.max(1, spawns)) * 100),
+    engage: { med: r1(pctl(eng, 0.5)), p90: r1(pctl(eng, 0.9)) },
+  };
+}
+
 /** 기획 14차: the POLICY seats' swap / ult numbers (per seat; ends of runs included). */
 function seatReport(rs: RunRec[]): unknown {
   const seats = rs.reduce((a, r) => a + r.seat.seats, 0);
@@ -1066,6 +1165,7 @@ const out = {
   goedam: goedamSummary(GOEDAM, runs.map(r => r.goedam)),
   fieldEvents: fieldEventReport(runs),
   seat: seatReport(runs),
+  tempo: tempoRow(runs.flatMap(r => r.floors).filter(f => f.kind === 'normal')),
   perFloor,
 };
 if (env.GOEDAM_DUMP) fs.writeFileSync(env.GOEDAM_DUMP, JSON.stringify(runs.map(r => ({ seed: r.seed, ...r.goedam }))));

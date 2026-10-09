@@ -289,22 +289,23 @@ function watchWindow(actions: readonly SkillAction[]): number {
 describe('executor: shapes in play', () => {
   it('blade dashes right 6 (clamped at the wall), hits along the path, then rushes back to the drop point (기획 13차)', () => {
     const tg = gameWith('blade');
-    const near = spawnAt(tg, 'golem', { x: 31, y: 6 });
+    const a = tg.game.state.plan.arena;
+    const X = a.width - 6; // 기획 16차: 24-wide arena — the drop 6 from the right wall
+    const near = spawnAt(tg, 'golem', { x: X + 1, y: 6 });
     near.hp = near.maxHp = near.rt.base.maxHp = 1e9;
     applyStatus(near, 'stun', 100, 0, null);
     clearEvents(tg);
-    tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 30, y: 6 } });
+    tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: X, y: 6 } });
     const e = active(tg);
-    const a = tg.game.state.plan.arena;
     expect(e.pos.x).toBeCloseTo(a.width - 0.5);
     const d = eventsOf(tg, 'dash');
     expect(d).toHaveLength(1);
-    expect(d[0]).toMatchObject({ entityId: e.id, from: { x: 30, y: 6 }, duration: 0.16 });
+    expect(d[0]).toMatchObject({ entityId: e.id, from: { x: X, y: 6 }, duration: 0.16 });
     expect(near.hp).toBeLessThan(1e9);
     const afterDash = near.hp;
     advance(tg, 0.4);
     // stopAtCenter: back on the drop point, not past it; the way back hits again
-    expect(e.pos.x).toBeCloseTo(30, 1); // (it may already step toward its target)
+    expect(e.pos.x).toBeCloseTo(X, 1); // (it may already step toward its target)
     expect(eventsOf(tg, 'dash')).toHaveLength(2);
     expect(near.hp).toBeLessThan(afterDash);
   });

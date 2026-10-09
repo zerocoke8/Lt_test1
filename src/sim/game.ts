@@ -15,7 +15,7 @@ import { previewPartsFor } from './preview';
 import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } from './players';
 import { Rng } from './rng';
 import { emptyUltGauge, fillUlts } from './ultMode';
-import { canDebugClearStage, expeditionChoice, expeditionRt, initExpedition, planExpeditionFloor, seatGear } from './expedition';
+import { canDebugClearStage, expeditionRt, expeditionWon, initExpedition, planExpeditionFloor, seatGear } from './expedition';
 import { scaleArea, tickPending, tickZones } from './skills';
 import { benchMaxHp } from './stats';
 import { applyTunablesPatch, computeTelemetry, emptyContribution } from './telemetry';
@@ -36,10 +36,10 @@ export function createWorld(setup: GameSetup): World {
   const tunables = { ...setup.tunables };
   const rng = new Rng(setup.seed);
   const exRt = expeditionRt(setup.expedition, setup.players.length); // 기획 15차 원정 (undefined = classic)
-  const startFloorN = exRt ? Math.max(1, Math.min(3, Math.floor(setup.startFloor ?? 1))) : Math.max(1, Math.floor(setup.startFloor ?? 1));
+  const startFloorN = exRt ? 1 : Math.max(1, Math.floor(setup.startFloor ?? 1)); // 기획 16차 원정: a stage is one floor
   // Placeholder plan so the state is complete; startFloor() below re-plans with the run rng.
   const placeholderRng = new Rng(setup.seed ^ 0x5bd1e995);
-  const plan = exRt ? planExpeditionFloor(exRt.stage, startFloorN, placeholderRng, tunables) : planFloor(startFloorN, placeholderRng, tunables);
+  const plan = exRt ? planExpeditionFloor(exRt.stage, placeholderRng, tunables) : planFloor(startFloorN, placeholderRng, tunables);
   const state: SimState = {
     seed: setup.seed,
     tick: 0,
@@ -216,11 +216,9 @@ export function dispatch(w: World, cmd: Command): CommandResult {
     case 'goedam':
       r = goedamCommand(w, cmd.player, cmd.option);
       break;
-    case 'expeditionChoice':
-      r = expeditionChoice(w, cmd.player, cmd.choice);
-      break;
     case 'quit':
       if (s.phase === 'runOver' || s.phase === 'stageClear') r = { ok: false, reason: '이미 끝남' };
+      else if (expeditionWon(w)) r = quitWonStage(w);
       else {
         endRun(w, 'defeat', 'quit');
         clearRewardOffers(w);
@@ -241,6 +239,18 @@ export function dispatch(w: World, cmd: Command): CommandResult {
     compactEntities(w);
   }
   return r;
+}
+
+/**
+ * 기획 16차 원정: 「나가기」 after the combat was won (solo; the server turns a quit into a leave) is still a clear — every
+ * human seat hands over to its bot: the pending floor reward is picked at random, the 괴담 room is passed, and the stage
+ * ends once nobody is left choosing.
+ */
+function quitWonStage(w: World): CommandResult {
+  w.state.players.forEach((p, i) => {
+    if (!p.isBot) setPlayerBot(w, i, true);
+  });
+  return { ok: true };
 }
 
 function debug(w: World, a: DebugAction): CommandResult {
@@ -272,8 +282,8 @@ function debug(w: World, a: DebugAction): CommandResult {
       floorClear(w);
       return { ok: true };
     case 'jumpFloor':
-      // 기획 15차 원정: a stage has floors 1..3 only
-      startFloor(w, Math.min(Math.max(1, Math.floor(a.floor)), w.expedition ? 3 : Math.max(1, w.tunables.maxFloor)), true);
+      // 기획 16차 원정: a stage is one floor (a jump restarts it)
+      startFloor(w, Math.min(Math.max(1, Math.floor(a.floor)), w.expedition ? 1 : Math.max(1, w.tunables.maxFloor)), true);
       return { ok: true };
     case 'forceEnrage':
       if (s.phase !== 'combat' || s.plan.kind !== 'boss' || s.bossEnraged) return { ok: false, reason: '광폭화 불가' };
@@ -292,13 +302,17 @@ function debug(w: World, a: DebugAction): CommandResult {
       // 기획 13차: fill the boss groggy gauge (1 = break now)
       return forceGroggy(w, a.fill ?? 1) ? { ok: true } : { ok: false, reason: '그로기 불가' };
     case 'expeditionClearStage': {
-      // 기획 15차 원정: straight to the stage clear (floor 3, cleared at once)
+      // 기획 16차 원정: win the stage now (normal → floor reward → lobby, boss → 'stageClear' at once)
       const r = canDebugClearStage(w);
       if (!r.ok) return r;
-      if (s.floor < 3 || s.phase !== 'combat') startFloor(w, 3, true);
       floorClear(w);
       return { ok: true };
     }
+    case 'wipeParty':
+      // 기획 16차: lose now, as if every character went down (원정: the stage and its bag are lost)
+      if (s.phase !== 'combat') return { ok: false, reason: '전투 중이 아님' };
+      endRun(w, 'defeat', 'wipe');
+      return { ok: true };
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };
 }

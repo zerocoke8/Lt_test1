@@ -1,39 +1,32 @@
-// 기획 15차 원정 on the server (docs/expedition.md 5장 · 7장): per-stage matchmaking queues (max 3; expQueueSec after
-// the first joiner, or 「바로 출발」, bots fill the empty seats), one hidden Room per stage game, and each session's run
-// (bag, carry, stages cleared, gear) held here — after the queue join nothing about the run is taken from the client.
-// The run model itself is src/expedition/run.ts, shared with the solo controller.
+// 기획 15차 원정 on the server (docs/expedition.md 7장 · 10장): per-stage matchmaking queues (max 3; expQueueSec after
+// the first joiner, or 「바로 출발」, bots fill the empty seats) and one hidden Room per stage game.
+// 기획 16차: a stage is one floor and every stage ends in the player's own 원정 lobby, so the run lives in the browser.
+// The server holds a run only while it is queued / playing (checked at the join with runJoinProblem, one live stage
+// per run id) and answers each player with ONE expStageResult — kept by run id for opts.expResultKeepMs and sent again
+// after a reconnect or on expStatus. Nothing is ever claimed here (「수령」 is the client's stash).
 //
-// Flow per player: expQueue → (queue) → room game → 'stageClear' → expStageClear → choice
-//   extract  → expExtracted (bag → the client's stash), run over
-//   continue → back into the queue of stage + 1 with the carry (rewards, traces, ult charges) and the bag
-//   wipe / timeout / quit mid-stage → expBagLost. No choice within expChoiceSec, or dropped at the clear → extract.
-// A result for a player who is offline waits here and is delivered after the reconnect (hello with the same token).
+// Flow per player: expQueue {run} → (queue) → room game → 'stageClear' / 'runOver' / leave → expStageResult
+//   cleared (loot, carry, bossClear) | failed (reason; the bag is lost) | void (server error before the clear).
+// A quit / drop after the combat was won is still a clear (its reward is picked at random, its room passed).
 
-import type { ClientMsg, ExpExtractReason, ExpLostReason, ExpSeatInfo, PresetChoice, ServerMsg } from '../src/net/protocol';
+import type { ClientMsg, ExpResultReason, ExpRunInfo, ExpSeatInfo, PresetChoice, ServerMsg } from '../src/net/protocol';
 import { MAX_ROOM_PLAYERS } from '../src/net/protocol';
-import type { ExpeditionChoice, Game, RunResult } from '../src/types';
+import type { Game, RunResult } from '../src/types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../src/config';
 import { botLoadout, cleanPartyGear, maxStartStage, type GearLoadout } from '../src/data/gear';
-import { EXPEDITION_STAGES, isBossStage } from '../src/data/stages';
-import { expeditionChoiceTimeoutCommands } from '../src/sim/expedition';
-import {
-  continueRun,
-  extractRun,
-  failRun,
-  onStageCleared,
-  startRun,
-  stageGameSetup,
-  type ExpeditionRun,
-  type RunSeat,
-} from '../src/expedition/run';
+import { isBossStage } from '../src/data/stages';
+import { extractCarry } from '../src/sim';
+import { runFromJoin, stageGameSetup, type ExpeditionRun, type RunSeat } from '../src/expedition/run';
+import { runJoinProblem } from '../src/expedition/runCheck';
 import type { EndReason, Member, Room, RoomMode, ServerOptions, Session } from './room';
-import { randomSeed } from './util';
+import { randomId, randomSeed } from './util';
 
 /** A full server (maxPlayingRooms) retries a launch this often. */
 const BUSY_RETRY_MS = 2000;
 
 type Timer = ReturnType<typeof setTimeout>;
 type ErrorCode = Extract<ServerMsg, { t: 'error' }>['code'];
+type ResultMsg = Extract<ServerMsg, { t: 'expStageResult' }>;
 
 /** What the lobby needs from the hub. */
 export interface ExpeditionHost {
@@ -45,16 +38,15 @@ export interface ExpeditionHost {
   createModeRoom(hostId: string, mode: RoomMode): Room;
 }
 
-/** One player's run on the server. */
+/** One player's run while it is queued or playing a stage (the validated join). */
 interface Runner {
   session: Session;
   run: ExpeditionRun;
   preset: PresetChoice;
-  gear: GearLoadout[];
   /** Boss stages this player has cleared once (stash record at the join + this run's). */
   firstBossClears: Set<number>;
   queue: StageQueue | null;
-  /** Queued while offline: dropped (and extracted) after lobbyGraceMs. */
+  /** Queued while offline: dropped after lobbyGraceMs. */
   graceTimer: Timer | null;
 }
 
@@ -68,14 +60,20 @@ interface StageQueue {
   launching: boolean;
 }
 
-const LOST_REASON: Record<RunResult['reason'], ExpLostReason> = { wipe: 'wipe', timeout: 'timeout', quit: 'quit', cleared: 'abandon' };
+const FAIL_REASON: Record<RunResult['reason'], ExpResultReason> = { wipe: 'wipe', timeout: 'timeout', quit: 'quit', cleared: 'abandon' };
 
 export class ExpeditionLobby {
   private readonly host: ExpeditionHost;
-  /** Session id → active run (queued or playing a stage). */
+  /** Session id → its run being queued / played. */
   private readonly runners = new Map<string, Runner>();
-  /** Session id → results that could not be delivered (offline), oldest first. */
-  private readonly pending = new Map<string, ServerMsg[]>();
+  /** Run id → session id of the run being queued / played (one live stage per run: a second tab gets 'run_busy'). */
+  private readonly activeRuns = new Map<string, string>();
+  /** Run id → its last stage result (re-sent after a reconnect / on expStatus), pruned after opts.expResultKeepMs. */
+  private readonly results = new Map<string, { msg: ResultMsg; at: number }>();
+  /** Session id → run ids whose result could not be sent (offline): sent on the reconnect. */
+  private readonly undelivered = new Map<string, Set<string>>();
+  /** Session ids whose queue was dropped while they were offline: told with expCancelled on the reconnect. */
+  private readonly lostQueue = new Set<string>();
   /** Open (joinable) queue per stage. */
   private readonly queues = new Map<number, StageQueue>();
 
@@ -85,60 +83,84 @@ export class ExpeditionLobby {
 
   // ─────────────────────────── messages ───────────────────────────
 
-  handle(s: Session, msg: Extract<ClientMsg, { t: 'expQueue' | 'expCancel' | 'expStartNow' | 'expChoice' }>): void {
+  handle(s: Session, msg: Extract<ClientMsg, { t: 'expQueue' | 'expCancel' | 'expStartNow' | 'expStatus' }>): void {
     switch (msg.t) {
       case 'expQueue':
         return this.join(s, msg);
       case 'expCancel':
-        return this.cancel(s);
+        return this.cancelAsked(s);
       case 'expStartNow': {
         const q = this.runners.get(s.id)?.queue;
         if (q && !q.launching) this.launch(q);
         return;
       }
-      case 'expChoice': {
-        const room = s.room;
-        if (!room?.mode) return this.host.sendError(s, 'not_in_room', '원정 단계 중이 아니에요');
-        const r = room.command(s, { type: 'expeditionChoice', player: 0, choice: msg.choice });
-        if (r !== 'leave' && !r.ok) this.host.sendError(s, 'bad_request', r.reason ?? '고를 수 없어요');
-        return;
-      }
+      case 'expStatus':
+        return this.status(s, msg.runId, msg.stage);
     }
   }
 
-  /** expQueue: a fresh run at `stage` (gear and start stage checked here; the client's stash is trusted otherwise). */
+  /**
+   * expQueue: the run (fresh or continuing) joins the queue of its next stage. Checked here: the gear's shape, the
+   * start-stage rule ('stage_locked'), the run itself (runJoinProblem → 'bad_run') and that the run is not live in
+   * another tab ('run_busy').
+   */
   private join(s: Session, msg: Extract<ClientMsg, { t: 'expQueue' }>): void {
     if (this.runners.has(s.id)) return this.host.sendError(s, 'bad_request', '이미 원정 중이에요');
     const gear = cleanPartyGear(msg.gear, 3);
     if (!gear) return this.host.sendError(s, 'bad_gear', '장비 정보가 잘못됐어요');
+    const debugOk = !!msg.debugUnlock && this.host.opts.expDebugUnlock;
     const max = maxStartStage(gear);
-    if (msg.stage > max && !(msg.debugUnlock && this.host.opts.expDebugUnlock)) {
+    if ((msg.run == null || msg.run.cleared === 0) && msg.stage > max && !debugOk) {
       return this.host.sendError(s, 'stage_locked', `지금 장비로는 ${max}단계까지 시작할 수 있어요`);
     }
+    if (runJoinProblem(msg.run, msg.stage, gear, debugOk)) return this.host.sendError(s, 'bad_run', '원정 기록이 이상해서 출발할 수 없어요');
+    const info: ExpRunInfo = msg.run ?? { id: randomId(8), startStage: msg.stage, cleared: 0, bag: [], carry: null, bossClears: [] };
+    if (this.activeRuns.has(info.id)) return this.host.sendError(s, 'run_busy', '다른 창에서 이미 진행 중이에요');
     if (s.room) this.host.leave(s, false);
+    const preset = { characters: [...msg.characters], pets: [...msg.pets] };
     const r: Runner = {
       session: s,
-      run: startRun(msg.stage, randomSeed()),
-      preset: { characters: [...msg.characters], pets: [...msg.pets] },
-      gear,
-      firstBossClears: new Set(msg.firstBossClears),
+      run: runFromJoin(info, { ...preset, gear }),
+      preset,
+      firstBossClears: new Set([...msg.firstBossClears, ...info.bossClears]),
       queue: null,
       graceTimer: null,
     };
     this.runners.set(s.id, r);
+    this.activeRuns.set(info.id, s.id);
     this.enqueue(r);
   }
 
-  /** Leave the queue (expCancel, or a classic room instead): a run with a bag claims it (전투 밖이니까 수령). */
+  /** Leave the queue (expCancel, a classic room instead, or the offline grace ran out). Never claims anything. */
   cancel(s: Session): void {
     const r = this.runners.get(s.id);
     if (!r?.queue) return;
     this.leaveQueue(r);
-    if (r.run.cleared > 0) this.settleExtract(r, 'cancel');
-    else {
-      this.runners.delete(s.id);
-      this.deliver(s, { t: 'expCancelled' });
-    }
+    this.dropRunner(r);
+    if (s.conn) this.host.send(s, { t: 'expCancelled' });
+    else this.lostQueue.add(s.id);
+  }
+
+  /**
+   * expCancel. Nothing queued here (dropped after the offline grace, a restarted server) is answered too, so the client
+   * never waits on its match screen; a session playing a stage game gets nothing (its result comes instead).
+   */
+  private cancelAsked(s: Session): void {
+    const r = this.runners.get(s.id);
+    if (r?.queue) return this.cancel(s);
+    if (!r) this.host.send(s, { t: 'expCancelled' });
+  }
+
+  /**
+   * expStatus: the run's stored result, else expNoStage (unless that run is still queued / played here). With `stage`,
+   * a stored result of another (older) stage counts as none — a run that is waiting for stage N never gets stuck on
+   * stage N − 1's result.
+   */
+  private status(s: Session, runId: string, stage?: number): void {
+    this.prune();
+    const res = this.results.get(runId);
+    if (res && (stage == null || res.msg.stage === stage)) return this.host.send(s, res.msg);
+    if (!this.activeRuns.has(runId)) this.host.send(s, { t: 'expNoStage', runId });
   }
 
   // ─────────────────────────── connection ───────────────────────────
@@ -161,17 +183,22 @@ export class ExpeditionLobby {
       r.graceTimer = null;
     }
     if (r?.queue) this.sendQueue(r.queue, r);
-    const msgs = this.pending.get(s.id);
-    if (!msgs) return;
-    this.pending.delete(s.id);
-    for (const m of msgs) this.host.send(s, m);
+    // its queue was dropped while it was away (lobbyGraceMs): the match screen goes back to the lobby
+    if (this.lostQueue.delete(s.id) && !r) this.host.send(s, { t: 'expCancelled' });
+    const ids = this.undelivered.get(s.id);
+    if (!ids) return;
+    this.undelivered.delete(s.id);
+    this.prune();
+    for (const id of ids) {
+      const res = this.results.get(id);
+      if (res) this.host.send(s, res.msg);
+    }
   }
 
-  /** The hub forgets an idle session: drop what waited for it. */
+  /** The hub forgets an idle session: its undelivered list goes (the results stay for expStatus by run id). */
   forget(s: Session): void {
-    this.pending.delete(s.id);
-    const r = this.runners.get(s.id);
-    if (r && !r.queue) this.runners.delete(s.id);
+    this.undelivered.delete(s.id);
+    this.lostQueue.delete(s.id);
   }
 
   /** Is this session queued or playing a stage (the hub keeps it alive)? */
@@ -187,12 +214,22 @@ export class ExpeditionLobby {
     }
     this.queues.clear();
     this.runners.clear();
-    this.pending.clear();
+    this.activeRuns.clear();
+    this.results.clear();
+    this.undelivered.clear();
+    this.lostQueue.clear();
   }
 
-  private deliver(s: Session, msg: ServerMsg): void {
-    if (s.conn) this.host.send(s, msg);
-    else this.pending.set(s.id, [...(this.pending.get(s.id) ?? []), msg]);
+  private dropRunner(r: Runner): void {
+    if (r.graceTimer) clearTimeout(r.graceTimer);
+    r.graceTimer = null;
+    if (this.runners.get(r.session.id) === r) this.runners.delete(r.session.id);
+    if (this.activeRuns.get(r.run.id) === r.session.id) this.activeRuns.delete(r.run.id);
+  }
+
+  private prune(): void {
+    const old = Date.now() - this.host.opts.expResultKeepMs;
+    for (const [id, x] of this.results) if (x.at < old) this.results.delete(id);
   }
 
   // ─────────────────────────── queues ───────────────────────────
@@ -259,7 +296,7 @@ export class ExpeditionLobby {
     q.timer = null;
     const runners = q.runners.filter(r => r.queue === q);
     if (!runners.length) return;
-    const mode = new ExpeditionRoomMode(this, runners, this.host.opts.expChoiceSec * 1000);
+    const mode = new ExpeditionRoomMode(this, runners);
     const room = this.host.createModeRoom(runners[0].session.id, mode);
     for (const r of runners) {
       r.queue = null;
@@ -270,9 +307,6 @@ export class ExpeditionLobby {
     }
     const seats: RunSeat[] = runners.map(r => ({
       name: r.session.name,
-      characters: [...r.preset.characters],
-      pets: [...r.preset.pets],
-      gear: r.gear,
       run: r.run,
       firstBossClear: isBossStage(q.stage) && !r.firstBossClears.has(q.stage),
     }));
@@ -284,7 +318,7 @@ export class ExpeditionLobby {
       name: r.session.name,
       characters: [...r.preset.characters],
       pets: [...r.preset.pets],
-      gear: r.gear.map(l => ({ ...l })),
+      gear: r.run.lock.gear.map(l => ({ ...l })),
       isBot: false,
       continuing: r.run.cleared > 0,
       buffs: r.run.carry?.rewards.length ?? 0,
@@ -318,112 +352,82 @@ export class ExpeditionLobby {
     });
   }
 
-  // ─────────────────────────── settling a run (used by the room mode) ───────────────────────────
+  // ─────────────────────────── results (used by the room mode) ───────────────────────────
 
-  /** At 'stageClear': the player's loot into the bag, the carry taken; the choice screen data. */
-  stageCleared(r: Runner, g: Game, pi: number, deadline: number): void {
-    const stage = r.run.stage;
-    const loot = onStageCleared(r.run, g.state, pi);
-    if (isBossStage(stage)) r.firstBossClears.add(stage);
-    this.host.send(r.session, {
-      t: 'expStageClear',
-      stage,
-      loot,
-      bag: r.run.bag.map(x => ({ ...x })),
-      choiceSeconds: this.host.opts.expChoiceSec,
-      deadline,
-      nextStage: stage < EXPEDITION_STAGES ? stage + 1 : null,
-    });
-  }
-
-  /** The stage-clear choice is final (the player has already left the room). */
-  settleChoice(r: Runner, choice: ExpeditionChoice, reason: ExpExtractReason): void {
-    if (choice === 'continue' && continueRun(r.run)) this.enqueue(r);
-    else this.settleExtract(r, choice === 'continue' ? 'complete' : reason);
-  }
-
-  settleExtract(r: Runner, reason: ExpExtractReason): void {
-    const stage = r.run.stage;
-    const items = extractRun(r.run);
-    this.runners.delete(r.session.id);
-    const bossClears = [...r.firstBossClears].sort((a, b) => a - b);
-    this.deliver(r.session, { t: 'expExtracted', stage, items, reason, bossClears });
-  }
-
-  settleFail(r: Runner, reason: ExpLostReason): void {
-    const stage = r.run.stage;
-    const count = failRun(r.run);
-    this.runners.delete(r.session.id);
-    this.deliver(r.session, { t: 'expBagLost', stage, count, reason });
+  /** The stage is over for this runner: its one result (stored by run id, sent now or after the reconnect). */
+  settle(r: Runner, res: Omit<ResultMsg, 't' | 'runId' | 'stage'>): void {
+    const msg: ResultMsg = { t: 'expStageResult', runId: r.run.id, stage: r.run.stage, ...res };
+    this.dropRunner(r);
+    this.prune();
+    this.results.set(r.run.id, { msg, at: Date.now() });
+    const s = r.session;
+    if (s.conn) this.host.send(s, msg);
+    else {
+      const ids = this.undelivered.get(s.id) ?? new Set<string>();
+      ids.add(r.run.id);
+      this.undelivered.set(s.id, ids);
+    }
   }
 }
 
-/** The RoomMode of one stage game: stage clear → loot + choice deadline, choices → settle, a lost stage → bags lost. */
+/** A won stage's result for player pi (its reward already picked / its room passed). */
+function clearedResult(g: Game, pi: number): Omit<ResultMsg, 't' | 'runId' | 'stage'> {
+  const ex = g.state.expedition!;
+  return { outcome: 'cleared', loot: (ex.loot[pi] ?? []).map(x => ({ ...x })), carry: extractCarry(g.state, pi), bossClear: ex.boss };
+}
+
+/** onEnd after the clear: hand the seat to its bot (reward / room) and read the result; a broken sim = void. */
+function wonOrVoid(g: Game, pi: number): Omit<ResultMsg, 't' | 'runId' | 'stage'> {
+  try {
+    if (!g.state.players[pi]?.isBot) g.setPlayerBot(pi, true);
+    return clearedResult(g, pi);
+  } catch {
+    return voidResult('error');
+  }
+}
+
+const failedResult = (reason: ExpResultReason): Omit<ResultMsg, 't' | 'runId' | 'stage'> => ({ outcome: 'failed', reason, loot: [], carry: null, bossClear: false });
+const voidResult = (reason: ExpResultReason): Omit<ResultMsg, 't' | 'runId' | 'stage'> => ({ outcome: 'void', reason, loot: [], carry: null, bossClear: false });
+
+/**
+ * The RoomMode of one stage game: 'stageClear' → each human's cleared result and out of the room; 'runOver' → failed
+ * for everyone (they stay to watch the result screen until the room ends); a leave mid-stage → failed for that one.
+ */
 class ExpeditionRoomMode implements RoomMode {
   readonly kind = 'expedition' as const;
   private readonly lobby: ExpeditionLobby;
   private readonly runners: Map<string, Runner>;
-  private readonly choiceMs: number;
-  /** Session ids whose run this game has settled (or handed on to the next queue). */
+  /** Session ids whose result this game has settled. */
   private readonly settled = new Set<string>();
-  /** Server ms of the choice deadline (set at the clear). */
-  private deadline: number | null = null;
-  /** Player indices that got the timeout's automatic 'extract'. */
-  private readonly timedOut = new Set<number>();
   private failed = false;
 
-  constructor(lobby: ExpeditionLobby, runners: Runner[], choiceMs: number) {
+  constructor(lobby: ExpeditionLobby, runners: Runner[]) {
     this.lobby = lobby;
     this.runners = new Map(runners.map(r => [r.session.id, r]));
-    this.choiceMs = Math.max(0, choiceMs);
   }
 
-  choiceDeadline(): number | null {
-    return this.deadline;
-  }
-
-  check(room: Room, g: Game, now: number): void {
+  check(room: Room, g: Game): void {
     const s = g.state;
     if (!s.expedition) return;
-    if (s.phase === 'stageClear') this.checkChoices(room, g, now);
-    else if (s.phase === 'runOver' && !this.failed) {
+    if (s.phase === 'stageClear') {
+      for (const m of [...room.members]) {
+        if (m.playerIndex == null || this.settled.has(m.session.id)) continue;
+        const pi = m.playerIndex;
+        this.leaveWith(room, m, r => this.lobby.settle(r, clearedResult(g, pi)));
+      }
+    } else if (s.phase === 'runOver' && !this.failed) {
       // wipe / timeout: everyone here loses the bag; they stay to watch the result until the room ends
       this.failed = true;
-      const reason = LOST_REASON[s.runResult?.reason ?? 'wipe'];
-      for (const m of room.members) this.settle(m, r => this.lobby.settleFail(r, reason));
+      const reason = FAIL_REASON[s.runResult?.reason ?? 'wipe'];
+      for (const m of room.members) this.settle(m, r => this.lobby.settle(r, failedResult(reason)));
     }
   }
 
-  private checkChoices(room: Room, g: Game, now: number): void {
-    const ex = g.state.expedition!;
-    if (this.deadline == null) {
-      this.deadline = now + this.choiceMs;
-      for (const m of room.members) {
-        const r = this.runners.get(m.session.id);
-        if (r && m.playerIndex != null && !this.settled.has(m.session.id)) this.lobby.stageCleared(r, g, m.playerIndex, this.deadline);
-      }
-    } else if (now >= this.deadline) {
-      for (const c of expeditionChoiceTimeoutCommands(g.state)) {
-        if (c.type === 'expeditionChoice') this.timedOut.add(c.player);
-        g.dispatch(c);
-      }
-    }
-    for (const m of [...room.members]) {
-      const pi = m.playerIndex;
-      const choice = pi != null ? ex.choices[pi] : null;
-      if (pi == null || choice == null || this.settled.has(m.session.id)) continue;
-      const reason: ExpExtractReason = this.timedOut.has(pi) ? 'timeout' : m.session.conn ? 'choice' : 'disconnect';
-      this.leaveWith(room, m, r => this.lobby.settleChoice(r, choice, reason));
-    }
-  }
-
-  /** The member leaves this stage game now: 'gameEnded' first, then the result (or the next queue). */
+  /** The member leaves this stage game now: the result first (the client knows the outcome), then 'gameEnded'. */
   private leaveWith(room: Room, m: Member, then: (r: Runner) => void): void {
-    const r = this.runners.get(m.session.id);
-    this.settled.add(m.session.id);
+    this.settle(m, then);
     room.endFor(m);
     room.remove(m.session);
-    if (r) then(r);
   }
 
   private settle(m: Member, how: (r: Runner) => void): void {
@@ -433,23 +437,31 @@ class ExpeditionRoomMode implements RoomMode {
     if (r) how(r);
   }
 
-  /** Quit / leaveRoom: mid-stage = the bag is lost; at the choice = claim it (전투 밖). */
+  /**
+   * Quit / leaveRoom (before its slot turns bot). Mid-combat = failed 'quit' (that player's bag only). After the combat
+   * was won = still a clear: the seat goes bot now (its reward picked at random, its room passed), then the result.
+   */
   onRemove(room: Room, m: Member): void {
     if (this.settled.has(m.session.id)) return;
     const g = room.game;
-    const atClear = g?.state.phase === 'stageClear';
+    const pi = m.playerIndex;
+    if (g && pi != null && g.state.expedition?.outcome === 'cleared') {
+      g.setPlayerBot(pi, true);
+      this.settle(m, r => this.lobby.settle(r, clearedResult(g, pi)));
+    } else this.settle(m, r => this.lobby.settle(r, failedResult('quit')));
     room.endFor(m);
-    this.settle(m, r => (atClear ? this.lobby.settleExtract(r, 'choice') : this.lobby.settleFail(r, 'quit')));
   }
 
-  /** The game stops early (nobody connected / sim error): claim at the choice or on a server error, else lost. */
+  /**
+   * The game stops early (nobody connected for expAbandonMs, sim error). Won already = cleared; a server error before
+   * the clear = void (the bag is kept, the stage is played again); abandoned before the clear = failed.
+   */
   onEnd(room: Room, g: Game, why: EndReason): void {
-    const atClear = g.state.phase === 'stageClear';
+    const won = g.state.expedition?.outcome === 'cleared';
     for (const m of room.members) {
-      this.settle(m, r => {
-        if (atClear || why === 'error') this.lobby.settleExtract(r, atClear ? 'disconnect' : 'error');
-        else this.lobby.settleFail(r, 'abandon');
-      });
+      const pi = m.playerIndex;
+      const res = won && pi != null ? wonOrVoid(g, pi) : why === 'error' ? voidResult('error') : failedResult('abandon');
+      this.settle(m, r => this.lobby.settle(r, res));
     }
   }
 }

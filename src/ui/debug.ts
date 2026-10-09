@@ -158,6 +158,7 @@ export class DebugPanel {
     action('적 전멸', { kind: 'killAll' });
     action('층 건너뛰기', { kind: 'skipFloor' });
     action('광폭화', { kind: 'forceEnrage' });
+    action('전멸 (패배)', { kind: 'wipeParty' }); // 기획 16차
     // 기획 13차: boss groggy gauge — break now / almost full
     action('그로기', { kind: 'forceGroggy' });
     action('그로기 직전', { kind: 'forceGroggy', fill: 0.85 });
