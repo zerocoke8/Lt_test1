@@ -2,9 +2,20 @@
 
 import type { PlayerState, StatMods } from '../types';
 import { getGoedamTrace, getRelic, getReward } from '../data';
+import { charOptionLevel, charRelicMult } from './expeditionGear';
+import { optionValue } from '../data/gear';
 
 export function hasRelic(p: PlayerState, id: string): boolean {
   return p.relics.includes(id);
+}
+
+/**
+ * How strongly relic `id` works for party member idx: 1 when the player owns it (classic party relic), else 기획 15차
+ * 원정 the tier multiplier of that relic equipped on THAT character, else 0. Callers scale the relic's numeric effect by it.
+ */
+export function relicScale(p: PlayerState, idx: number | null | undefined, id: string): number {
+  if (hasRelic(p, id)) return 1;
+  return p.gear ? charRelicMult(p, idx, id) : 0;
 }
 
 export function relicParam(id: string, key: string): number {
@@ -72,7 +83,14 @@ export function swapCooldownReduction(p: PlayerState, partyIndex: number): numbe
     const eff = getReward(r.rewardId).effect;
     if (eff.kind === 'swapCooldown') sum += eff.value;
   }
+  if (p.gear) sum += gearOptionValue(p, partyIndex, 'c_quick_swap'); // 기획 15차 원정 장신구 「빠른 교대」
   return sum;
+}
+
+/** 기획 15차 원정: the value of special effect `optionId` on that character's gear (0 = none). */
+export function gearOptionValue(p: PlayerState, partyIndex: number | null | undefined, optionId: string): number {
+  const lv = charOptionLevel(p, partyIndex, optionId);
+  return lv ? optionValue(optionId, lv) : 0;
 }
 
 export function appearShieldFrac(p: PlayerState, partyIndex: number): number {

@@ -198,22 +198,53 @@ describe('RemoteGame', () => {
     expect(rg.goedamDeadline).toBeNull();
   });
 
+  it('기획 15차 원정 choice: the sim\'s own check, sent for my slot, one tap only; the choice deadline rides along', () => {
+    const tg = makeGame({ players: [HUMAN, HUMAN2, BOT1], expedition: { stage: 1 } });
+    const conn = new FakeConn();
+    const rg = new RemoteGame(conn as unknown as Connection, {
+      t: 'start',
+      playerIndex: 1,
+      hostPlayerIndex: 0,
+      seed: 1,
+      tunables: { ...DEFAULT_TUNABLES },
+      mode: 'expedition',
+    });
+    conn.emit(snapOf(tg.game));
+    expect(rg.choiceDeadline).toBeNull();
+    expect(rg.dispatch({ type: 'expeditionChoice', player: 1, choice: 'continue' })).toEqual({ ok: false, reason: '단계 클리어가 아님' });
+    expect(tg.game.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } }).ok).toBe(true);
+    const deadline = Date.now() + 20_000;
+    conn.emit(snapOf(tg.game, { choiceDeadline: deadline }));
+    expect(rg.state.phase).toBe('stageClear');
+    expect(rg.choiceDeadline).toBe(deadline);
+    expect(rg.dispatch({ type: 'expeditionChoice', player: 0, choice: 'continue' })).toEqual({ ok: true });
+    expect(conn.cmds()[0].cmd).toEqual({ type: 'expeditionChoice', player: 1, choice: 'continue' });
+    expect(rg.dispatch({ type: 'expeditionChoice', player: 1, choice: 'extract' })).toEqual({ ok: false, reason: '이미 골랐음' });
+    expect(conn.cmds()).toHaveLength(1);
+    // the server's state shows the choice: still refused (by the sim rule now)
+    tg.game.dispatch(conn.cmds()[0].cmd);
+    conn.emit({ t: 'cmdResult', seq: conn.cmds()[0].seq, ok: true });
+    conn.emit(snapOf(tg.game, { choiceDeadline: deadline }));
+    expect(rg.state.expedition?.choices[1]).toBe('continue');
+    expect(rg.dispatch({ type: 'expeditionChoice', player: 1, choice: 'extract' })).toEqual({ ok: false, reason: '이미 골랐음' });
+  });
+
   it('host: debug-panel edits of game.tunables are diffed and sent; the server value wins afterwards', () => {
     const { tg, conn, rg } = setup(0, 0);
     conn.emit(snapOf(tg.game));
     expect(rg.isHost).toBe(true);
-    rg.tunables.ultChargeTime = 12;
+    rg.tunables.ultFieldChargeTime = 12;
     rg.tunables.invincible = true;
     rg.step(1 / 60);
     const sent = conn.cmds().map(c => c.cmd);
-    expect(sent).toEqual([{ type: 'tunables', patch: { ultChargeTime: 12, invincible: true } }]);
+    expect(sent).toEqual([{ type: 'tunables', patch: { ultFieldChargeTime: 12, invincible: true } }]);
     // a snapshot from before the change does not undo the local edit
     conn.emit(snapOf(tg.game));
-    expect(rg.tunables.ultChargeTime).toBe(12);
+    expect(rg.tunables.ultFieldChargeTime).toBe(12);
     // the server applied it
-    tg.game.dispatch({ type: 'tunables', patch: { ultChargeTime: 12, invincible: true } });
+    tg.game.dispatch({ type: 'tunables', patch: { ultFieldChargeTime: 12, invincible: true } });
     conn.emit(snapOf(tg.game));
-    expect(rg.tunables.ultChargeTime).toBe(12);
+    expect(rg.tunables.ultFieldChargeTime).toBe(12);
     rg.step(1 / 60);
     expect(conn.cmds()).toHaveLength(1);
   });

@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import type { IncomingMessage } from 'node:http';
-import { GOEDAM_TIMEOUT_SEC, MAX_COMMAND_AGE_MS, REWARD_TIMEOUT_SEC, SNAPSHOT_HZ } from '../src/net/protocol';
+import { EXP_CHOICE_SEC, EXP_LAUNCH_MS, EXP_QUEUE_SEC, GOEDAM_TIMEOUT_SEC, MAX_COMMAND_AGE_MS, REWARD_TIMEOUT_SEC, SNAPSHOT_HZ } from '../src/net/protocol';
 import { TICK_RATE } from '../src/config';
 import { createStaticHandler } from './http';
 import { Hub } from './hub';
@@ -35,6 +35,15 @@ export const DEFAULT_OPTIONS: ServerOptions = {
   ratePerSec: 40,
   rateBurst: 80,
   sessionTtlMs: 30 * 60_000,
+  expQueueSec: EXP_QUEUE_SEC,
+  expChoiceSec: EXP_CHOICE_SEC,
+  expLaunchMs: EXP_LAUNCH_MS,
+  // prototype: the stash lives in the browser anyway, so the debug 「단계 전부 해금」 is honoured (EXP_DEBUG_UNLOCK=0 = off)
+  expDebugUnlock: true,
+  // a matched stranger who is seat 0 must not clear or wipe the others' stage (EXP_SHARED_DEBUG=1 = allow, tests)
+  expSharedDebug: false,
+  // bots finish an all-offline stage (≤ ~6 min + choices); this only stops a stage that never ends
+  expAbandonMs: 20 * 60_000,
   debug: false,
   log: (msg: string) => console.log(`${new Date().toISOString()} ${msg}`),
 };

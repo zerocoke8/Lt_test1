@@ -28,6 +28,7 @@ import { activeEntity, clampToArena, edgeDist, getEntity, isAlive, type SimEntit
 import type { BossDef, Effect, GameEvent, PlayerSetup, PreviewPart, SkillAction, Vec2 } from '../../src/types';
 import { dragNeutralPick, zeroComponents, type DragComponents } from './drag-value';
 import { goedamPilot, goedamTunables, type GoedamPolicy } from './goedam-policy';
+import { fieldUltGauge } from '../../src/sim/ultMode';
 
 export type Policy = 'best' | 'designer' | 'naive' | 'self';
 export type Slot = 'drag' | 'ult';
@@ -416,7 +417,7 @@ export function runOne(charId: string, policy: Policy, seed: number, acc: Acc, o
       think = 0.25;
       const me = activeEntity(w, p);
       const foes = s.entities.filter(e => e.team === 'enemy' && isAlive(e));
-      if (p.ult.charge >= 1 && me && foes.length) {
+      if ((fieldUltGauge(p)?.charge ?? 0) >= 1 && me && foes.length) {
         if (ultAt == null) ultAt = s.time + 0.5;
         const mineUlt = !mixed || me.defId === charId;
         if (s.time >= ultAt && dispatch(w, { type: 'ult', player: 0 }).ok) {

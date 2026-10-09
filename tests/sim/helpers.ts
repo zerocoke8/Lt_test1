@@ -4,7 +4,7 @@ import { createUnit } from '../../src/sim/entities';
 import { createGameWithWorld, tick } from '../../src/sim/game';
 import { applyDamage } from '../../src/sim/combat';
 import { activeEntity, type SimEntity, type World } from '../../src/sim/world';
-import type { Game, GameEvent, PlayerSetup, Tunables, Vec2 } from '../../src/types';
+import type { ExpeditionSetup, Game, GameEvent, PlayerSetup, PlayerState, Tunables, UltGauge, Vec2 } from '../../src/types';
 
 export const HUMAN: PlayerSetup = {
   name: '나',
@@ -27,7 +27,9 @@ export interface TestGame {
   events: GameEvent[];
 }
 
-export function makeGame(opts: { seed?: number; players?: PlayerSetup[]; tunables?: Partial<Tunables>; startFloor?: number } = {}): TestGame {
+export function makeGame(
+  opts: { seed?: number; players?: PlayerSetup[]; tunables?: Partial<Tunables>; startFloor?: number; expedition?: ExpeditionSetup } = {},
+): TestGame {
   const { game, world } = createGameWithWorld({
     seed: opts.seed ?? 1234,
     players: opts.players ?? [HUMAN],
@@ -35,6 +37,7 @@ export function makeGame(opts: { seed?: number; players?: PlayerSetup[]; tunable
     // 기획 12차: 돌발 괴담 off too (explicit, like the rooms) — tests/sim/field-events.test.ts turns them on
     tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, fieldEventChance: 0, ...(opts.tunables ?? {}) },
     startFloor: opts.startFloor,
+    ...(opts.expedition ? { expedition: opts.expedition } : null), // 기획 15차 원정
   });
   const tg: TestGame = { game, w: world, events: [] };
   tg.events.push(...game.drainEvents());
@@ -100,4 +103,13 @@ export function killActive(tg: TestGame, player = 0): void {
 
 export function entityById(tg: TestGame, id: number | null): SimEntity | undefined {
   return tg.w.state.entities.find(e => e.id === id && !e.rt.gone);
+}
+
+/**
+ * 기획 15차 (per-character ult): the gauge a test means by 'the player's ult' — the field character's (the one the ult
+ * button shows and gains go to), else the focus card (first living one), else slot 0.
+ */
+export function ultOf(p: Pick<PlayerState, 'party' | 'activeIndex'>): UltGauge {
+  const i = p.activeIndex ?? p.party.findIndex(m => !m.dead);
+  return p.party[i >= 0 ? i : 0].ult;
 }

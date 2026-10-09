@@ -372,7 +372,8 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await expect(page.locator('.ult')).toHaveClass(/is-full/);
   await input.tap(await center(page, '.ult'));
   await page.waitForFunction(() => window.__proto!.game!.state.players[0].stats.ultsUsed === 1, undefined, { timeout: 3000 });
-  expect(await inGame(page, g => g.state.players[0].ult.charge)).toBeLessThan(0.1);
+  // 기획 15차: the field character's own gauge (debug 충전 filled all three; the bench ones stay full)
+  expect(await inGame(page, g => g.state.players[0].party[g.state.players[0].activeIndex!].ult.charge)).toBeLessThan(0.1);
   await sleep(350);
   await shot('ult');
 
@@ -594,7 +595,8 @@ test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop
   await waitPhase(page, 'preset');
   // floor 2 (the toad's floor); the scheduled events off so only the forced one runs; a soft toad (monster HP ×0.3) so the
   // catch never depends on how the real-time bots happen to aim
-  await page.evaluate(() => window.__proto!.startRun({ seed: 12, startFloor: 2, tunables: { invincible: true, goedamRoomsPerZone: 0, fieldEventChance: 0, monsterHpMult: 0.3 } }));
+  // 기획 15차: gauges nearly frozen (field 600 s, bench 0) so the +40% stands out whichever card is on the field at the catch
+  await page.evaluate(() => window.__proto!.startRun({ seed: 12, startFloor: 2, tunables: { invincible: true, goedamRoomsPerZone: 0, fieldEventChance: 0, monsterHpMult: 0.3, ultFieldChargeTime: 600, ultBenchRatio: 0 } }));
   await waitPhase(page, 'combat');
   await sleep(2500);
   // every toast from here on is recorded: the toad is often caught (~2.4 s in) while the drag below is still running,
@@ -623,7 +625,7 @@ test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop
   expect((pill.y + pill.height - stage.y) / (stage.width / 1280)).toBeLessThan(150);
 
   // a real drag: the next ready card dropped right next to the toad → the character that appears locks onto it
-  const ult0 = await inGame(page, g => g.state.players.map(p => p.ult.charge));
+  const ult0 = await inGame(page, g => g.state.players[0].party.map(m => m.ult.charge));
   const plan = await page.evaluate(() => {
     const api = window.__proto!;
     const s = api.game!.state;
@@ -648,10 +650,13 @@ test('돌발 괴담: the fleeing toad — banner + pill + gold ring, a real drop
   const toasts = await page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts);
   expect(toasts.filter(t => t.includes('금두꺼비를 잡았다! 모두 궁극기 게이지 +40%'))).toHaveLength(1);
   await shot('combat-event-success');
-  const done = await inGame(page, g => ({ ok: g.telemetry(0).fieldEvents?.at(-1)?.success, ult: g.state.players.map(p => p.ult.charge) }));
+  const done = await inGame(page, g => ({ ok: g.telemetry(0).fieldEvents?.at(-1)?.success, ult: g.state.players[0].party.map(m => m.ult.charge) }));
   expect(done.ok).toBe(true);
-  // my gauge (a human never fires it by itself; the bots may spend theirs at once)
-  expect(done.ult[0]).toBeGreaterThanOrEqual(Math.min(1, ult0[0] + 0.4) - 1e-6);
+  // the +40% went to my field character at the catch (the drag may land just before or after it): exactly one of my
+  // cards gained it (a human never fires the ult by itself; the bots may spend theirs at once)
+  const gains = done.ult.map((u, i) => u - ult0[i]);
+  expect(gains.filter(g => g >= 0.4 - 0.05).length).toBe(1);
+  expect(gains.reduce((a, g) => a + g, 0)).toBeLessThan(0.4 + 0.1);
   await expect(page.locator('.ult')).toHaveClass(/is-fe-reward/);
 
   // 비상등 on a fresh floor: the lamp off my screen gets a gold edge arrow with its icon

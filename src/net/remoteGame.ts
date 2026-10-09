@@ -9,6 +9,7 @@
 // - dispatch(): validated locally with the same pure rules as the sim, sent as a Command, answered optimistically.
 //   Every command carries `atTick` (newest snapshot seen) so the server drops swaps/pets that arrive stale.
 // - 괴담 방 (기획 10차): 'goedam' is checked with the sim's own canGoedamState; the room deadline rides on snapshots.
+// - 원정 (기획 15차): 'expeditionChoice' is checked with canExpeditionChoiceState; the choice deadline rides on snapshots.
 // - tunables: a live object the host's debug panel mutates; changes are diffed each frame and sent as 'tunables'.
 
 import type {
@@ -29,6 +30,7 @@ import { ARENA_MARGIN } from '../sim/constants';
 import { canSwapState, canUltState, canUsePetState } from '../sim/players';
 import { previewPartsFor } from '../sim/preview';
 import { canGoedamState } from '../sim/goedam';
+import { canExpeditionChoiceState } from '../sim/expedition';
 import { STALL_RECONNECT_MS, type Connection } from './connection';
 import type { ServerMsg } from './protocol';
 import { SNAPSHOT_HZ } from './protocol';
@@ -94,6 +96,7 @@ export class RemoteGame implements Game {
   private telemetryLatest: Telemetry = EMPTY_TELEMETRY;
   private deadlineServer: number | null = null;
   private goedamDeadlineServer: number | null = null;
+  private choiceDeadlineServer: number | null = null;
   /** 괴담 command sent while my slot was at this stage: a second tap waits until a snapshot shows the change. */
   private goedamSent: { stage: GoedamStage; at: number } | null = null;
   private seq = 0;
@@ -180,6 +183,11 @@ export class RemoteGame implements Game {
     return this.goedamDeadlineServer == null ? null : this.goedamDeadlineServer - this.conn.serverOffsetMs;
   }
 
+  /** 기획 15차 원정: stage-clear choice auto-extract deadline on the local clock (Date.now() ms), null outside 'stageClear'. */
+  get choiceDeadline(): number | null {
+    return this.choiceDeadlineServer == null ? null : this.choiceDeadlineServer - this.conn.serverOffsetMs;
+  }
+
   dispose(): void {
     for (const u of this.unsub.splice(0)) u();
   }
@@ -238,6 +246,11 @@ export class RemoteGame implements Game {
       }
       case 'goedam':
         r = this.canGoedam(me, cmd.option);
+        wire = { ...cmd, player: me };
+        break;
+      case 'expeditionChoice':
+        r = canExpeditionChoiceState(s, me, cmd.choice);
+        if (r.ok && this.hasPending('expeditionChoice')) r = fail('이미 골랐음');
         wire = { ...cmd, player: me };
         break;
       case 'debug':
@@ -361,6 +374,7 @@ export class RemoteGame implements Game {
     if (m.telemetry) this.telemetryLatest = m.telemetry; // sent once the run is over
     this.deadlineServer = m.rewardDeadline;
     this.goedamDeadlineServer = m.goedamDeadline ?? null;
+    this.choiceDeadlineServer = m.choiceDeadline ?? null;
     this.hostPlayerIndex = m.hostPlayerIndex;
     this.mergeTunables(m.tunables, now);
   }

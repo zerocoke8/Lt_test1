@@ -7,23 +7,28 @@ import { dropOutcome } from '../../src/sim/fieldEventPreview';
 import { tick } from '../../src/sim/game';
 import type { Command, GameState, Tunables } from '../../src/types';
 import { canSwapState, canUltState } from '../../src/sim/players';
-import { fieldUltGauge, ultSecondsLeft } from '../../src/sim/ultMode';
-import { cardReady, energySecondsTo, swapCostNow } from '../../src/sim/energy';
-import { makeGame, type TestGame } from '../sim/helpers';
+import { fieldUltGauge, ultFillTimes, ultSecondsLeft } from '../../src/sim/ultMode';
+import type { GearLoadout } from '../../src/data/gear';
+import { BOT1, makeGame, type TestGame } from '../sim/helpers';
 
 const KEYS: Record<string, string[]> = {
-  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'bossGroggy', 'runResult'],
-  plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'bossId', 'theme'],
+  // expedition: 기획 15차 원정 only (absent in the classic tower)
+  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'bossGroggy', 'runResult', 'expedition'],
+  // stage … bossHpMult: 기획 15차 원정 floor plans only
+  plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'bossId', 'theme', 'stage', 'stageFloor', 'equivFloor', 'guardian', 'bossHpMult'],
+  guardian: ['monsterId', 'hpMult', 'atkMult', 'at'],
+  expedition: ['stage', 'stageFloor', 'boss', 'outcome', 'loot', 'choices', 'humans', 'goedamSeen'],
+  gearSpec: ['slot', 'tier', 'rarity', 'optionId', 'relicId'],
   wave: ['at', 'spawns'],
   entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged', 'eventTag'],
   status: ['id', 'remaining', 'total', 'value', 'sourcePlayer', 'data'], // data: 기획 13차 taunt / tether / root / stasis
-  // energy: 기획 14차 교체 에너지 (only while the toggle is on)
-  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'ult', 'energy', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog'],
-  // ult: 기획 14차 궁극기 개별 게이지 (only while the toggle is on)
+  // 기획 15차: no shared 'ult' gauge and no 14차 'energy' pool on the player any more
+  // gear: 기획 15차 원정 equipped gear per party index (absent in the classic tower)
+  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog', 'gear'],
+  // ult: 기획 15차 the character's own gauge (the rule)
   member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId', 'ult'],
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
-  energy: ['value', 'max', 'regen'],
   stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage'],
   telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total'],
   zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
@@ -49,7 +54,13 @@ function extra(kind: string, o: object | null): string[] {
 }
 
 function audit(s: GameState, seen: Set<string>): string[] {
-  const bad: string[] = [...extra('state', s), ...extra('plan', s.plan)];
+  const bad: string[] = [...extra('state', s), ...extra('plan', s.plan), ...extra('guardian', s.plan.guardian ?? null)];
+  if (s.expedition) {
+    seen.add(`expedition:${s.phase}`);
+    bad.push(...extra('expedition', s.expedition));
+    for (const l of s.expedition.loot) for (const g of l) (seen.add('loot'), bad.push(...extra('gearSpec', g)));
+  }
+  for (const p of s.players) for (const l of p.gear ?? []) for (const g of Object.values(l)) (seen.add('gear'), bad.push(...extra('gearSpec', g)));
   for (const w of s.plan.waves) bad.push(...extra('wave', w));
   for (const e of s.entities) {
     seen.add(`entity:${e.kind}`);
@@ -57,8 +68,7 @@ function audit(s: GameState, seen: Set<string>): string[] {
     for (const st of e.statuses) (seen.add('status'), bad.push(...extra('status', st)));
   }
   for (const p of s.players) {
-    bad.push(...extra('player', p), ...extra('ult', p.ult), ...extra('stats', p.stats));
-    if (p.energy) (seen.add('energy'), bad.push(...extra('energy', p.energy)));
+    bad.push(...extra('player', p), ...extra('stats', p.stats));
     for (const m of p.party) {
       bad.push(...extra('member', m));
       if (m.ult) (seen.add('memberUlt'), bad.push(...extra('ult', m.ult)));
@@ -151,20 +161,42 @@ describe('wire snapshot = contract only', () => {
       tick(boss.w);
       if (t % 15 === 0) for (const b of audit(cleanState(boss.w.state), seen)) bad.add(b);
     }
-    // 기획 14차: the per-character gauges are contract too
-    scripted(78, tg => {
-      if (tg.w.state.tick % 30 !== 0) return;
-      for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
-    }, { ultPerCharacter: true });
-    // 기획 14차: … and the energy pool
-    scripted(79, tg => {
-      if (tg.w.state.tick % 30 !== 0) return;
-      for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
-    }, { swapEnergyMode: true });
     expect([...bad]).toEqual([]);
-    for (const k of ['bossGroggy', 'bossGroggy:down', 'memberUlt', 'energy']) expect(seen.has(k), k).toBe(true);
+    // 기획 15차: the per-character gauges are contract (every member carries one)
+    for (const k of ['bossGroggy', 'bossGroggy:down', 'memberUlt']) expect(seen.has(k), k).toBe(true);
     // the run really exercised every kind
     for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog', 'fieldEvent', 'entity:event']) expect(seen.has(k), k).toBe(true);
+  });
+});
+
+describe('기획 15차 원정: wire snapshot = contract only', () => {
+  it('a geared boss stage (guardian-free) and a guardian floor up to the stage clear carry only contract keys', () => {
+    const seen = new Set<string>();
+    const bad = new Set<string>();
+    const gear = [
+      { weapon: { slot: 'weapon', tier: 8, rarity: 'rare', optionId: 'w_scorch' }, relic: { slot: 'relic', tier: 6, rarity: 'rare', relicId: 'relay_flag' } },
+      { armor: { slot: 'armor', tier: 8, rarity: 'epic', optionId: 'a_heal_echo' } },
+      { charm: { slot: 'charm', tier: 8, rarity: 'common' } },
+    ] as GearLoadout[];
+    for (const stage of [8, 9]) {
+      const tg = makeGame({
+        seed: stage,
+        players: [{ name: '나', isBot: false, characters: ['blade', 'mage', 'cleric'], pets: ['frog_bomb', 'fairy_heal', 'golem_turret'], gear }, { ...BOT1 }],
+        tunables: { invincible: true },
+        expedition: { stage },
+      });
+      tg.game.dispatch({ type: 'debug', action: { kind: 'jumpFloor', floor: 3 } });
+      for (let t = 0; t < 30 * 40 && tg.w.state.phase === 'combat'; t++) {
+        if (t % 90 === 30) tg.game.dispatch({ type: 'swap', player: 0, partyIndex: ((t / 90) | 0) % 3, pos: { x: 6 + (t % 11), y: 6 } });
+        tick(tg.w);
+        if (t % 15 === 0) for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
+      }
+      tg.game.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } });
+      for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
+      expect(JSON.stringify(JSON.parse(wireJson(tg.game.drainEvents())))).not.toMatch(/"(rt|src)":/);
+    }
+    expect([...bad]).toEqual([]);
+    for (const k of ['expedition:combat', 'expedition:stageClear', 'loot', 'gear']) expect(seen.has(k), k).toBe(true);
   });
 });
 
@@ -193,52 +225,24 @@ describe('determinism with observers', () => {
     expect(observed).toBe(plain);
   }, 60_000);
 
-  it('기획 14차: with per-character ult gauges on, the read-only calls (fieldUltGauge, ultSecondsLeft, canUltState) leave it bit-identical too', () => {
-    const on = { ultPerCharacter: true };
-    const plain = scripted(4343, () => {}, on);
-    const observed = scripted(
-      4343,
-      tg => {
-        const g = tg.game;
-        for (let p = 0; p < 3; p++) {
-          const pl = g.state.players[p];
-          fieldUltGauge(pl);
-          for (let i = 0; i < 3; i++) ultSecondsLeft(g.tunables, pl, i);
-          canUltState(cleanState(g.state), p);
-          g.canSwap(p, 1);
+  it('기획 15차: the per-character ult read-only calls (fieldUltGauge, ultSecondsLeft, ultFillTimes, canUltState) leave it bit-identical too', () => {
+    const plain = scripted(4343, () => {});
+    const observed = scripted(4343, tg => {
+      const g = tg.game;
+      const snap = cleanState(g.state);
+      for (let p = 0; p < 3; p++) {
+        const pl = g.state.players[p];
+        fieldUltGauge(pl);
+        ultFillTimes(g.tunables, pl);
+        for (let i = 0; i < 3; i++) {
+          ultSecondsLeft(g.tunables, pl, i);
+          canSwapState(snap, p, i);
         }
-        wireJson(g.state);
-      },
-      on,
-    );
+        canUltState(snap, p);
+      }
+      wireJson(g.state);
+    });
     expect(observed).toBe(plain);
-    expect(plain).not.toBe(scripted(4343, () => {}));
-  }, 60_000);
-
-  it('기획 14차: with 교체 에너지 on (and both rules on), the read-only energy calls leave it bit-identical too', () => {
-    for (const on of [{ swapEnergyMode: true }, { swapEnergyMode: true, ultPerCharacter: true, swapEnergyMax: 6 }]) {
-      const plain = scripted(4444, () => {}, on);
-      const observed = scripted(
-        4444,
-        tg => {
-          const g = tg.game;
-          const snap = cleanState(g.state);
-          for (let p = 0; p < 3; p++) {
-            const pl = g.state.players[p];
-            for (let i = 0; i < 3; i++) {
-              swapCostNow(pl, i);
-              cardReady(pl, i);
-              energySecondsTo(pl, i, g.tunables.swapEnergyRegen);
-              canSwapState(snap, p, i);
-              g.canSwap(p, i);
-            }
-          }
-          wireJson(g.state);
-        },
-        on,
-      );
-      expect(observed).toBe(plain);
-      expect(plain).not.toBe(scripted(4444, () => {}));
-    }
+    expect(plain).not.toBe(scripted(4343, () => {}, { ultBenchRatio: 0.5 }));
   }, 60_000);
 });

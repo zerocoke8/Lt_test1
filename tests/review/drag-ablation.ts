@@ -33,6 +33,7 @@ import { skillRows } from '../../src/ui/skillinfo';
 import type { CharacterDef, Effect as SkillEffect, PlayerSetup, Vec2 } from '../../src/types';
 import { dragNeutralPick } from '../playtest/drag-value';
 import { goedamPilot, goedamTunables, parseGoedamPolicy } from '../playtest/goedam-policy';
+import { fieldUltGauge } from '../../src/sim/ultMode';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 const MODE = env.MODE ?? 'ablate';
@@ -175,7 +176,7 @@ function runOne(party: string[], seed: number, policy: string, aimChar: string |
       think = 0.25;
       const me = activeEntity(w, p);
       const foes = s.entities.filter(e => e.team === 'enemy' && isAlive(e));
-      if (p.ult.charge >= 1 && me && foes.length) {
+      if ((fieldUltGauge(p)?.charge ?? 0) >= 1 && me && foes.length) {
         if (ultAt == null) ultAt = s.time + 0.5;
         if (s.time >= ultAt && dispatch(w, { type: 'ult', player: 0 }).ok) ultAt = null;
       }

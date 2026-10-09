@@ -9,7 +9,7 @@ import { BOT } from './constants';
 import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botEvents';
 import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
-import { fieldUltGauge, memberUltGauge, perCharUlt } from './ultMode';
+import { fieldUltGauge, memberUltGauge } from './ultMode';
 import { previewPartsFor } from './preview';
 import { activeEntity, clamp, clampToArena, copy, dist, getEntity, isAlive, type SimEntity, type SimPlayer, type World } from './world';
 
@@ -181,7 +181,7 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
   const b = p.rt.bot;
   const enemies = enemiesAlive(w);
 
-  // Ult: 0.5–3 s after full (기획 14차: the field character's own gauge in per-character mode). Deliberately from
+  // Ult: 0.5–3 s after full (기획 15차: the field character's own gauge). Deliberately from
   // fullSince, not the swap-in: a bench card that is already full is cast right after it comes on — the bot pulls full
   // cards for exactly that (ultCard), like the measured human seat (docs/balance.md 13-1); the ult-delay STAT uses
   // ultCastableSince instead.
@@ -306,10 +306,10 @@ const BENCH_LOW_HP_FRAC = 0.6;
 /**
  * 기획 14차 궁극기 개별 게이지: the field character's ult is not ready but a ready bench card's own gauge is full and the
  * fight is worth an ult (boss / mid boss on field, or BOT.ultSwapEnemies+ enemies) → that card (fullest wait first).
- * Null while the toggle is off (no rng draw: today's bot runs stay identical).
+ * No rng draw.
  */
 function ultCard(p: SimPlayer, ready: number[], enemies: SimEntity[]): number | null {
-  if (!perCharUlt(p) || ready.length === 0) return null;
+  if (ready.length === 0) return null;
   const field = fieldUltGauge(p);
   if (field && field.charge >= 1) return null;
   if (!enemies.some(e => e.tier === 'boss' || e.tier === 'mid') && enemies.length < BOT.ultSwapEnemies) return null;

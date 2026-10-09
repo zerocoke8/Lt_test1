@@ -599,7 +599,7 @@ async function tryUlt(d: Dev): Promise<boolean> {
     const api = window.__proto!;
     const s = api.game!.state;
     const me = s.players[api.localPlayer];
-    return me.ult.charge >= 1 && me.activeIndex != null && !me.out;
+    return me.activeIndex != null && me.party[me.activeIndex].ult.charge >= 1 && !me.out;
   });
   if (!can) return false;
   await tap(d, '.ult');

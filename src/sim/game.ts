@@ -14,8 +14,8 @@ import { skillMod } from './modifiers';
 import { previewPartsFor } from './preview';
 import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } from './players';
 import { Rng } from './rng';
-import { fillUlts, syncUltMode } from './ultMode';
-import { resetSwapCooldowns, syncEnergyMode } from './energy';
+import { emptyUltGauge, fillUlts } from './ultMode';
+import { canDebugClearStage, expeditionChoice, expeditionRt, initExpedition, planExpeditionFloor, seatGear } from './expedition';
 import { scaleArea, tickPending, tickZones } from './skills';
 import { benchMaxHp } from './stats';
 import { applyTunablesPatch, computeTelemetry, emptyContribution } from './telemetry';
@@ -35,9 +35,11 @@ import {
 export function createWorld(setup: GameSetup): World {
   const tunables = { ...setup.tunables };
   const rng = new Rng(setup.seed);
-  const startFloorN = Math.max(1, Math.floor(setup.startFloor ?? 1));
+  const exRt = expeditionRt(setup.expedition, setup.players.length); // 기획 15차 원정 (undefined = classic)
+  const startFloorN = exRt ? Math.max(1, Math.min(3, Math.floor(setup.startFloor ?? 1))) : Math.max(1, Math.floor(setup.startFloor ?? 1));
   // Placeholder plan so the state is complete; startFloor() below re-plans with the run rng.
-  const plan = planFloor(startFloorN, new Rng(setup.seed ^ 0x5bd1e995), tunables);
+  const placeholderRng = new Rng(setup.seed ^ 0x5bd1e995);
+  const plan = exRt ? planExpeditionFloor(exRt.stage, startFloorN, placeholderRng, tunables) : planFloor(startFloorN, placeholderRng, tunables);
   const state: SimState = {
     seed: setup.seed,
     tick: 0,
@@ -82,6 +84,7 @@ export function createWorld(setup: GameSetup): World {
     fieldEvents: newFieldEventRt(),
     groggy: { sinceGain: 0, breakSerial: 0 },
   };
+  if (exRt) w.expedition = exRt;
 
   const n = setup.players.length;
   setup.players.forEach((ps, i) => {
@@ -99,10 +102,13 @@ export function createWorld(setup: GameSetup): World {
         swapCooldownTotal: def.swapCooldown,
         normalCooldownRemaining: 0,
         entityId: null,
+        ult: emptyUltGauge(), // 기획 15차: one gauge per character
         rt: { shieldTime: 0 },
       };
     });
+    const gear = exRt ? seatGear(ps.isBot, ps.gear, exRt.stage, party.length) : ps.gear;
     const p: SimPlayer = {
+      ...(gear ? { gear: gear.map(l => ({ ...l })) } : null), // 기획 15차 원정: read-only for the whole game
       id: i,
       name: ps.name,
       isBot: ps.isBot,
@@ -113,7 +119,6 @@ export function createWorld(setup: GameSetup): World {
         const def = getPet(id);
         return { defId: def.id, cooldownRemaining: 0, cooldownTotal: def.cooldown };
       }),
-      ult: { charge: 0, fullSince: null },
       out: false,
       appearLock: 0,
       relics: [],
@@ -138,15 +143,16 @@ export function createWorld(setup: GameSetup): World {
     state.players.push(p);
   });
 
+  if (setup.expedition) initExpedition(w, setup.expedition, setup.players.map(ps => !ps.isBot));
+
   // R1: character 1 starts on field; 2·3 are immediately swappable (cooldown 0).
   // R4 (기획 6차): a character's re-appear cooldown starts when it is swapped out, so character 1 has none while it
   // fights; swapping 1→2 starts 1's cooldown (no free 1→2→1 drag skill).
   for (const p of state.players) {
     if (p.party.length === 0) continue;
-    createCharacterEntity(w, p, 0, { x: 0, y: 0 });
+    const e = createCharacterEntity(w, p, 0, { x: 0, y: 0 });
+    if (w.expedition) e.hp = e.maxHp; // 기획 15차 원정: every stage starts at full HP (passive cap included)
   }
-  syncUltMode(w); // 기획 14차: per-character gauges from the start when the toggle is already on
-  syncEnergyMode(w); // 기획 14차: a full energy pool from the start when 교체 에너지 is on
   startFloor(w, startFloorN, false);
   syncMembers(w);
   return w;
@@ -194,8 +200,6 @@ export function step(w: World, realDt: number): void {
 export function dispatch(w: World, cmd: Command): CommandResult {
   const s = w.state;
   let r: CommandResult;
-  syncUltMode(w); // 기획 14차: the solo debug panel edits tunables in place — a command sees the gauge mode they set
-  syncEnergyMode(w); // … and the 교체 에너지 mode
   switch (cmd.type) {
     case 'swap':
       r = doSwap(w, cmd.player, cmd.partyIndex, cmd.pos);
@@ -212,8 +216,11 @@ export function dispatch(w: World, cmd: Command): CommandResult {
     case 'goedam':
       r = goedamCommand(w, cmd.player, cmd.option);
       break;
+    case 'expeditionChoice':
+      r = expeditionChoice(w, cmd.player, cmd.choice);
+      break;
     case 'quit':
-      if (s.phase === 'runOver') r = { ok: false, reason: '이미 끝남' };
+      if (s.phase === 'runOver' || s.phase === 'stageClear') r = { ok: false, reason: '이미 끝남' };
       else {
         endRun(w, 'defeat', 'quit');
         clearRewardOffers(w);
@@ -225,8 +232,6 @@ export function dispatch(w: World, cmd: Command): CommandResult {
       break;
     case 'tunables':
       r = applyTunablesPatch(w.tunables, cmd.patch);
-      syncUltMode(w); // 기획 14차: the host's toggle reaches every client's next snapshot
-      syncEnergyMode(w);
       break;
     default:
       r = { ok: false, reason: '알 수 없는 명령' };
@@ -240,18 +245,20 @@ export function dispatch(w: World, cmd: Command): CommandResult {
 
 function debug(w: World, a: DebugAction): CommandResult {
   const s = w.state;
-  if (s.phase === 'runOver') return { ok: false, reason: '이미 끝남' };
+  if (s.phase === 'runOver' || s.phase === 'stageClear') return { ok: false, reason: '이미 끝남' };
   const pi = (a.kind === 'chargeUlt' || a.kind === 'resetCooldowns') && a.player != null ? a.player : 0;
   const p0 = Number.isInteger(pi) ? s.players[pi] : undefined;
   switch (a.kind) {
     case 'chargeUlt':
       if (!p0) return { ok: false, reason: '플레이어 없음' };
-      fillUlts(w, p0); // 기획 14차: per character → every character's gauge
+      fillUlts(w, p0); // every character's gauge
       return { ok: true };
     case 'resetCooldowns':
       if (!p0) return { ok: false, reason: '플레이어 없음' };
-      for (const m of p0.party) m.normalCooldownRemaining = 0;
-      resetSwapCooldowns(p0); // 기획 14차 교체 에너지: a full pool
+      for (const m of p0.party) {
+        m.normalCooldownRemaining = 0;
+        m.swapCooldownRemaining = 0;
+      }
       for (const pet of p0.pets) pet.cooldownRemaining = 0;
       return { ok: true };
     case 'killAll':
@@ -265,7 +272,8 @@ function debug(w: World, a: DebugAction): CommandResult {
       floorClear(w);
       return { ok: true };
     case 'jumpFloor':
-      startFloor(w, Math.min(Math.max(1, Math.floor(a.floor)), Math.max(1, w.tunables.maxFloor)), true);
+      // 기획 15차 원정: a stage has floors 1..3 only
+      startFloor(w, Math.min(Math.max(1, Math.floor(a.floor)), w.expedition ? 3 : Math.max(1, w.tunables.maxFloor)), true);
       return { ok: true };
     case 'forceEnrage':
       if (s.phase !== 'combat' || s.plan.kind !== 'boss' || s.bossEnraged) return { ok: false, reason: '광폭화 불가' };
@@ -283,6 +291,14 @@ function debug(w: World, a: DebugAction): CommandResult {
     case 'forceGroggy':
       // 기획 13차: fill the boss groggy gauge (1 = break now)
       return forceGroggy(w, a.fill ?? 1) ? { ok: true } : { ok: false, reason: '그로기 불가' };
+    case 'expeditionClearStage': {
+      // 기획 15차 원정: straight to the stage clear (floor 3, cleared at once)
+      const r = canDebugClearStage(w);
+      if (!r.ok) return r;
+      if (s.floor < 3 || s.phase !== 'combat') startFloor(w, 3, true);
+      floorClear(w);
+      return { ok: true };
+    }
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };
 }

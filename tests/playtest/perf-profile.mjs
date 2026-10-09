@@ -27,7 +27,7 @@ await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
 await cdp.send('Profiler.start');
 const t0 = Date.now();
 while (Date.now() - t0 < SECS * 1000) {
-  const u = await page.evaluate(() => window.__proto.game.state.players[0].ult.charge);
+  const u = await page.evaluate(() => { const p = window.__proto.game.state.players[0]; return p.activeIndex != null ? p.party[p.activeIndex].ult.charge : 0; });
   if (u < 1) await page.evaluate(() => window.__proto.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt' } }));
   else await tapUlt(pt);
   await sleep(150);

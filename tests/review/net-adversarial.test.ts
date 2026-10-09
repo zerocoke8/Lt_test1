@@ -88,7 +88,7 @@ function junk(): (string | Record<string, unknown>)[] {
     { t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'nope' } } },
     { t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { constructor: 1, toString: 2, hasOwnProperty: 3 } } },
     '{"t":"cmd","seq":1,"cmd":{"type":"tunables","patch":{"__proto__":{"invincible":true},"gameSpeed":"8"}}}',
-    { t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { gameSpeed: -5, maxAliveMonsters: 1e9, normalFloorTime: 0, ultChargeTime: 0 } } },
+    { t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { gameSpeed: -5, maxAliveMonsters: 1e9, normalFloorTime: 0, ultFieldChargeTime: 0 } } },
     { t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: [1, 2] } },
     { t: 'ping', at: 'now' },
     { t: 'ping' },
@@ -114,7 +114,7 @@ describe('hostile input never crashes the server or leaks into the sim', () => {
     const room = roomOf(code)!;
     const t = room.game!.tunables;
     // the host's absurd patch was clamped, not rejected wholesale and not applied raw
-    expect([t.gameSpeed, t.maxAliveMonsters, t.normalFloorTime, t.ultChargeTime]).toEqual([0, 200, 5, 0.5]);
+    expect([t.gameSpeed, t.maxAliveMonsters, t.normalFloorTime, t.ultFieldChargeTime]).toEqual([0, 200, 5, 1]);
     expect(Object.keys(t)).not.toContain('constructor');
     a.send({ t: 'cmd', seq: 99, cmd: { type: 'tunables', patch: { gameSpeed: 1, normalFloorTime: 300 } } });
     const snap = await a.snap(m => m.state.tick > 30, 6000);

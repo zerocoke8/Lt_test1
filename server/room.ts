@@ -47,6 +47,24 @@ export interface ServerOptions {
   rateBurst: number;
   /** Idle sessions (no socket, no room) are forgotten after this. */
   sessionTtlMs: number;
+  /** 기획 15차 원정: a stage queue waits this long (from its first joiner) before bots fill the empty seats. */
+  expQueueSec: number;
+  /** 기획 15차 원정: stage-clear choice time; then 「수령하고 나가기」 for whoever has not chosen. */
+  expChoiceSec: number;
+  /** 기획 15차 원정: a full queue shows its final seats (bots included) this long before the game starts. */
+  expLaunchMs: number;
+  /** 기획 15차 원정: honour the client's debug 「단계 전부 해금」 (start above maxStartStage). Prototype default: on. */
+  expDebugUnlock: boolean;
+  /**
+   * 기획 15차 원정: honour the host's debug / tunables commands in a stage room with another human in it (tests).
+   * Off (default): only a room whose one human is the host may use them — a matched stranger never decides a stage.
+   */
+  expSharedDebug: boolean;
+  /**
+   * 기획 15차 원정: a stage room with nobody connected keeps running (bots play the seats; the stage ends on its own
+   * floor timeouts / boss enrage and is settled as usual). This is only the backstop for a stage that somehow never ends.
+   */
+  expAbandonMs: number;
   /** Log snapshot sizes etc. */
   debug: boolean;
   log(msg: string): void;
@@ -79,6 +97,26 @@ export interface Member {
   playerIndex: number | null;
   graceTimer: ReturnType<typeof setTimeout> | null;
 }
+
+/**
+ * A non-classic room (기획 15차 원정): hidden from the room list, no 'room' broadcasts, every quit is a leave, and the
+ * mode decides what a stage clear / a run over / a leaving member means. Classic rooms have none.
+ */
+export interface RoomMode {
+  readonly kind: 'expedition';
+  /** After every command and tick, after the classic phase checks. May remove members (the room may close). */
+  check(room: Room, g: Game, now: number): void;
+  /** A member is leaving (quit, leaveRoom, end of game) — before its slot turns bot. */
+  onRemove(room: Room, m: Member): void;
+  /** The game stops (run over linger done, nobody connected, sim error) — before the members are dropped. */
+  onEnd(room: Room, g: Game, why: EndReason): void;
+  /** Server ms of the open stage-clear choice deadline (null = none). */
+  choiceDeadline(): number | null;
+}
+
+const SHARED_DEBUG_REFUSED = '다른 플레이어가 있는 원정 방에서는 디버그를 쓸 수 없어요';
+
+export type EndReason = 'over' | 'abandoned' | 'error';
 
 /** What a room needs from the hub. */
 export interface RoomHost {
@@ -130,11 +168,15 @@ export class Room {
   /** (tick, Date.now()) of recent snapshots, oldest first: how old the snapshot a command was based on is. */
   private readonly sentTicks: { tick: number; at: number }[] = [];
 
-  constructor(code: string, name: string | null, host: RoomHost, hostId: string) {
+  /** 기획 15차 원정 rooms (null = classic). */
+  readonly mode: RoomMode | null;
+
+  constructor(code: string, name: string | null, host: RoomHost, hostId: string, mode: RoomMode | null = null) {
     this.code = code;
     this.customName = name;
     this.host = host;
     this.hostId = hostId;
+    this.mode = mode;
   }
 
   // ─────────────────────────── membership ───────────────────────────
@@ -202,6 +244,7 @@ export class Room {
     const [m] = this.members.splice(i, 1);
     if (m.graceTimer) clearTimeout(m.graceTimer);
     if (s.room === this) s.room = null;
+    this.mode?.onRemove(this, m);
     if (this.game && m.playerIndex != null) this.game.setPlayerBot(m.playerIndex, true);
     if (this.hostId === s.id) {
       const next = this.members.find(x => !!x.session.conn) ?? this.members[0];
@@ -248,8 +291,13 @@ export class Room {
 
   // ─────────────────────────── game ───────────────────────────
 
-  start(): void {
+  /** Start the game: classic = members' presets + bots; `given` = a mode's own setup (members in seat order first). */
+  start(given?: GameSetup): void {
     if (this.status !== 'waiting' || this.closed) return;
+    this.launch(createGame(given ?? this.classicSetup()));
+  }
+
+  private classicSetup(): GameSetup {
     const humans: PlayerSetup[] = this.members.map(m => ({
       name: m.session.name,
       isBot: false,
@@ -262,8 +310,10 @@ export class Room {
       characters: [...b.characters],
       pets: [...b.pets],
     }));
-    const setup: GameSetup = { seed: randomSeed(), players: [...humans, ...bots], tunables: { ...DEFAULT_TUNABLES } };
-    const game = createGame(setup);
+    return { seed: randomSeed(), players: [...humans, ...bots], tunables: { ...DEFAULT_TUNABLES } };
+  }
+
+  private launch(game: Game): void {
     this.game = game;
     this.events = game.drainEvents();
     this.status = 'playing';
@@ -300,6 +350,7 @@ export class Room {
       hostPlayerIndex: this.hostPlayerIndex,
       seed: this.game.state.seed,
       tunables: { ...this.game.tunables },
+      ...(this.mode ? { mode: this.mode.kind } : null),
     });
   }
 
@@ -324,18 +375,22 @@ export class Room {
       case 'ult':
       case 'chooseReward':
       case 'goedam':
+      case 'expeditionChoice':
         c = { ...cmd, player: pi };
         break;
       case 'debug':
         if (!isHost) return fail('방장만 할 수 있어요');
+        if (!this.debugAllowed()) return fail(SHARED_DEBUG_REFUSED);
         c = cmd.action.kind === 'chargeUlt' || cmd.action.kind === 'resetCooldowns' ? { type: 'debug', action: { kind: cmd.action.kind, player: pi } } : cmd;
         break;
       case 'tunables':
         if (!isHost) return fail('방장만 할 수 있어요');
+        if (!this.debugAllowed()) return fail(SHARED_DEBUG_REFUSED);
         c = cmd;
         break;
       case 'quit':
-        if (!isHost) return 'leave';
+        // 기획 15차 원정: nobody ends a matched stage for the others — every quit is a leave (that player's bag is lost)
+        if (!isHost || this.mode) return 'leave';
         c = cmd;
         break;
       default:
@@ -345,6 +400,11 @@ export class Room {
     this.collect();
     this.checkPhase();
     return r.ok ? ok : r;
+  }
+
+  /** 기획 15차 원정: debug / tunables in a mode room only when the host is its one human (or the server allows it). */
+  private debugAllowed(): boolean {
+    return !this.mode || this.members.length <= 1 || this.host.opts.expSharedDebug;
   }
 
   /** How long ago (ms) the snapshot at `tick` went out; unknown or older than the kept window = Infinity. */
@@ -382,6 +442,7 @@ export class Room {
     // after the reward check: the last pick (or the reward timeout) may have just opened the room
     this.checkGoedam(g, now);
     if (g.state.phase === 'runOver' && this.endAt == null) this.endAt = now + this.host.opts.endLingerMs;
+    this.mode?.check(this, g, now);
   }
 
   private checkReward(g: Game, now: number): void {
@@ -434,20 +495,21 @@ export class Room {
       g.step(dt);
     } catch (err) {
       this.host.opts.log(`[room ${this.code}] sim error: ${(err as Error)?.stack ?? err}`);
-      this.endGame();
+      this.endGame('error');
       return;
     }
     this.collect();
     this.checkPhase();
+    if (this.closed || this.game !== g) return; // a mode may have emptied (closed) the room
     if (now - this.lastSnap >= 1000 / this.host.opts.snapshotHz - 2) {
       this.lastSnap = now;
       this.broadcastSnap();
     }
-    // nobody connected for a while → stop burning CPU on a bots-only run
+    // nobody connected for a while → stop burning CPU on a bots-only run (원정: the stage plays out — its bag is at stake)
     if (this.members.some(m => !!m.session.conn)) this.abandonSince = null;
     else if (this.abandonSince == null) this.abandonSince = now;
-    else if (now - this.abandonSince >= this.host.opts.abandonMs) {
-      this.endGame();
+    else if (now - this.abandonSince >= (this.mode ? this.host.opts.expAbandonMs : this.host.opts.abandonMs)) {
+      this.endGame('abandoned');
       return;
     }
     if (this.endAt != null && Date.now() >= this.endAt) this.endGame();
@@ -460,14 +522,17 @@ export class Room {
   private snapJson(m: Member, stateJson: string, eventsJson: string, tunablesJson: string | null): string | null {
     const g = this.game;
     if (!g || m.playerIndex == null) return null;
-    const telemetry = g.state.phase === 'runOver' ? `,"telemetry":${wireJson(g.telemetry(m.playerIndex))}` : '';
+    const over = g.state.phase === 'runOver' || g.state.phase === 'stageClear';
+    const telemetry = over ? `,"telemetry":${wireJson(g.telemetry(m.playerIndex))}` : '';
+    const choiceDeadline = this.mode?.choiceDeadline();
+    const choice = choiceDeadline != null ? `,"choiceDeadline":${choiceDeadline}` : '';
     const tunables = tunablesJson != null ? `,"tunables":${tunablesJson}` : '';
     // null outside the room: a disconnect can start the next floor before the next tick's checkGoedam clears it
     const goedamDeadline = g.state.phase === 'goedam' ? this.goedamDeadline : null;
     return (
       `{"t":"snap","tick":${g.state.tick},"serverTime":${Date.now()},"state":${stateJson},"events":${eventsJson}` +
       `${tunables},"hostPlayerIndex":${this.hostPlayerIndex},"rewardDeadline":${this.rewardDeadline ?? 'null'}` +
-      `,"goedamDeadline":${goedamDeadline ?? 'null'}${telemetry}}`
+      `,"goedamDeadline":${goedamDeadline ?? 'null'}${telemetry}${choice}}`
     );
   }
 
@@ -519,11 +584,15 @@ export class Room {
     this.host.sendRaw(m.session, msg, false);
   }
 
-  /** Run finished (or abandoned): back to 'waiting'; members who never came back are removed. */
-  endGame(): void {
+  /**
+   * Run finished (or abandoned): back to 'waiting'; members who never came back are removed. A mode room (원정) settles
+   * its members first and then closes: every stage is its own game.
+   */
+  endGame(why: EndReason = 'over'): void {
     if (this.loop) clearInterval(this.loop);
     this.loop = null;
     if (!this.game) return;
+    this.mode?.onEnd(this, this.game, why);
     for (const m of this.members) if (m.session.conn) this.host.send(m.session, { t: 'gameEnded' });
     this.game = null;
     this.events = [];
@@ -533,12 +602,17 @@ export class Room {
     this.endAt = null;
     this.abandonSince = null;
     for (const m of this.members) m.playerIndex = null;
-    const gone = this.members.filter(m => !m.session.conn);
+    const gone = this.mode ? [...this.members] : this.members.filter(m => !m.session.conn);
     for (const m of gone) {
       if (this.closed) return;
       this.remove(m.session);
     }
     if (!this.closed) this.host.roomChanged(this);
+  }
+
+  /** One member's game is over (a mode room's member leaving before the others). */
+  endFor(m: Member): void {
+    if (m.session.conn) this.host.send(m.session, { t: 'gameEnded' });
   }
 
   /** Room deleted (empty or server shutdown). */

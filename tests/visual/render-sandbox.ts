@@ -137,11 +137,11 @@ function player(id: number, name: string, isBot: boolean, chars: string[], activ
         swapCooldownTotal: d.swapCooldown,
         normalCooldownRemaining: 0,
         entityId: i === active ? entityId : null,
+        ult: { charge: 0.6, fullSince: null },
       };
     }),
     activeIndex: active,
     pets: [],
-    ult: { charge: 0.6, fullSince: null },
     out: false,
     appearLock: 0,
     relics: [],

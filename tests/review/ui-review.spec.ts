@@ -100,7 +100,7 @@ test('ult is refused (and shown disabled) while the field is empty; gauge stays 
   const b = await page.locator('.ult').boundingBox();
   await page.touchscreen.tap(b!.x + b!.width / 2, b!.y + b!.height / 2);
   await sleep(150);
-  expect(await st<number>(page, 'g.state.players[0].ult.charge')).toBe(1);
+  expect(await st<number>(page, 'g.state.players[0].party[0].ult.charge')).toBe(1); // 기획 15차: the card's own gauge
   expect(await st<number>(page, 'g.state.players[0].stats.ultsUsed')).toBe(0);
   await expect(page.locator('.empty-hint')).not.toHaveClass(/is-hidden/);
 });
@@ -115,8 +115,8 @@ test('sim time frozen while paused and during the reward screen', async ({ page 
   expect(await st<number>(page, 'g.state.time')).toBeGreaterThan(t0);
   await page.evaluate(() => window.__proto!.game!.dispatch({ type: 'debug', action: { kind: 'skipFloor' } }));
   await page.waitForFunction(() => window.__proto?.phase === 'reward');
-  const snap = await st<string>(page, 'JSON.stringify([g.state.time, g.state.timeRemaining, g.state.players.map(p => [p.ult.charge, p.party.map(m => m.swapCooldownRemaining)])])');
+  const snap = await st<string>(page, 'JSON.stringify([g.state.time, g.state.timeRemaining, g.state.players.map(p => [p.party.map(m => m.ult.charge), p.party.map(m => m.swapCooldownRemaining)])])');
   await sleep(800);
-  expect(await st<string>(page, 'JSON.stringify([g.state.time, g.state.timeRemaining, g.state.players.map(p => [p.ult.charge, p.party.map(m => m.swapCooldownRemaining)])])')).toBe(snap);
+  expect(await st<string>(page, 'JSON.stringify([g.state.time, g.state.timeRemaining, g.state.players.map(p => [p.party.map(m => m.ult.charge), p.party.map(m => m.swapCooldownRemaining)])])')).toBe(snap);
   await expect(page.locator('.rw-card')).toHaveCount(3);
 });

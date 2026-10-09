@@ -16,6 +16,7 @@ import { getGoedamOption, getGoedamRoom, getGoedamTrace, getReward, goedamRoomWe
 import { dispatch } from '../../src/sim/game';
 import { goedamFloorsOf } from '../../src/sim/goedam';
 import { mixSeed, Rng } from '../../src/sim/rng';
+import { ultFocusIndex } from '../../src/sim/ultMode';
 import type { World } from '../../src/sim/world';
 import type { GoedamEffect, GoedamLogEntry, GoedamOptionDef, GoedamParams, PlayerState, Rarity, RewardOffer, Tunables } from '../../src/types';
 
@@ -71,6 +72,8 @@ const PER_FLOOR = { atkPct: 0.6, hpPct: 0.5, atkSpeedPct: 0.6, critChance: 0.3, 
 /** Worth of 100 % of current HP lost (or max HP healed). */
 const HP_VALUE = 2.5;
 const ULT_VALUE = 0.6;
+/** 기획 15차: room ult gains / costs hit the focus character's own gauge (the field one, else the first living). */
+const focusCharge = (p: PlayerState): number => p.party[ultFocusIndex(p) ?? 0]?.ult.charge ?? 0;
 
 function rewardValue(weights: Record<Rarity, number>): number {
   const tot = weights.common + weights.rare + weights.epic || 1;
@@ -102,9 +105,9 @@ function effectValue(e: GoedamEffect, p: PlayerState, params: GoedamParams, floo
     case 'revive':
       return 0.5 * p.party.filter(m => m.dead).length;
     case 'ultSet':
-      return ULT_VALUE * (e.value - p.ult.charge);
+      return ULT_VALUE * (e.value - focusCharge(p));
     case 'ultAdd':
-      return ULT_VALUE * Math.min(e.value, 1 - p.ult.charge);
+      return ULT_VALUE * Math.min(e.value, 1 - focusCharge(p));
     case 'resetCooldowns':
       return e.petsOnly ? 0.08 : 0.15;
     case 'reward':

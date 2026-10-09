@@ -133,7 +133,7 @@ async function act(d) {
     const lp = api.localPlayer;
     const me = g.state.players[lp];
     const ready = [0, 1, 2].filter(i => g.canSwap(lp, i).ok);
-    return { ready, ult: me.ult.charge, active: me.activeIndex, phase: api.phase };
+    return { ready, ult: me.activeIndex != null ? me.party[me.activeIndex].ult.charge : 0, active: me.activeIndex, phase: api.phase };
   });
   if (st.phase !== 'combat') return;
   if (st.ult >= 1 && st.active != null) await tap(d, '.ult');

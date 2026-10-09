@@ -1,8 +1,10 @@
-// 기획 14차: the round-14 debug toggles (궁극기 개별 게이지, 교체 에너지) are OFF by default and must leave today's rules
-// bit-identical. These hashes were recorded with the round-13 code (before any round-14 change): a rich multiplayer run
-// (human + 2 bots, 괴담 rooms, 돌발 괴담, rewards, swaps, pets, ults, debug actions, a disconnect) and a boss floor.
-// The public state (sim-internal 'rt' stripped) is hashed every 10 ticks and every event is hashed in order.
-// If one of these fails, a default-off rule changed. Only re-record them for an intended rule change of today's game.
+// Golden hashes of today's rules. New rules behind a toggle are OFF by default and must leave these bit-identical.
+// 기획 15차: per-character ult is the default — re-recorded once for that intended rule change (the 14차 교체 에너지 and
+// shared-gauge paths are gone). The new hashes equal the round-14 code run with ultPerCharacter: true, hashed without
+// the old shared PlayerState.ult field — i.e. the 15차 refactor itself changed nothing else.
+// A rich multiplayer run (human + 2 bots, 괴담 rooms, 돌발 괴담, rewards, swaps, pets, ults, debug actions, a disconnect)
+// and a boss floor. The public state (sim-internal 'rt' stripped) is hashed every 10 ticks and every event is hashed in
+// order. If one of these fails, a default rule changed. Only re-record them for an intended rule change of today's game.
 import { describe, expect, it } from 'vitest';
 import { tick } from '../../src/sim/game';
 import type { Command } from '../../src/types';
@@ -82,16 +84,17 @@ function bossRun(): RunHash {
   return hashRun(tg, 30 * 90, { 60: { type: 'debug', action: { kind: 'forceGroggy', fill: 0.85 } }, 90: { type: 'debug', action: { kind: 'chargeUlt' } } });
 }
 
-describe('기획 14차: default-off toggles keep today\'s rules bit-identical', () => {
-  it('rich 3-player run (rooms, field events, rewards, swaps, pets, ults, disconnect) matches the round-13 hashes', () => {
+describe('golden: today\'s rules stay bit-identical (기획 15차: per-character ult)', () => {
+  it('rich 3-player run (rooms, field events, rewards, swaps, pets, ults, disconnect) matches the round-15 hashes', () => {
     expect(richRun()).toEqual(GOLDEN.rich);
   }, 120_000);
-  it('boss floor (groggy, ult, bot) matches the round-13 hashes', () => {
+  it('boss floor (groggy, ult, bot) matches the round-15 hashes', () => {
     expect(bossRun()).toEqual(GOLDEN.boss);
   }, 60_000);
 });
 
+// 기획 15차: per-character ult is the default (recorded once for that rule change)
 const GOLDEN = {
-  rich: { state: 371063629, events: 2192069161, ticks: 9000, floor: 5, kinds: 'bossGroggy,fieldEventEnd,goedamOpen,swapCdCut,ultCast,ultReady' },
-  boss: { state: 2383060135, events: 2966003938, ticks: 1843, floor: 5, kinds: 'bossGroggy,swapCdCut,ultCast,ultReady' },
+  rich: { state: 352172531, events: 3344991052, ticks: 9000, floor: 6, kinds: 'bossGroggy,fieldEventEnd,goedamOpen,swapCdCut,ultCast,ultReady' },
+  boss: { state: 1309462957, events: 1727523516, ticks: 2700, floor: 5, kinds: 'bossGroggy,swapCdCut,ultCast,ultReady' },
 };

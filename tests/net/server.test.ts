@@ -266,46 +266,37 @@ describe('game', () => {
     expect((await b.next('cmdResult', m => m.seq === 2)).ok).toBe(false);
     a.send({ t: 'cmd', seq: 3, cmd: { type: 'debug', action: { kind: 'chargeUlt', player: 1 } } as never });
     expect((await a.next('cmdResult', m => m.seq === 3)).ok).toBe(true);
-    const s = (await b.snap(m => m.state.players[0].ult.charge === 1)).state;
-    expect(s.players[1].ult.charge).toBeLessThan(1);
-    a.send({ t: 'cmd', seq: 4, cmd: { type: 'tunables', patch: { ultChargeTime: 9, invincible: true } } });
+    // 기획 15차: debug 충전 fills every character's own gauge (the other player's stay as they are)
+    const s = (await b.snap(m => m.state.players[0].party.every(x => x.ult.charge === 1))).state;
+    expect(s.players[1].party.every(x => x.ult.charge < 1)).toBe(true);
+    a.send({ t: 'cmd', seq: 4, cmd: { type: 'tunables', patch: { ultFieldChargeTime: 9, invincible: true } } });
     expect((await a.next('cmdResult', m => m.seq === 4)).ok).toBe(true);
-    const snap = await b.snap(m => m.tunables?.ultChargeTime === 9);
+    const snap = await b.snap(m => m.tunables?.ultFieldChargeTime === 9);
     expect(snap.tunables?.invincible).toBe(true);
   });
 
-  it('기획 14차: the host turns 궁극기 개별 게이지 on → every client sees the toggle and per-character gauges; a guest cannot', async () => {
+  it('기획 15차: every client sees per-character gauges; the host\'s ult sliders reach everyone; the dropped 14차 toggles do nothing', async () => {
     const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
     await makeRoom(a, b);
     await startGame(a, b);
-    b.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { ultPerCharacter: true } } });
+    const first = await b.snap();
+    expect(first.state.players.every(p => !('ult' in p) && !('energy' in p) && p.party.every(x => x.ult != null))).toBe(true);
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { ultBenchRatio: 0.5 } } });
     expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(false);
-    a.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { ultPerCharacter: true, ultBenchRatio: 0.5 } } });
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { ultFieldChargeTime: 20, ultBenchRatio: 0.5 } } });
     expect((await a.next('cmdResult', m => m.seq === 2)).ok).toBe(true);
     for (const c of [a, b]) {
-      const snap = await c.snap(m => m.tunables?.ultPerCharacter === true && m.state.players.every(p => p.party.every(x => x.ult != null)));
-      expect(snap.tunables?.ultBenchRatio).toBe(0.5);
+      const snap = await c.snap(m => m.tunables?.ultBenchRatio === 0.5);
+      expect(snap.tunables?.ultFieldChargeTime).toBe(20);
     }
-    a.send({ t: 'cmd', seq: 3, cmd: { type: 'tunables', patch: { ultPerCharacter: false } } });
-    const off = await b.snap(m => m.tunables?.ultPerCharacter === false && m.state.players.every(p => p.party.every(x => x.ult == null)));
-    expect(off.state.players[0].ult.charge).toBeGreaterThanOrEqual(0);
-  });
-
-  it('기획 14차: the host turns 교체 에너지 on with its sliders → every client sees the pool; a guest cannot; garbage is clamped', async () => {
-    const [a, b] = await Promise.all(['A', 'B'].map(n => connect(n)));
-    await makeRoom(a, b);
-    await startGame(a, b);
-    b.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { swapEnergyMode: true } } });
-    expect((await b.next('cmdResult', m => m.seq === 1)).ok).toBe(false);
-    a.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { swapEnergyMode: true, swapEnergyMax: 999, swapEnergyRegen: 0.5 } } });
-    expect((await a.next('cmdResult', m => m.seq === 2)).ok).toBe(true);
-    for (const c of [a, b]) {
-      const snap = await c.snap(m => m.tunables?.swapEnergyMode === true && m.state.players.every(p => p.energy?.max === 100));
-      expect(snap.tunables?.swapEnergyRegen).toBe(0.5);
-      expect(snap.state.players.every(p => p.party.every(x => x.swapCooldownRemaining === 0))).toBe(true);
-    }
-    a.send({ t: 'cmd', seq: 3, cmd: { type: 'tunables', patch: { swapEnergyMode: false } } });
-    await b.snap(m => m.tunables?.swapEnergyMode === false && m.state.players.every(p => p.energy == null));
+    // an old client's 14차 toggles alone: nothing valid → refused; mixed in: ignored (never reach the tunables)
+    const stale = { ultPerCharacter: false, ultChargeTime: 5, swapEnergyMode: true, swapEnergyMax: 99, swapEnergyRegen: 2 };
+    a.send({ t: 'cmd', seq: 3, cmd: { type: 'tunables', patch: stale } as never });
+    expect((await a.next('cmdResult', m => m.seq === 3)).ok).toBe(false);
+    a.send({ t: 'cmd', seq: 4, cmd: { type: 'tunables', patch: { ...stale, invincible: true } } as never });
+    expect((await a.next('cmdResult', m => m.seq === 4)).ok).toBe(true);
+    const snap = await b.snap(m => m.tunables?.invincible === true);
+    for (const k of Object.keys(stale)) expect(snap.tunables).not.toHaveProperty(k);
   });
 
   it('snapshots: tunables only when changed (+ ~1/s), telemetry only after runOver, wave spawns thinned', async () => {
@@ -327,8 +318,8 @@ describe('game', () => {
     expect(plan.waves.every(w => w.spawns.length === 0)).toBe(true);
     expect(snaps[snaps.length - 1].state.entities.every(e => Number.isInteger(e.targetHeldFor))).toBe(true);
     // a change goes out on the next snapshot
-    a.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { ultChargeTime: 11 } } });
-    expect((await a.snap(m => m.tunables?.ultChargeTime === 11, 1000)).tunables?.ultChargeTime).toBe(11);
+    a.send({ t: 'cmd', seq: 1, cmd: { type: 'tunables', patch: { ultFieldChargeTime: 11 } } });
+    expect((await a.snap(m => m.tunables?.ultFieldChargeTime === 11, 1000)).tunables?.ultFieldChargeTime).toBe(11);
     // host ends the run → the runOver snapshots carry this player's tuning log
     a.send({ t: 'cmd', seq: 2, cmd: { type: 'quit' } });
     const over = await a.snap(m => m.state.phase === 'runOver');

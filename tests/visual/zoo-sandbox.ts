@@ -86,9 +86,9 @@ function player(id: number, name: string, chars: string[], active: number, entit
     id, name, isBot: id !== 0, color: PLAYER_COLORS[id],
     party: chars.map((c, i) => ({
       defId: c, hp: 500, maxHp: 500, shield: 0, statuses: [], dead: false, reviveRemaining: 0, swapCooldownRemaining: 0,
-      swapCooldownTotal: 10, normalCooldownRemaining: 0, entityId: i === active ? entityId : null,
+      swapCooldownTotal: 10, normalCooldownRemaining: 0, entityId: i === active ? entityId : null, ult: { charge: 0.5, fullSince: null },
     })),
-    activeIndex: active, pets: [], ult: { charge: 0.5, fullSince: null }, out: false, appearLock: 0, relics: [], rewards: [], stats: stats(), goedamTraces: [], goedamLog: [],
+    activeIndex: active, pets: [], out: false, appearLock: 0, relics: [], rewards: [], stats: stats(), goedamTraces: [], goedamLog: [],
   };
 }
 

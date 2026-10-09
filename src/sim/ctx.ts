@@ -2,7 +2,7 @@
 
 import type { BossDef, DamageSource, PetDef, SkillDef, SkillSlot, Vec2 } from '../types';
 import { TURRET_POWER } from './constants';
-import { hasRelic, relicParam, skillMod } from './modifiers';
+import { relicParam, relicScale, skillMod } from './modifiers';
 import { effStats, petPower } from './stats';
 import { copy, dist, getEntity, isAlive, type CastCtx, type SimEntity, type SimPlayer, type SimStatus, type World } from './world';
 
@@ -139,7 +139,8 @@ function baseUnitCtx(w: World, e: SimEntity, skillId: string, name: string): Cas
     // Pet turret: owner's pet power, so pet bonuses (beast_collar "펫 효과 +30%") apply to its shots too.
     const owner = w.state.players[e.ownerPlayer];
     atk = petPower(w, owner) * TURRET_POWER;
-    if (hasRelic(owner, 'beast_collar')) dmgMult = 1 + relicParam('beast_collar', 'powerPct');
+    const k = relicScale(owner, owner.activeIndex, 'beast_collar');
+    if (k > 0) dmgMult = 1 + relicParam('beast_collar', 'powerPct') * k;
   }
   return {
     casterId: e.id,
@@ -170,7 +171,8 @@ function baseUnitCtx(w: World, e: SimEntity, skillId: string, name: string): Cas
 
 export function petCtx(w: World, p: SimPlayer, def: PetDef, point: Vec2): CastCtx {
   const owner = p.activeIndex != null ? getEntity(w, p.party[p.activeIndex].entityId) : null;
-  const mult = hasRelic(p, 'beast_collar') ? 1 + relicParam('beast_collar', 'powerPct') : 1;
+  const k = relicScale(p, p.activeIndex, 'beast_collar');
+  const mult = k > 0 ? 1 + relicParam('beast_collar', 'powerPct') * k : 1;
   return {
     casterId: null,
     selfId: owner?.id ?? null,

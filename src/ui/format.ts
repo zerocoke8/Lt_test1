@@ -1,9 +1,8 @@
 // Pure display helpers (no DOM). Unit-tested in tests/ui.
 
 import { BOSS_ENRAGED_EMPTY_FIELD_FAIL } from '../config';
-import { ENERGY } from '../sim/energy';
 import { getGoedamOption, goedamResultView, type GoedamOptionView } from '../data';
-import type { BasicAttack, CommandResult, DamageSource, GoedamProgress, GoedamStage, GoedamTag, PlayerState, Role, RunResult, SkillDef, StatusId } from '../types';
+import type { BasicAttack, CommandResult, DamageSource, GoedamProgress, GoedamStage, GoedamTag, PlayerState, Role, RunResult, StatusId } from '../types';
 
 /** 75.2 → "01:16" (ceil so the timer reads 00:01 until it really hits 0). */
 export function formatClock(seconds: number): string {
@@ -110,39 +109,8 @@ export function basicAttackText(b: BasicAttack): string {
 }
 
 /** Player-facing text for a refused swap/pet command (sim reasons are short Korean codes). */
-/** 기획 14차 교체 에너지: an energy amount — whole when it is ("6"), else one decimal ("5.5", "6.4"). */
-export function energyNum(v: number): string {
-  const r = Math.round(v * 10) / 10;
-  return Number.isInteger(r) ? String(r) : r.toFixed(1);
-}
-
-/**
- * 기획 14차 교체 에너지: rewrite the re-appear-cooldown wording of a description (reward, relic, pet, skill, 돌발 괴담)
- * into what it does in energy mode (src/sim/energy.ts rule c): a bench cut of N s → '교체 에너지 +N×regen', 빠른 교대
- * '재등장 쿨 −v초' → '교체 비용 −v/2×regen', '재등장 쿨 초기화' / '교체 쿨 0' → '에너지 가득'. Other text is returned
- * unchanged. `skill`: a skill whose cut carries a fixed energy (크로노 균열) reads that amount for its N s.
- */
-export function energyRuleText(text: string, regen: number, skill?: Pick<SkillDef, 'actions'>): string {
-  const fixed = new Map<number, number>();
-  for (const a of skill?.actions ?? []) for (const e of a.effects) if (e.kind === 'swapCooldownReduce' && e.energy != null) fixed.set(e.seconds, e.energy);
-  return text
-    .replace(/(대기 캐릭터 )?재등장 쿨 (\d+(?:\.\d+)?)초 감소/g, (_m, _w, n: string) => `교체 에너지 +${energyNum(fixed.get(Number(n)) ?? Number(n) * regen)}`)
-    .replace(/의 재등장 쿨 -(\d+(?:\.\d+)?)초 \(최소 4초\)/g, (_m, n: string) => ` 교체 비용 ⚡-${energyNum(Number(n) * ENERGY.rewardPerSec * regen)}`)
-    .replace(/재등장 쿨 초기화/g, '교체 에너지 가득')
-    .replace(/교체 쿨 0/g, '에너지 가득');
-}
-
-export function refusalText(
-  r: CommandResult,
-  opts: { cooldown?: number; revive?: number; kind: 'swap' | 'pet'; energy?: { need: number; secs: number } },
-): string {
+export function refusalText(r: CommandResult, opts: { cooldown?: number; revive?: number; kind: 'swap' | 'pet' }): string {
   switch (r.reason) {
-    case '에너지 부족': {
-      // 기획 14차 교체 에너지
-      const e = opts.energy;
-      if (!e) return '교체 에너지가 부족해요';
-      return `에너지 부족 · ⚡${energyNum(e.need)} 필요${Number.isFinite(e.secs) && e.secs > 0 ? ` (${countdown(e.secs)}초 후)` : ''}`;
-    }
     case '쿨타임':
       return opts.kind === 'swap' ? `재등장 대기 중 · ${countdown(opts.cooldown ?? 0)}초` : `펫 쿨타임 · ${countdown(opts.cooldown ?? 0)}초`;
     case '사망':

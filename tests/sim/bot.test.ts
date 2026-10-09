@@ -36,7 +36,7 @@ describe('R23 bots', () => {
   });
 
   it('uses the ult 0.5–3 s after it is full', () => {
-    const tg = makeGame({ players: [BOT_P0], tunables: { ultChargeTime: 5 } });
+    const tg = makeGame({ players: [BOT_P0], tunables: { ultFieldChargeTime: 5 } });
     quietFloor(tg);
     const m = spawnAt(tg, 'golem', { x: 30, y: 6 });
     applyStatus(m, 'stun', 100, 0, null);

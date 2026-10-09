@@ -109,14 +109,15 @@ describe('empty field (R9, R10, R14)', () => {
     quietFloor(tg);
     ticks(tg, T(30));
     const p = tg.w.state.players[0];
-    expect(p.ult.charge).toBe(1);
-    const since = p.ult.fullSince;
+    const g = p.party[0].ult; // 기획 15차: the field character's own gauge
+    expect(g.charge).toBe(1);
+    const since = g.fullSince;
     killActive(tg);
     const r = tg.game.dispatch({ type: 'ult', player: 0 });
     expect(r).toEqual({ ok: false, reason: '필드에 캐릭터 없음' });
     ticks(tg, T(2));
-    expect(p.ult.charge).toBe(1);
-    expect(p.ult.fullSince).toBe(since);
+    expect(g.charge).toBe(1);
+    expect(g.fullSince).toBe(since);
     expect(p.stats.ultsUsed).toBe(0);
   });
 
@@ -355,7 +356,7 @@ describe('floor transition (R19–R21)', () => {
     p.pets[1].cooldownRemaining = 9;
     const snap = {
       swapCd: p.party.map(m => m.swapCooldownRemaining),
-      ult: p.ult.charge,
+      ult: p.party.map(m => m.ult.charge),
       haste: a.statuses.find(x => x.id === 'haste')!.remaining,
     };
     clearEvents(tg);
@@ -365,7 +366,7 @@ describe('floor transition (R19–R21)', () => {
     expect(tg.w.state.floor).toBe(2);
     expect(p.activeIndex).toBe(1);
     expect(p.party.map(m => m.swapCooldownRemaining)).toEqual(snap.swapCd);
-    expect(p.ult.charge).toBe(snap.ult);
+    expect(p.party.map(m => m.ult.charge)).toEqual(snap.ult);
     expect(p.pets[1].cooldownRemaining).toBe(9);
     expect(active(tg).statuses.find(x => x.id === 'haste')!.remaining).toBe(snap.haste);
     expect(p.party[2].dead).toBe(true);
@@ -410,9 +411,9 @@ describe('floor transition (R19–R21)', () => {
     expect(new Set(offers.map(o => rewardFamily(o.rewardId))).size).toBe(3);
     expect(offers.every(o => !o.isRelic)).toBe(true);
     expect(s.players[1].rewards.length + s.players[2].rewards.length).toBe(2);
-    const snap = JSON.stringify([s.time, s.floorTime, s.players.map(p => [p.ult, p.party.map(m => m.swapCooldownRemaining), p.pets.map(x => x.cooldownRemaining)])]);
+    const snap = JSON.stringify([s.time, s.floorTime, s.players.map(p => [p.party.map(m => m.ult), p.party.map(m => m.swapCooldownRemaining), p.pets.map(x => x.cooldownRemaining)])]);
     for (let i = 0; i < 10; i++) tg.game.step(0.25);
-    expect(JSON.stringify([s.time, s.floorTime, s.players.map(p => [p.ult, p.party.map(m => m.swapCooldownRemaining), p.pets.map(x => x.cooldownRemaining)])])).toBe(snap);
+    expect(JSON.stringify([s.time, s.floorTime, s.players.map(p => [p.party.map(m => m.ult), p.party.map(m => m.swapCooldownRemaining), p.pets.map(x => x.cooldownRemaining)])])).toBe(snap);
     expect(tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 5, y: 5 } }).reason).toBe('전투 중이 아님');
     expect(tg.game.dispatch({ type: 'pet', player: 0, petIndex: 0, pos: { x: 5, y: 5 } }).reason).toBe('전투 중이 아님');
   });
@@ -451,7 +452,7 @@ describe('R23 bots obey the same validation', () => {
         active: p.activeIndex,
         party: p.party.map(m => ({ cd: m.swapCooldownRemaining, dead: m.dead })),
         pets: p.pets.map(x => x.cooldownRemaining),
-        ult: p.ult.charge,
+        ults: p.party.map(m => m.ult.charge),
         hadField: p.activeIndex != null,
         out: p.out,
       }));
@@ -465,14 +466,16 @@ describe('R23 bots obey the same validation', () => {
             violations.push(`illegal swap t=${s.time.toFixed(2)} p${ev.player} idx${ev.partyIndex} ${JSON.stringify(b)}`);
           }
         }
+        // 기획 15차: an ult needs the caster's own gauge full (at most one tick of charge short before the tick)
+        if (ev.type === 'ultCast') {
+          const idx = s.players[ev.player].activeIndex;
+          const had = idx != null ? before[ev.player].ults[idx] : -1;
+          if (had < 1 - 1 / (30 * TICK_RATE) - 1e-9) violations.push(`ult without full gauge p${ev.player} idx${idx} (${had})`);
+        }
       }
       for (let pi = 0; pi < s.players.length; pi++) {
         const p = s.players[pi];
         const b = before[pi];
-        if (p.stats.ultsUsed > 0 && p.ult.charge === 0 && b.ult < 1 - 1 / (30 * TICK_RATE) - 1e-9 && b.ult !== 0) {
-          // ult fired without a full gauge
-          violations.push(`ult without full gauge p${pi}`);
-        }
         p.pets.forEach((x, k) => {
           if (x.cooldownRemaining > b.pets[k] + 1e-9 && b.pets[k] > 1 / TICK_RATE + 1e-6) violations.push(`pet on cooldown p${pi} k${k}`);
         });

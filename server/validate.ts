@@ -4,7 +4,9 @@
 import type { ClientMsg, PresetChoice } from '../src/net/protocol';
 import { GOEDAM_OPTION_RE } from '../src/net/protocol';
 import type { Command, DebugAction, Vec2 } from '../src/types';
+import type { GearLoadout } from '../src/data/gear';
 import { CHARACTERS, PETS, isFieldEventId } from '../src/data';
+import { EXPEDITION_STAGES } from '../src/data/stages';
 
 type Obj = Record<string, unknown>;
 
@@ -46,6 +48,7 @@ function parseDebug(v: unknown): DebugAction | null {
     case 'killAll':
     case 'skipFloor':
     case 'forceEnrage':
+    case 'expeditionClearStage':
       return { kind: v.kind };
     case 'jumpFloor':
       return isInt(v.floor, 1, 1000) ? { kind: 'jumpFloor', floor: v.floor } : null;
@@ -85,6 +88,9 @@ export function parseCommand(v: unknown): Command | null {
       return goedamId(v.option) ? { type: 'goedam', player: 0, option: v.option } : null;
     case 'quit':
       return { type: 'quit' };
+    case 'expeditionChoice':
+      // 기획 15차 원정: 「수령하고 나가기」 / 「다음 단계 도전」 (the sim checks the phase)
+      return v.choice === 'extract' || v.choice === 'continue' ? { type: 'expeditionChoice', player: 0, choice: v.choice } : null;
     case 'debug': {
       const action = parseDebug(v.action);
       return action ? { type: 'debug', action } : null;
@@ -98,6 +104,21 @@ export function parseCommand(v: unknown): Command | null {
     }
   }
   return null;
+}
+
+/**
+ * 기획 15차 원정 expQueue: stage, party (same rules as a preset), gear (any JSON shape; the expedition lobby checks it
+ * with cleanPartyGear and answers 'bad_gear' instead of silently ignoring it) and the boss stages already cleared once.
+ */
+function parseExpQueue(v: Obj): ClientMsg | null {
+  if (!isInt(v.stage, 1, EXPEDITION_STAGES)) return null;
+  const preset = parsePreset({ characters: v.characters, pets: v.pets });
+  if (!preset) return null;
+  const fbc = v.firstBossClears === undefined ? [] : v.firstBossClears;
+  if (!Array.isArray(fbc) || fbc.length > EXPEDITION_STAGES || !fbc.every(x => isInt(x, 1, EXPEDITION_STAGES))) return null;
+  const gear = Array.isArray(v.gear) ? (v.gear as GearLoadout[]) : ([] as GearLoadout[]);
+  const msg: ClientMsg = { t: 'expQueue', stage: v.stage, ...preset, gear, firstBossClears: [...new Set(fbc as number[])] };
+  return v.debugUnlock === true ? { ...msg, debugUnlock: true } : msg;
 }
 
 /** Parse one raw text frame. */
@@ -152,6 +173,14 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     }
     case 'ping':
       return isNum(v.at) ? { t: 'ping', at: v.at } : null;
+    case 'expQueue':
+      return parseExpQueue(v);
+    case 'expCancel':
+      return { t: 'expCancel' };
+    case 'expStartNow':
+      return { t: 'expStartNow' };
+    case 'expChoice':
+      return v.choice === 'extract' || v.choice === 'continue' ? { t: 'expChoice', choice: v.choice } : null;
   }
   return null;
 }

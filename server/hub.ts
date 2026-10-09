@@ -3,7 +3,8 @@
 import { WebSocket } from 'ws';
 import type { ClientMsg, RoomSummary, ServerMsg } from '../src/net/protocol';
 import { MAX_ROOM_PLAYERS, PROTOCOL_VERSION } from '../src/net/protocol';
-import { Room, type Conn, type RoomHost, type ServerOptions, type Session } from './room';
+import { Room, type Conn, type RoomHost, type RoomMode, type ServerOptions, type Session } from './room';
+import { ExpeditionLobby } from './expedition';
 import { normalizeRoomCode, randomId, randomRoomCode, ROOM_NAME_MAX, sanitizeName } from './util';
 import { parseClientMsg } from './validate';
 
@@ -20,9 +21,12 @@ export class Hub implements RoomHost {
   private nameCounter = 0;
   private roomsDirty = false;
   private readonly timers: ReturnType<typeof setInterval>[] = [];
+  /** 기획 15차 원정: stage queues and session-held runs. */
+  readonly expedition: ExpeditionLobby;
 
   constructor(opts: ServerOptions) {
     this.opts = opts;
+    this.expedition = new ExpeditionLobby(this);
     this.timers.push(setInterval(() => this.heartbeat(), opts.heartbeatMs));
     this.timers.push(setInterval(() => this.sweep(), Math.min(60_000, Math.max(1000, opts.sessionTtlMs / 4))));
   }
@@ -108,6 +112,7 @@ export class Hub implements RoomHost {
     s.conn = null;
     s.lastSeen = Date.now();
     s.room?.onDisconnect(s);
+    this.expedition.onDisconnect(s);
   }
 
   /** Drop sockets that missed a ping round (dead mobile connections). */
@@ -129,14 +134,17 @@ export class Hub implements RoomHost {
   private sweep(): void {
     const now = Date.now();
     for (const [token, s] of this.byToken) {
-      if (!s.conn && !s.room && now - s.lastSeen > this.opts.sessionTtlMs) this.byToken.delete(token);
+      if (!s.conn && !s.room && !this.expedition.holds(s) && now - s.lastSeen > this.opts.sessionTtlMs) {
+        this.byToken.delete(token);
+        this.expedition.forget(s);
+      }
     }
   }
 
   // ─────────────────────────── rooms broadcast ───────────────────────────
 
   roomChanged(room: Room): void {
-    if (room.isClosed) return;
+    if (room.isClosed || room.mode) return; // 원정 rooms: no lobby room info (the queue messages carry the seats)
     const info = room.info();
     for (const m of room.members) this.send(m.session, { t: 'room', room: info });
     this.scheduleRooms();
@@ -149,7 +157,7 @@ export class Hub implements RoomHost {
 
   roomList(): RoomSummary[] {
     return [...this.rooms.values()]
-      .filter(r => !r.isClosed && r.members.length > 0)
+      .filter(r => !r.isClosed && !r.mode && r.members.length > 0)
       .sort((a, b) => (a.status === b.status ? a.createdAt - b.createdAt : a.status === 'waiting' ? -1 : 1))
       .slice(0, MAX_LISTED_ROOMS)
       .map(r => r.summary());
@@ -201,6 +209,7 @@ export class Hub implements RoomHost {
         this.send(s, { t: 'rooms', rooms: this.roomList() });
         return;
       case 'createRoom': {
+        this.expedition.cancel(s);
         if (s.room) this.leave(s, false);
         const code = randomRoomCode(c => this.rooms.has(c));
         // no custom name → "<방장>의 방", following the host (also after a host handoff or rename)
@@ -211,10 +220,11 @@ export class Hub implements RoomHost {
       }
       case 'joinRoom': {
         const room = this.rooms.get(normalizeRoomCode(msg.code));
-        if (!room || room.isClosed) return this.error(s, 'room_not_found', '방을 찾을 수 없어요');
+        if (!room || room.isClosed || room.mode) return this.error(s, 'room_not_found', '방을 찾을 수 없어요');
         if (room === s.room) return room.setPreset(s, msg.preset);
         if (room.status === 'playing') return this.error(s, 'room_playing', '이미 게임 중인 방이에요');
         if (room.members.length >= MAX_ROOM_PLAYERS) return this.error(s, 'room_full', '방이 가득 찼어요 (최대 3명)');
+        this.expedition.cancel(s);
         if (s.room) this.leave(s, false);
         room.add(s, msg.preset);
         return;
@@ -250,6 +260,12 @@ export class Hub implements RoomHost {
         this.send(s, r.ok ? { t: 'cmdResult', seq: msg.seq, ok: true } : { t: 'cmdResult', seq: msg.seq, ok: false, reason: r.reason });
         return;
       }
+      case 'expQueue':
+      case 'expCancel':
+      case 'expStartNow':
+      case 'expChoice':
+        this.expedition.handle(s, msg);
+        return;
     }
   }
 
@@ -287,10 +303,24 @@ export class Hub implements RoomHost {
       this.send(s, { t: 'room', room: null });
       this.send(s, { t: 'rooms', rooms: this.roomList() });
     }
+    this.expedition.onReconnect(s);
+  }
+
+  /** Error reply (also used by the expedition lobby). */
+  sendError(s: Session, code: Extract<ServerMsg, { t: 'error' }>['code'], message: string): void {
+    this.error(s, code, message);
+  }
+
+  /** 기획 15차 원정: a new hidden room for a launched stage queue (hostId = its first seat). */
+  createModeRoom(hostId: string, mode: RoomMode): Room {
+    const code = randomRoomCode(c => this.rooms.has(c));
+    const room = new Room(code, null, this, hostId, mode);
+    this.rooms.set(code, room);
+    return room;
   }
 
   /** Leave the current room (slot → bot if a game runs). */
-  private leave(s: Session, notify: boolean): void {
+  leave(s: Session, notify: boolean): void {
     const room = s.room;
     if (room) room.remove(s);
     s.room = null;
@@ -308,6 +338,7 @@ export class Hub implements RoomHost {
 
   close(): void {
     for (const t of this.timers) clearInterval(t);
+    this.expedition.close();
     for (const r of [...this.rooms.values()]) r.close();
     for (const c of this.conns) {
       try {

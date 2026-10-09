@@ -1,28 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { applyStatus } from '../../src/sim/status';
-import { active, advance, clearEvents, eventsOf, HUMAN, HUMAN2, killActive, makeGame, quietFloor, spawnAt } from './helpers';
+import { active, advance, clearEvents, eventsOf, HUMAN, HUMAN2, killActive, makeGame, quietFloor, spawnAt, ultOf } from './helpers';
 
 describe('R9 ult gauge', () => {
-  it('charges by time only (ultChargeTime), per player', () => {
-    const tg = makeGame({ players: [HUMAN, HUMAN2], tunables: { ultChargeTime: 10 } });
+  it('charges by time only (ultFieldChargeTime), per character', () => {
+    const tg = makeGame({ players: [HUMAN, HUMAN2], tunables: { ultFieldChargeTime: 10 } });
     advance(tg, 5);
     const [p0, p1] = tg.game.state.players;
-    expect(p0.ult.charge).toBeCloseTo(0.5, 2);
-    expect(p1.ult.charge).toBeCloseTo(0.5, 2);
+    expect(ultOf(p0).charge).toBeCloseTo(0.5, 2);
+    expect(ultOf(p1).charge).toBeCloseTo(0.5, 2);
     expect(tg.game.dispatch({ type: 'ult', player: 0 })).toEqual({ ok: false, reason: '게이지 부족' });
     advance(tg, 5.05);
-    expect(p0.ult.charge).toBe(1);
-    expect(p0.ult.fullSince).not.toBeNull();
+    expect(ultOf(p0).charge).toBe(1);
+    expect(ultOf(p0).fullSince).not.toBeNull();
     expect(eventsOf(tg, 'ultReady').map(e => e.player).sort()).toEqual([0, 1]);
     advance(tg, 2);
     expect(tg.game.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
-    expect(p0.ult.charge).toBe(0);
-    expect(p0.ult.fullSince).toBeNull();
+    expect(ultOf(p0).charge).toBe(0);
+    expect(ultOf(p0).fullSince).toBeNull();
     expect(p0.stats.ultsUsed).toBe(1);
     expect(p0.stats.ultDelayTotal).toBeGreaterThanOrEqual(2);
     expect(p0.stats.ultDelayTotal).toBeLessThan(2.1);
     // other player's gauge is untouched
-    expect(p1.ult.charge).toBe(1);
+    expect(ultOf(p1).charge).toBe(1);
     const casts = eventsOf(tg, 'skillCast').filter(c => c.slot === 'ult');
     expect(casts.length).toBeGreaterThan(0);
     expect(casts[0].player).toBe(0);
@@ -30,13 +30,13 @@ describe('R9 ult gauge', () => {
   });
 
   it('is not affected by damage dealt or taken', () => {
-    const a = makeGame({ seed: 7, tunables: { ultChargeTime: 30 } });
-    const b = makeGame({ seed: 7, tunables: { ultChargeTime: 30, invincible: true, botDamageMult: 5 } });
+    const a = makeGame({ seed: 7, tunables: { ultFieldChargeTime: 30 } });
+    const b = makeGame({ seed: 7, tunables: { ultFieldChargeTime: 30, invincible: true, botDamageMult: 5 } });
     quietFloor(b);
     advance(a, 12);
     advance(b, 12);
-    expect(a.game.state.players[0].ult.charge).toBeCloseTo(b.game.state.players[0].ult.charge, 9);
-    expect(a.game.state.players[0].ult.charge).toBeCloseTo(12 / 30, 2);
+    expect(ultOf(a.game.state.players[0]).charge).toBeCloseTo(ultOf(b.game.state.players[0]).charge, 9);
+    expect(ultOf(a.game.state.players[0]).charge).toBeCloseTo(12 / 30, 2);
   });
 
   it('cannot be used while the field is empty; gauge stays full', () => {
@@ -45,7 +45,7 @@ describe('R9 ult gauge', () => {
     killActive(tg, 0);
     expect(tg.game.state.players[0].activeIndex).toBeNull();
     expect(tg.game.dispatch({ type: 'ult', player: 0 })).toEqual({ ok: false, reason: '필드에 캐릭터 없음' });
-    expect(tg.game.state.players[0].ult.charge).toBe(1);
+    expect(ultOf(tg.game.state.players[0]).charge).toBe(1);
   });
 });
 
@@ -112,11 +112,11 @@ describe('R11 player out and wipe', () => {
     expect(eventsOf(tg, 'playerOut')).toEqual([{ type: 'playerOut', player: 0 }]);
     expect(s.phase).toBe('combat');
     expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '관전 중' });
-    const charge = s.players[0].ult.charge;
+    const charge = ultOf(s.players[0]).charge;
     advance(tg, 31);
     // out for the rest of this floor: no revive, no ult charge (기획 5차: back at the next floor if someone clears)
     expect(s.players[0].party.every(m => m.dead)).toBe(true);
-    expect(s.players[0].ult.charge).toBe(charge);
+    expect(ultOf(s.players[0]).charge).toBe(charge);
     killAllOf(tg, 1);
     expect(s.phase).toBe('runOver');
     expect(s.runResult).toMatchObject({ outcome: 'defeat', reason: 'wipe' });

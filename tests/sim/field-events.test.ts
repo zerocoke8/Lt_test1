@@ -12,7 +12,7 @@ import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
 import { countEnemies, endRun, getEntity, isAlive, type SimEntity } from '../../src/sim/world';
 import type { FieldEventId, FieldEventState, PlayerSetup, Vec2 } from '../../src/types';
-import { BOT1, BOT2, HUMAN, HUMAN2, active, advance, eventsOf, makeGame, quietFloor, spawnAt, type TestGame } from './helpers';
+import { BOT1, BOT2, HUMAN, HUMAN2, active, advance, eventsOf, makeGame, quietFloor, spawnAt, type TestGame, ultOf } from './helpers';
 
 const ON = { fieldEventChance: 0.6 };
 const P_CLERIC: PlayerSetup = { name: '힐', isBot: false, characters: ['guardian', 'cleric', 'mage'], pets: ['frog_bomb', 'fairy_heal', 'golem_turret'] };
@@ -124,14 +124,14 @@ describe('도망치는 금두꺼비', () => {
     const { tg, ev } = started('lucky_toad', [HUMAN, HUMAN2, BOT1]);
     const ps = tg.w.state.players;
     ps[2].out = true;
-    ps.forEach(p => (p.ult.charge = 0.1));
+    ps.forEach(p => (ultOf(p).charge = 0.1));
     applyDamage(tg.w, dragHit(1), unit(tg, ev), 1e6, false);
     const end = eventsOf(tg, 'fieldEventEnd').at(-1)!;
     expect(end).toMatchObject({ id: 'lucky_toad', success: true, player: 1 });
     expect(tg.w.state.fieldEvent).toBeNull();
-    expect(ps[0].ult.charge).toBeCloseTo(0.5, 5);
-    expect(ps[1].ult.charge).toBeCloseTo(0.5, 5);
-    expect(ps[2].ult.charge).toBeCloseTo(0.1, 5);
+    expect(ultOf(ps[0]).charge).toBeCloseTo(0.5, 5);
+    expect(ultOf(ps[1]).charge).toBeCloseTo(0.5, 5);
+    expect(ultOf(ps[2]).charge).toBeCloseTo(0.1, 5);
     expect(ps[1].stats.fieldEvents).toBe(1);
     expect(tg.w.fieldEvents.history.at(-1)).toMatchObject({ id: 'lucky_toad', success: true, credit: 1 });
   });
@@ -140,12 +140,12 @@ describe('도망치는 금두꺼비', () => {
     const { tg, ev } = started('lucky_toad');
     const id = ev.entityIds[0];
     unit(tg, ev).hp = unit(tg, ev).maxHp = 1e9; // nobody can kill it in time
-    tg.w.state.players[0].ult.charge = 0;
+    ultOf(tg.w.state.players[0]).charge = 0;
     advance(tg, 18.2);
     expect(eventsOf(tg, 'fieldEventEnd').at(-1)).toMatchObject({ success: false, player: null });
     expect(getEntity(tg.w, id)).toBeNull();
     // only the natural charge (18.2 s of 30), no +40 %
-    expect(tg.w.state.players[0].ult.charge).toBeLessThan(18.5 / 30);
+    expect(ultOf(tg.w.state.players[0]).charge).toBeLessThan(18.5 / 30);
   });
 
   it('flees an ally nearby and hops away; a stun cancels the hop', () => {
