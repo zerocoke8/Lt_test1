@@ -5,7 +5,7 @@ import { planFloor } from '../../src/sim';
 import { applyDamage } from '../../src/sim/combat';
 import { effStats } from '../../src/sim/stats';
 import { Rng } from '../../src/sim/rng';
-import { active, advance, BOT1, BOT2, clearEvents, eventsOf, HUMAN, killActive, makeGame } from './helpers';
+import { active, advance, BOT1, BOT2, clearEvents, eventsOf, HUMAN, killActive, makeGame, ultOf } from './helpers';
 
 describe('planFloor', () => {
   it('boss every 5 floors, wave count first + 1 per floor number (capped), zone pools, one mid boss per normal floor', () => {
@@ -247,7 +247,7 @@ describe('R19 floor carry-over', () => {
     p.party[0].hp = 0;
     p.party[0].reviveRemaining = 17;
     advance(tg, 1);
-    const ult = p.ult.charge;
+    const ult = ultOf(p).charge;
     const cd2 = p.party[2].swapCooldownRemaining;
     const revive = p.party[0].reviveRemaining;
     clearEvents(tg);
@@ -260,7 +260,7 @@ describe('R19 floor carry-over', () => {
     // time frozen during reward
     tg.game.step(0.25);
     tg.game.step(0.25);
-    expect(p.ult.charge).toBe(ult);
+    expect(ultOf(p).charge).toBe(ult);
     expect(p.party[0].reviveRemaining).toBeCloseTo(revive);
     clearEvents(tg);
     expect(tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 }).ok).toBe(true);
@@ -269,7 +269,7 @@ describe('R19 floor carry-over', () => {
     expect(p.activeIndex).toBe(2);
     expect(active(tg).id).toBe(e.id);
     expect(p.party[2].swapCooldownRemaining).toBeCloseTo(cd2);
-    expect(p.ult.charge).toBe(ult);
+    expect(ultOf(p).charge).toBe(ult);
     const evs = eventsOf(tg, 'skillCast');
     expect(evs.filter(x => x.slot === 'drag').length).toBe(0);
     expect(eventsOf(tg, 'appear').length).toBe(0);

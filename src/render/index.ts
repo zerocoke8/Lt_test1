@@ -17,7 +17,8 @@ import {
 import { type BossDrawOpts, bossPhaseOf, drawBossArt, drawBossShadow } from './boss';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { Backdrop } from './ground';
-import { COLORS, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
+import { COLORS, OTHER_PLAYER_FX, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
+import { gearBandsOf } from '../data/gear';
 import { CHARACTERS } from '../data';
 import { areaCentroid, areaExtent } from '../sim/geometry';
 import { drawAimedDirection, drawAreaDirection, drawFieldEventPreview, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
@@ -930,7 +931,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       CREATURE_POSE.skill = lastMonsterSkill.get(e.id) ?? '';
     }
     const frozen = e.statuses.length > 0 && isStopped(e);
-    drawBody(c, look, e.tier, fx, fy, w, h, s, frozen ? m.phase : time, m.phase, m.flash > 0 && !frozen);
+    // 기획 15차 원정: worn gear shows on the body (absent in the classic tower → drawn exactly as before)
+    const gear = e.kind === 'character' && e.ownerPlayer != null && e.partyIndex != null ? gearBandsOf(vc.state?.players[e.ownerPlayer]?.gear?.[e.partyIndex]) : null;
+    const gearFx = e.ownerPlayer === vc.localPlayer ? 1 : OTHER_PLAYER_FX;
+    drawBody(c, look, e.tier, fx, fy, w, h, s, frozen ? m.phase : time, m.phase, m.flash > 0 && !frozen, gear, gearFx);
     if (e.statuses.length > 0) vfx.status.drawBodyOverlay(c, e, fx, fy, w, h);
     HERO_POSE.swing = 0;
     HERO_POSE.recoil = 0;

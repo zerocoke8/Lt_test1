@@ -8,7 +8,7 @@ import { findWoundedAlly } from '../../src/sim/ctx';
 import { effStats } from '../../src/sim/stats';
 import { applyStatus } from '../../src/sim/status';
 import type { PlayerSetup } from '../../src/types';
-import { BOT1, BOT2, HUMAN, active, advance, clearEvents, eventsOf, makeGame, quietFloor, spawnAt, type TestGame } from './helpers';
+import { BOT1, BOT2, HUMAN, active, advance, clearEvents, eventsOf, makeGame, quietFloor, spawnAt, type TestGame, ultOf } from './helpers';
 
 const PETS = ['frog_bomb', 'fairy_heal', 'owl_frost'];
 const setup = (name: string, characters: string[]): PlayerSetup => ({ name, isBot: false, characters, pets: PETS });
@@ -90,7 +90,7 @@ describe('메딕: bench heal, revive cut, bench regen (기획 12차)', () => {
     p2.party[1].hp = p2.party[1].maxHp * 0.2;
     p2.party[2].dead = true;
     p2.party[2].reviveRemaining = 5;
-    p0.ult.charge = 1;
+    ultOf(p0).charge = 1;
     expect(tg.game.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
     // 기획 13차: the effects land after the 0.45 s cut-in (tick 14 = 0.467 s)
     advance(tg, 0.4);
@@ -350,11 +350,12 @@ describe('bots with the new characters (기획 12차 8장)', () => {
 describe('기획 12차: parties without the new characters keep their runs (RNG identity)', () => {
   // Captured before any 12차 sim change (pets already ×0.8): w.rng state, positions, HP after 150 s.
   // 기획 13차: recaptured after the skill renewal (every drag / ult changed on purpose), and again after the round's
-  // balance pass (drag / ult numbers of 11 characters, docs/balance.md 12장); a regression guard from here on.
+  // balance pass (drag / ult numbers of 11 characters, docs/balance.md 12장). 기획 15차: recaptured for per-character ult
+  // as the rule (identical to the round-14 code with ultPerCharacter on); a regression guard from here on.
   const GOLDEN: Record<number, { tick: number; floor: number; draw: number; kills: number; pl: string; ents: number }> = {
-    11: { tick: 4500, floor: 4, draw: 935474360, kills: 11, pl: '900.00,563.97,420.43;1080.00,576.00,624.00;660.00,449.95,825.00', ents: 782757958 },
-    22: { tick: 4500, floor: 4, draw: 104238810, kills: 11, pl: '990.00,561.90,259.32;990.00,405.26,572.00;720.00,268.94,826.70', ents: 1376873555 },
-    33: { tick: 4500, floor: 4, draw: 4087076432, kills: 10, pl: '836.49,299.96,314.34;837.17,480.00,520.00;742.68,434.89,1012.50', ents: 2525473704 },
+    11: { tick: 4500, floor: 4, draw: 927898060, kills: 10, pl: '990.00,600.00,450.00;900.00,480.00,520.00;660.00,495.00,825.00', ents: 746491476 },
+    22: { tick: 4500, floor: 4, draw: 175756307, kills: 6, pl: '990.00,600.00,450.00;1080.00,576.00,620.46;600.00,450.00,712.87', ents: 3110372441 },
+    33: { tick: 4500, floor: 4, draw: 1736404743, kills: 17, pl: '900.00,600.00,450.00;900.00,480.00,520.00;600.00,450.00,750.00', ents: 3040352796 },
   };
 
   const hash = (s: string) => {

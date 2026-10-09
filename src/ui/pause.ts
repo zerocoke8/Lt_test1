@@ -23,6 +23,8 @@ export interface PauseView {
   isHost: boolean;
   /** Whose traces/relics to list (default 0). */
   localPlayer?: number;
+  /** 기획 15차 원정 멀티: leaving is always personal (my bag is lost, my seat → bot), even for the host. */
+  expedition?: boolean;
 }
 
 export class PauseMenu {
@@ -59,7 +61,13 @@ export class PauseMenu {
     this.quitBtn = button('btn btn-danger', '포기', btns, () => {
       if (!this.armed) {
         this.armed = true;
-        this.quitBtn.textContent = this.view.multi && this.view.isHost ? '모두의 런이 끝나요 · 한 번 더' : this.view.multi ? '정말 나갈까요? 한 번 더' : '정말 포기할까요? 한 번 더';
+        this.quitBtn.textContent = this.view.expedition
+          ? '가방을 잃어요 · 한 번 더'
+          : this.view.multi && this.view.isHost
+            ? '모두의 런이 끝나요 · 한 번 더'
+            : this.view.multi
+              ? '정말 나갈까요? 한 번 더'
+              : '정말 포기할까요? 한 번 더';
         return;
       }
       cb.onQuit();
@@ -88,7 +96,9 @@ export class PauseMenu {
     this.quitBtn.textContent = view.multi ? '나가기' : '포기';
     this.note.classList.toggle('is-hidden', !view.multi);
     this.note.textContent = view.multi
-      ? view.isHost
+      ? view.expedition
+        ? '멀티 게임은 멈추지 않아요 · 나가면 내 가방을 잃고 내 자리는 봇이 이어서 해요'
+        : view.isHost
         ? '멀티 게임은 멈추지 않아요 · 방장이 나가면 모두의 런이 끝나요'
         : '멀티 게임은 멈추지 않아요 · 나가면 내 자리는 봇이 이어서 해요'
       : '';

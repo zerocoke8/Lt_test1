@@ -20,10 +20,11 @@ import {
 import { applyDamage } from '../../src/sim/combat';
 import { tick } from '../../src/sim/game';
 import { addGoedamTrace, goedamSchedule, goedamTimeoutCommands } from '../../src/sim/goedam';
-import { setUltCharge, ultChargeTimeFor } from '../../src/sim/players';
+import { setUltCharge } from '../../src/sim/players';
+import { ultFillTimes } from '../../src/sim/ultMode';
 import { Rng } from '../../src/sim/rng';
 import type { GameState, GoedamParams, GoedamRoomDef, PlayerSetup } from '../../src/types';
-import { active, advance, BOT1, BOT2, clearEvents, eventsOf, HUMAN, HUMAN2, makeGame, type TestGame } from './helpers';
+import { active, advance, BOT1, BOT2, clearEvents, eventsOf, HUMAN, HUMAN2, makeGame, type TestGame, ultOf } from './helpers';
 
 const HUMAN3: PlayerSetup = { name: '셋', isBot: false, characters: ['paladin', 'gunner', 'bard'], pets: ['cat_void', 'drum_raccoon', 'frog_bomb'] };
 const ON = { goedamRoomsPerZone: 1 };
@@ -370,7 +371,7 @@ describe('goedam effects', () => {
           pick(tg, 0, o.id);
           for (const m of p.party) expect(m.dead || m.hp >= 1, `${room.id}/${o.id}`).toBe(true);
           for (const m of p.party) expect(m.hp).toBeLessThanOrEqual(m.maxHp + 1e-9);
-          expect(p.ult.charge >= 1).toBe(p.ult.fullSince != null);
+          expect(ultOf(p).charge >= 1).toBe(ultOf(p).fullSince != null);
         }
       }
     }
@@ -381,17 +382,17 @@ describe('goedam effects', () => {
     const s = enterRoom(tg, 'ringing_phone');
     clearEvents(tg);
     pick(tg, 0, 'answer');
-    expect(s.players[0].ult).toEqual({ charge: 1, fullSince: s.time });
+    expect(ultOf(s.players[0])).toEqual({ charge: 1, fullSince: s.time });
     expect(eventsOf(tg, 'ultReady').map(e => e.player)).toEqual([0]);
-    s.players[1].ult = { charge: 1, fullSince: s.time - 3 };
+    Object.assign(ultOf(s.players[1]), { charge: 1, fullSince: s.time - 3 });
     pick(tg, 1, 'hang_up');
-    expect(s.players[1].ult).toEqual({ charge: 0, fullSince: null });
+    expect(ultOf(s.players[1])).toEqual({ charge: 0, fullSince: null });
     pick(tg, 0, 'continue');
     pick(tg, 1, 'continue');
     expect(s.phase).toBe('combat');
     tick(tg.w);
-    for (const p of s.players) expect(p.ult.charge >= 1).toBe(p.ult.fullSince != null);
-    expect(s.players[1].ult.charge).toBeGreaterThan(0);
+    for (const p of s.players) expect(ultOf(p).charge >= 1).toBe(ultOf(p).fullSince != null);
+    expect(ultOf(s.players[1]).charge).toBeGreaterThan(0);
   });
 
   it('ult gauge: a sum that lands a hair under full (0.7 of tick charge + 0.3) snaps to full like tickPlayers', () => {
@@ -399,22 +400,23 @@ describe('goedam effects', () => {
     const p = tg.w.state.players[0];
     clearEvents(tg);
     setUltCharge(tg.w, p, 0.9999999999999933);
-    expect(p.ult).toEqual({ charge: 1, fullSince: tg.w.state.time });
+    expect(ultOf(p)).toEqual({ charge: 1, fullSince: tg.w.state.time });
     expect(eventsOf(tg, 'ultReady')).toHaveLength(1);
   });
 
   it('ult charge time goes through one function (혼선 30 s → ~43 s) and the sim charges at that speed', () => {
-    const tg = makeGame({ players: [HUMAN] });
+    // invincible: the field character must stay on (기획 15차: the field gauge is the one that fills in 30 s)
+    const tg = makeGame({ players: [HUMAN], tunables: { invincible: true } });
     const p = tg.w.state.players[0];
     addGoedamTrace(tg.w, p, 'crossed_line');
-    expect(ultChargeTimeFor(tg.game.tunables, p)).toBeCloseTo(30 / 0.7, 9);
+    expect(ultFillTimes(tg.game.tunables, p).field).toBeCloseTo(30 / 0.7, 9);
     addGoedamTrace(tg.w, p, 'silence');
-    expect(ultChargeTimeFor(tg.game.tunables, p)).toBeCloseTo(30, 9);
+    expect(ultFillTimes(tg.game.tunables, p).field).toBeCloseTo(30, 9);
     p.goedamTraces = [];
     addGoedamTrace(tg.w, p, 'crossed_line');
-    p.ult = { charge: 0, fullSince: null };
+    Object.assign(ultOf(p), { charge: 0, fullSince: null });
     advance(tg, 30);
-    expect(p.ult.charge).toBeCloseTo(0.7, 2);
+    expect(ultOf(p).charge).toBeCloseTo(0.7, 2);
   });
 
   it('damage taken × trace multiplier on my characters only', () => {

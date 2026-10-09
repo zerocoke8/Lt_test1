@@ -2,6 +2,8 @@
 // The sim owns and mutates GameState; render and ui only read it and talk back through Command.
 // World units: 1 unit ≈ one character width. Ground plane is (x, y); y grows toward the camera (screen-down).
 
+import type { GearLoadout, GearSpec } from './data/gear';
+
 export type Vec2 = { x: number; y: number };
 
 /** 기획 12차: 'healer' split off 'support' (탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터, 3 each). */
@@ -148,11 +150,6 @@ export type Effect =
       kind: 'swapCooldownReduce';
       seconds: number;
       allPlayers?: boolean;
-      /**
-       * 기획 14차 교체 에너지: in energy mode this cut returns exactly this much energy instead of seconds × regen —
-       * a character's own refund that is priced into its swapEnergy (크로노 균열), so the cost table holds at any regen.
-       */
-      energy?: number;
     }
   /**
    * 기획 12차: amount × member maxHp to the bench (not field, not dead) members of the caster player, or of every non-out
@@ -254,7 +251,7 @@ export interface SkillDef {
   name: string;
   slot: SkillSlot;
   description: string;
-  /** Normal skill only. Drag skill cooldown = CharacterDef.swapCooldown. Ult uses the shared gauge. */
+  /** Normal skill only. Drag skill cooldown = CharacterDef.swapCooldown. Ult uses the character's own gauge. */
   cooldown?: number;
   /** Normal skill only: cast when current target is within this edge distance. */
   castRange?: number;
@@ -298,11 +295,6 @@ export interface CharacterDef {
   stats: StatBlock;
   /** Re-appearance cooldown in seconds (8~12). This IS the drag-skill cooldown. Starts when the character leaves. */
   swapCooldown: number;
-  /**
-   * 기획 14차 교체 에너지 (test toggle Tunables.swapEnergyMode): energy one swap-in of this character costs (4~8),
-   * set from the measured drag value per cast so value per energy is about equal (docs/balance.md 13-4).
-   */
-  swapEnergy: number;
   basic: BasicAttack;
   passive: PassiveDef;
   normal: SkillDef;
@@ -638,6 +630,17 @@ export interface FloorPlan {
   bossId?: string;
   /** 기획 8차: floor zone (1–5 로비·상가, 6–10 사무실, 11–15 폐병동, 16–20 옥상·이계) — drives pools and the background. */
   theme?: FloorTheme;
+  // 기획 15차 원정 (expedition only; absent in the classic tower): floor = stageFloor there
+  /** Stage 1..12. */
+  stage?: number;
+  /** Floor within the stage (1..3; = FloorPlan.floor). */
+  stageFloor?: number;
+  /** The classic floor it stands for (0.5 steps; boss floors 5 · 10 · 15 · 20). */
+  equivFloor?: number;
+  /** Floor 3 of a normal stage: the 수문장 (an enhanced mid boss, no groggy) spawning at `at` s. */
+  guardian?: { monsterId: string; hpMult: number; atkMult: number; at: number };
+  /** Boss stage floor 3: boss HP × this. */
+  bossHpMult?: number;
 }
 
 export type FloorTheme = 'lobby' | 'office' | 'ward' | 'rooftop';
@@ -693,21 +696,8 @@ export interface PartyMember {
   normalCooldownRemaining: number;
   /** Entity id while on field. */
   entityId: number | null;
-  /**
-   * 기획 14차 궁극기 개별 게이지 (debug toggle Tunables.ultPerCharacter): this character's own gauge. Present on every
-   * member while the toggle is on, absent when it is off (then PlayerState.ult is the one shared gauge). src/sim/ultMode.ts.
-   */
-  ult?: UltGauge;
-}
-
-/**
- * 기획 14차 교체 에너지: value 0..max (fractional: it fills continuously), max = Tunables.swapEnergyMax, regen =
- * Tunables.swapEnergyRegen (per second; carried so pure checks on a client snapshot price 빠른 교대 like the sim).
- */
-export interface SwapEnergy {
-  value: number;
-  max: number;
-  regen: number;
+  /** 기획 15차: this character's own ult gauge (the per-character gauge is the rule; src/sim/ultMode.ts). */
+  ult: UltGauge;
 }
 
 /** An ult gauge: charge 0..1 (1 = usable), fullSince = sim time it became full (null below full). */
@@ -759,13 +749,6 @@ export interface PlayerState {
   /** Party index on field, null = field empty. */
   activeIndex: number | null;
   pets: PetSlot[];
-  /** The player's shared ult gauge (today's rule). 기획 14차: unused while the members carry their own (PartyMember.ult). */
-  ult: UltGauge;
-  /**
-   * 기획 14차 교체 에너지 (debug toggle Tunables.swapEnergyMode): the pool the player's 3 characters swap in with.
-   * Present while the toggle is on (then no character has a re-appear cooldown), absent when it is off. src/sim/energy.ts.
-   */
-  energy?: SwapEnergy;
   /** 사망: all 3 characters dead at the same moment. Spectating for rest of run. */
   out: boolean;
   /** Multiplayer: this human dropped; a bot drives the slot until they reconnect. */
@@ -779,6 +762,8 @@ export interface PlayerState {
   goedamTraces: GoedamTraceSlot[];
   /** 기획 10차: 괴담 수첩 — every room this player went through (result screen, benches). */
   goedamLog: GoedamLogEntry[];
+  /** 기획 15차 원정: equipped gear per party index (read-only during the game). Absent in the classic tower. */
+  gear?: GearLoadout[];
 }
 
 export interface GoedamTraceSlot {
@@ -891,8 +876,12 @@ export interface RewardOffer {
   isRelic: boolean;
 }
 
-/** 'goedam' (기획 10차): the 괴담 room after the reward phase, time frozen like 'reward'. */
-export type SimPhase = 'combat' | 'reward' | 'goedam' | 'runOver';
+/**
+ * 'goedam' (기획 10차): the 괴담 room after the reward phase, time frozen like 'reward'.
+ * 'stageClear' (기획 15차 원정): floor 3 of a stage was cleared — terminal for this game (time frozen); loot is in
+ * state.expedition and each human picks 「수령하고 나가기」 / 「다음 단계 도전」 (command 'expeditionChoice').
+ */
+export type SimPhase = 'combat' | 'reward' | 'goedam' | 'runOver' | 'stageClear';
 
 export interface RunResult {
   outcome: 'victory' | 'defeat';
@@ -938,6 +927,54 @@ export interface GameState {
   /** 기획 13차: the boss's groggy gauge on a boss floor (null elsewhere, or with bossGroggyThreshold 0). */
   bossGroggy: BossGroggyState | null;
   runResult: RunResult | null;
+  /** 기획 15차 원정: this stage's progress, loot and choices. Absent in the classic tower. */
+  expedition?: ExpeditionState;
+}
+
+// ─────────────────────────── 원정 (기획 15차, docs/expedition.md) ───────────────────────────
+
+export type ExpeditionChoice = 'extract' | 'continue';
+
+/** The expedition read model of one stage game (snapshot-safe). */
+export interface ExpeditionState {
+  stage: number;
+  /** = GameState.floor (1..3). */
+  stageFloor: number;
+  /** Stages 3 · 6 · 9 · 12 (floor 3 = the zone boss, the loot has a boss box). */
+  boss: boolean;
+  /** 'running' until floor 3 is cleared ('cleared', phase 'stageClear') or the stage is lost (wipe / timeout / quit). */
+  outcome: 'running' | 'cleared' | 'failed';
+  /** Loot per player index, rolled at the clear (humans only — bots and seats that started as bots get []). */
+  loot: GearSpec[][];
+  /** Per player index during 'stageClear': null = not chosen yet. Bots and disconnected seats are 'extract' at once. */
+  choices: (ExpeditionChoice | null)[];
+  /** Per player index: whether the seat started as a human (gets loot, has to choose). */
+  humans: boolean[];
+  /** 괴담 rooms seen earlier in this run (carried; a room never comes twice per run). This game's are in goedamLog. */
+  goedamSeen: string[];
+}
+
+/**
+ * What a continuing player takes into the next stage (server-held; the client never edits it): floor rewards, 괴담 traces
+ * (with floors left), every character's ult charge, and the rooms already seen this run.
+ */
+export interface ExpeditionCarry {
+  rewards: AppliedReward[];
+  goedamTraces: GoedamTraceSlot[];
+  /** Ult charge 0..1 per party index. */
+  ult: number[];
+  goedamSeen?: string[];
+}
+
+export interface ExpeditionSetup {
+  /** 1..12. */
+  stage: number;
+  /** Per player index (null / absent = fresh). */
+  carry?: (ExpeditionCarry | null)[];
+  /** Per player index: this would be that player's first clear of this boss stage (boss box = a relic for sure). */
+  firstBossClear?: boolean[];
+  /** Per player index: stages that player already cleared in this run (rarer loot, +10%p each, max +30%p). */
+  clearedThisRun?: number[];
 }
 
 // ─────────────────────────── Commands & events ───────────────────────────
@@ -955,7 +992,9 @@ export type DebugAction =
   /** 기획 12차: start a 돌발 괴담 now (normal floor, early in combat) or at 8 s of the next normal floor. */
   | { kind: 'fieldEventNext'; id?: FieldEventId }
   /** 기획 13차: set the boss groggy gauge (default 1 = break now; e.g. 0.85 = near full). Clears the lock. */
-  | { kind: 'forceGroggy'; fill?: number };
+  | { kind: 'forceGroggy'; fill?: number }
+  /** 기획 15차 원정: clear the stage now (jump to floor 3 and clear it → 'stageClear'). */
+  | { kind: 'expeditionClearStage' };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
@@ -964,6 +1003,8 @@ export type Command =
   | { type: 'chooseReward'; player: number; offerIndex: number }
   /** 기획 10차: pick a 괴담 room option by id, or 'continue' after reading the result card. */
   | { type: 'goedam'; player: number; option: string }
+  /** 기획 15차 원정: 「장비 수령하고 나가기」 / 「다음 단계 도전」 during 'stageClear'. */
+  | { type: 'expeditionChoice'; player: number; choice: ExpeditionChoice }
   | { type: 'quit' }
   | { type: 'debug'; action: DebugAction }
   /** Live tunables change (debug panel). In multiplayer only the room host may send it. */
@@ -1069,8 +1110,8 @@ export type GameEvent =
   | { type: 'spawn'; entityId: number; pos: Vec2; tier: MonsterTier }
   | { type: 'revive'; player: number; partyIndex: number }
   | { type: 'playerOut'; player: number }
-  /** A gauge became full. 기획 14차: partyIndex = whose gauge (per-character mode only; absent = the shared gauge). */
-  | { type: 'ultReady'; player: number; partyIndex?: number }
+  /** A gauge became full. partyIndex = whose gauge (기획 15차: every character has its own). */
+  | { type: 'ultReady'; player: number; partyIndex: number }
   | { type: 'floorStart'; floor: number; kind: 'normal' | 'boss' }
   | { type: 'floorClear'; floor: number }
   | { type: 'enrage' }
@@ -1094,14 +1135,19 @@ export type GameEvent =
   | { type: 'bossGroggy'; entityId: number; player: number | null; count: number; duration: number }
   | { type: 'bossGroggyEnd'; entityId: number }
   /** 기획 13차: gauge points of one action (only ≥ 5 points, for the '+N' pop). */
-  | { type: 'groggyGain'; player: number; amount: number; why: GroggyGainWhy };
+  | { type: 'groggyGain'; player: number; amount: number; why: GroggyGainWhy }
+  /** 기획 15차 원정: floor 3 cleared — the loot is in state.expedition.loot. */
+  | { type: 'stageClear'; stage: number }
+  /** 기획 15차 원정: a player picked (or was given) 수령 / 도전. */
+  | { type: 'expeditionChoice'; player: number; choice: ExpeditionChoice; auto: boolean }
+  /** 기획 15차 원정: a gear special effect / equipped relic fired (render / sound cue). */
+  | { type: 'gearProc'; player: number; partyIndex: number; id: string; pos: Vec2 };
 
 // ─────────────────────────── Tunables (debug sliders) ───────────────────────────
 
 export interface Tunables {
   gameSpeed: number;
   swapCooldownMult: number;
-  ultChargeTime: number;
   reviveTime: number;
   reviveHpFrac: number;
   floorHealFrac: number;
@@ -1133,19 +1179,11 @@ export interface Tunables {
   bossGroggyDamageMult: number;
   bossGroggyDragMult: number;
   /**
-   * 기획 14차 궁극기 개별 게이지 (test toggle, default off = one gauge per player): every character has its own gauge;
-   * the field character's fills in ultFieldChargeTime s, bench characters' at ultBenchRatio × that rate (option C).
+   * 기획 15차 궁극기 개별 게이지 (the rule since 15차; 14차 option C): every character has its own gauge; the field
+   * character's fills in ultFieldChargeTime s, bench characters' at ultBenchRatio × that rate (debug sliders).
    */
-  ultPerCharacter: boolean;
   ultFieldChargeTime: number;
   ultBenchRatio: number;
-  /**
-   * 기획 14차 교체 에너지 (test toggle, default off = per-character re-appear cooldowns): one energy pool per player,
-   * swapEnergyMax big, filling swapEnergyRegen per second in combat; a swap-in costs CharacterDef.swapEnergy.
-   */
-  swapEnergyMode: boolean;
-  swapEnergyMax: number;
-  swapEnergyRegen: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────
@@ -1157,6 +1195,8 @@ export interface PlayerSetup {
   characters: string[];
   /** 3 PetDef ids. */
   pets: string[];
+  /** 기획 15차 원정: equipped gear per party index (length = characters). Absent = none (classic). */
+  gear?: GearLoadout[];
 }
 
 export interface GameSetup {
@@ -1165,6 +1205,8 @@ export interface GameSetup {
   players: PlayerSetup[];
   tunables: Tunables;
   startFloor?: number;
+  /** 기획 15차 원정: play one stage (3 floors) instead of the classic tower. */
+  expedition?: ExpeditionSetup;
 }
 
 /** Implemented by src/sim (createGame). */

@@ -6,8 +6,7 @@ import { unitCtx } from './ctx';
 import { WEAK_MULT } from '../data';
 import { fieldEventDeath } from './fieldEvents';
 import { groggyHitMult } from './groggy';
-import { damageTakenMult, hasRelic, relicParam } from './modifiers';
-import { cutBenchSwap } from './energy';
+import { damageTakenMult, relicParam, relicScale } from './modifiers';
 import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
 import { benchMaxHp, effStats } from './stats';
@@ -41,6 +40,8 @@ export interface DmgSrc {
   groggyMark?: GroggyMark;
   /** 기획 13차 (정지 반동): fixed damage — no vulnerable / weak / groggy / bot / relic / defense / trace multipliers. */
   pure?: boolean;
+  /** Casting character's party index (CastCtx carries it): 기획 15차 원정 relics work for their wearer only. */
+  partyIndex?: number | null;
 }
 
 /** Damage sources whose hits carry the skill name on the damage event (render shows it under the number). */
@@ -87,9 +88,8 @@ function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg:
   const sp = src.player != null ? w.state.players[src.player] : undefined;
   if (sp) {
     if (sp.isBot) dmg *= Math.max(0, w.tunables.botDamageMult);
-    if ((target.tier === 'boss' || target.tier === 'mid') && hasRelic(sp, 'rage_breaker')) {
-      dmg *= 1 + relicParam('rage_breaker', target.enraged ? 'enragedPct' : 'pct');
-    }
+    const rage = target.tier === 'boss' || target.tier === 'mid' ? relicScale(sp, src.partyIndex, 'rage_breaker') : 0;
+    if (rage > 0) dmg *= 1 + relicParam('rage_breaker', target.enraged ? 'enragedPct' : 'pct') * rage;
   }
   dmg *= 1 - effStats(w, target).def;
   // 기획 10차: 괴담 traces change the damage my characters take (once per hit)
@@ -142,7 +142,8 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
   if (caster) {
     const ls = statusValue(caster, 'lifesteal');
     if (ls > 0) heal(w, src.player, caster, dealt * ls);
-    if (src.isDrag && sp && hasRelic(sp, 'blood_chalice')) heal(w, src.player, caster, dealt * relicParam('blood_chalice', 'pct'));
+    const chalice = src.isDrag && sp ? relicScale(sp, caster.partyIndex, 'blood_chalice') : 0;
+    if (chalice > 0) heal(w, src.player, caster, dealt * relicParam('blood_chalice', 'pct') * chalice);
   }
   if (target.team === 'enemy') drainHeal(w, src, caster, target, dealt);
 
@@ -197,12 +198,12 @@ export function addShield(target: SimEntity, amount: number, duration: number): 
   target.rt.shieldTime = Math.max(target.rt.shieldTime, duration);
 }
 
-/**
- * Bench swap cooldown reduction (pet rabbit, hunter_mark, 크로노). 기획 14차 교체 에너지: N s of regen instead, or a
- * fixed `energy` when the effect carries one (크로노 균열).
- */
-export function reduceBenchSwapCd(w: World, p: SimPlayer, seconds: number, energy?: number): void {
-  cutBenchSwap(w, p, seconds, energy);
+/** Bench swap cooldown reduction (pet rabbit, hunter_mark, 크로노). */
+export function reduceBenchSwapCd(p: SimPlayer, seconds: number): void {
+  p.party.forEach((m, i) => {
+    if (i === p.activeIndex) return;
+    m.swapCooldownRemaining = Math.max(0, m.swapCooldownRemaining - seconds);
+  });
 }
 
 /**
@@ -224,7 +225,8 @@ export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null, opts?:
     const kp = killer?.player != null ? w.state.players[killer.player] : undefined;
     if (kp) {
       kp.stats.kills++;
-      if (hasRelic(kp, 'hunter_mark')) reduceBenchSwapCd(w, kp, relicParam('hunter_mark', 'seconds'));
+      const mark = relicScale(kp, killer?.partyIndex, 'hunter_mark');
+      if (mark > 0) reduceBenchSwapCd(kp, relicParam('hunter_mark', 'seconds') * mark);
     }
   }
   if (w.state.fieldEvent) fieldEventDeath(w, e, killer);
@@ -242,7 +244,8 @@ function characterDied(w: World, e: SimEntity): void {
   m.rt.shieldTime = 0;
   m.statuses = [];
   m.entityId = null;
-  const phoenix = hasRelic(p, 'phoenix_feather') ? 1 - relicParam('phoenix_feather', 'revivePct') : 1;
+  const fk = relicScale(p, idx, 'phoenix_feather');
+  const phoenix = fk > 0 ? 1 - Math.min(0.9, relicParam('phoenix_feather', 'revivePct') * fk) : 1;
   m.reviveRemaining = Math.max(0, w.tunables.reviveTime) * phoenix;
   if (p.activeIndex === idx) p.activeIndex = null;
   if (!p.out && p.party.every(x => x.dead)) {

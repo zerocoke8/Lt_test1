@@ -4,9 +4,9 @@
 // Loop: dt = min(0.1, …); if running: game.step(dt); events = game.drainEvents(); renderer.render(…); hud.update(…).
 
 import './styles.css';
+import './expedition.css';
 import type { Command, CommandResult, DragPreview, Game, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../config';
-import { TOGGLES } from './tunables';
 import { createGame } from '../sim';
 import { fieldUltGauge } from '../sim/ultMode';
 import { createRenderer } from '../render';
@@ -27,6 +27,13 @@ import { createPresetScreen } from './preset';
 import { createResultScreen } from './result';
 import { offersFor, RewardOverlay } from './reward';
 import { Stage } from './stage';
+import { createMainMenu } from './mainMenu';
+import { ExpeditionFlow, type FlowPhase } from './expeditionSolo';
+import { DEFAULT_EXP_PARTY, type ExpCtx } from './expeditionCtx';
+import { loadGearArtFiles, loadMode, loadStash, saveMode, saveStash } from './expeditionStore';
+import { loadoutOf, maxStartStageFor, setPreset } from '../expedition/stash';
+import { setBattleGearFiles } from '../render/gearArt';
+import { createToaster } from './toast';
 import {
   loadNickname,
   loadPreset,
@@ -37,7 +44,7 @@ import {
   type PresetSave,
 } from './storage';
 
-export type AppPhase = 'preset' | 'lobby' | 'room' | 'starting' | 'combat' | 'reward' | 'goedam' | 'spectate' | 'result';
+export type AppPhase = 'main' | 'preset' | 'lobby' | 'room' | 'starting' | 'combat' | 'reward' | 'goedam' | 'spectate' | 'result' | FlowPhase;
 export type RunMode = 'solo' | 'multi';
 
 /** startRun overrides: any GameSetup field; tunables may be partial (merged over defaults + saved debug tuning). */
@@ -98,13 +105,17 @@ export function startApp(root: HTMLElement): void {
 
   let game: Game | null = null;
   let hud: Hud | null = null;
-  let screen: 'preset' | 'lobby' | 'combat' | 'result' = 'preset';
+  /** 기획 15차: 'main' = 메인 화면 (mode cards), 'exp' = an expedition screen (hub / equip / match / result). */
+  let screen: 'main' | 'preset' | 'lobby' | 'combat' | 'result' | 'exp' = 'preset';
   let mode: RunMode = 'solo';
   let localPlayer = 0;
   /** Multiplayer game on screen (=== game in multi). */
   let remote: RemoteGame | null = null;
   /** Server said start (or we reconnected): waiting for its first snapshot. */
   let pendingRemote: RemoteGame | null = null;
+  /** 기획 15차: the pending / current multiplayer game is an online 원정 stage (start mode 'expedition'). */
+  let pendingExp = false;
+  let remoteExp = false;
   /** Solo pause. Multiplayer never pauses (R35); its menu is `menuOpen`. */
   let paused = false;
   let menuOpen = false;
@@ -197,7 +208,17 @@ export function startApp(root: HTMLElement): void {
   });
   const preset = createPresetScreen(stage.screenLayer, {
     initial: loadPreset(),
+    onBack: () => showMain(),
     onStart: p => {
+      if (preset.variant === 'expedition') {
+        // 기획 15차: the expedition party is kept apart from the classic preset
+        setPreset(expCtx.stash, p);
+        expCtx.save();
+        preset.setVisible(false);
+        screen = 'exp';
+        expFlow.openHub();
+        return;
+      }
       savePreset(p);
       if (lobby.room) {
         // 프리셋 변경 from the room: back to the room with the new picks
@@ -240,6 +261,96 @@ export function startApp(root: HTMLElement): void {
     onRefresh: () => lobby.listRooms(),
   });
 
+  // ─────────────────────────── 기획 15차: main menu + 원정 ───────────────────────────
+
+  setBattleGearFiles(loadGearArtFiles());
+  let stash = loadStash();
+  const expToaster = createToaster(stage.topLayer, 'toasts-exp');
+  const expCtx: ExpCtx = {
+    get stash() {
+      return stash;
+    },
+    save: () => void saveStash(stash),
+    replace: s => {
+      stash = s;
+      saveStash(stash);
+    },
+    party: () => stash.preset ?? DEFAULT_EXP_PARTY,
+    toast: (text, kind) => expToaster.show(text, kind),
+  };
+  const mainMenu = createMainMenu(stage.screenLayer, {
+    onClassic: () => {
+      saveMode('classic');
+      toPreset();
+    },
+    onExpedition: () => {
+      saveMode('expedition');
+      mainMenu.hide();
+      screen = 'exp';
+      sfx.scene('preset');
+      expFlow.openHub();
+    },
+  });
+  const expFlow = new ExpeditionFlow(
+    {
+      screenLayer: stage.screenLayer,
+      startGame: setup => {
+        startRun(setup);
+      },
+      stopGame: () => {
+        if (mode === 'multi' || pendingRemote) teardownMulti();
+        drag.cancel();
+        hud?.destroy();
+        hud = null;
+        game = null;
+        resultAt = null;
+        paused = false;
+        pause.hide();
+        debug.close();
+        goedam.hide();
+        stage.canvas.classList.add('is-hidden');
+        screen = 'exp';
+        sfx.scene('preset');
+      },
+      hud: () => hud,
+      showMain: () => showMain(),
+      showPreset: () => {
+        screen = 'preset';
+        mainMenu.hide();
+        preset.setVariant('expedition', expCtx.party(), id => loadoutOf(stash, id));
+        refreshDebugNote();
+        refreshNetNote();
+        preset.setVisible(true);
+      },
+      tunables: () => ({ ...DEFAULT_TUNABLES, ...loadTunableOverrides() }),
+      nickname: () => nickname,
+      coverHud: on => hud?.setCovered(on),
+      connection: () => (soloBuild ? null : lobby.conn),
+      localPlayer: () => localPlayer,
+    },
+    expCtx,
+  );
+
+  /** 기획 15차 메인 화면: the two mode cards (the last picked one highlighted). */
+  function showMain(): void {
+    if (mode === 'multi' || pendingRemote) teardownMulti();
+    drag.cancel();
+    hud?.destroy();
+    hud = null;
+    game = null;
+    screen = 'main';
+    sfx.scene('preset');
+    result.hide();
+    goedam.hide();
+    pause.hide();
+    debug.close();
+    hideLobby();
+    preset.setVisible(false);
+    expFlow.hideAll();
+    stage.canvas.classList.add('is-hidden');
+    mainMenu.show({ stashCount: stash.items.length, maxStage: maxStartStageFor(stash, expCtx.party().characters), lastMode: loadMode() });
+  }
+
   const hudCallbacks: HudCallbacks = {
     onCardDown: (kind, index, ev, el) => drag.begin(kind, index, ev, el),
     onUlt: () => useUlt(),
@@ -254,16 +365,8 @@ export function startApp(root: HTMLElement): void {
   };
 
   function refreshDebugNote(): void {
-    const o = loadTunableOverrides();
-    const t = { ...DEFAULT_TUNABLES, ...o };
-    // 기획 14차: name the test rules the next run plays with; the other saved tunings are counted
-    const rules = TOGGLES.filter(x => x.mode && t[x.key]);
-    const n = Object.keys(o).filter(k => !rules.some(r => r.key === k)).length;
-    const tuned = n > 0 ? `디버그 튜닝 ${n}개 적용 중` : '';
-    preset.setDebugNote(rules.length > 0 ? `실험 규칙: ${rules.map(r => r.label).join(' · ')}${n > 0 ? ` (+ 튜닝 ${n}개)` : ''}` : tuned);
-    // 기획 14차 교체 에너지: the preset shows swap costs instead of re-appear cooldowns while the saved toggle is on
-    preset.setSwapEnergy(t.swapEnergyMode ? t.swapEnergyRegen : null);
-    preset.setUltPerCharacter(!!t.ultPerCharacter);
+    const n = Object.keys(loadTunableOverrides()).length;
+    preset.setDebugNote(n > 0 ? `디버그 튜닝 ${n}개 적용 중` : '');
   }
 
   function refreshNetNote(): void {
@@ -334,6 +437,7 @@ export function startApp(root: HTMLElement): void {
     goedam.hide();
     pause.hide();
     debug.close();
+    mainMenu.hide();
     lobbyScreen.setVisible(true);
     if (!game) stage.canvas.classList.add('is-hidden');
     refreshLobby();
@@ -354,7 +458,7 @@ export function startApp(root: HTMLElement): void {
       else closeMenu();
       return;
     }
-    if (on && (!game || screen !== 'combat')) return;
+    if (on && (!game || screen !== 'combat' || expFlow.phase === 'expChoice')) return;
     if (on !== paused) sfx.ui(on ? 'ui.pause.open' : 'ui.pause.close');
     paused = on;
     if (on) {
@@ -372,7 +476,8 @@ export function startApp(root: HTMLElement): void {
     if (!menuOpen) sfx.ui('ui.pause.open');
     menuOpen = true;
     drag.cancel();
-    pause.show(game.state, { multi: true, isHost: !!remote?.isHost, localPlayer });
+    if (expFlow.phase === 'expChoice') return;
+    pause.show(game.state, { multi: true, isHost: !!remote?.isHost, localPlayer, expedition: remoteExp });
   }
 
   function closeMenu(): void {
@@ -389,7 +494,7 @@ export function startApp(root: HTMLElement): void {
     hud?.destroy();
     const hd = new Hud(stage.hudLayer, g, hudCallbacks, { localPlayer, multi: mode === 'multi', locate: w => renderer.worldToScreen(w) });
     hd.setDebugAllowed(canDebug());
-    hd.setSpectateAction(mode === 'solo' ? '결과 보기' : remote?.isHost ? null : '나가기');
+    hd.setSpectateAction(mode === 'solo' ? '결과 보기' : remote?.isHost && !remoteExp ? null : '나가기');
     return hd;
   }
 
@@ -425,6 +530,7 @@ export function startApp(root: HTMLElement): void {
     result.hide();
     goedam.hide();
     preset.setVisible(false);
+    mainMenu.hide();
     hideLobby();
     stage.canvas.classList.remove('is-hidden');
     if (debug.isOpen) debug.sync();
@@ -462,6 +568,7 @@ export function startApp(root: HTMLElement): void {
 
   function beginMulti(msg: StartMsg): void {
     pendingRemote?.dispose();
+    pendingExp = msg.mode === 'expedition';
     pendingRemote = new RemoteGame(lobby.conn, msg, { onRejected: (cmd, reason) => onRejected(cmd, reason) });
     if (lobbyScreen.visible) refreshLobby();
   }
@@ -471,6 +578,7 @@ export function startApp(root: HTMLElement): void {
     drag.cancel();
     if (remote && remote !== rg) remote.dispose();
     remote = rg;
+    remoteExp = pendingExp;
     game = rg;
     mode = 'multi';
     sfx.scene('combat', rg.state, rg.localPlayer);
@@ -488,6 +596,13 @@ export function startApp(root: HTMLElement): void {
     goedam.hide();
     debug.close();
     preset.setVisible(false);
+    mainMenu.hide();
+    expFlow.hideAll();
+    if (remoteExp) {
+      // 기획 15차: an online 원정 stage (also after a reload into a running stage)
+      screen = 'combat';
+      expFlow.onNetGameStart(rg);
+    }
     hideLobby();
     stage.canvas.classList.remove('is-hidden');
   }
@@ -503,6 +618,7 @@ export function startApp(root: HTMLElement): void {
     }
     remote?.dispose();
     remote = null;
+    remoteExp = false;
     mode = 'solo';
     localPlayer = 0;
     uiState.localPlayer = 0;
@@ -520,6 +636,13 @@ export function startApp(root: HTMLElement): void {
   function leaveMulti(): void {
     const rg = remote;
     if (!rg) return;
+    if (remoteExp) {
+      // 기획 15차 원정: always a personal leave — mid-stage my bag is lost, at the choice it is claimed
+      if (rg.state.phase !== 'stageClear' && rg.state.phase !== 'runOver') rg.dispatch({ type: 'quit' });
+      if (rg.state.phase === 'runOver') expFlow.onRunOver(rg);
+      else expFlow.onNetQuit(rg);
+      return;
+    }
     if (rg.isHost && rg.state.phase !== 'runOver') {
       const r = rg.dispatch({ type: 'quit' });
       if (r.ok) {
@@ -545,6 +668,12 @@ export function startApp(root: HTMLElement): void {
 
   function showResult(): void {
     if (!game) return;
+    if (expFlow.playing && game.state.expedition) {
+      // 기획 15차 원정: a lost stage → the failure screen (bag lost, worn gear safe) instead of the result table
+      resultAt = null;
+      expFlow.onRunOver(game);
+      return;
+    }
     screen = 'result';
     resultAt = null;
     quitRequested = false;
@@ -554,7 +683,7 @@ export function startApp(root: HTMLElement): void {
     menuOpen = false;
     // HUD toasts/banners stack above the screen layer: hide them under the result screen
     hud?.setCovered(true);
-    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null, energyRegen: game.tunables.swapEnergyRegen });
+    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null });
     goedam.hide();
     result.show(game, quitWhileOut, { localPlayer, multi: mode === 'multi', isHost: !!remote?.isHost });
     sfx.scene('result');
@@ -575,12 +704,19 @@ export function startApp(root: HTMLElement): void {
     pause.hide();
     debug.close();
     hideLobby();
+    mainMenu.hide();
+    expFlow.hideAll();
+    stage.canvas.classList.add('is-hidden');
+    preset.setVariant('classic', loadPreset());
     refreshDebugNote();
     refreshNetNote();
     preset.setVisible(true);
   }
 
   function appPhase(): AppPhase {
+    if (screen === 'main') return 'main';
+    if (screen === 'exp') return expFlow.phase ?? 'main';
+    if (screen === 'combat' && expFlow.phase === 'expChoice') return 'expChoice';
     if (screen === 'lobby') return pendingRemote || lobbyStarting ? 'starting' : lobby.room ? 'room' : 'lobby';
     if (screen !== 'combat' || !game) return screen === 'combat' ? 'preset' : screen;
     const s = game.state;
@@ -624,7 +760,12 @@ export function startApp(root: HTMLElement): void {
     }
     if (!game || screen !== 'combat') return;
     // multiplayer: the game ended while we were away (abandoned / reconnected after the end) → back to the room
-    if (mode === 'multi' && remote && game.state.phase !== 'runOver' && (remote.ended || lobby.room?.status === 'waiting') && !pendingRemote) {
+    if (mode === 'multi' && remote && remoteExp && remote.ended && game.state.phase !== 'runOver' && game.state.phase !== 'stageClear') {
+      // 기획 15차: an online 원정 stage stopped under us (abandoned / server error): the bag result follows from the server
+      expFlow.onRunOver(game);
+      return;
+    }
+    if (mode === 'multi' && remote && !remoteExp && game.state.phase !== 'runOver' && (remote.ended || lobby.room?.status === 'waiting') && !pendingRemote) {
       teardownMulti();
       showLobby();
       lobbyScreen.toast('게임이 끝났어요', 'info');
@@ -656,19 +797,27 @@ export function startApp(root: HTMLElement): void {
         !remote.connected ? '서버와 연결이 끊겼어요 · 다시 연결하는 중…' : remote.stalled ? '연결이 불안정해요 · 다시 연결하는 중…' : null,
       );
       hud.setDebugAllowed(remote.isHost);
-      hud.setSpectateAction(remote.isHost ? null : '나가기');
+      hud.setSpectateAction(remote.isHost && !remoteExp ? null : '나가기');
       if (!remote.isHost && debug.isOpen) debug.close();
     }
-    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.rewardDeadline ?? null, energyRegen: game.tunables.swapEnergyRegen });
+    reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.rewardDeadline ?? null });
     goedam.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.goedamDeadline ?? null });
-    hud?.setCovered(reward.visible || goedam.visible || paused || menuOpen);
+    if (expFlow.playing) expFlow.frame(game, now);
+    hud?.setCovered(reward.visible || goedam.visible || paused || menuOpen || expFlow.phase === 'expChoice');
     if (game.state.phase === 'runOver' && resultAt == null) resultAt = now + (quitRequested ? 0 : RESULT_DELAY_MS);
     if (resultAt != null && now >= resultAt) showResult();
   };
   requestAnimationFrame(frame);
 
   refreshDebugNote();
-  preset.setVisible(true);
+  // 기획 15차: people land on the main menu (mode cards). Browser automation (navigator.webdriver) lands on the classic
+  // preset as before so every existing e2e / playtest script keeps working; '?main=1' forces the main menu there too.
+  const forceMain = /[?&]main=1\b/.test(location.search);
+  if (forceMain || !navigator.webdriver) showMain();
+  else {
+    preset.setVariant('classic', loadPreset());
+    preset.setVisible(true);
+  }
   lobby.start();
 
   window.__proto = {

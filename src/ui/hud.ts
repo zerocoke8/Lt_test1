@@ -20,11 +20,10 @@ import {
 } from '../data';
 import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
-import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, energyNum, formatClock, refusalText } from './format';
+import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
 import { petIcon, portrait } from './preset';
 import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
-import { fieldUltGauge, memberUltGauge, perCharUlt, ultFillTime, ultFillTimes, ultSecondsLeft } from '../sim/ultMode';
-import { canAffordSwap, energySecondsTo, swapCostNow } from '../sim/energy';
+import { fieldUltGauge, memberUltGauge, ultFillTimes, ultSecondsLeft } from '../sim/ultMode';
 import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
@@ -106,10 +105,8 @@ interface CharCard {
   /** Normal (auto) skill cooldown: small diamond at the portrait's lower-left (목업의 마름모 + '0.99') + its seconds. */
   norm: HTMLElement;
   normT: HTMLElement;
-  /** 기획 14차 궁극기 개별 게이지: this card's own ult gauge, a small ring at the portrait's lower-right (hidden while off). */
+  /** 기획 14차 궁극기 개별 게이지: this card's own ult gauge, a small ring at the portrait's lower-right. */
   ultRing: HTMLElement;
-  /** 기획 14차 교체 에너지: '⚡6' — this card's swap-in cost, top-left of the frame (hidden while the toggle is off). */
-  cost: HTMLElement;
 }
 
 interface PetCard {
@@ -196,6 +193,8 @@ function sx(f: number): string {
 }
 
 export class Hud {
+  /** 기획 15차 원정: the top-centre column (the expedition stage pill hangs under the floor / boss box). */
+  readonly topCenter: HTMLElement;
   readonly root: HTMLElement;
   readonly charCards: CharCard[] = [];
   /** 기획 13차: bench-card effects of the renewed skills (앙코르 badge, revive cut, rewind). */
@@ -273,13 +272,6 @@ export class Hud {
   private tipUntil = 0;
   /** Bench cooldowns as last seen (sim time), to spot cuts. */
   private readonly prevSwapRem: number[] = [];
-  /** 기획 14차 교체 에너지: the segmented pool above the card row (one segment per energy; hidden while off). */
-  private readonly energy: HTMLElement;
-  private readonly energyVal: HTMLElement;
-  private readonly energyTrack: HTMLElement;
-  private energySegs: HTMLElement[] = [];
-  /** Pool as last seen (sim time), to spot a jump (cuts → energy, '쿨 0'): '+N⚡' pop. */
-  private prevEnergy: number | null = null;
   private prevSimTime = -1;
   /** 기획 10차: trace chips under the timer, and expiry toasts held while a screen covers the HUD. */
   private readonly traces: HTMLElement;
@@ -329,6 +321,7 @@ export class Hud {
 
     // ── top-center: boss bar / floor info ──
     const tc = h('div', 'hud-tc', this.root);
+    this.topCenter = tc;
     this.bossBox = h('div', 'boss hud-block is-hidden', tc);
     const brow = h('div', 'boss-row', this.bossBox);
     this.bossLv = h('span', 'boss-lv', brow);
@@ -395,8 +388,6 @@ export class Hud {
       const hpFill = h('div', 'bar-fill', hp);
       const hpShield = h('div', 'bar-shield', hp);
       const state = h('div', 'cc-state', frame);
-      // 기획 14차 교체 에너지: the swap-in cost (top-left; the slot number is top-right)
-      const cost = h('span', 'cc-cost is-hidden', frame);
       // "i" on the field character's card: a tap there opens the skill sheet (CSS shows it on .is-active only)
       h('span', 'cc-info', frame, 'i');
       // the auto (normal) skill fires by itself, so its timer is the only way to know when: a small diamond at the
@@ -404,19 +395,14 @@ export class Hud {
       const norm = h('div', 'cc-norm', el);
       h('div', 'cc-norm-gem', norm);
       const normT = h('span', 'cc-norm-t', norm);
-      // 기획 14차 궁극기 개별 게이지: mirrored on the right edge — gold sweep = charge, lit when full (toggle on only)
-      const ultRing = h('div', 'cc-ult is-hidden', el);
+      // 기획 14차 궁극기 개별 게이지: mirrored on the right edge — gold sweep = charge, lit when full
+      const ultRing = h('div', 'cc-ult', el);
       h('span', 'cc-ult-g', ultRing, '궁');
       // hover help on the card itself (the diamond lets pointers through to the card, so a title there never shows)
       el.title = `${def.name} · 왼쪽 아래 마름모 = 일반스킬 ${def.normal.name} 쿨 (자동) · 길게 누르면 스킬 정보`;
       el.addEventListener('pointerdown', ev => this.onCardPointerDown(i, ev, el));
-      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, por, norm, normT, ultRing, cost });
+      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, por, norm, normT, ultRing });
     });
-    // 기획 14차 교체 에너지: '⚡ 6.4' + one segment per energy, right above the card row (clear of the field card)
-    this.energy = h('div', 'hud-energy hud-block is-hidden', this.root);
-    this.energy.setAttribute('aria-label', '교체 에너지');
-    this.energyVal = h('span', 'en-val', this.energy);
-    this.energyTrack = h('div', 'en-track', this.energy);
 
     // ── bottom-center: ult gauge ──
     const bc = h('div', 'hud-bc', this.root);
@@ -597,12 +583,9 @@ export class Hud {
     h('span', 'ss-hint', head, '평타·일반스킬은 자동 · 드래그스킬은 교체할 때');
     // what this card gets when it is next swapped out (기획 6차), with its rewards and the multiplier as of now
     const dragCd = swapCooldownOf(this.game.tunables, me, i);
-    // 기획 14차 교체 에너지: the cost instead of '나가면 쿨', and cuts read as energy
-    const energy = me.energy ? { cost: swapCostNow(me, i), regen: this.game.tunables.swapEnergyRegen } : undefined;
-    // 기획 14차: per-character gauges → this card's field / bench fill times
+    // per-character gauges (기획 15차) → this card's field / bench fill times
     const fill = ultFillTimes(this.game.tunables, me);
-    const ult = perCharUlt(me) ? { ult: fill.field, ultBench: fill.bench } : { ult: ultFillTime(this.game.tunables, me) };
-    const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ...ult, energy });
+    const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ult: fill.field, ultBench: fill.bench });
     // two lines per skill: type · name · trigger · live, then the whole effect line (wraps, never cut off)
     this.sheetRows = rows.map(r => {
       const row = h('div', `ss-row ss-${r.kind}`, this.sheet);
@@ -652,17 +635,14 @@ export class Hud {
       } else if (r.kind === 'drag') {
         if (m.dead) txt = '쓰러짐';
         else if (active) txt = '필드'; // 기획 6차: no cooldown while on the field; it starts when this card leaves
-        else if (me.energy && !canAffordSwap(me, i)) {
-          const left = energySecondsTo(me, i, this.game.tunables.swapEnergyRegen);
-          txt = Number.isFinite(left) ? `⚡부족 ${secs(left)}초` : '⚡부족';
-        } else if (m.swapCooldownRemaining > 0) txt = `${secs(m.swapCooldownRemaining)}초`;
+        else if (m.swapCooldownRemaining > 0) txt = `${secs(m.swapCooldownRemaining)}초`;
         else {
           txt = '준비';
           ready = true;
         }
       } else if (r.kind === 'ult') {
-        // 기획 14차: per-character gauges → this card's own
-        const g = perCharUlt(me) ? memberUltGauge(me, i) : me.ult;
+        // per-character gauges (기획 15차) → this card's own
+        const g = memberUltGauge(me, i);
         const c = Math.max(0, Math.min(1, g?.charge ?? 0));
         ready = c >= 1;
         txt = ready ? '준비' : `${Math.floor(c * 100)}%`;
@@ -705,10 +685,7 @@ export class Hud {
     const me = this.game.state.players[this.localPlayer];
     const m = kind === 'swap' ? me.party[index] : undefined;
     const pet = kind === 'pet' ? me.pets[index] : undefined;
-    // 기획 14차 교체 에너지: '에너지 부족 · ⚡6 필요 (2초 후)'
-    const energy = kind === 'swap' && me.energy ? { need: swapCostNow(me, index), secs: energySecondsTo(me, index, this.game.tunables.swapEnergyRegen) } : undefined;
-    this.toast(refusalText(reason, { kind, cooldown: m ? m.swapCooldownRemaining : pet?.cooldownRemaining, revive: m?.reviveRemaining, energy }), 'warn');
-    if (energy) replayClass(this.energy, 'is-refused');
+    this.toast(refusalText(reason, { kind, cooldown: m ? m.swapCooldownRemaining : pet?.cooldownRemaining, revive: m?.reviveRemaining }), 'warn');
     this.shake(kind, index);
   }
 
@@ -767,12 +744,14 @@ export class Hud {
     let revivedAll = false;
     for (const e of events) {
       if (this.groggy.onEvent(s, e)) continue; // 기획 13차: a phase crossed while the boss is down waits for it to stand up
-      // 기획 14차 교체 에너지: a cut is energy then (the bar pops '+N⚡'), not '−N초' on the cards
-      if (e.type === 'swapCdCut' && s.players[this.localPlayer]?.energy) continue;
       if (this.cardFx.onEvent(e, this.localPlayer)) continue;
       switch (e.type) {
         case 'floorStart':
-          if (e.kind === 'boss') {
+          if (s.expedition) {
+            // 기획 15차 원정: '4단계 · 사무실 / 3층을 깨면 장비 2개' on floor 1, the stage floor after that
+            const t = expeditionBanner(s, e.floor, e.kind === 'boss' ? bossName(s.plan.bossId) : '');
+            this.banner(t.big, t.sub, e.kind === 'boss' ? 'boss' : 'floor', '', traceBannerLine(s.players[this.localPlayer]));
+          } else if (e.kind === 'boss') {
             const name = bossName(s.plan.bossId);
             this.banner(`${e.floor}층 · 보스`, `${name} — HP를 0으로 만들면 퇴각해요`, 'boss', '', traceBannerLine(s.players[this.localPlayer]));
           } else {
@@ -794,7 +773,8 @@ export class Hud {
           }
           break;
         case 'floorClear':
-          this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
+          if (s.expedition && e.floor >= 3) this.banner(retreat ? '보스 퇴각!' : '단계 클리어!', `${s.expedition.stage}단계 돌파 · 전리품 공개`, 'clear');
+          else this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
           break;
         case 'enrage':
           this.banner('보스 광폭화!', '공격력 · 공격 속도 · 소환량 증가', 'enrage');
@@ -973,7 +953,7 @@ export class Hud {
       const name = bossName(s.plan.bossId);
       setText(this.bossName, name);
       setClass(this.bossName, 'is-long', name.length > 8);
-      setText(this.bossLv, `Lv.${s.floor}`);
+      setText(this.bossLv, s.expedition ? `${s.expedition.stage}단계` : `Lv.${s.floor}`);
       this.updatePhases(s.plan.bossId, boss);
       show(this.bossEnrage, s.bossEnraged);
       setClass(this.bossBox, 'is-enraged', s.bossEnraged);
@@ -990,8 +970,8 @@ export class Hud {
       show(this.bossCast, false);
       this.castUntil = 0;
       this.bossLagFrac = 1;
-      setText(this.floorNum, `${s.floor}층`);
-      const zone = zoneName(s.plan.theme, s.floor);
+      setText(this.floorNum, s.expedition ? `${s.expedition.stage}단계 ${s.floor}층` : `${s.floor}층`);
+      const zone = s.expedition ? '' : zoneName(s.plan.theme, s.floor);
       setText(this.floorZone, zone ? `· ${zone}` : '');
       show(this.floorZone, !!zone);
       const total = s.plan.waves.length;
@@ -1044,20 +1024,10 @@ export class Hud {
     const combat = s.phase === 'combat' && !me.out;
     const simDt = this.prevSimTime >= 0 ? Math.max(0, s.time - this.prevSimTime) : 0;
     this.prevSimTime = s.time;
-    // 기획 14차 교체 에너지: the pool limits swaps instead of each card's cooldown (none runs in that mode)
-    const pool = me.energy ?? null;
-    this.updateEnergy(me, simDt, combat);
     me.party.forEach((m, i) => {
       const c = this.charCards[i];
       if (!c) return;
       const active = me.activeIndex === i;
-      const short = !!pool && !m.dead && !active && !canAffordSwap(me, i);
-      show(c.cost, !!pool);
-      if (pool) {
-        setText(c.cost, `⚡${energyNum(swapCostNow(me, i))}`);
-        setClass(c.cost, 'is-short', short && !me.out);
-      }
-      setClass(c.el, 'is-short', short);
       // a bench cooldown that fell faster than time passed was cut (크로노 시간 균열, 토끼 펫 …): show by how much
       const prevRem = this.prevSwapRem[i];
       this.prevSwapRem[i] = m.swapCooldownRemaining;
@@ -1065,7 +1035,7 @@ export class Hud {
         const cut = prevRem - simDt - m.swapCooldownRemaining;
         if (cut >= CUT_MIN) this.cutPop(c, cut);
       }
-      const cooling = !m.dead && !active && (m.swapCooldownRemaining > 0 || short);
+      const cooling = !m.dead && !active && m.swapCooldownRemaining > 0;
       const locked = !m.dead && !active && !cooling && (!combat || me.appearLock > 0);
       const ready = !m.dead && !active && !cooling && !locked;
       setClass(c.el, 'is-active', active);
@@ -1075,12 +1045,11 @@ export class Hud {
       // 기획 13차: the boss is down — every ready card says '지금!' (the finishing swap)
       setClass(c.el, 'is-now', ready && groggyDown(s));
       // re-appear cooldown = drag-skill cooldown (기획서 4장): the seconds are the big number on the portrait only
-      setText(c.state, me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : short ? '에너지 부족' : cooling ? '쿨타임' : ready ? '교체가능' : '교체불가');
+      setText(c.state, me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : cooling ? '쿨타임' : ready ? '교체가능' : '교체불가');
       // big countdown: revive time when dead, else the re-appear cooldown of a benched card.
       // Out (all three down = spectating, R11): timers are frozen → no number; all three come back at the next floor
       // if someone clears this one (기획 5차).
-      // (energy mode: no cooldown number — the bar says how much is left)
-      const t = me.out ? 0 : m.dead ? m.reviveRemaining : cooling && !pool ? m.swapCooldownRemaining : 0;
+      const t = me.out ? 0 : m.dead ? m.reviveRemaining : cooling ? m.swapCooldownRemaining : 0;
       const showCd = t > 0;
       show(c.cd, showCd);
       if (showCd) {
@@ -1099,49 +1068,8 @@ export class Hud {
   }
 
   /**
-   * 기획 14차 교체 에너지: the pool as one segment per energy (the max slider sets how many), the current one partly
-   * filled; '⚡ 6.4' on its left. A jump faster than the regen (a cut → energy, '쿨 0') pops '+N⚡' over it.
-   */
-  private updateEnergy(me: PlayerState, simDt: number, combat: boolean): void {
-    const pool = me.energy ?? null;
-    show(this.energy, !!pool);
-    setClass(this.root, 'is-energy', !!pool);
-    if (!pool) {
-      this.prevEnergy = null;
-      return;
-    }
-    const n = Math.max(1, Math.ceil(pool.max - 1e-6));
-    if (this.energySegs.length !== n) {
-      this.energyTrack.replaceChildren();
-      this.energySegs = [];
-      for (let k = 0; k < n; k++) this.energySegs.push(h('i', 'en-seg', this.energyTrack));
-      setStyle(this.energyTrack, '--n', String(n));
-    }
-    const v = Math.max(0, Math.min(pool.max, pool.value));
-    this.energySegs.forEach((seg, k) => {
-      const f = Math.max(0, Math.min(1, v - k));
-      setStyle(seg, '--f', `${Math.round(f * 20) * 5}%`);
-      setClass(seg, 'is-full', f >= 1);
-    });
-    setText(this.energyVal, `⚡${energyNum(Math.floor(v * 10 + 1e-6) / 10)}`);
-    setClass(this.energy, 'is-full', v >= pool.max - 1e-6);
-    setClass(this.energy, 'is-out', me.out);
-    setAttr(this.energy, 'title', `교체 에너지 ${energyNum(v)} / ${energyNum(pool.max)} · 초당 +${energyNum(this.game.tunables.swapEnergyRegen)}`);
-    const prev = this.prevEnergy;
-    this.prevEnergy = v;
-    if (prev != null && combat) {
-      const gain = v - prev - simDt * Math.max(0, this.game.tunables.swapEnergyRegen);
-      if (gain >= CUT_MIN) {
-        const pop = h('div', 'en-pop', this.energy, `+${energyNum(Math.round(gain * 10) / 10)}⚡`);
-        replayClass(this.energyTrack, 'is-gain');
-        setTimeout(() => pop.remove(), 1300);
-      }
-    }
-  }
-
-  /**
    * 기획 14차 궁극기 개별 게이지: the card's own gauge as a small ring (gold sweep = charge; lit + '궁' when full).
-   * Hidden while the toggle is off. The title (hover) says the percentage and seconds left at the current rate.
+   * The title (hover) says the percentage and seconds left at the current rate.
    */
   private updateCardUlt(c: CharCard, me: PlayerState, i: number): void {
     const g = memberUltGauge(me, i);
@@ -1205,7 +1133,7 @@ export class Hud {
   }
 
   private updateUlt(s: GameState, me: PlayerState): void {
-    // 기획 14차: per-character gauges → the field character's own (an empty field shows an empty, disabled button)
+    // per-character gauges (기획 15차) → the field character's own (an empty field shows an empty, disabled button)
     const gauge = fieldUltGauge(me);
     const charge = Math.max(0, Math.min(1, gauge?.charge ?? 0));
     const full = charge >= 1;
@@ -1219,7 +1147,6 @@ export class Hud {
     // charge is time-only (R9): seconds until full = what's left × charge time (기획 10차: traces change its speed)
     const left = ultSecondsLeft(this.game.tunables, me);
     setText(this.ultSub, me.out ? '관전 중' : full ? (activeDef ? '준비 완료' : '필드 비었음') : !gauge ? '필드 비었음' : `${countdown(left)}초 후`);
-    setClass(this.ult, 'is-per-char', perCharUlt(me));
     setText(this.ultName, activeDef ? activeDef.ult.name : '—');
     setStyle(this.ultName, 'color', activeDef ? activeDef.color : '');
   }
@@ -1252,24 +1179,35 @@ export class Hud {
     if (!empty) return;
     let ready = false;
     let wait = Infinity;
-    const regen = this.game.tunables.swapEnergyRegen;
-    me.party.forEach((m, i) => {
-      // 기획 14차 교체 에너지: the wait is the pool's, not a cooldown (a dead card: whichever comes last)
-      const cd = me.energy ? energySecondsTo(me, i, regen) : m.swapCooldownRemaining;
-      if (!m.dead && cd <= 0) ready = true;
-      const t = m.dead ? Math.max(m.reviveRemaining, cd) : cd;
+    for (const m of me.party) {
+      if (!m.dead && m.swapCooldownRemaining <= 0) ready = true;
+      const t = m.dead ? Math.max(m.reviveRemaining, m.swapCooldownRemaining) : m.swapCooldownRemaining;
       wait = Math.min(wait, t);
-    });
+    }
     if (ready && me.appearLock <= 0) {
       setText(this.hintBig, '카드를 필드로 드래그!');
       setText(this.hintSub, '내 필드가 비어 있어요');
       setClass(this.hint, 'is-ready', true);
     } else {
-      setText(this.hintBig, Number.isFinite(wait) ? `교체 가능까지 ${countdown(wait)}초` : '에너지 부족');
+      setText(this.hintBig, `교체 가능까지 ${countdown(Number.isFinite(wait) ? wait : 0)}초`);
       setText(this.hintSub, '내 필드가 비어 있어요');
       setClass(this.hint, 'is-ready', false);
     }
   }
+}
+
+// ─────────────────────────── 기획 15차 원정 banners ───────────────────────────
+
+const EXP_ZONES = ['로비', '사무실', '병동', '옥상'];
+
+/** Floor-start banner of an expedition stage floor (8-4). */
+export function expeditionBanner(s: GameState, floor: number, boss: string): { big: string; sub: string } {
+  const ex = s.expedition!;
+  const zone = EXP_ZONES[Math.floor((ex.stage - 1) / 3)] ?? '';
+  if (floor === 1) return { big: `${ex.stage}단계 · ${zone}`, sub: ex.boss ? '보스 단계 · 장비 3개 + 유물 확률' : '3층을 깨면 장비 2개' };
+  if (boss) return { big: `${ex.stage}단계 3층 · 보스`, sub: `${boss} — 쓰러뜨리면 장비 3개 + 유물 확률` };
+  if (floor >= 3) return { big: `${ex.stage}단계 3층 · 수문장`, sub: `수문장과 몬스터를 모두 처치 · 제한시간 ${formatClock(s.plan.timeLimit)}` };
+  return { big: `${ex.stage}단계 ${floor}층`, sub: `몬스터를 모두 처치하세요 · 제한시간 ${formatClock(s.plan.timeLimit)}` };
 }
 
 // ─────────────────────────── 기획 8차 names ───────────────────────────

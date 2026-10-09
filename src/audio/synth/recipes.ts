@@ -567,6 +567,14 @@ def('net.lost', () => r([tone('tri', 660, 660, 0.12), tone('tri', 440, 440, 0.18
 def('net.reconnect', () => r([tone('tri', 440, 440, 0.12), tone('tri', 660, 660, 0.18, { t: 0.12 })]));
 def('net.botTakeover', () => r(seq(3, 0.07, (i, t) => tone('sq', 800 + i * 200, 800 + i * 200, 0.05, { t, g: 0.3 }))));
 
+// ─────────────────────────── 기획 15차 원정 (UI plays these; rate = band pitch) ───────────────────────────
+
+def('ui.equip', () => r([...click(0, 1800, 0.8), ...partials([660, 990, 1650], 0.35, { t: 0.03, g: 0.6 }), chime(1318, { t: 0.06, g: 0.7 })], { rev: 0.2 }));
+def('exp.reveal', () => r([whoosh(1500, 4000, 0.18, { g: 0.5 }), chime(1568, { t: 0.12 }), ping(2349, 0.12, { t: 0.16, g: 0.4 })], { rev: 0.3 }));
+def('exp.relic', () => r([bell(523, 1.2, { g: 0.7 }), ...seq(5, 0.06, (i, t) => ping(2093 + i * 260, 0.12, { t: t + 0.15, g: 0.25 })), ...coin(0.4, 0.6)], { rev: 0.4 }));
+def('exp.extract', () => r([tone('tri', 392, 392, 0.12), tone('tri', 523, 523, 0.12, { t: 0.1 }), tone('tri', 784, 784, 0.3, { t: 0.2 }), whoosh(600, 2400, 0.4, { t: 0.05, g: 0.5 }), ...coin(0.35, 0.5)], { rev: 0.3 }));
+def('exp.bagLost', () => r([noise('pink', 0.4, { lp: [3000, 300] }), ...glass(5, 0.05, 0.6), tone('tri', 330, 220, 0.6, { t: 0.2, g: 0.5 })], { rev: 0.4 }));
+
 // ─────────────────────────── pets / roles / characters / bosses from data ───────────────────────────
 
 defRoles();

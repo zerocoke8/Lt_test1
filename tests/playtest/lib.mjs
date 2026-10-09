@@ -127,7 +127,7 @@ export function snap(page) {
       me: {
         active: me.activeIndex,
         out: me.out,
-        ult: +me.ult.charge.toFixed(2),
+        ult: +(me.activeIndex != null ? me.party[me.activeIndex].ult.charge : 0).toFixed(2), // the field character's gauge
         party: me.party.map(m => ({ id: m.defId, hp: Math.round(m.hp), max: Math.round(m.maxHp), dead: m.dead, cd: +m.swapCooldownRemaining.toFixed(1), rv: +m.reviveRemaining.toFixed(1) })),
         pets: me.pets.map(p => +p.cooldownRemaining.toFixed(1)),
         stats: { swaps: me.stats.swaps, ults: me.stats.ultsUsed, pets: me.stats.petsUsed, kills: me.stats.kills, dmg: Math.round(me.stats.damageDealt), taken: Math.round(me.stats.damageTaken) },

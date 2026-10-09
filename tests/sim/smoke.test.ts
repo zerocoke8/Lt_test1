@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../../src/config';
 import { createGame } from '../../src/sim';
 import type { GameEvent } from '../../src/types';
+import { ultOf } from './helpers';
 
 describe('headless smoke', () => {
   it('3 bots, large steps, ~10 sim minutes: no exceptions and reaches floor 3+', () => {
@@ -23,8 +24,8 @@ describe('headless smoke', () => {
       const s = g.state;
       // invariants
       for (const p of s.players) {
-        expect(p.ult.charge).toBeGreaterThanOrEqual(0);
-        expect(p.ult.charge).toBeLessThanOrEqual(1);
+        expect(ultOf(p).charge).toBeGreaterThanOrEqual(0);
+        expect(ultOf(p).charge).toBeLessThanOrEqual(1);
         if (p.activeIndex != null) expect(p.party[p.activeIndex].dead).toBe(false);
         for (const m of p.party) expect(Number.isFinite(m.hp)).toBe(true);
       }

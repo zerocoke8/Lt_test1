@@ -2,7 +2,7 @@
 
 import { getCharacter, getPet } from '../data';
 import { MAX_COOLDOWN_REDUCTION, MIN_SWAP_COOLDOWN } from './constants';
-import { hasRelic, petCooldownReduction, relicParam, skillMod, swapCooldownReduction } from './modifiers';
+import { gearOptionValue, petCooldownReduction, relicParam, relicScale, skillMod, swapCooldownReduction } from './modifiers';
 import type { PlayerState, Tunables } from '../types';
 import type { SimPlayer, World } from './world';
 
@@ -26,7 +26,9 @@ export function petCooldownFor(w: World, p: SimPlayer, petIndex: number): number
   if (w.tunables.instantCooldowns) return 0;
   const def = getPet(p.pets[petIndex].defId);
   const red = Math.max(0, 1 - petCooldownReduction(p));
-  const collar = hasRelic(p, 'beast_collar') ? 1 - relicParam('beast_collar', 'cdPct') : 1;
+  // 기획 15차 원정: an equipped collar works while its wearer is on the field
+  const k = relicScale(p, p.activeIndex, 'beast_collar');
+  const collar = k > 0 ? 1 - relicParam('beast_collar', 'cdPct') * k : 1;
   return def.cooldown * Math.max(0, w.tunables.petCooldownMult) * red * collar;
 }
 
@@ -37,6 +39,8 @@ export function petCooldownFor(w: World, p: SimPlayer, petIndex: number): number
 export function normalCooldownFor(tunables: Pick<Tunables, 'instantCooldowns'>, p: PlayerState, idx: number): number {
   if (tunables.instantCooldowns) return 0;
   const def = getCharacter(p.party[idx].defId);
-  const red = Math.min(MAX_COOLDOWN_REDUCTION, skillMod(p, idx, 'normal', 'cooldown'));
+  let red = skillMod(p, idx, 'normal', 'cooldown');
+  if (p.gear) red += gearOptionValue(p, idx, 'c_normal_haste'); // 기획 15차 원정 장신구 「일반스킬 가속」
+  red = Math.min(MAX_COOLDOWN_REDUCTION, red);
   return (def.normal.cooldown ?? 6) * (1 - red);
 }

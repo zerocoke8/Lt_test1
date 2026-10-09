@@ -158,7 +158,7 @@ async function play(page: Page, i: number, swapEvery: number): Promise<void> {
         const pet = me.pets.findIndex((_, k) => g.canUsePet(0, k).ok);
         if (pet >= 0) api.ui.dragTo('pet', pet, at);
       }
-      if (me.ult.charge >= 1) g.dispatch({ type: 'ult', player: 0 });
+      if (me.activeIndex != null && me.party[me.activeIndex].ult.charge >= 1) g.dispatch({ type: 'ult', player: 0 });
     },
     [i, swapEvery] as const,
   );
@@ -182,7 +182,7 @@ test('frame time: 40 s normal play + stress', async ({ page }, testInfo) => {
     window.__proto!.startRun({
       seed: 4040,
       startFloor: 9,
-      tunables: { waveInterval: 1, monsterHpMult: 25, ultChargeTime: 3, invincible: true, midBossTimeTrigger: 3 },
+      tunables: { waveInterval: 1, monsterHpMult: 25, ultFieldChargeTime: 3, invincible: true, midBossTimeTrigger: 3 },
     }),
   );
   await wrapStep(page);

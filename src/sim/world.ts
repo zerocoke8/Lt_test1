@@ -28,6 +28,7 @@ import type {
   Zone,
 } from '../types';
 import { ARENA_MARGIN, MAX_EVENTS } from './constants';
+import type { ExpeditionRt } from './expedition';
 import type { FieldEventAi, FieldEventRt } from './fieldEvents';
 import { Rng } from './rng';
 
@@ -77,6 +78,13 @@ export interface SimEntity extends Entity {
 
 export interface MemberRt {
   shieldTime: number;
+  // 기획 15차 원정 gear effects (src/sim/expeditionOptions.ts); never set without gear
+  /** 오래 쉰 자의 분노: seconds waited on the bench while ready (stacks = whole seconds, max 10). */
+  rested?: number;
+  /** 응급 후송: bench regen running (seconds left, max-HP share per second, pulse accumulator). */
+  evac?: { left: number; rate: number; acc: number };
+  /** 응급 후송: sim time it may trigger again. */
+  evacReadyAt?: number;
 }
 export interface SimMember extends PartyMember {
   rt: MemberRt;
@@ -289,6 +297,8 @@ export interface World {
   fieldEvents: FieldEventRt;
   /** 기획 13차: boss groggy bookkeeping. */
   groggy: GroggyRt;
+  /** 기획 15차 원정: this stage game (absent in the classic tower). */
+  expedition?: ExpeditionRt;
 }
 
 // ─────────────────────────── Helpers ───────────────────────────
@@ -395,7 +405,7 @@ export function onRunEnd(fn: (w: World) => void): void {
 
 export function endRun(w: World, outcome: RunResult['outcome'], reason: RunResult['reason']): void {
   const s = w.state;
-  if (s.phase === 'runOver') return;
+  if (s.phase === 'runOver' || s.phase === 'stageClear') return; // 기획 15차: a cleared stage cannot be lost any more
   for (const fn of runEndHooks) fn(w);
   const last = w.floorTimes[w.floorTimes.length - 1];
   const alreadyLogged = !!last && last.floor === s.floor && last.outcome === 'clear';

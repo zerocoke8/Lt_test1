@@ -14,7 +14,7 @@ import { effStats } from '../../src/sim/stats';
 import { applyStatus } from '../../src/sim/status';
 import type { SimEntity } from '../../src/sim/world';
 import type { GameEvent, PlayerSetup, SkillAction, Vec2 } from '../../src/types';
-import { active, advance, clearEvents, eventsOf, killActive, makeGame, quietFloor, spawnAt, type TestGame } from './helpers';
+import { active, advance, clearEvents, eventsOf, killActive, makeGame, quietFloor, spawnAt, type TestGame, ultOf } from './helpers';
 
 const PETS = ['frog_bomb', 'fairy_heal', 'owl_frost'];
 const party = (characters: string[], name = '나', isBot = false): PlayerSetup => ({ name, isBot, characters, pets: PETS });
@@ -292,11 +292,11 @@ describe('ult cut-in vs floor clear (기획 13차)', () => {
       tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt' } });
       expect(tg.game.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
       const p = tg.w.state.players[0];
-      expect(p.ult.charge).toBe(0);
+      expect(ultOf(p).charge).toBe(0);
       advance(tg, wait);
       clearEvents(tg);
       expect(tg.game.dispatch({ type: 'debug', action: { kind: 'skipFloor' } }).ok).toBe(true);
-      expect(p.ult.charge === 1, `wait ${wait}`).toBe(refunded);
+      expect(ultOf(p).charge === 1, `wait ${wait}`).toBe(refunded);
       expect(p.stats.ultsUsed).toBe(refunded ? 0 : 1);
       expect(eventsOf(tg, 'ultReady').length).toBe(refunded ? 1 : 0);
     }

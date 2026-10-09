@@ -6,31 +6,33 @@ import { CHARACTERS, PETS, ROLE_LABEL, getCharacter, getPet } from '../data';
 import { drawShapeIcon } from '../render/shapeIcon';
 import { partsForActions } from '../sim/preview';
 import { ROLE_ICON, button, h, replayClass } from './dom';
-import { ROLE_GLYPH, basicAttackText, energyRuleText } from './format';
+import { ROLE_GLYPH, basicAttackText } from './format';
 import type { PresetSave } from './storage';
 import { createToaster } from './toast';
 import { ICON_FULLSCREEN } from './dom';
 import { toggleFullscreen } from './stage';
 import { createSoundToggle } from './soundPanel';
+import { BAND_COLOR, GEAR_SLOTS, bandOf, type GearLoadout } from '../data/gear';
+
+/** 기획 15차: the same screen edits the classic preset or the expedition party (title, start label, gear pips). */
+export type PresetVariant = 'classic' | 'expedition';
 
 export interface PresetScreen {
   readonly el: HTMLElement;
   setVisible(on: boolean): void;
+  /** 기획 15차: switch variant; picks replace the selection; gearOf draws 4 slot dots + 「최저 Tn」 on character cards. */
+  setVariant(v: PresetVariant, picks: PresetSave, gearOf?: (charId: string) => GearLoadout): void;
+  readonly variant: PresetVariant;
   /** Current (possibly incomplete) selection. */
   value(): PresetSave;
   setDebugNote(text: string): void;
-  /**
-   * 기획 14차 교체 에너지 (debug toggle): null = today's rule (cards show '10초', the detail '나가면 재등장 쿨'); else the
-   * cards show the swap-in cost ('⚡6') and descriptions read cooldown cuts as energy at this regen.
-   */
-  setSwapEnergy(regen: number | null): void;
-  /** 기획 14차 궁극기 개별 게이지 (debug toggle): the detail's ult row says the gauge is per character. */
-  setUltPerCharacter(on: boolean): void;
 }
 
 export interface PresetScreenOpts {
   initial: PresetSave;
   onStart(p: PresetSave): void;
+  /** 기획 15차: 「← 메인」. */
+  onBack?(): void;
 }
 
 /** Last word's first syllable = the animal ("불꽃 개구리" → "개"). */
@@ -90,8 +92,11 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   // header
   const head = h('div', 'ps-head', el);
   const titles = h('div', 'ps-titles', head);
-  h('div', 'ps-title', titles, '스왑 타워');
+  if (opts.onBack) button('btn btn-secondary ps-back', '← 메인', titles, () => opts.onBack?.());
+  const titleEl = h('div', 'ps-title', titles, '스왑 타워');
   h('div', 'ps-sub', titles, '출발 전 편성 · 캐릭터 3명과 펫 3마리를 골라 주세요');
+  let variant: PresetVariant = 'classic';
+  let gearOf: ((charId: string) => GearLoadout) | null = null;
   createSoundToggle(head); // 기획 13차 효과음
   const fs = button('icon-btn', '', head, () => void toggleFullscreen());
   fs.innerHTML = ICON_FULLSCREEN;
@@ -101,9 +106,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   const left = h('div', 'ps-left', main);
   const secC = h('div', 'ps-sec', left);
   h('span', 'ps-sec-title', secC, '캐릭터');
-  // the last clause names the unit on the cards: re-appear cooldown, or (기획 14차 교체 에너지) the swap cost
-  const charHint = (energy: boolean) => `고른 순서 = 슬롯 · 1번이 먼저 출전 · 도형 = 드래그스킬 범위 · ${energy ? '⚡ = 교체 비용' : '초 = 재등장 쿨'}`;
-  const hint = h('span', 'ps-sec-hint', secC, charHint(false));
+  h('span', 'ps-sec-hint', secC, '고른 순서 = 슬롯 · 1번이 먼저 출전 · 도형 = 드래그스킬 범위 · 초 = 재등장 쿨');
   const charGrid = h('div', 'ps-grid ps-grid-chars', left);
   const roleCols = new Map<Role, HTMLElement>();
   for (const role of ROLES) {
@@ -137,11 +140,6 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   });
 
   const charCards = new Map<string, HTMLElement>();
-  /** 기획 14차 교체 에너지: each card's '10초' / '⚡6' label, and the mode (null = off). */
-  const metas = new Map<string, HTMLElement>();
-  let energyRegen: number | null = null;
-  let ultPerChar = false;
-  const desc = (text: string, skill?: SkillDef) => (energyRegen != null ? energyRuleText(text, energyRegen, skill) : text);
   for (const def of CHARACTERS) {
     const c = button('ps-card ps-char', '', roleCols.get(def.role) ?? charGrid, () => toggleChar(def.id, c));
     c.style.setProperty('--c', def.color);
@@ -151,8 +149,8 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     h('div', 'ps-card-name', info, def.name);
     const row = h('div', 'ps-card-drag', info);
     dragShapeIcon(def, 'ps-shape', 50, 26, row);
-    const meta = h('span', 'ps-card-meta', row, `${def.swapCooldown}초`);
-    metas.set(def.id, meta);
+    h('span', 'ps-card-meta', row, `${def.swapCooldown}초`);
+    h('div', 'ps-gear is-hidden', info);
     h('div', 'ps-badge', c);
     charCards.set(def.id, c);
   }
@@ -234,8 +232,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       h('div', 'dt-stats', t, `HP ${s.maxHp} · 공격력 ${s.atk} · 사거리 ${s.range}`);
       const list = h('div', 'dt-skills', detail);
       // 드래그스킬 first: it is what the swap game is about (shape + direction diagram)
-      const dragMeta = energyRegen != null ? `교체 비용 ⚡${def.swapEnergy}` : `나가면 재등장 쿨 ${def.swapCooldown}초`;
-      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, desc(def.drag.description, def.drag), dragMeta);
+      const drag = skillRow(list, '드래그스킬', 'drag', def.drag.name, def.drag.description, `나가면 재등장 쿨 ${def.swapCooldown}초`);
       const body = h('div', 'sk-shape-row', drag);
       const fig = h('div', 'sk-shape', body);
       dragShapeIcon(def, 'sk-shape-cv', 132, 74, fig, true);
@@ -245,7 +242,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       skillRow(list, '패시브', 'passive', def.passive.name, def.passive.description, '필드에서만');
       const n: SkillDef = def.normal;
       skillRow(list, '일반스킬', 'normal', n.name, n.description, `자동 · 쿨 ${n.cooldown ?? 0}초`);
-      skillRow(list, '궁극기', 'ult', def.ult.name, desc(def.ult.description, def.ult), ultPerChar ? '캐릭터별 게이지 · 탭' : '게이지 탭');
+      skillRow(list, '궁극기', 'ult', def.ult.name, def.ult.description, '캐릭터별 게이지 · 탭');
     } else {
       const def = getPet(focus.id);
       const hd = h('div', 'dt-head', detail);
@@ -255,7 +252,7 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       nm.style.color = def.color;
       h('div', 'dt-stats', t, `펫 · 쿨타임 ${def.cooldown}초`);
       const list = h('div', 'dt-skills', detail);
-      skillRow(list, '펫 기능', 'pet', def.name, desc(def.description), `쿨 ${def.cooldown}초`);
+      skillRow(list, '펫 기능', 'pet', def.name, def.description, `쿨 ${def.cooldown}초`);
       h('div', 'dt-note', detail, '펫 카드를 필드로 끌어 놓으면 놓은 지점에서 바로 발동해요. 교체가 아니라서 필드 캐릭터는 그대로 있어요.');
     }
   }
@@ -313,7 +310,27 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     }
     renderDetail();
     renderSlots();
+    renderGear();
     startBtn.classList.toggle('is-disabled', !(chars.length === 3 && pets.length === 3));
+  }
+
+  /** 기획 15차 원정: 4 slot dots + 「최저 Tn」 on each character card (expedition variant only). */
+  function renderGear(): void {
+    for (const [id, c] of charCards) {
+      const box = c.querySelector('.ps-gear') as HTMLElement;
+      box.classList.toggle('is-hidden', !gearOf);
+      if (!gearOf) continue;
+      box.replaceChildren();
+      const l = gearOf(id);
+      let low = 99;
+      for (const slot of GEAR_SLOTS) {
+        const g = l[slot];
+        const dot = h('span', `ps-gear-dot${g ? '' : ' is-empty'}`, box);
+        if (g) dot.style.setProperty('--bc', BAND_COLOR[bandOf(g.tier)]);
+        if (slot !== 'relic') low = Math.min(low, g?.tier ?? 0);
+      }
+      h('span', 'ps-gear-low', box, `최저 T${low}`);
+    }
   }
 
   refresh();
@@ -323,26 +340,24 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
     setVisible(on) {
       el.classList.toggle('is-hidden', !on);
     },
+    get variant() {
+      return variant;
+    },
+    setVariant(v, picks, gear) {
+      variant = v;
+      gearOf = v === 'expedition' ? (gear ?? null) : null;
+      chars = [...picks.characters];
+      pets = [...picks.pets];
+      focus = { kind: 'char', id: chars[0] ?? CHARACTERS[0].id };
+      titleEl.textContent = v === 'expedition' ? '원정 편성' : '클래식 탑 편성';
+      startBtn.textContent = v === 'expedition' ? '원정 허브로' : '출발';
+      el.classList.toggle('is-expedition', v === 'expedition');
+      refresh();
+    },
     value: () => ({ characters: [...chars], pets: [...pets] }),
     setDebugNote(text) {
       debugNote.textContent = text;
       debugNote.classList.toggle('is-hidden', !text);
-    },
-    setSwapEnergy(regen) {
-      if (regen === energyRegen) return;
-      energyRegen = regen;
-      for (const [id, meta] of metas) {
-        const def = getCharacter(id);
-        meta.textContent = regen != null ? `⚡${def.swapEnergy}` : `${def.swapCooldown}초`;
-        meta.classList.toggle('is-energy', regen != null);
-      }
-      hint.textContent = charHint(regen != null);
-      renderDetailBody();
-    },
-    setUltPerCharacter(on) {
-      if (on === ultPerChar) return;
-      ultPerChar = on;
-      renderDetailBody();
     },
   };
 }

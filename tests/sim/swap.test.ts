@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getCharacter } from '../../src/data';
-import { active, advance, clearEvents, eventsOf, killActive, makeGame, quietFloor, spawnAt } from './helpers';
+import { active, advance, clearEvents, eventsOf, killActive, makeGame, quietFloor, spawnAt, ultOf } from './helpers';
 
 describe('R1 start state', () => {
   it('starts with character 1 on field and 2·3 immediately swappable', () => {
@@ -23,7 +23,7 @@ describe('R1 start state', () => {
     expect(tg.game.canSwap(0, 2).ok).toBe(true);
     // R3: the field character cannot be dragged again
     expect(tg.game.canSwap(0, 0)).toEqual({ ok: false, reason: '이미 필드에 있음' });
-    expect(p.ult.charge).toBe(0);
+    expect(ultOf(p).charge).toBe(0);
     expect(p.pets.every(x => x.cooldownRemaining === 0)).toBe(true);
     expect(tg.game.canUsePet(0, 0).ok).toBe(true);
     // characters spawn inside the arena
@@ -173,8 +173,8 @@ describe('R24 debug actions', () => {
     const tg = makeGame();
     const p = tg.game.state.players[0];
     expect(tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt' } }).ok).toBe(true);
-    expect(p.ult.charge).toBe(1);
-    expect(eventsOf(tg, 'ultReady').length).toBe(1);
+    expect(ultOf(p).charge).toBe(1);
+    expect(eventsOf(tg, 'ultReady').map(e => e.partyIndex)).toEqual([0, 1, 2]); // 기획 15차: every character's gauge
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
     tg.game.dispatch({ type: 'pet', player: 0, petIndex: 0, pos: { x: 10, y: 6 } });
     expect(p.party[0].swapCooldownRemaining).toBeGreaterThan(0); // card 1 left the field

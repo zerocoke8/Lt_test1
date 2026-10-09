@@ -3,7 +3,8 @@
 import type { BossDef, StatBlock, StatMods } from '../types';
 import { getCharacter } from '../data';
 import { MIN_MAX_HP_FRAC } from './constants';
-import { addMods, hasRelic, partyStatMods, relicParam } from './modifiers';
+import { gearStatMods } from './expeditionGear';
+import { addMods, partyStatMods, relicParam, relicScale } from './modifiers';
 import { clamp, getEntity, type SimEntity, type SimPlayer, type World } from './world';
 
 export function effStats(w: World, e: SimEntity): StatBlock {
@@ -14,8 +15,11 @@ export function effStats(w: World, e: SimEntity): StatBlock {
     const p = w.state.players[e.ownerPlayer];
     addMods(m, cdef.passive.stats);
     addMods(m, partyStatMods(p));
-    if (hasRelic(p, 'vanguard_helm') && e.rt.sinceAppear < relicParam('vanguard_helm', 'duration')) {
-      m.atkPct += relicParam('vanguard_helm', 'atkPct');
+    const gear = gearStatMods(p, e.partyIndex); // 기획 15차 원정: this character's equipped gear
+    if (gear) addMods(m, gear);
+    const helm = relicScale(p, e.partyIndex, 'vanguard_helm');
+    if (helm > 0 && e.rt.sinceAppear < relicParam('vanguard_helm', 'duration')) {
+      m.atkPct += relicParam('vanguard_helm', 'atkPct') * helm;
     }
   }
   for (const s of e.statuses) {
@@ -71,7 +75,8 @@ export function effStats(w: World, e: SimEntity): StatBlock {
 /** Max HP of a party member while on the bench (no passive). */
 export function benchMaxHp(p: SimPlayer, idx: number): number {
   const def = getCharacter(p.party[idx].defId);
-  return def.stats.maxHp * maxHpFactor(partyStatMods(p).hpPct);
+  const gear = gearStatMods(p, idx); // 기획 15차 원정: armor HP counts on the bench too
+  return def.stats.maxHp * maxHpFactor(partyStatMods(p).hpPct + (gear ? gear.hpPct : 0));
 }
 
 /** 기획 10차: however many curses stack, max HP never drops below MIN_MAX_HP_FRAC of the base. */

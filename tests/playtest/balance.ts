@@ -20,6 +20,7 @@ import { applyOffer, rollOffers } from '../../src/sim/rewards';
 import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import type { PlayerSetup, SimPhase, Tunables, Vec2 } from '../../src/types';
 import { goedamPilot, goedamRunRec, goedamSummary, goedamTunables, parseGoedamPolicy, type GoedamRunRec } from './goedam-policy';
+import { fieldUltGauge } from '../../src/sim/ultMode';
 
 type Policy = 'idle' | 'bot' | 'active';
 
@@ -131,7 +132,7 @@ function activeThink(w: World, st: { lastSwap: number; ultAt: number | null; rea
   const foes = enemies(w);
   const me = activeEntity(w, p);
   // ult 0.5 s after full
-  if (p.ult.charge >= 1 && me && foes.length) {
+  if ((fieldUltGauge(p)?.charge ?? 0) >= 1 && me && foes.length) {
     if (st.ultAt == null) st.ultAt = s.time + 0.5;
     if (s.time >= st.ultAt && dispatch(w, { type: 'ult', player: 0 }).ok) st.ultAt = null;
   }

@@ -10,6 +10,8 @@ import type { ToastKind } from './toast';
 import { HIT_STOP_RANGE, JUICE, JUICE_DEFAULTS, SHAKE_RANGE, type JuiceSettings } from '../render/juice';
 import { loadJuice, saveJuice } from './storage';
 import { mountSfxBoard } from '../audio/devboard';
+import { battleGearFiles, setBattleGearFiles } from '../render/gearArt';
+import { saveGearArtFiles } from './expeditionStore';
 
 /** Render-only sliders (this device only, never sent to the server): 기획 8차 drag-landing feel. */
 const JUICE_SLIDERS: { key: keyof JuiceSettings; label: string; min: number; max: number; step: number; fmt: (v: number) => string }[] = [
@@ -91,8 +93,6 @@ export class DebugPanel {
   private readonly collapseBtn: HTMLButtonElement;
   private readonly sliders: SliderRow[] = [];
   private readonly toggles: { key: (typeof TOGGLES)[number]['key']; input: HTMLInputElement }[] = [];
-  /** 기획 14차 test rules: each block (toggle + its sliders) dims its sliders while the toggle is off. */
-  private readonly modeBlocks: { key: (typeof TOGGLES)[number]['key']; el: HTMLElement }[] = [];
   private readonly speedBtns: { v: number; b: HTMLButtonElement }[] = [];
   private readonly floorInput: HTMLElement;
   private readonly juiceRows: { key: keyof JuiceSettings; input: HTMLInputElement; value: HTMLElement; row: HTMLElement; fmt: (v: number) => string }[] = [];
@@ -104,6 +104,8 @@ export class DebugPanel {
   private eventPick = -1;
   private readonly eventLabel: HTMLElement;
   private collapsed = false;
+  private readonly expSec: HTMLElement;
+  private readonly artBtn: HTMLButtonElement;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement, deps: DebugDeps) {
@@ -128,21 +130,6 @@ export class DebugPanel {
       input.addEventListener('change', () => this.set(t.key, input.checked));
       this.toggles.push({ key: t.key, input });
     };
-    // 기획 14차 실험 규칙: each test rule = its toggle, a one-line note and its own sliders right under it. First in the
-    // panel (the rules under test): reaching it never means swiping across other sliders.
-    const modes = TOGGLES.filter(t => t.mode);
-    if (modes.length > 0) {
-      const ms = this.section('실험 규칙 (기본 꺼짐 = 지금 규칙)');
-      for (const t of modes) {
-        const block = h('div', 'dbg-mode', ms);
-        block.dataset.key = t.key;
-        toggle(block, t);
-        h('div', 'dbg-mode-note', block, t.mode!.note);
-        for (const spec of SLIDERS) if (spec.mode === t.key) this.slider(block, spec);
-        this.modeBlocks.push({ key: t.key, el: block });
-      }
-    }
-
     // speed
     const sp = this.section('게임 속도');
     const spRow = h('div', 'dbg-btnrow', sp);
@@ -150,6 +137,17 @@ export class DebugPanel {
       const b = button('dbg-btn dbg-speed', `${v}×`, spRow, () => this.set('gameSpeed', v));
       this.speedBtns.push({ v, b });
     }
+
+    // 기획 15차 원정: only while an expedition stage runs
+    this.expSec = this.section('원정');
+    const expRow = h('div', 'dbg-btnrow', this.expSec);
+    button('dbg-btn dbg-exp-clear', '단계 즉시 클리어', expRow, () => this.run({ kind: 'expeditionClearStage' }, '단계 즉시 클리어'));
+    this.artBtn = button('dbg-btn', '', expRow, () => {
+      const on = !battleGearFiles();
+      setBattleGearFiles(on);
+      saveGearArtFiles(on);
+      this.syncExp();
+    });
 
     // actions
     const act = this.section('명령');
@@ -218,13 +216,12 @@ export class DebugPanel {
 
     // toggles
     const tg = this.section('토글');
-    for (const t of TOGGLES) if (!t.mode) toggle(tg, t);
+    for (const t of TOGGLES) toggle(tg, t);
 
     // sliders (grouped)
     let group = '';
     let sec: HTMLElement = tg;
     for (const spec of SLIDERS) {
-      if (spec.mode) continue;
       if (spec.group !== group) {
         group = spec.group;
         sec = this.section(group);
@@ -347,9 +344,17 @@ export class DebugPanel {
     }
   }
 
+  private syncExp(): void {
+    const g = this.deps.game();
+    this.expSec.classList.toggle('is-hidden', !g?.state.expedition);
+    this.artBtn.textContent = `장비 그림: ${battleGearFiles() ? '파일' : '코드'}`;
+    this.artBtn.classList.toggle('is-on', battleGearFiles());
+  }
+
   /** Reflect game.tunables in the controls. */
   sync(): void {
     this.syncJuice();
+    this.syncExp();
     const g = this.deps.game();
     if (!g) return;
     const t = g.tunables;
@@ -360,7 +365,6 @@ export class DebugPanel {
       s.row.classList.toggle('is-changed', v !== DEFAULT_TUNABLES[s.spec.key]);
     }
     for (const tg of this.toggles) tg.input.checked = t[tg.key];
-    for (const mb of this.modeBlocks) mb.el.classList.toggle('is-on', !!t[mb.key]);
     for (const sb of this.speedBtns) sb.b.classList.toggle('is-on', Math.abs(sb.v - t.gameSpeed) < 1e-6);
     this.floorInput.textContent = `${this.jumpTo}층`;
   }

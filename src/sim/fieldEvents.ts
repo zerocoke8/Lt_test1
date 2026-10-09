@@ -30,7 +30,7 @@ import { dropOutcome } from './fieldEventPreview';
 import { addGoedamTrace } from './goedam';
 import { syncMembers } from './players';
 import { addUltCharge } from './ultMode';
-import { resetSwapCooldowns } from './energy';
+import { planExpeditionFieldEvent } from './expedition';
 import { mixSeed, Rng } from './rng';
 import { effStats } from './stats';
 import { applyStatus, hasStatus } from './status';
@@ -210,7 +210,9 @@ export function startFloorFieldEvent(w: World): void {
     fe.plan = { floor: s.floor, id, startAt: FIELD_EVENT_EARLIEST, latest: FIELD_EVENT_EARLIEST };
     return;
   }
-  const plan = planFieldEventFor(s.seed, s.floor, w.tunables.fieldEventChance, s.plan, fe.lastPlanned, fe.counts);
+  const plan = w.expedition
+    ? planExpeditionFieldEvent(w, fe.lastPlanned && fe.lastPlanned.floor === s.floor - 1 ? fe.lastPlanned.id : null) // 기획 15차 원정
+    : planFieldEventFor(s.seed, s.floor, w.tunables.fieldEventChance, s.plan, fe.lastPlanned, fe.counts);
   if (!plan) return;
   fe.plan = plan;
   fe.counts[plan.id] = (fe.counts[plan.id] ?? 0) + 1;
@@ -218,7 +220,7 @@ export function startFloorFieldEvent(w: World): void {
 }
 
 function forcedPick(w: World): FieldEventId {
-  const theme = zoneOf(w.state.floor).theme;
+  const theme = w.state.plan.theme ?? zoneOf(w.state.floor).theme;
   const cands = FIELD_EVENTS.filter(d => d.weights[theme] > 0);
   return fieldEventRng(w.state.seed, STREAM.forced, w.state.floor).weighted(cands, d => d.weights[theme]).id;
 }
@@ -874,7 +876,7 @@ export function applyReward(w: World, r: FieldEventReward): void {
   const players = s.players.filter(p => !p.out);
   switch (r.kind) {
     case 'ultAdd':
-      for (const p of players) addUltCharge(w, p, r.value); // 기획 14차: the field character's in per-character mode
+      for (const p of players) addUltCharge(w, p, r.value); // the field character's gauge (기획 15차 per character)
       return;
     case 'petReset':
       for (const p of players) for (const pet of p.pets) pet.cooldownRemaining = 0;
@@ -889,7 +891,7 @@ export function applyReward(w: World, r: FieldEventReward): void {
       syncMembers(w);
       return;
     case 'benchSwapReset':
-      for (const p of players) resetSwapCooldowns(p, 'bench'); // 기획 14차 교체 에너지: a full pool instead
+      for (const p of players) p.party.forEach((m, i) => (i !== p.activeIndex ? (m.swapCooldownRemaining = 0) : 0));
       return;
     case 'trace':
       for (const p of players) addGoedamTrace(w, p, r.traceId);

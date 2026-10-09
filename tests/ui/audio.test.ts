@@ -162,10 +162,9 @@ const player = (id: number, chars = ['guardian', 'blade', 'mage']): PlayerState 
     name: `p${id}`,
     isBot: id !== 0,
     color: '#fff',
-    party: chars.map((defId, i) => ({ defId, hp: 100, maxHp: 100, shield: 0, statuses: [], dead: false, reviveRemaining: 0, swapCooldownRemaining: 5, swapCooldownTotal: 10, normalCooldownRemaining: 0, entityId: i === 0 ? 100 + id : null })),
+    party: chars.map((defId, i) => ({ defId, hp: 100, maxHp: 100, shield: 0, statuses: [], dead: false, reviveRemaining: 0, swapCooldownRemaining: 5, swapCooldownTotal: 10, normalCooldownRemaining: 0, entityId: i === 0 ? 100 + id : null, ult: { charge: 0, fullSince: null } })),
     activeIndex: 0,
     pets: [{ defId: 'frog_bomb', cooldownRemaining: 0, cooldownTotal: 28 }],
-    ult: { charge: 0, fullSince: null },
     out: false,
     appearLock: 0,
     relics: [],
@@ -238,6 +237,9 @@ const SAMPLES: { [K in GameEvent['type']]: Extract<GameEvent, { type: K }> } = {
   benchBuff: { type: 'benchBuff', player: 0, partyIndex: 1, status: 'atkUp', duration: 5, value: 0.1, from: 0 },
   reviveCut: { type: 'reviveCut', player: 0, partyIndex: 1, seconds: 5, from: 0 },
   swapCdCut: { type: 'swapCdCut', player: 0, seconds: 2, from: 0 },
+  stageClear: { type: 'stageClear', stage: 1 },
+  expeditionChoice: { type: 'expeditionChoice', player: 0, choice: 'extract', auto: false },
+  gearProc: { type: 'gearProc', player: 0, partyIndex: 0, id: 'w_appear_bolt', pos: P },
   appear: { type: 'appear', player: 0, partyIndex: 0, entityId: 100, pos: P },
   dash: { type: 'dash', entityId: 100, from: P, to: P, duration: 0.2 },
   blink: { type: 'blink', entityId: 1, from: P, to: P },
@@ -249,7 +251,7 @@ const SAMPLES: { [K in GameEvent['type']]: Extract<GameEvent, { type: K }> } = {
   spawn: { type: 'spawn', entityId: 1, pos: P, tier: 'normal' },
   revive: { type: 'revive', player: 0, partyIndex: 1 },
   playerOut: { type: 'playerOut', player: 1 },
-  ultReady: { type: 'ultReady', player: 0 },
+  ultReady: { type: 'ultReady', player: 0, partyIndex: 0 },
   floorStart: { type: 'floorStart', floor: 3, kind: 'normal' },
   floorClear: { type: 'floorClear', floor: 3 },
   enrage: { type: 'enrage' },
@@ -369,7 +371,7 @@ describe('sfx director: every GameEvent type has a sound', () => {
     expect(ids(route([{ type: 'death', entityId: 101, pos: P, kind: 'character', tier: 'character' }]))).toEqual(['char.down.far']);
   });
 
-  it('기획 14차 per-character gauges: only my field character\'s gauge chimes ult.ready (bench gauges fill silently)', () => {
+  it('per-character gauges (기획 15차): only my field character\'s gauge chimes ult.ready (bench gauges fill silently)', () => {
     expect(ids(route([{ type: 'ultReady', player: 0, partyIndex: 0 }]))).toEqual(['ult.ready']);
     expect(ids(route([{ type: 'ultReady', player: 0, partyIndex: 2 }]))).toEqual([]);
     expect(ids(route([{ type: 'ultReady', player: 1, partyIndex: 0 }]))).toEqual([]);
@@ -382,7 +384,7 @@ describe('sfx director: every GameEvent type has a sound', () => {
     expect(ids(route([], s))).toEqual(['ult.remind']);
   });
 
-  it('기획 14차 per-character gauges: a card that filled on the bench reminds 10 s after it came on, once per card', () => {
+  it('per-character gauges (기획 15차): a card that filled on the bench reminds 10 s after it came on, once per card', () => {
     const d = new Director();
     const at = (time: number, active: number) => {
       const s = state({ tick: Math.round(time * 30), time });
@@ -432,24 +434,6 @@ describe('sfx director: every GameEvent type has a sound', () => {
     const rew = d.route([], state({ tick: 105, phase: 'reward', rewardOffersByPlayer: [[], null] }), view({ now: 1.5 }));
     expect(ids(rew)).toEqual(expect.arrayContaining(['reward.open', 'amb.goedam']));
     expect(rew.ctl).toContainEqual(expect.objectContaining({ kind: 'stop', key: 'amb' }));
-  });
-});
-
-describe('기획 14차 교체 에너지: the card-ready chime', () => {
-  it('ready = the pool affords the card; one chime when the bench comes back (both cards cross together)', () => {
-    const d = new Director();
-    const s0 = state({ tick: 200 });
-    for (const m of s0.players[0].party) m.swapCooldownRemaining = 0;
-    s0.players[0].energy = { value: 2, max: 10, regen: 1 };
-    d.route([], s0, view({ now: 2 }));
-    const s1 = state({ tick: 201 });
-    for (const m of s1.players[0].party) m.swapCooldownRemaining = 0;
-    s1.players[0].energy = { value: 2.5, max: 10, regen: 1 };
-    expect(ids(d.route([], s1, view({ now: 2.1 })))).not.toContain('ui.cardReady');
-    const s2 = state({ tick: 202 });
-    for (const m of s2.players[0].party) m.swapCooldownRemaining = 0;
-    s2.players[0].energy = { value: 7, max: 10, regen: 1 }; // 블레이드 6 and 메이지 6 at once
-    expect(ids(d.route([], s2, view({ now: 2.2 }))).filter(x => x === 'ui.cardReady')).toHaveLength(1);
   });
 });
 

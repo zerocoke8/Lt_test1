@@ -158,7 +158,7 @@ async function bossScenario() {
     if (s.app !== 'combat') break;
     await page.evaluate(() => {
       const g = window.__proto.game;
-      for (const p of g.state.players) if (p.ult.charge < 1) g.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: p.id } });
+      for (const p of g.state.players) if (p.activeIndex != null && p.party[p.activeIndex].ult.charge < 1) g.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: p.id } });
     });
     if (s.me.ult >= 1 && s.me.active != null && (await tapUlt(pt))) ults++;
     if (!broke && Date.now() - t0 > 12000) {

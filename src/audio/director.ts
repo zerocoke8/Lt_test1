@@ -8,8 +8,7 @@ import { LOGICAL_H, LOGICAL_W } from '../types';
 import { CHARACTERS, PETS, getGoedamTrace, getMonster, goedamTraceKind } from '../data';
 import { DASH_LAND } from '../render/dashtime';
 import { stageCues, type Cue } from './stages';
-import { fieldUltGauge, perCharUlt } from '../sim/ultMode';
-import { cardReady } from '../sim/energy';
+import { fieldUltGauge } from '../sim/ultMode';
 
 export interface SoundReq {
   id: string;
@@ -108,6 +107,10 @@ export const EVENT_SOUNDS: Record<GameEvent['type'], string> = {
   bossGroggy: 'groggy.break + groggy.stars',
   bossGroggyEnd: 'groggy.recover',
   groggyGain: 'groggy.fill',
+  // 기획 15차 원정: the screens (src/ui/expedition*) play 'exp.*' themselves; the events stay silent here
+  stageClear: 'none',
+  expeditionChoice: 'none',
+  gearProc: 'none',
 };
 
 // ─────────────────────────── static lookups ───────────────────────────
@@ -220,7 +223,7 @@ export class Director {
   /** My '내가 탈락' duck is held. */
   private outDuck = false;
   private lowHpAt = -1;
-  /** Per gauge (party slot; -1 = the shared gauge) the fullSince 'ult.remind' already played for. */
+  /** Per gauge (party slot) the fullSince 'ult.remind' already played for. */
   private reminded = new Map<number, number>();
   /** 기획 14차 개별 게이지: my field slot and the sim time it came on (a gauge filled on the bench reminds from then). */
   private fieldSlot: number | null | undefined = undefined;
@@ -373,8 +376,8 @@ export class Director {
         } else c.play('player.out');
         return;
       case 'ultReady':
-        // 기획 14차 per-character gauges: only the field character's (the one the ult button shows) chimes
-        if (e.player === c.lp && (e.partyIndex == null || e.partyIndex === c.s.players[c.lp]?.activeIndex)) c.play('ult.ready');
+        // per-character gauges (기획 15차): only the field character's (the one the ult button shows) chimes
+        if (e.player === c.lp && e.partyIndex === c.s.players[c.lp]?.activeIndex) c.play('ult.ready');
         return;
       case 'floorStart':
         return this.onFloorStart(c, e);
@@ -447,6 +450,10 @@ export class Director {
         c.play('groggy.fill', { rate: st(PENTA[Math.min(5, Math.round(fill * 5))]), db: e.player === c.lp ? 0 : -8 });
         return;
       }
+      case 'stageClear':
+      case 'expeditionChoice':
+      case 'gearProc':
+        return; // 기획 15차 원정: the expedition screens play their own cues
       default: {
         const never: never = e;
         return never;
@@ -692,15 +699,9 @@ export class Director {
   private watchMine(c: FrameCtx, prev: Snap): void {
     const me = c.s.players[c.lp];
     if (!me || c.s.phase !== 'combat') return;
-    // 기획 14차 교체 에너지: 'ready' = the pool affords it (no cooldown runs in that mode). One pool refills every
-    // bench card at once, so the chime only says the first one is back (none of the bench was ready before)
-    const benchWasReady = !!me.energy && prev.cardsReady.some((r, i) => r && i !== me.activeIndex);
-    let chimed = false;
-    me.party.forEach((_m, i) => {
-      const ready = cardReady(me, i);
-      if (!ready || prev.cardsReady[i] !== false || i === me.activeIndex || benchWasReady || chimed) return;
-      c.play('ui.cardReady');
-      chimed = !!me.energy;
+    me.party.forEach((m, i) => {
+      const ready = !m.dead && m.swapCooldownRemaining <= 0;
+      if (ready && prev.cardsReady[i] === false && i !== me.activeIndex) c.play('ui.cardReady');
     });
     const act = me.activeIndex != null ? me.party[me.activeIndex] : null;
     const ent = act?.entityId != null ? c.ent(act.entityId) : null;
@@ -715,9 +716,8 @@ export class Director {
     }
     const full = fieldUltGauge(me)?.fullSince ?? null;
     // 기획 14차 개별 게이지: the field card's gauge is castable only since it came on (it may have filled on the bench)
-    const per = perCharUlt(me);
-    const slot = per ? (me.activeIndex ?? -2) : -1;
-    const since = full != null && per ? Math.max(full, this.fieldSince) : full;
+    const slot = me.activeIndex ?? -2;
+    const since = full != null ? Math.max(full, this.fieldSince) : null;
     if (full != null && since != null && c.s.time - since >= 10 && this.reminded.get(slot) !== full) {
       this.reminded.set(slot, full);
       c.play('ult.remind');
@@ -863,7 +863,7 @@ function takeSnap(s: GameState, lp: number, old: Snap | null): Snap {
     statuses,
     shields,
     defs,
-    cardsReady: me ? me.party.map((_, i) => cardReady(me, i)) : [],
+    cardsReady: me ? me.party.map(m => !m.dead && m.swapCooldownRemaining <= 0) : [],
     timerSec: Math.ceil(s.timeRemaining),
     feSec: s.fieldEvent ? Math.ceil(s.fieldEvent.remaining) : 99,
     printed: s.fieldEvent?.printed ?? 0,

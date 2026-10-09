@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { canSwapState, canUltState, canUsePetState } from '../../src/sim/players';
 import { sanitizeTunablesPatch } from '../../src/sim/telemetry';
 import type { GameState, PlayerSetup } from '../../src/types';
-import { advance, BOT1, BOT2, eventsOf, HUMAN, HUMAN2, killActive, makeGame, quietFloor, spawnAt } from './helpers';
+import { advance, BOT1, BOT2, eventsOf, HUMAN, HUMAN2, killActive, makeGame, quietFloor, spawnAt, ultOf } from './helpers';
 
 const HUMAN3: PlayerSetup = { name: '셋', isBot: false, characters: ['mage', 'guardian', 'cleric'], pets: ['cat_void', 'owl_frost', 'frog_bomb'] };
 const skip = { type: 'debug', action: { kind: 'skipFloor' } } as const;
@@ -115,17 +115,18 @@ describe('R34 setPlayerBot', () => {
     tg.game.setPlayerBot(1, true);
     expect(p1.isBot).toBe(true);
     expect(p1.disconnected).toBe(true);
-    // a full gauge is used by the bot within its 0.5~3 s delay
+    // a full gauge is used by the bot within its 0.5~3 s delay (debug 충전 fills all three: it may swap in more)
     tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 1 } });
     advance(tg, 4);
-    expect(p1.stats.ultsUsed).toBe(1);
+    const used = p1.stats.ultsUsed;
+    expect(used).toBeGreaterThanOrEqual(1);
     tg.game.setPlayerBot(1, false);
     expect(p1.isBot).toBe(false);
     expect(p1.disconnected).toBe(false);
     tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 1 } });
     advance(tg, 5);
-    expect(p1.stats.ultsUsed).toBe(1);
-    expect(p1.ult.charge).toBe(1);
+    expect(p1.stats.ultsUsed).toBe(used);
+    expect(ultOf(p1).charge).toBe(1);
   });
 
   it('becoming a bot during the reward phase auto-picks; the last pending human advances the floor', () => {
@@ -169,10 +170,10 @@ describe('per-player telemetry and debug', () => {
     const tg = makeGame({ players: [HUMAN, HUMAN2, HUMAN3] });
     const s = tg.game.state;
     tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 2 } });
-    expect(s.players.map(p => p.ult.charge >= 1)).toEqual([false, false, true]);
-    expect(eventsOf(tg, 'ultReady').map(e => e.player)).toEqual([2]);
+    expect(s.players.map(p => ultOf(p).charge >= 1)).toEqual([false, false, true]);
+    expect(eventsOf(tg, 'ultReady').map(e => e.player)).toEqual([2, 2, 2]); // 기획 15차: every character's gauge
     tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt' } });
-    expect(s.players[0].ult.charge).toBe(1);
+    expect(ultOf(s.players[0]).charge).toBe(1);
     // 기획 6차: the card that leaves the field starts cooling (slot 0 for both players here)
     tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 10, y: 6 } });
     tg.game.dispatch({ type: 'swap', player: 1, partyIndex: 1, pos: { x: 12, y: 6 } });
@@ -187,8 +188,8 @@ describe("command 'tunables'", () => {
   it('applies a validated patch to game.tunables', () => {
     const tg = makeGame();
     const t = tg.game.tunables;
-    expect(tg.game.dispatch({ type: 'tunables', patch: { ultChargeTime: 12, invincible: true } }).ok).toBe(true);
-    expect(t.ultChargeTime).toBe(12);
+    expect(tg.game.dispatch({ type: 'tunables', patch: { ultFieldChargeTime: 12, invincible: true } }).ok).toBe(true);
+    expect(t.ultFieldChargeTime).toBe(12);
     expect(t.invincible).toBe(true);
     // clamped, ints rounded, junk dropped
     tg.game.dispatch({ type: 'tunables', patch: { gameSpeed: 99, maxFloor: 7.6, swapCooldownMult: -3 } });
@@ -196,7 +197,7 @@ describe("command 'tunables'", () => {
     expect(t.maxFloor).toBe(8);
     expect(t.swapCooldownMult).toBe(0);
     const before = { ...t };
-    const bad = tg.game.dispatch({ type: 'tunables', patch: { nope: 1, ultChargeTime: 'x', invincible: 1 } as never });
+    const bad = tg.game.dispatch({ type: 'tunables', patch: { nope: 1, ultFieldChargeTime: 'x', invincible: 1 } as never });
     expect(bad.ok).toBe(false);
     expect(tg.game.tunables).toEqual(before);
     expect(tg.game.dispatch({ type: 'tunables', patch: { reviveTime: Number.NaN } }).ok).toBe(false);

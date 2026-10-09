@@ -59,12 +59,7 @@ const STATUS_SHORT: Record<StatusId, (value: number, duration: number) => string
   splashUp: v => `공격 범위 +${num(v)}`,
 };
 
-/** 기획 14차 교체 에너지: present while the mode is on — cooldown cuts read as energy (N s × regen). */
-export interface EnergyOpts {
-  regen: number;
-}
-
-function effectLabel(e: Effect, hits: number, spots: number, energy?: EnergyOpts): string {
+function effectLabel(e: Effect, hits: number, spots: number): string {
   switch (e.kind) {
     case 'damage': {
       const reps = hits > 1 ? `×${hits}` : '';
@@ -83,7 +78,6 @@ function effectLabel(e: Effect, hits: number, spots: number, energy?: EnergyOpts
     case 'cleanse':
       return '정화';
     case 'swapCooldownReduce':
-      if (energy) return `${e.allPlayers ? '모두의 ' : ''}교체 에너지 +${num(e.energy ?? e.seconds * energy.regen)}`;
       return `${e.allPlayers ? '모두의 ' : ''}대기 캐릭터 쿨 -${num(e.seconds)}초`;
     // 기획 12차 (메딕)
     case 'benchHeal':
@@ -117,14 +111,14 @@ function groupActions(actions: readonly SkillAction[]): { action: SkillAction; s
  * "→ 6칸 돌진 · 피해 270% · 기절 0.4초", "원 반경 1.5 5곳 · 피해 170% · 화상 3초",
  * "원 반경 3 · 아군 정화 · 회복 7% / 아군 0.5초마다 회복 2% · 4초 장판".
  */
-export function skillSummary(skill: Pick<SkillDef, 'actions'>, energy?: EnergyOpts): string {
+export function skillSummary(skill: Pick<SkillDef, 'actions'>): string {
   const parts: string[] = [];
   const seenArea = new Set<string>();
   for (const { action: a, spots, effects: effs } of groupActions(skill.actions)) {
     const hits = Math.max(1, a.hits ?? 1);
     const effects: string[] = [];
     for (const e of effs) {
-      const label = effectLabel(e, hits, spots, energy);
+      const label = effectLabel(e, hits, spots);
       if (!effects.includes(label)) effects.push(label);
     }
     if (a.summon) effects.push('소환');
@@ -207,29 +201,20 @@ export function cdText(v: number): string {
  */
 export function skillRows(
   def: CharacterDef,
-  cd: { normal?: number; drag?: number; ult?: number; ultBench?: number; energy?: EnergyOpts & { cost: number } } = {},
+  cd: { normal?: number; drag?: number; ult?: number; ultBench?: number } = {},
 ): SkillRow[] {
   const normalCd = cd.normal ?? def.normal.cooldown ?? 6;
   const dragCd = cd.drag ?? def.swapCooldown;
-  const en = cd.energy;
   return [
     { kind: 'basic', type: SKILL_TYPE_LABEL.basic, trigger: '자동', name: '기본 공격', summary: basicSummary(def.basic) },
     { kind: 'passive', type: SKILL_TYPE_LABEL.passive, trigger: '필드에서 상시', name: def.passive.name, summary: def.passive.description },
-    { kind: 'normal', type: SKILL_TYPE_LABEL.normal, trigger: `${secs(normalCd)}초마다 자동`, name: def.normal.name, summary: skillSummary(def.normal, en) },
-    // 기획 6차: the re-appear (= drag skill) cooldown starts when this character is swapped out.
-    // 기획 14차 교체 에너지: no cooldown — the swap-in costs energy
-    {
-      kind: 'drag',
-      type: SKILL_TYPE_LABEL.drag,
-      // (short: the name must not be cut off — the live column carries '⚡부족 N초')
-      trigger: en ? `교체 ⚡${num(en.cost)}` : `등장 시 · 나가면 쿨 ${secs(dragCd)}초`,
-      name: def.drag.name,
-      summary: skillSummary(def.drag, en),
-    },
+    { kind: 'normal', type: SKILL_TYPE_LABEL.normal, trigger: `${secs(normalCd)}초마다 자동`, name: def.normal.name, summary: skillSummary(def.normal) },
+    // 기획 6차: the re-appear (= drag skill) cooldown starts when this character is swapped out
+    { kind: 'drag', type: SKILL_TYPE_LABEL.drag, trigger: `등장 시 · 나가면 쿨 ${secs(dragCd)}초`, name: def.drag.name, summary: skillSummary(def.drag) },
     {
       kind: 'ult',
       type: SKILL_TYPE_LABEL.ult,
-      // 기획 14차 궁극기 개별 게이지: this card's own gauge — field time and bench time (short: the name must not be cut off)
+      // 기획 15차 궁극기 개별 게이지: this card's own gauge — field time and bench time (short: the name must not be cut off)
       trigger:
         cd.ult != null && cd.ultBench != null
           ? `필드 ${secs(cd.ult)}초 · 대기 ${Number.isFinite(cd.ultBench) ? `${secs(cd.ultBench)}초` : '안 참'}`
@@ -237,7 +222,7 @@ export function skillRows(
             ? `게이지 ${secs(cd.ult)}초 · 탭`
             : '게이지 가득 · 탭',
       name: def.ult.name,
-      summary: skillSummary(def.ult, en),
+      summary: skillSummary(def.ult),
     },
   ];
 }

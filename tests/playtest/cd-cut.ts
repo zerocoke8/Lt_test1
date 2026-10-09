@@ -29,6 +29,7 @@ import { activeEntity, isAlive } from '../../src/sim/world';
 import type { PlayerSetup } from '../../src/types';
 import { dragNeutralPick } from './drag-value';
 import { goedamPilot, goedamTunables, parseGoedamPolicy } from './goedam-policy';
+import { fieldUltGauge } from '../../src/sim/ultMode';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 const SEEDS = Number(env.CUT_SEEDS ?? 24);
@@ -95,7 +96,7 @@ function runOne(variant: string, rhythm: number, seed: number, acc: Acc): void {
       think = 0.25;
       const me = activeEntity(w, p);
       const foes = s.entities.filter(e => e.team === 'enemy' && isAlive(e));
-      if (p.ult.charge >= 1 && me && foes.length) {
+      if ((fieldUltGauge(p)?.charge ?? 0) >= 1 && me && foes.length) {
         if (ultAt == null) ultAt = s.time + 0.5;
         if (s.time >= ultAt && dispatch(w, { type: 'ult', player: 0 }).ok) ultAt = null;
       }

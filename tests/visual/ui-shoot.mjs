@@ -150,7 +150,7 @@ for (const vp of VIEWPORTS) {
   await shot('ult-ready');
   await tap(await center('.ult'));
   await sleep(100);
-  const ultCharge = await ev(() => window.__proto.game.state.players[0].ult.charge);
+  const ultCharge = await ev(() => { const p = window.__proto.game.state.players[0]; return p.activeIndex != null ? p.party[p.activeIndex].ult.charge : 1; });
   check(ultCharge < 0.1, `${vp.name}: tapping full ult gauge uses ult (${ultCharge.toFixed(2)})`);
 
   // debug panel via DBG button

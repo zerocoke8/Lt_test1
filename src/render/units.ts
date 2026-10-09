@@ -6,6 +6,8 @@ import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from './camera';
 import { COLORS, boldFont, type UnitLook, unitLook } from './look';
 import { TAU, addStar, pathCapsule, pathRoundRect } from './shapes';
 import { type CreatureShape, creatureTop, drawCreature } from './creatures';
+import type { GearBands, WeaponFamily } from '../data/gear';
+import { drawGearArmor, drawGearBack, drawGearCharm, drawGearFront, drawGearWeapon } from './gear';
 
 /** Render-side bookkeeping per entity id (updated every frame from GameState, read for death/leave ghosts). */
 export interface UnitMemo {
@@ -63,6 +65,13 @@ const PULL_DECAY = 14;
  */
 /** noGlyph (기획 13차 리뷰): the cut-in portrait hides the role letter (the band's edge cut it in half). */
 export const HERO_POSE = { swing: 0, recoil: 0, noGlyph: false };
+
+/** 기획 15차 원정: a geared hero's bands for one drawBody call (fx = glow strength: other players' units are dimmer). */
+interface HeroGear {
+  bands: GearBands;
+  fx: number;
+  time: number;
+}
 
 export function newMemo(e: Entity, stamp: number): UnitMemo {
   return {
@@ -286,7 +295,7 @@ function crown(ctx: CanvasRenderingContext2D, cx: number, top: number, w: number
   ctx.fill();
 }
 
-function heroAccessory(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number, fy: number, w: number, h: number, s: number, flash: boolean): void {
+function heroAccessory(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number, fy: number, w: number, h: number, s: number, flash: boolean, g: HeroGear | null): void {
   const swing = HERO_POSE.swing;
   const recoil = HERO_POSE.recoil;
   if (swing !== 0 || recoil !== 0) {
@@ -297,14 +306,19 @@ function heroAccessory(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number
     ctx.translate(px - s * recoil, py);
     ctx.rotate(s * swing);
     ctx.translate(-px, -py);
-    heroAccessoryAt(ctx, look, fx, fy, w, h, s, flash);
+    heroAccessoryAt(ctx, look, fx, fy, w, h, s, flash, g);
     ctx.restore();
     return;
   }
-  heroAccessoryAt(ctx, look, fx, fy, w, h, s, flash);
+  heroAccessoryAt(ctx, look, fx, fy, w, h, s, flash, g);
 }
 
-function heroAccessoryAt(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number, fy: number, w: number, h: number, s: number, flash: boolean): void {
+function heroAccessoryAt(ctx: CanvasRenderingContext2D, look: UnitLook, fx: number, fy: number, w: number, h: number, s: number, flash: boolean, g: HeroGear | null): void {
+  // 기획 15차 원정: an equipped weapon draws the same family in its band's look (render/gear.ts)
+  if (g && g.bands.w > 0 && look.accessory !== 'none') {
+    drawGearWeapon(ctx, look.accessory as WeaponFamily, g.bands.w, fx, fy, w, h, s, g.time, flash, g.fx, look.dark, look.color);
+    return;
+  }
   const hx = fx + s * w * 0.5;
   const hy = fy - h * 0.42;
   switch (look.accessory) {
@@ -494,11 +508,16 @@ export function drawBody(
   time: number,
   phase: number,
   flash: boolean,
+  gear?: GearBands | null,
+  gearFx = 1,
 ): void {
   const fill = flash ? look.flash : look.color;
   ctx.lineJoin = 'round';
   switch (look.shape) {
     case 'hero': {
+      // 기획 15차 원정: gear only when worn — without it this case draws exactly as before (render/gear.ts)
+      const g: HeroGear | null = gear ? { bands: gear, fx: gearFx, time } : null;
+      if (g) drawGearBack(ctx, g.bands, fx, fy, w, h, time, phase);
       // accessory behind when facing away from the viewer side is irrelevant in this view; draw after body
       pathCapsule(ctx, fx, fy, w, h);
       ctx.fillStyle = fill;
@@ -516,9 +535,12 @@ export function drawBody(
       ctx.fill();
       ctx.globalAlpha /= 0.3;
       eyes(ctx, fx + s * w * 0.06, fy - h + w * 0.45, w * 0.15, Math.max(2, w * 0.085), s, '#ffffff', '#141414');
+      if (g) drawGearArmor(ctx, g.bands.a, fx, fy, w, h, s, time, gearFx);
       // role glyph
       if (HERO_POSE.noGlyph) {
-        heroAccessory(ctx, look, fx, fy, w, h, s, flash);
+        if (g) drawGearCharm(ctx, g.bands.c, fx, fy, w, h, s, time, gearFx);
+        heroAccessory(ctx, look, fx, fy, w, h, s, flash, g);
+        if (g) drawGearFront(ctx, g.bands, fx, fy, w, h, time, phase);
         break;
       }
       const gs = Math.max(11, w * 0.42);
@@ -531,7 +553,9 @@ export function drawBody(
       ctx.strokeText(look.glyph, fx, gy);
       ctx.fillStyle = '#ffffff';
       ctx.fillText(look.glyph, fx, gy);
-      heroAccessory(ctx, look, fx, fy, w, h, s, flash);
+      if (g) drawGearCharm(ctx, g.bands.c, fx, fy, w, h, s, time, gearFx);
+      heroAccessory(ctx, look, fx, fy, w, h, s, flash, g);
+      if (g) drawGearFront(ctx, g.bands, fx, fy, w, h, time, phase);
       break;
     }
     case 'slime': {

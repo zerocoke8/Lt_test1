@@ -135,8 +135,8 @@ test('slot-1 browser player: HUD, camera, rewards, result row and the no-pause m
   expect(mine).toBeLessThan(vw * 0.8);
 
   // menu = no pause (R35): time keeps going under it; no keyboard ult under the open menu
-  host.cmd({ type: 'tunables', patch: { ultChargeTime: 0.5 } });
-  await page.waitForFunction(() => window.__proto!.game!.state.players[1].ult.charge >= 1, undefined, { timeout: 10_000 });
+  host.cmd({ type: 'tunables', patch: { ultFieldChargeTime: 1 } });
+  await page.waitForFunction(() => window.__proto!.game!.state.players[1].party.some(m => m.ult.charge >= 1), undefined, { timeout: 10_000 });
   await page.keyboard.press('Escape');
   await expect(page.locator('.pause')).toBeVisible();
   const t0 = await proto(page, () => window.__proto!.game!.state.time);

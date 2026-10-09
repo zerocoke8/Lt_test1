@@ -34,7 +34,9 @@
 | `src/net/connection.ts` | WebSocket 연결, `/healthz` 확인(응답 없는 서버는 3분 동안 다시 확인), 재접속(점점 길게 기다림), 핑·조용한 끊김 감지, 접속 토큰, 다른 탭에 자리를 넘김(4001) |
 | `src/net/lobbyClient.ts` | 방 목록·내 방·시작 알림 |
 | `src/net/remoteGame.ts` | 서버 스냅샷을 `Game` 인터페이스로 감쌈 (보간, 명령 전송, 튜닝 전달) |
+| `src/net/expeditionNet.ts` | 원정(15차) 대기열·단계 클리어 선택·수령/가방 잃음 알림 |
 | `src/ui/lobby.ts` | 매칭 화면 / 방 화면 |
+| `server/expedition.ts` | 원정 단계별 대기열·사람별 런(가방·이어 가기 정보)·원정 방 규칙 |
 | `server/*.ts` | 게임 서버 (`main.ts` 진입점 → `dist-server/index.js`로 묶음) |
 | `Dockerfile`, `render.yaml` | 배포 |
 
@@ -82,8 +84,8 @@
    - 최대치의 사람 수 배수(1 / 1.4 / 1.8)는 **봇이 아니고 탈락(관전)하지 않은 자리를 실시간으로** 센다(13차 리뷰: 탈락한 사람은 채울 수 없으므로 뺌). 게이지가 비율이라 끊김(자리 → 봇)·재접속 때 막대는 그대로, 차는 속도만 바뀜.
    - 공로: `ContributionStats.groggyPoints`·`groggyBreaks`·`groggyDamage`, 결과 화면 '그로기 기여'. 보상 없음.
    - 방장 튜닝 `bossGroggyThreshold`(0 = 끔)·`bossGroggyDuration`·`bossGroggyDamageMult`·`bossGroggyDragMult` (서버가 범위 검사), 디버그 `forceGroggy {fill?}`(방장만, `fill` 0~1만 통과).
-   - 기획 14차 실험 규칙 「궁극기 개별 게이지」: 방장 튜닝 `ultPerCharacter`·`ultFieldChargeTime`(1~600초)·`ultBenchRatio`(0~1). 켜면 다음 스냅샷부터 모든 화면의 카드에 개별 게이지(`party[].ult`)가 생기고, 버튼·확인은 그 상태만 보고 판단(토글 값이 늦게 와도 어긋나지 않음).
-   - 기획 14차 실험 규칙 「교체 에너지」: 방장 튜닝 `swapEnergyMode`·`swapEnergyMax`(1~100)·`swapEnergyRegen`(초당 0~20). 켜면 다음 스냅샷부터 모든 플레이어에 `players[].energy {value, max, regen}`가 생기고(regen = 차는 속도: 빠른 교대 비용을 클라이언트도 같이 계산) 재등장 쿨은 0. 카드 확인·HUD·소리는 그 상태만 보고 판단(값은 소수 둘째 자리로 반올림 — 비용과 0.01 안쪽이면 서버가 거절할 수 있음).
+   - 궁극기 게이지 (기획 15차 확정, 14차 C안): 카드마다 `party[].ult {charge, fullSince}` — 공용 `players[].ult`는 없음. 방장 튜닝 `ultFieldChargeTime`(1~600초)·`ultBenchRatio`(0~1). 버튼·확인은 스냅샷의 필드 캐릭터 게이지만 보고 판단.
+   - 14차 실험 「교체 에너지」는 15차에 걷어냄: `players[].energy` 없음. 옛 클라이언트가 보내는 `ultPerCharacter`·`swapEnergy*`·`ultChargeTime`은 서버가 무시(그것만 보내면 거절).
    - 새 캐릭터(메딕·퇴마사·퍼펫티어, 12차)도 같은 스냅샷으로 감: 새 메시지·필드 없음. 대기 카드 회복은 `benchHeal` 이벤트로 모두에게 가고(카드 '+N'은 그 플레이어 화면에서 보임), 흡혼 표식은 보통 상태 효과처럼 실려 감.
    - e2e `tests/e2e/multi.spec.ts` 「3 players (기획 12차)」: 한 사람이 편성 화면에서 메딕을 고름 → 서버 파티에 반영, 방장이 강제한 금두꺼비가 세 화면에 같은 id·자리로 뜸 → 실제 터치 드롭으로 잡음 → 세 화면 모두 성공, 세 플레이어 모두 궁극기 +40%. 화면 `docs/screenshots/combat-event-multi.png`.
 5-4. **스킬 리뉴얼** (기획 13차, [`skill-renewal.md`](skill-renewal.md) 5장)
@@ -96,6 +98,16 @@
    - 새 메시지·필드 없음: 클라가 스냅샷 `events`와 상태만 듣고 소리를 냄(`src/audio`, 서버는 가져오지 않음).
    - 내 드래그·궁극기는 전체 소리, 다른 플레이어·봇 것은 −8dB + 먹먹하게(궁극기는 마지막 박자 + 연타 4번까지, 한 번에 하나), 그들의 일반스킬·기본 공격·펫·궁극기 준비는 소리 없음. 몬스터·보스·돌발 괴담·층 소리는 모두 같음.
    - 재접속·멈칫 뒤 몰려온 이벤트(0.25초 넘게 밀린 프레임)는 우선순위 4 이상만 냄. 연결 끊김/복구·방 인원 변화·봇이 자리 이어받음에 짧은 알림음.
+5-6. **원정** (기획 15차, [`expedition.md`](expedition.md) 5·7장, `server/expedition.ts`, 클라 `src/net/expeditionNet.ts`)
+   - 방 코드·방 목록 없이 **단계별 대기열**: `expQueue {stage, characters, pets, gear, firstBossClears, debugUnlock?}` → 같은 단계끼리 최대 3명. 3명이 차면 바로, 첫 사람이 들어온 뒤 **15초**(또는 `expStartNow`)면 빈자리를 봇으로 채우고 1초 뒤 출발. 대기열 화면은 `expQueueState {seats, you, secondsLeft, deadline, launching, continuing, bagCount}`(출발 직전에는 봇 자리까지).
+   - 서버 확인: 장비 형식(3명분, 칸·등급 1~12·유물 등급 3/6/9/12·아는 효과/유물 id, `cleanPartyGear`) → 틀리면 `error bad_gear`. 시작 단계 ≤ `maxStartStage`(무기·방어구·장신구 9칸 최저 등급 + 1) → 넘으면 `error stage_locked`. 장비는 나올 수 있는 조합만(T1~3 일반만, 희귀·영웅 ⇔ 효과 1개, 유물 별 = 그 유물 희귀도). 디버그 「단계 전부 해금」(`debugUnlock`)은 서버가 허용할 때만(기본 허용, `EXP_DEBUG_UNLOCK=0`이면 거절). 보관함은 브라우저에 있어서 조작 자체는 못 막음(프로토).
+   - 한 단계 = 숨은 방 하나 = 게임 한 판(`start.mode = 'expedition'`, 그 뒤는 보통 스냅샷). 원정 방에서는 `나가기`가 방장이어도 **그 사람만** 나감(그 사람 가방은 잃음, 자리는 봇). 디버그·튜닝은 대기열 첫 사람(방장)만, 그리고 **방에 사람이 방장 혼자일 때만**(다른 사람이 있으면 거절, 테스트는 `EXP_SHARED_DEBUG=1`). 사람이 모두 끊겨도 방을 닫지 않고(클래식은 60초 뒤 닫음) 봇이 단계를 끝까지 하고 결과대로 정산 — 20분은 안전장치.
+   - 3층 클리어(`stageClear`) → 사람마다 `expStageClear {loot, bag, deadline, nextStage}` → **20초** 안에 `expChoice`(또는 게임 명령 `expeditionChoice`). 스냅샷에 `choiceDeadline`, 다른 사람 선택은 `state.expedition.choices`에. 고른 사람은 바로 `gameEnded`를 받고 방을 떠남:
+     - 수령 → `expExtracted {items, reason, bossClears}` → 클라가 보관함에 넣고 깬 보스 단계를 기록(끊겨서 `expStageClear`를 못 받았어도). 시간 초과(`timeout`)·클리어 순간 끊김(`disconnect`)·12단계 뒤 「도전」(`complete`)도 수령.
+     - 도전 → 다음 단계 대기열로 자동(`expQueueState continuing`). 층 보상·괴담 흔적·캐릭터별 궁극기·가방·깬 단계 수는 **서버가 보관**(클라에서 안 받음). 대기열에서 그만두면(`expCancel`) 수령.
+   - 전멸·시간 초과 → 그 방 모두 `expBagLost {count, reason}`(낀 장비는 클라 보관함이라 그대로). 끊긴 사람에게 갈 결과는 서버가 들고 있다가 다시 접속하면 보냄.
+   - 클래식 방은 그대로(목록·코드에는 원정 방이 안 보임). 원정 판도 동시 게임 수(`MAX_GAMES`)에 들어감 — 가득이면 대기열이 2초마다 다시 출발을 시도.
+   - **클라 화면 흐름**(`src/ui/expeditionSolo.ts`의 `ExpeditionFlow`, 온라인일 때): 허브 「N단계부터 출발」 → 서버에 연결돼 있으면 `expQueue`, 아니면(아티팩트·오프라인) 봇 2명과 혼자. 매칭 대기 화면은 `expQueueState` 그대로(자리·15초 원·「바로 출발 (빈자리 봇)」·「취소」/「그만두고 수령하기」). 단계 게임은 클래식처럼 `RemoteGame`으로(`app.ts`가 `start.mode`를 보고 원정 흐름에 넘김). 3층 클리어 → `expStageClear`의 전리품·가방으로 선택 화면(20초 남은 시간 표시) → 고르면 `gameEnded` 뒤 `expExtracted`(보관함에 넣고 탈출 화면) 또는 다음 `expQueueState`(다음 단계 매칭 화면). 전멸·시간 초과·나가기 → 실패 화면(가방만 잃음). 원정 게임이 끝나도 클래식처럼 매칭 화면으로 돌아가지 않음.
 6. **나가기 / 연결 끊김** (R34)
    - 방장이 아닌 사람이 `나가기` → 매칭 화면으로. 그 자리는 봇이 런 끝까지 이어서 함.
    - 방장이 `나가기` → **모두의 런이 끝남** → 결과 화면.
@@ -242,7 +254,9 @@ docker run -p 8080:8080 swap-tower
 | 명령 | 내용 |
 |---|---|
 | `npx vitest run tests/net tests/sim/multi-players.test.ts` | 서버 방 로직 (생성/참가/가득 참/방장 넘김과 방 이름/봇 채우기/명령 자리 강제/방장 전용 디버그/보상 시간 초과/끊김→봇→재접속/나가기/스냅샷 줄이기, 괴담 방: 마감이 새로 시작·시간 초과 '지나간다'·보낸 사람 자리·거절 이유·방장 끊김은 그 자리만·재접속) + `RemoteGame`(괴담 명령 미리 검사·두 번 탭 막기·마감) + 통신 버전 다름 + sim 멀티 규칙 |
+| `npx vitest run tests/net/expedition.test.ts` | 원정 서버(15차): 3명 바로 출발·혼자 15초 뒤 봇 2·바로 출발·취소, 장비/시작 단계 거절, 클리어 → 둘은 이어 가서 2단계에서 다시 만나고(보상·궁극기 유지) 하나는 수령, 선택 시간 초과 = 수령, 클리어 때 끊김 = 수령 후 재접속 때 전달, 보스 첫 클리어 유물·12단계 완주, 도중 나가기 = 그 사람만 가방 잃음, 전멸/시간 초과 = 모두 잃음, 매칭된 방에서 방장 디버그·튜닝 거절(혼자면 허용), 모두 끊겨도 단계 계속, 클래식 방 영향 없음 |
 | `npx playwright test --project=multi` | 실제 서버 + 폰 브라우저 3개 (844×390@3x, 실제 터치). 아래 흐름. 스크린샷 `docs/screenshots/multi-*.png` |
+| `npx playwright test multi-expedition` | 원정 온라인(15차): 폰 2개가 같은 1단계 대기열 → 15초 뒤 봇 1 → 서로의 장비가 상대 스냅샷에 보임 → 1층 보상 → 단계 클리어(두 화면 전리품 표 같음, 20초 표시) → 한 명 수령(보관함 +2), 한 명 도전 → 혼자 2단계 대기열 → 15초 뒤 봇 2 → 층 보상 유지 → 수령(보관함 +4). 혼자 「바로 출발」 → 2단계 도중 메뉴 「나가기」 = 실패 화면, 보관함 그대로. 스크린샷 `expedition-match-online.png`·`expedition-choice-online.png` |
 | `npx playwright test artifact` | 혼자 하기 전용 빌드를 서버 없는 정적 호스트에서: 요청은 페이지 하나뿐, 콘솔 에러 0, 혼자 하기 동작 |
 | `npm run typecheck:server` | 서버 타입 검사 (Node 타입) |
 
@@ -289,7 +303,7 @@ docker run -p 8080:8080 swap-tower
 - 늘어난 몫은 대부분 **적에게 붙은 상태 줄**(리뉴얼 스킬의 둔화·도발·속박·정지 …): 스트레스 장면에서 화면의 상태 수 평균 8 → 47개(≈3KB). 그로기 칸(`bossGroggy`)은 보스층에서 약 100바이트, 새 이벤트(`skillStage` 등)는 프레임당 0.1 → 0.4~0.9KB.
 - 실제 전송은 최대 +28%(스트레스 12 → 15KB/s)로 모바일 데이터에 여전히 작음. 원본 최대가 30KB를 넘는 것은 인위적인 스트레스 장면뿐이라 더 줄이지 않음 (필요하면: 상태의 `total`·기본값 필드 생략).
 
-### 7-2. 14차 실험 규칙을 켠 스냅샷 (2026-10-06, 같은 도구: `SNAP_TUN='{"ultPerCharacter":true,"swapEnergyMode":true}' npx vite-node tests/playtest/snap-size.ts`)
+### 7-2. 14차 실험 규칙을 켠 스냅샷 (기록 — 15차: 개별 게이지가 기본, 에너지 칸은 없어짐; 2026-10-06, 같은 도구: `SNAP_TUN='{"ultPerCharacter":true,"swapEnergyMode":true}' npx vite-node tests/playtest/snap-size.ts`)
 
 - **꺼 둔 판(기본)**: 7-1의 13차 숫자와 완전히 같음 (새 칸이 안 생김).
 - **둘 다 켬**: 플레이어마다 `energy {value, max, regen}`(약 40바이트), 카드마다 `ult {charge, fullSince}`(카드당 약 35바이트) → 3명 기준 원본 약 +0.4KB.

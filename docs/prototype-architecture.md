@@ -28,7 +28,7 @@
 - 연출(데미지 숫자, 스킬 이펙트)은 `game.drainEvents()`의 GameEvent로 전달.
 - 봇은 플레이어 슬롯의 조작 주체만 다름 (`PlayerState.isBot`). 봇도 같은 Command를 dispatch (sim 내부 `bot.ts`).
 - 숫자는 `Tunables`(디버그 슬라이더로 실시간 조절)나 `src/data`에 둠. 코드에 하드코딩하지 않음.
-- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`, `sim/cooldowns`의 `normalCooldownFor`(튜닝값 + PlayerState → 일반스킬 쿨 길이, 카드 마름모)·`swapCooldownOf`(→ 다음에 나갈 때 받을 재등장 쿨, 스킬 정보 "나가면 쿨 N초"), `sim/players`의 `ultChargeTimeFor`(흔적 배율까지 넣은 궁극기 충전 시간, HUD "N초 후"·스킬 정보), `sim/goedam`의 `canGoedamState`(괴담 명령 검사). 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건·쿨 길이를 씀.
+- render/ui/net이 sim에서 가져다 쓰는 것은 **상태를 바꾸지 않는 순수 함수만**: `sim/geometry`(형태), `sim/preview`(미리보기 파트), `sim/players`의 `canSwapState`/`canUsePetState`/`canUltState`, `sim/cooldowns`의 `normalCooldownFor`(튜닝값 + PlayerState → 일반스킬 쿨 길이, 카드 마름모)·`swapCooldownOf`(→ 다음에 나갈 때 받을 재등장 쿨, 스킬 정보 "나가면 쿨 N초"), `sim/ultMode`의 `fieldUltGauge`·`ultFillTimes`·`ultSecondsLeft`(15차: 캐릭터별 게이지, 흔적 배율까지 넣은 충전 시간, HUD "N초 후"·스킬 정보), `sim/goedam`의 `canGoedamState`(괴담 명령 검사). 그래서 멀티 클라이언트도 서버 sim과 같은 미리보기·판정 조건·쿨 길이를 씀.
 - `Zone.area`: 띠·고리·십자 등 원이 아닌 장판은 정확한 모양을 담음 (없으면 `radius` 원). 렌더러와 스냅샷이 그대로 사용.
 
 ## 화면 좌표
@@ -51,7 +51,7 @@
 | R6 | 타겟: 가장 가까운 적. 잡으면 죽거나 사라질 때까지 유지. 예외 없음(몬스터 종류·역할 무관, 도발 없음). 근처에 없으면 맵에서 찾아 이동, 없으면 대기 | 1차 5, 2차 Q4 |
 | R7 | 몬스터도 같은 규칙. 노리던 캐릭터가 교체로 사라지면 새로 가장 가까운 대상 | 1차 5 |
 | R8 | 디버그 토글 `bossLockReleaseSec`: 0이 아니면 보스 타겟을 N초 뒤 해제 | 2차 Q4 |
-| R9 | 궁극기 게이지: 플레이어마다 1개, 내 캐릭터 3명 공용, 시간으로만 충전(ultChargeTime). 가득 차면 탭 → 필드 캐릭터가 사용. 필드가 비면 사용 불가 | 1차 8, 2차 Q1 |
+| R9 | 궁극기 게이지: **캐릭터마다 1개**(15차 확정, 14차 C안), 시간으로만 충전 — 필드 캐릭터 `ultFieldChargeTime`(30초), 대기 `ultBenchRatio`(1/3) 속도. 버튼 = 필드 캐릭터 게이지, 가득 차면 탭. 필드가 비면 사용 불가 | 1차 8, 2차 Q1, 14차, 15차 |
 | R10 | HP는 캐릭터별. 죽으면 reviveTime(30초) 뒤 카드로 부활(HP reviveHpFrac). 자동 등장 없음: 유저가 직접 드래그 | 1차 9 |
 | R11 | 내 캐릭터 3명이 동시에 죽어 있으면 그 플레이어는 사망(관전). 다른 사람이 층을 클리어하면 다음 층에서 부활(3명 모두 부활, 1번으로 시작, 보상도 고름). 플레이어 3명 모두 사망하면 런 실패 | 2차 Q3, 5차 |
 | R12 | 대기 중: 쿨만 돎, HP 회복 없음, 피해 없음, 버프·디버프 시간은 흐름. 내려간 캐릭터의 장판·소환물은 남음 | 1차 19 |
@@ -154,7 +154,7 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 |---|---|---|
 | R49 | 층 사이 괴담 방: 구역마다 `goedamRoomsPerZone`(기본 1, 0~2)개, 층은 시드로(1층·보스층·20층 뒤 제외, 연속 층 없음, 같은 방 한 번). 층 보상 **뒤에** 새 단계 `SimPhase 'goedam'` (보상 단계 안이 아님). 시간 정지(`tick()`은 전투에서만). `GameState.goedam`은 이 단계에서만 null이 아님, 다음 층 시작·디버그 층 이동·런 종료에서 지움. 흐름: 층 클리어 → 흔적 만료 → 20% 회복 → 보상 → 방(봇은 바로 '지나간다') → 사람마다 고르기 → 결과 → 계속 → 모두 끝나면 다음 층 | 10차 1·2·4·6 |
 | R50 | 방 전용 랜덤 `goedamRng(시드, 층, 플레이어)` — 전투·스폰·보상 화면의 `w.rng`를 건드리지 않음. 그래서 슬라이더 0이거나 모두 '지나간다'면 지금 런과 비트 단위로 같음 (수첩 기록만 다름, `tests/sim/goedam.test.ts` 'goedam baseline'). 선택은 화면 번호가 아니라 선택지 id(`'leave'` 등) | 10차, 기획서 7장 |
-| R51 | 방 효과는 절대 죽이지 않음(HP 최소 1), 내 파티·내 게이지·내 보상에만. 흔적 = 스탯·궁극기 충전 배율·받는 피해 배율 3종, N층 또는 영구, 같은 흔적은 기간만 갱신, 층 클리어 회복 **전에** 만료, 최대 HP는 원래의 30% 아래로 안 내려감. 궁극기 충전 시간은 `ultChargeTimeFor` 하나로 sim·HUD·스킬 정보가 같이 씀 | 10차 8, 기획서 5장 |
+| R51 | 방 효과는 절대 죽이지 않음(HP 최소 1), 내 파티·내 게이지·내 보상에만. 흔적 = 스탯·궁극기 충전 배율·받는 피해 배율 3종, N층 또는 영구, 같은 흔적은 기간만 갱신, 층 클리어 회복 **전에** 만료, 최대 HP는 원래의 30% 아래로 안 내려감. 궁극기 충전 시간은 `ultFillTimes`(15차, `src/sim/ultMode.ts`) 하나로 sim·HUD·스킬 정보가 같이 씀 | 10차 8, 기획서 5장 |
 | R52 | 멀티: 방 마감 25초(새로 시작, `goedamDeadline` 스냅샷), 지나면 `goedamTimeoutCommands` = 안 고른 사람 '지나간다' → 모두 '계속'. 접속 끊김(`setPlayerBot`)은 그 자리만 자동 처리, 재접속은 '끝남' 단계로. 다른 사람 결과는 내가 고른 뒤에만. 통신 버전 2 | 10차 5·10, 기획서 3장 |
 | R53 | 방 선택지 버튼은 방이 화면에 뜬 뒤 `ARM_MS`(0.45초)부터 탭을 받음 (`src/ui/goedam.ts`): 방은 마지막 보상을 고른 그 틱에 열려서, 보상 카드 더블탭이 읽지 않은 선택지를 고르던 것 막음. 흔적의 최대 HP 증가분은 현재 HP도 같이 올림(`refreshMaxHp(w, p, true)`, 보상의 최대 HP와 같은 방식). `GoedamOutcome.revived`(부활 효과가 있을 때만, 0이면 결과 카드에서 '부활' 줄 뺌). `goedamDeadline`은 방 단계에서만 스냅샷에 실음 | 10차 리뷰 |
 
@@ -180,7 +180,7 @@ Playwright 프로젝트 (`playwright.config.ts`, Chromium은 `/opt/pw-browsers/c
 HUD (`src/ui/hud.ts`, `src/ui/skillinfo.ts`, `styles.css`):
 - **일반스킬 쿨 = 카드의 작은 마름모** (목업의 마름모 + '0.99', 4차 결정 §17): 카드마다(활성·대기 모두) 초상화 왼쪽 아래, 카드 왼쪽 테두리에 걸쳐 작은 마름모. 준비 = 캐릭터 색으로 빛나는 마름모, 쿨 중 = 어두운 마름모에 색이 시계 방향으로 다시 차오르고 남은 초(3초 이상은 정수 "6", 마지막 3초는 소수 한 자리 "2.4" — 최대 3글자라 폰(글자 19~20 = 약 10~11 CSS px)에서도 마름모 안에 들어감. 올림이라 쿨 중엔 "0"/"0.0" 없음; `skillinfo.ts` `cdText`). 필드 카드가 준비됐는데 안 나가는 중(맞힐 적이 사거리 밖 / 기절) = 빛나는 마름모를 흐리게(`is-waiting`, 스킬 정보의 "대기"와 같은 조건). 쿨 길이는 sim의 `sim/cooldowns.ts` `normalCooldownFor`(데이터 × 보상 감소)를 그대로 호출 (멀티는 스냅샷의 PlayerState로, 테스트로 같음을 확인). 대기 카드의 쿨도 sim처럼 계속 흐름. 쓰러짐/관전 = 흐린 회색, 숫자 없음. 발동(`skillCast` slot normal)하면 마름모가 번쩍이고 테두리가 퍼짐. 마름모는 포인터를 통과시키므로 마우스 설명(title)은 카드에 있음. 따로 크게 띄우던 "자동 스킬" 칸은 없앰. 활성 카드 오른쪽(번호 아래) 작은 "i" = 탭하면 스킬 정보.
 - **카드**: 재등장 쿨(= 드래그스킬 쿨)은 초상화 위 큰 숫자 하나로만 보임 (9차 결정 §22). 쿨 중인 대기 카드 상태 줄 = "쿨타임"(초는 안 씀). 왼쪽 위 드래그 모양 배지·쿨 막대는 없앰 — 드래그 모양은 끌 때 미리보기와 스킬 정보에 있음. 드래그스킬이 나가면 초상화가 번쩍임.
-- **궁극기**: % 아래 "N초 후"(충전은 시간만: `(1 − charge) × ultChargeTime`), 쓸 수 있으면 "탭!".
+- **궁극기**: 필드 캐릭터 게이지의 % 아래 "N초 후"(충전은 시간만: `ultSecondsLeft`), 쓸 수 있으면 "탭!". 카드마다 링 `.cc-ult`(15차: 늘 보임).
 - **쿨 감소가 보임**: 대기 카드의 재등장 쿨이 시간보다 빨리 줄면(크로노 시간 균열, 펫 등) 카드 위로 "-2초"(크로노 시간 균열, 6차 수치) 같은 숫자가 떠오르고 큰 숫자가 번쩍임 (`hud.ts` `cutPop`).
 - **스킬 정보**: 활성 카드 탭("i" 표시), 또는 아무 카드 길게 누르기(0.42초) → 5개 스킬, 스킬마다 두 줄(종류 · 이름 · 발동/쿨 · 지금 남은 시간 / 효과 전체, 잘리지 않고 줄바꿈). 폭 520(폰 560), **내 캐릭터 반대쪽 절반**에 뜨고 캐릭터가 그 밑으로 걸어오면 반대쪽으로 옮김. 효과 문구는 데이터에서 만들어서(`skillSummary`, 장판은 "0.5초마다 회복 2% · 4초 장판") 수치를 바꾸면 같이 바뀜. 터치를 막지 않음(pointer-events 없음), 7초 뒤 자동으로 닫힘, 드래그 시작하면 닫힘. 쿨 중인 카드를 길게 눌러도 거절 안내·흔들림 없음 (손가락을 끌거나 그냥 탭했을 때만).
 - **처음 안내**: 1층 시작에 카드 줄 위 "ⓘ 카드 길게 누르기 = 스킬 정보" (9초, 스킬 정보를 한 번 열 때까지 런마다, `storage.ts` `tipSeen`).
@@ -462,6 +462,8 @@ src/sim (서버·혼자 하기 공통, 결정적)
 
 ## 14차: 실험 규칙 토글 — 궁극기 개별 게이지 (2026-10-06)
 
+> 15차: 토글을 없애고 이 규칙이 기본(유일한) 규칙이 됨 — 아래 「15차: 규칙 확정」. 이 절은 기록.
+
 규칙은 [`game-design.md`](game-design.md) 27-1. 기본 꺼짐 = 13차와 완전히 같은 판(`tests/sim/default-off-golden.test.ts`: 13차 코드로 잡은 상태·이벤트 해시 2개).
 
 | 경로 | 바뀐 것 |
@@ -478,6 +480,8 @@ src/sim (서버·혼자 하기 공통, 결정적)
 - 테스트: `tests/sim/ult-per-character.test.ts`(규칙 13개 + 봇), fuzz 2판(켜고 시작 / 도중에 마구 켜고 끄기), 전송 키(`member.ult`) + 관찰자 결정성, 서버(방장만, 두 화면 다 반영), `tests/e2e/ult-per-char.spec.ts`(폰: 패널에서 켜기 → 링 3개 → 필드 캐릭터 궁극기).
 
 ### 14차: 실험 규칙 토글 — 교체 에너지
+
+> 15차: 실험을 걷어냄(코드·토글·전용 테스트 삭제) — 아래 「15차: 규칙 확정」. 이 절은 기록.
 
 규칙은 [`game-design.md`](game-design.md) 27-2, 비용표·20층 측정은 [`balance.md`](balance.md) 13장. 두 토글은 서로 독립(둘 다 켠 fuzz·결정성 판 있음).
 
@@ -510,3 +514,63 @@ src/sim (서버·혼자 하기 공통, 결정적)
 - **14차 리뷰 수정** (규칙은 game-design.md 27-3b): `energy.ts` 균열 고정 에너지(`Effect.swapCooldownReduce.energy`) · 빠른 교대 × 속도 · `SwapEnergy.regen`; `ultMode.ts` 관전 중 토글은 1번 슬롯으로(`syncUltMode`), `ultCastableSince`(궁극기 대기 통계를 필드에 나온 때부터, 캐릭터 엔티티 `rt.appearedAt`); `players.ts refundUnlandedUlts`가 시전마다 사용 횟수를 되돌림; `director.ts` 10초 알림은 필드에 나온 때부터 · 카드마다 한 번; `debug.ts touchSafeRange`(터치: 옆으로 끌기·톡 = 값, 세로 = 스크롤만) + 「실험 규칙」 칸을 맨 위로 + 폰 글자 키움; `skillinfo.ts` 줄 줄임 + `.ss-skill` 두 줄 허용; `preset.ts` 설명 끝 「⚡ = 교체 비용」 · `setUltPerCharacter` · 출발 위 한 줄 메모; 궁극기 버튼 「준비 완료」. 테스트: `swap-energy.test.ts`(크로노 속도 0.25·1·3), `ult-per-character.test.ts`(관전 토글, 겹친 컷인, 대기 통계), `audio.test.ts`(알림), `ui-logic.test.ts`(문구), `swap-energy.spec.ts` 폰 전용(세로로 밀어도 값 그대로 + 가로 끌기 · 두 규칙 켜고 거너·크로노·메이지 스킬 정보 이름 잘림 0).
 - vitest를 Playwright와 **동시에** 돌리면 CPU가 모자라 vitest가 「Timeout calling onTaskUpdate」(테스트 결과 보고 지연, 테스트 749개는 모두 통과)를 낼 수 있음 — 따로 돌리면 깨끗함.
 
+## 15차: 규칙 확정 — 쿨타임 교체 · 캐릭터별 궁극기 게이지 (2026-10-09)
+
+규칙은 [`game-design.md`](game-design.md) 28장, 클래식 탑 클리어율은 [`balance.md`](balance.md) 14장.
+
+| 경로 | 바뀐 것 |
+|---|---|
+| `src/sim/ultMode.ts` | 토글·공용 게이지 경로 삭제(`perCharUlt`, `syncUltMode`, `ultChargeTimeFor` 없음). 게이지는 늘 `PartyMember.ult`. `emptyUltGauge`, `ultCastableSince(g, now, appearedAt)` |
+| `src/types.ts`, `src/config.ts` | `PartyMember.ult` 필수, `PlayerState.ult`·`energy` 삭제, `ultReady.partyIndex` 필수. `Tunables`에서 `ultPerCharacter`·`ultChargeTime`·`swapEnergy*` 삭제(`ultFieldChargeTime` 30, `ultBenchRatio` 1/3만 남음) |
+| `src/sim/energy.ts` | **삭제**. 쿨 감소·「쿨 0」은 13차 코드로 되돌림(`combat.reduceBenchSwapCd(p, s)`, 괴담·돌발·층 복귀·디버그는 쿨을 직접 0). `CharacterDef.swapEnergy`, 효과의 `energy` 삭제 |
+| `src/sim/players.ts`, `game.ts`, `bot.ts` | 캐릭터 생성 때 게이지를 만듦. 매 틱·명령마다 하던 모드 맞추기 없음. 봇 `ultCard`는 늘 켜짐 |
+| `src/ui/*`, `styles.css`, `src/audio/director.ts` | 에너지 바·카드 비용·「에너지 부족」·에너지 문구(`energyRuleText`) 삭제, 카드 링 늘 보임. 디버그: 「실험 규칙」 칸 없음, 슬라이더 2개는 「궁극기 게이지」 칸, 옛 「궁극기 충전 시간」 슬라이더 삭제, 「교체·궁극기」 칸 이름은 「교체·펫」 |
+| `src/sim/telemetry.ts` | 서버 한도에서 삭제된 키를 뺌. 옛 클라이언트가 보내는 `ultPerCharacter`·`swapEnergy*`·`ultChargeTime`은 `DEFAULT_TUNABLES`에 없어서 무시(그것만 보내면 거절) |
+| `src/ui/storage.ts` (`sanitizeOverrides`) | 브라우저에 남은 옛 키는 조용히 버림 |
+
+- 골든(`tests/sim/default-off-golden.test.ts`)은 한 번 다시 잡음 — 새 해시 = 14차 코드에 `ultPerCharacter: true`를 켠 판(옛 공용 `ult` 칸만 빼고 해시)과 같음. 즉 이번 정리는 개별 게이지 판을 한 비트도 안 바꿈. `healers.test.ts`의 옛 파티 해시도 같은 방식으로 확인 후 다시 잡음.
+- 테스트: `ult-per-character.test.ts`(토글·공용 게이지 경우 삭제, 옛 키 무시 추가), fuzz(옛 토글 판 → 슬라이더·옛 키를 마구 보내는 판), 전송 키(`player.ult`·`energy` 없음), 서버(옛 키 무시·거절), UI(「궁극기 게이지」 칸), e2e(`ult-per-char.spec.ts`·`artifact.spec.ts`·`multi.spec.ts` 「3 players (기획 15차)」). `swap-energy.test.ts`·`swap-energy.spec.ts`와 화면 `energy-mode.png`·`energy-multi.png`·`debug-modes.png` 삭제.
+
+
+## 15차: 원정 모드 — 시뮬·데이터 핵심 (2026-10-09)
+
+규칙은 [`expedition.md`](expedition.md). 게임 한 판 = 단계 하나(3층). 클래식 탑은 한 비트도 안 바뀜(골든 그대로).
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/data/gear.ts` | 장비 칸·등급·주 능력치(`gearMainMods`)·특수 효과 12종(`GEAR_OPTIONS`)·희귀도표·유물 등급 배율·칸 가중치·시작 단계 규칙(`maxStartStage`)·봇 장비·그림 묶음(`gearBandsOf`)·검증(`gearSpecProblem`, `cleanPartyGear`) |
+| `src/data/stages.ts` | `EXPEDITION`(벤치가 고치는 손잡이: 단계 배율, 웨이브 6/7/5(맞춘 값), 제한 시간, 수문장·보스 배율, 확률), 단계별 중형/수문장/보스(`MID_BY_STAGE`), `equivFloor` |
+| `src/sim/expedition.ts` | 층 계획(`planExpeditionFloor`), 단계 클리어(`'stageClear'`, 전리품 `rollStageLoot`, 선택 `expeditionChoice`), 이어 가기(`extractCarry` / 시작 때 적용), 괴담 방·돌발 괴담 일정, 디버그 「단계 즉시 클리어」 |
+| `src/sim/expeditionGear.ts` | 낀 장비 → 그 캐릭터 능력치(`gearStatMods`), 캐릭터 전용 유물(`charRelicMult`), 효과 레벨(`charOptionLevel`) |
+| `src/sim/expeditionOptions.ts` | 특수 효과와 낀 「교대의 깃발」: 퇴장(`gearOnLeave`)·등장(`gearOnAppear`)·착지(`gearOnLand`)·대기 틱(`tickGearBench`). 추가 피해는 그로기 없음, 출처 'relic' |
+| `src/expedition/stash.ts` | 보관함 순수 모델(저장 형식 v1, 장착/해제/버리기/자동 장착, 시작 단계, 디버그 지급, 초기화). 저장은 UI(`swapTower.expedition.v1`) |
+| `src/expedition/run.ts` | 한 사람의 원정 런: 가방·이어 가기·깬 단계 수, 다음 단계 `GameSetup`(봇이 빈자리), 수령/실패 |
+
+**클래식 코드의 갈림길** (원정을 버리면 위 파일과 이 줄들만 지움): `types.ts` 원정 타입·옵션 필드(`PlayerSetup.gear`, `PlayerState.gear`, `GameSetup.expedition`, `GameState.expedition`, `FloorPlan.stage…bossHpMult`, `SimPhase 'stageClear'`, 명령 `expeditionChoice`, 디버그 `expeditionClearStage`, 이벤트 `stageClear`·`expeditionChoice`·`gearProc`) · `game.ts` createWorld(원정 rt·계획·좌석 장비·`initExpedition`), dispatch(`expeditionChoice`, quit/디버그 막기, `expeditionClearStage`, `jumpFloor` 1~3) · `floor.ts` startFloor 계획·층 표시, 보스 HP 배율, 수문장 배율·등장 시각, floorClear(3층 → `stageClear`), setPlayerBot(클리어 때 끊기면 수령) · `world.ts` `World.expedition`, `MemberRt` 효과 칸, endRun(클리어 뒤 실패 없음) · `goedam.ts` roomAfter · `fieldEvents.ts` 일정 · `stats.ts` effStats·benchMaxHp 장비 한 줄씩 · `modifiers.ts` `relicScale`·`gearOptionValue`(빠른 교대) · `cooldowns.ts` 펫 목걸이·일반스킬 가속 · `ctx.ts` 펫 목걸이 · `combat.ts` 광기 사냥꾼·흡혈의 잔·사냥꾼의 표식·불사조(`DmgSrc.partyIndex`) · `players.ts` 퇴장·등장·착지·메아리·부활·대기 틱 · `audio/director.ts` 새 이벤트 3개(소리 없음).
+
+- 유물 자리는 모두 `relicScale(p, idx, id)` 하나로: 클래식 파티 유물 = 1(전과 같은 값 × 1), 원정 = 그 캐릭터가 낀 유물의 등급 배율, 없으면 0.
+- 난수: 웨이브 구성만 판 난수(클래식 planFloor와 같음). 전리품·괴담 방·돌발 괴담 일정은 `mixSeed(seed, 0xe6ed15, …)` 별도 흐름 → 전리품이 바뀌어도 전투는 그대로(테스트).
+- 테스트: `tests/sim/gear.test.ts`, `expedition.test.ts`, `expedition-stash.test.ts`, fuzz(원정 6판), 전송 키(`expedition`, `plan.stage…`, `player.gear`).
+
+## 15차: 원정 모드 — 화면·그림·서버·통합 (2026-10-09)
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/ui/mainMenu.ts` | 메인 화면(모드 카드 2장: 클래식 탑 / 원정). 마지막 모드 `swapTower.mode.v1` |
+| `src/ui/expeditionHub.ts` · `expeditionEquip.ts` | 원정 허브(인형 3개·단계 지도 4×3·출발·DBG 서랍), 장비 화면(캐릭터 목록·큰 인형·칸 4개·보관함 격자·비교 서랍·자동 장착·장착 연출) |
+| `src/ui/expeditionRun.ts` | 단계 HUD 알약(층 점·가방 칩), 단계 클리어 선택(두 번 탭), 매칭 대기, 실패·탈출 화면. 보여 주기만 함 |
+| `src/ui/expeditionInfo.ts` | 런 화면 타일(전리품·가방·실패·탈출)을 누르면 뜨는 읽기 전용 상세 카드 + 추천 착용자(한 사람 한 칸에 하나) |
+| `src/ui/expeditionSolo.ts` | `ExpeditionFlow`: 원정 화면 전부를 모는 컨트롤러. **혼자**(아티팩트·오프라인: 단계마다 로컬 `createGame`, 런은 `src/expedition/run.ts`) / **온라인**(서버에 연결돼 있으면: `ExpeditionNet` 대기열, 단계 게임은 `RemoteGame`, 가방은 `expStageClear`를 그대로 보여 주고 `expExtracted`를 보관함에) |
+| `src/ui/expeditionStore.ts` · `expeditionFormat.ts` · `expeditionDoll.ts` · `expeditionCtx.ts` · `expedition.css` | 저장(localStorage, 모두 try/catch), 글·비교, 인형 애니메이션, 공용 상태, 화면 CSS |
+| `src/render/gear.ts` · `gearArt.ts` | 전투 몸에 장비 그리기(유물 뒤 → 몸 → 방어구 → 역할 글자 → 장신구 → 무기 → 유물 앞, 묶음 1~4), 아이콘·메뉴 인형, 그림 파일 덮어쓰기(`src/assets/gear/*.png`, 이름 52개), 디버그 「장비 그림: 코드/파일」 |
+| `scripts/art-gear.mjs` | `npm run art:gear`: `art/gear/` 원본 → 256×256 `src/assets/gear/` (설치된 Chromium으로 줄임) |
+| `server/expedition.ts` · `src/net/expeditionNet.ts` | 서버 단계별 대기열·사람별 런·원정 방 규칙 / 클라 메시지 묶음 ([`multiplayer.md`](multiplayer.md) 5-6) |
+
+**처음 화면**: 사람은 메인 화면. 브라우저 자동화(`navigator.webdriver`)는 예전처럼 클래식 편성 화면에서 시작해서 옛 e2e·플레이테스트 스크립트가 그대로 돈다. `?main=1`이면 자동화도 메인 화면.
+
+**app.ts 갈림길** (원정을 버리면 지울 곳): 메인 화면·`ExpeditionFlow` 만들기, `AppPhase`의 원정 단계 7개(`main`, `expHub`, `expEquip`, `expMatch`, `expPlaying`, `expChoice`, `expResult`), `start.mode === 'expedition'` → `remoteExp`(끝나도 매칭 화면으로 안 감, 나가기는 늘 나만, 결과 표 대신 실패 화면), 프레임마다 `expFlow.frame`, 편성 화면 원정판. 다른 클래식 파일: `preset.ts`(원정판·「← 메인」), `hud.ts`(「N단계 M층」·배너·`topCenter`), `reward.ts`(제목), `debug.ts`(「원정」 칸, 원정일 때만), `pause.ts`(원정 멀티 나가기 안내), `units.ts`/`render/index.ts`(장비 없으면 그대로 그림 — 그리기 호출 목록이 클래식과 같음, 테스트), 서버 `room.ts`(`RoomMode` 고리)·`hub.ts`·`validate.ts`·`protocol.ts`(버전 3).
+
+**통합 확인 (2026-10-09)**
+- `tsc`·서버 타입 검사·vitest 전부, `build:all`·`build:artifact`(그림 폴더 비어도, 더미 PNG 넣으면 data: URI로 들어감), Playwright 전 프로젝트 2번.
+- 온라인 원정 e2e `tests/e2e/multi-expedition.spec.ts`(폰 2개 + 서버): 같은 단계 대기열 → 15초 뒤 봇 → 상대 장비가 내 스냅샷에도 → 클리어 때 두 화면 전리품 표 같음 → 한 명 수령·한 명 도전 → 혼자 2단계 재매칭(봇 2) → 층 보상 유지 → 수령. 도중 나가기 = 가방만 잃음.
+- 아티팩트(서버 없음): 원정 혼자 하기 끝까지 + 새로고침 뒤 보관함 유지 + 콘솔 에러 0 (`tests/e2e/artifact.spec.ts`).

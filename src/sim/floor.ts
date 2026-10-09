@@ -10,8 +10,8 @@ import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvent
 import { clearGroggy, resetGroggy } from './groggy';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { refundUnlandedUlts, revive, syncMembers } from './players';
-import { resetSwapCooldowns } from './energy';
 import { applyOffer, rollOffers } from './rewards';
+import { autoExpeditionChoice, expeditionFloorClear, noteExpeditionFloor, planExpeditionFloor } from './expedition';
 import type { Rng } from './rng';
 import {
   activeEntity,
@@ -111,7 +111,8 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   s.projectiles.length = 0;
   w.pending = [];
   s.floor = Math.max(1, Math.floor(n));
-  s.plan = planFloor(s.floor, w.rng, w.tunables);
+  s.plan = w.expedition ? planExpeditionFloor(w.expedition.stage, s.floor, w.rng, w.tunables) : planFloor(s.floor, w.rng, w.tunables);
+  if (w.expedition) noteExpeditionFloor(w); // 기획 15차 원정
   s.floorTime = 0;
   s.timeRemaining = s.plan.timeLimit;
   s.bossId = null;
@@ -157,11 +158,12 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
 
   if (s.plan.kind === 'boss' && s.plan.bossId) {
     const def = getBoss(s.plan.bossId);
+    const hpMult = s.plan.statMult * w.tunables.monsterHpMult;
     const e = createUnit(w, def, BOSS_POS, 'enemy', {
       kind: 'monster',
       ownerPlayer: null,
       expiresIn: null,
-      hpMult: s.plan.statMult * w.tunables.monsterHpMult,
+      hpMult: s.plan.bossHpMult ? hpMult * s.plan.bossHpMult : hpMult, // 기획 15차 원정 보스 HP × EXPEDITION.bossHp (지금 1.0)
       atkMult: s.plan.statMult,
     });
     s.bossId = e.id;
@@ -177,12 +179,14 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
 function spawnPending(w: World, ps: PendingSpawn): void {
   const s = w.state;
   const def = getMonster(ps.monsterId);
+  // 기획 15차 원정 수문장: the floor-3 mid boss is the enhanced guardian
+  const g = ps.mid ? s.plan.guardian : undefined;
   const e = createUnit(w, def, ps.pos, 'enemy', {
     kind: 'monster',
     ownerPlayer: null,
     expiresIn: null,
-    hpMult: s.plan.statMult * w.tunables.monsterHpMult,
-    atkMult: s.plan.statMult,
+    hpMult: g ? s.plan.statMult * w.tunables.monsterHpMult * g.hpMult : s.plan.statMult * w.tunables.monsterHpMult,
+    atkMult: g ? s.plan.statMult * g.atkMult : s.plan.statMult,
   });
   if (ps.mid) s.midBossSpawned = true;
   if (ps.printed) notePrinted(w, e);
@@ -235,7 +239,9 @@ export function tickSpawner(w: World, dt: number): void {
     sp.nextWave++;
   }
   // The mid boss obeys the same alive cap as waves (9-1 동시 최대 maxAliveMonsters): postponed, never dropped.
-  const midDue = sp.kills >= w.tunables.midBossKillTrigger || s.floorTime >= w.tunables.midBossTimeTrigger;
+  const midDue = plan.guardian
+    ? s.floorTime >= plan.guardian.at - 1e-9 // 기획 15차 원정 수문장: on time, not on kills
+    : sp.kills >= w.tunables.midBossKillTrigger || s.floorTime >= w.tunables.midBossTimeTrigger;
   const aliveNow = countEnemies(w) + queuedEnemies(w);
   const midRoom = aliveNow === 0 || aliveNow + 1 <= w.tunables.maxAliveMonsters;
   if (plan.midBossId && !sp.midTriggered && midDue && midRoom) {
@@ -349,6 +355,7 @@ export function floorClear(w: World): void {
   }
   syncMembers(w);
 
+  if (w.expedition && expeditionFloorClear(w)) return; // 기획 15차 원정: floor 3 → 'stageClear'
   if (s.floor >= w.tunables.maxFloor) {
     endRun(w, 'victory', 'cleared');
     return;
@@ -367,10 +374,10 @@ export function floorClear(w: World): void {
     p.activeIndex = null;
     p.appearLock = 0;
     p.party.forEach((m, idx) => {
+      m.swapCooldownRemaining = 0;
       m.normalCooldownRemaining = 0;
       if (m.dead) revive(w, p, idx);
     });
-    resetSwapCooldowns(p); // 기획 14차 교체 에너지: revived at a floor start = a full pool
     p.rt.rejoinNextFloor = true;
   }
   syncMembers(w);
@@ -464,6 +471,7 @@ export function setPlayerBot(w: World, pi: number, isBot: boolean): void {
     b.ultAt = null;
     b.nextSwapAt = s.time + BOT.periodicSwap[0];
   }
+  if (isBot && s.phase === 'stageClear') autoExpeditionChoice(w, pi); // 기획 15차 원정: dropped at the clear = 수령
   if (isBot && s.phase === 'goedam') {
     // 기획 10차: a slot that drops in a 괴담 room leaves it ('지나간다', then 계속) — the room never waits on it
     autoResolveGoedam(w, pi);

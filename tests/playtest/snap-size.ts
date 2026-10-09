@@ -5,7 +5,7 @@
 //   wire = bytes after permessage-deflate with context takeover (one zlib stream per client, level 4, sync flush)
 // Same seeds and scenarios on any checkout, so an old tree can be measured by copying this file into it.
 // Run: npx vite-node tests/playtest/snap-size.ts   (env SNAP_SEC = seconds per scenario, default 40;
-// SNAP_TUN = JSON tunables over every scenario, e.g. '{"ultPerCharacter":true,"swapEnergyMode":true}' — 기획 14차)
+// SNAP_TUN = JSON tunables over every scenario, e.g. '{"ultBenchRatio":1}')
 
 import { constants, createDeflateRaw, type DeflateRaw } from 'node:zlib';
 import { wireJson } from '../../server/snapshot';
@@ -28,8 +28,8 @@ interface Scenario {
 const SCENARIOS: Scenario[] = [
   { name: 'normal 1F', seed: 101, startFloor: 1, tunables: {} },
   { name: 'boss 5F', seed: 505, startFloor: 5, tunables: { invincible: true } },
-  { name: 'boss 20F + ult every 3 s', seed: 2020, startFloor: 20, tunables: { invincible: true, ultChargeTime: 3 } },
-  { name: 'stress 9F (30 alive, ult every 3 s)', seed: 4040, startFloor: 9, tunables: { waveInterval: 1, monsterHpMult: 25, ultChargeTime: 3, invincible: true, midBossTimeTrigger: 3 } },
+  { name: 'boss 20F + ult every 3 s', seed: 2020, startFloor: 20, tunables: { invincible: true, ultFieldChargeTime: 3 } },
+  { name: 'stress 9F (30 alive, ult every 3 s)', seed: 4040, startFloor: 9, tunables: { waveInterval: 1, monsterHpMult: 25, ultFieldChargeTime: 3, invincible: true, midBossTimeTrigger: 3 } },
 ];
 
 const SEATS: PlayerSetup[] = [0, 1, 2].map(i => ({ ...BOT_PRESETS[i % BOT_PRESETS.length], name: `P${i}`, isBot: true }));

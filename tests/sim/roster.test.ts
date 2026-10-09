@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHARACTERS, getCharacter } from '../../src/data';
 import type { AreaShape, Role, SkillAction } from '../../src/types';
 import { hitsArea, scaleArea } from '../../src/sim/geometry';
-import { advance, makeGame, quietFloor, spawnAt } from './helpers';
+import { advance, makeGame, quietFloor, spawnAt, ultOf } from './helpers';
 
 const OLD = ['guardian', 'blade', 'berserker', 'ranger', 'mage', 'cleric'];
 const NEW = ['paladin', 'warden', 'shadow', 'gunner', 'bard', 'chrono', 'medic', 'exorcist', 'puppeteer'];
@@ -171,7 +171,7 @@ describe('R25 roster: 15 characters, 3 per role (기획 3차 1, 기획 12차: 5 
           p.party[idx].swapCooldownRemaining = 0;
           const target = tg.w.state.entities.find(e => e.team === 'enemy' && e.hp > 0)!;
           expect(tg.game.dispatch({ type: 'swap', player: p.id, partyIndex: idx, pos: { x: target.pos.x - 1, y: target.pos.y } }).ok).toBe(true);
-          p.ult.charge = 1;
+          ultOf(p).charge = 1;
         }
         advance(tg, 0.6);
         for (const p of ps) expect(tg.game.dispatch({ type: 'ult', player: p.id }).ok).toBe(true);

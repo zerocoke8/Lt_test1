@@ -510,7 +510,7 @@ function playerEffects(w: World, ctx: CastCtx, action: SkillAction): void {
   for (const eff of action.effects) {
     if (eff.kind === 'swapCooldownReduce') {
       for (const p of effectPlayers(w, pi, eff.allPlayers)) {
-        reduceBenchSwapCd(w, p, eff.seconds, eff.energy);
+        reduceBenchSwapCd(p, eff.seconds);
         emit(w, { type: 'swapCdCut', player: p.id, seconds: eff.seconds, from: pi });
       }
     }

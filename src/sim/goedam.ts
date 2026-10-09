@@ -31,8 +31,8 @@ import {
 import { heal } from './combat';
 import { refreshMaxHp, revive, syncMembers } from './players';
 import { addUltCharge, setUltCharge } from './ultMode';
-import { resetSwapCooldowns } from './energy';
 import { drawOne, grantReward } from './rewards';
+import { expeditionRoomAfter } from './expedition';
 import { mixSeed, Rng } from './rng';
 import { emit, getEntity, type SimPlayer, type World } from './world';
 
@@ -118,7 +118,7 @@ function fitsNow(w: World, room: GoedamRoomDef): boolean {
 /** Debug 'goedamNext': that room, else one that fits this floor (unseen first, then any of the zone, then any). */
 function forcedRoom(w: World, floor: number, wanted: string): GoedamRoomDef {
   if (wanted) return getGoedamRoom(wanted);
-  const theme = zoneOf(floor).theme;
+  const theme = w.state.plan.theme ?? zoneOf(floor).theme;
   const weight = (r: GoedamRoomDef) => goedamRoomWeight(r, floor, theme);
   const fresh = GOEDAM_ROOMS.filter(r => !w.goedam.seen.includes(r.id) && fitsNow(w, r));
   const tiers = [fresh.filter(r => weight(r) > 0), fresh.filter(r => r.zone === theme), fresh, GOEDAM_ROOMS];
@@ -132,6 +132,7 @@ function roomAfter(w: World, floor: number): GoedamRoomDef | null {
   const forced = w.goedam.forced;
   w.goedam.forced = null;
   if (forced != null) return forcedRoom(w, floor, forced);
+  if (w.expedition) return expeditionRoomAfter(w, floor); // 기획 15차 원정: after stage floor 1, roomChance
   const slot = goedamSchedule(w.state.seed, w.tunables.goedamRoomsPerZone).find(x => x.floor === floor);
   if (!slot || w.goedam.seen.includes(slot.roomId)) return null;
   const room = getGoedamRoom(slot.roomId);
@@ -281,12 +282,14 @@ function applyEffect(w: World, p: SimPlayer, e: GoedamEffect, params: GoedamPara
     case 'ultSet':
       return setUltCharge(w, p, e.value);
     case 'ultAdd':
-      return addUltCharge(w, p, e.value); // 기획 14차: the field character's gauge in per-character mode
+      return addUltCharge(w, p, e.value); // the focus character's gauge (기획 15차 per character)
     case 'resetCooldowns':
       for (const pet of p.pets) pet.cooldownRemaining = 0;
       if (!e.petsOnly) {
-        for (const m of p.party) m.normalCooldownRemaining = 0;
-        resetSwapCooldowns(p); // 기획 14차 교체 에너지: a full pool instead
+        for (const m of p.party) {
+          m.swapCooldownRemaining = 0;
+          m.normalCooldownRemaining = 0;
+        }
       }
       return;
     case 'reward':

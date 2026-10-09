@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>장비 샌드박스</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+      canvas { display: block; background: #0b0d14; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="c"></canvas></div>
+    <script type="module" src="./gear-sandbox.ts"></script>
+  </body>
+</html>

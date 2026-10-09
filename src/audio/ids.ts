@@ -101,6 +101,10 @@ const RULES: Rule[] = [
   ['fe.', { prio: 3, db: -12, gap: 80 }],
   // 3-11 UI · meta
   ['ui.tap.soft', { bus: 'ui', prio: 3, db: -18, gap: 40, group: 'ui' }],
+  // 기획 15차 원정 (UI)
+  ['ui.equip', { bus: 'ui', prio: 4, db: -10, gap: 80, group: 'ui' }],
+  ['exp.reveal', { bus: 'ui', prio: 4, db: -10, gap: 60 }],
+  ['exp.', { bus: 'ui', prio: 4, db: -8, gap: 300 }],
   ['ui.toast.', { bus: 'ui', prio: 2, db: -16, gap: 120, group: 'ui' }],
   ['ui.cardReady', { bus: 'ui', prio: 1, db: -18, gap: 300, group: 'ui' }],
   ['ui.cdcut', { bus: 'ui', prio: 2, db: -16, gap: 150, group: 'ui' }],
