@@ -3,7 +3,7 @@
 // avoids shadowBlur, camera follows the local character / freezes / centers boss arenas.
 import { describe, expect, it } from 'vitest';
 import { createRenderer } from '../../src/render';
-import { BOSS_POS, PLAYER_COLORS } from '../../src/config';
+import { ARENA_NORMAL, BOSS_POS, PLAYER_COLORS } from '../../src/config';
 import { getCharacter, getMonster } from '../../src/data';
 import type { Entity, GameEvent, GameState, PlayerState, RenderUiState } from '../../src/types';
 
@@ -114,8 +114,9 @@ function player(id: number, chars: string[], active: number | null, entityId: nu
   };
 }
 
-function makeState(kind: 'normal' | 'boss', localX: number, floor = 1): GameState {
-  const w = kind === 'boss' ? 24 : 36;
+/** `width` overrides the arena width (기획 16차: the normal arena is 24 like the boss arena; wider = the scroll path). */
+function makeState(kind: 'normal' | 'boss', localX: number, floor = 1, width?: number): GameState {
+  const w = width ?? (kind === 'boss' ? 24 : ARENA_NORMAL.width);
   const me = ent({ kind: 'character', team: 'ally', defId: 'guardian', tier: 'character', pos: { x: localX, y: 6 }, radius: 0.5, maxHp: getCharacter('guardian').stats.maxHp, ownerPlayer: 0, partyIndex: 0, anim: 'appear', animTime: 0.5, invulnTime: 0.5 });
   const bot = ent({ kind: 'character', team: 'ally', defId: 'ranger', tier: 'character', pos: { x: localX - 3, y: 8 }, radius: 0.5, maxHp: 480, ownerPlayer: 1, partyIndex: 1, anim: 'attack', animTime: 0.3, statuses: [{ id: 'haste', remaining: 2, total: 4, value: 0.3, sourcePlayer: 1 }] });
   const turret = ent({ kind: 'summon', team: 'ally', defId: 'turret', tier: 'summon', pos: { x: localX + 1, y: 3 }, radius: 0.45, maxHp: 300, ownerPlayer: 2, expiresIn: 1 });
@@ -242,42 +243,45 @@ describe('createRenderer (headless, fake context)', () => {
     expect(calls.get('ellipse') ?? 0).toBeGreaterThan(0);
   });
 
-  it('camera follows the local field character, freezes on request, and stops when the field is empty', () => {
+  it('camera follows the local field character, freezes on request, and stops when the field is empty (an arena wider than the screen)', () => {
     const { canvas } = fakeCanvas();
     const r = createRenderer(canvas as unknown as HTMLCanvasElement);
-    const a = deepFreeze(makeState('normal', 15));
+    const a = deepFreeze(makeState('normal', 15, 1, 36));
     r.render(a, [], 1 / 60, UI); // first frame snaps
     expect(r.worldToScreen({ x: 15, y: 6 }).x).toBeCloseTo(640, 6);
     // character moved to x=21: camera eases toward it
-    const b = deepFreeze(makeState('normal', 21));
+    const b = deepFreeze(makeState('normal', 21, 1, 36));
     r.render(b, [], 1 / 60, UI);
     const mid = r.worldToScreen({ x: 21, y: 6 }).x;
     expect(mid).toBeGreaterThan(640);
     for (let i = 0; i < 240; i++) r.render(b, [], 1 / 60, UI);
     expect(r.worldToScreen({ x: 21, y: 6 }).x).toBeCloseTo(640, 1);
     // frozen while dragging
-    const c = deepFreeze(makeState('normal', 14));
+    const c = deepFreeze(makeState('normal', 14, 1, 36));
     const before = r.screenToWorld({ x: 640, y: 300 }).x;
     for (let i = 0; i < 60; i++) r.render(c, [], 1 / 60, { ...UI, freezeCamera: true });
     expect(r.screenToWorld({ x: 640, y: 300 }).x).toBeCloseTo(before, 9);
     // field empty → camera stays
-    const empty = deepFreeze({ ...makeState('normal', 14), players: makeState('normal', 14).players.map(p => ({ ...p, activeIndex: null })) });
+    const empty = deepFreeze({ ...makeState('normal', 14, 1, 36), players: makeState('normal', 14, 1, 36).players.map(p => ({ ...p, activeIndex: null })) });
     for (let i = 0; i < 60; i++) r.render(empty, [], 1 / 60, UI);
     expect(r.screenToWorld({ x: 640, y: 300 }).x).toBeCloseTo(before, 9);
     // clamped at the arena edge
-    const edge = deepFreeze(makeState('normal', 35));
+    const edge = deepFreeze(makeState('normal', 35, 1, 36));
     for (let i = 0; i < 600; i++) r.render(edge, [], 1 / 60, UI);
     expect(r.screenToWorld({ x: 1280, y: 300 }).x).toBeCloseTo(36, 3);
   });
 
-  it('boss arenas (24 wide) are centered without scrolling, and screenToWorld/worldToScreen round-trip', () => {
+  it('boss and normal arenas (24 wide, 기획 16차) are centered without scrolling, and screenToWorld/worldToScreen round-trip', () => {
     const { canvas } = fakeCanvas();
     const r = createRenderer(canvas as unknown as HTMLCanvasElement);
-    for (const x of [2, 12, 22]) {
-      const s = deepFreeze(makeState('boss', x, 5));
-      for (let i = 0; i < 30; i++) r.render(s, [], 1 / 60, UI);
-      expect(r.screenToWorld({ x: 0, y: 150 }).x).toBeCloseTo(0, 6);
-      expect(r.screenToWorld({ x: 1280, y: 150 }).x).toBeCloseTo(24, 6);
+    expect(ARENA_NORMAL.width).toBe(24);
+    for (const [kind, floor] of [['boss', 5], ['normal', 1]] as const) {
+      for (const x of [2, 12, 22]) {
+        const s = deepFreeze(makeState(kind, x, floor));
+        for (let i = 0; i < 30; i++) r.render(s, [], 1 / 60, UI);
+        expect(r.screenToWorld({ x: 0, y: 150 }).x).toBeCloseTo(0, 6);
+        expect(r.screenToWorld({ x: 1280, y: 150 }).x).toBeCloseTo(24, 6);
+      }
     }
     const w = r.screenToWorld({ x: 333, y: 444 });
     const p = r.worldToScreen(w);

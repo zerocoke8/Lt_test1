@@ -2,11 +2,11 @@
 // event's success and failure, party rewards, targeting rules, ward immunity, floor-clear safety, cleanup, no stalls.
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_TUNABLES } from '../../src/config';
-import { CHARACTERS, FIELD_EVENTS, getCharacter, getFieldEvent, getMonster, lockRadius } from '../../src/data';
+import { CHARACTERS, FIELD_EVENT_EARLIEST, FIELD_EVENT_LAST_WAVE_HOLD, FIELD_EVENT_LATEST, FIELD_EVENTS, getCharacter, getFieldEvent, getMonster, lockRadius } from '../../src/data';
 import { applyDamage } from '../../src/sim/combat';
 import { createUnit } from '../../src/sim/entities';
 import { dropOutcome } from '../../src/sim/fieldEventPreview';
-import { fieldEventSchedule, fieldEventSpan } from '../../src/sim/fieldEvents';
+import { fieldEventSchedule } from '../../src/sim/fieldEvents';
 import { planFloor } from '../../src/sim/floor';
 import { tick } from '../../src/sim/game';
 import { Rng } from '../../src/sim/rng';
@@ -44,9 +44,16 @@ function unit(tg: TestGame, ev: FieldEventState): SimEntity {
   return u;
 }
 
-/** Move every field character far away from p (x ≥ 10 units off). */
+/**
+ * Move every field character to `at` and keep it there (기획 16차: the 24-wide arena is short enough to walk across
+ * within a test, so a parked character must not walk back to the event unit).
+ */
 function parkChars(tg: TestGame, at: Vec2): void {
-  for (const e of tg.w.state.entities) if (e.kind === 'character') e.pos = { x: at.x, y: at.y };
+  for (const e of tg.w.state.entities) {
+    if (e.kind !== 'character') continue;
+    e.pos = { x: at.x, y: at.y };
+    e.rt.base.moveSpeed = 0;
+  }
 }
 
 const dragHit = (player: number) => ({ casterId: null, team: 'ally' as const, player, source: 'drag' as const, isDrag: true });
@@ -68,10 +75,10 @@ describe('schedule (pure, by seed)', () => {
         if ((p.floor + 1) % 5 === 0) expect(getFieldEvent(p.id).notBeforeBoss, `${p.id} on ${p.floor}`).toBeFalsy();
         if (i > 0 && a[i - 1].floor === p.floor - 1) expect(a[i - 1].id).not.toBe(p.id);
         counts[p.id] = (counts[p.id] ?? 0) + 1;
-        // the whole event (warning + time + 23:59 spawn-in) ends ≥ 2 s before the last wave
-        const last = planOf(p.floor).waves.at(-1)!.at;
-        expect(p.startAt).toBeGreaterThanOrEqual(8);
-        expect(p.startAt + fieldEventSpan(getFieldEvent(p.id))).toBeLessThanOrEqual(last - 2 + 1e-9);
+        // 기획 16차 템포: a fixed start window [8, 12] s (the last wave waits for the event instead)
+        expect(p.startAt).toBeGreaterThanOrEqual(FIELD_EVENT_EARLIEST);
+        expect(p.startAt).toBeLessThanOrEqual(FIELD_EVENT_LATEST);
+        expect(p.latest).toBe(FIELD_EVENT_LATEST);
       });
       for (const n of Object.values(counts)) expect(n).toBeLessThanOrEqual(2);
     }
@@ -216,7 +223,7 @@ describe('targeting rules (2-1)', () => {
     const { tg, ev } = started('sleeping_patient', [HUMAN]);
     const pt = unit(tg, ev);
     expect(applyDamage(tg.w, { casterId: null, team: 'enemy', player: null, source: 'basic', isDrag: false }, pt, 1e6, false)).toBe(0);
-    parkChars(tg, { x: pt.pos.x > 18 ? 2 : 34, y: 6 });
+    parkChars(tg, { x: pt.pos.x > 12 ? 1 : 23, y: 6 });
     const m = spawnAt(tg, 'goblin', { x: pt.pos.x + 0.6, y: pt.pos.y });
     advance(tg, 1);
     expect(m.targetId).not.toBe(pt.id);
@@ -240,12 +247,39 @@ describe('floor safety', () => {
     const w = tg.w;
     w.spawner.nextWave = w.state.plan.waves.length;
     w.spawner.pending = [];
+    w.spawner.midTriggered = true; // 기획 16차: the mid boss is due once its wave passed — it was dealt with already
     w.state.midBossSpawned = true;
     for (const e of w.state.entities) if (e.team === 'enemy' && !e.eventTag) e.rt.gone = true;
     advance(tg, 2);
     expect(w.state.phase).toBe('reward');
     expect(w.state.fieldEvent).toBeNull();
     expect(w.state.entities.some(e => e.eventTag)).toBe(false);
+  });
+
+  it('기획 16차 템포: the last wave waits while an event is planned or open, and comes FIELD_EVENT_LAST_WAVE_HOLD s after it ended', () => {
+    for (const seed of [4, 9]) {
+      const tg = makeGame({ seed, players: [HUMAN], startFloor: 3, tunables: { invincible: true, fieldEventChance: 1 } });
+      const w = tg.w;
+      const s = w.state;
+      const n = s.plan.waves.length;
+      expect(w.fieldEvents.plan).not.toBeNull();
+      let started = false;
+      let endedAt: number | null = null;
+      let lastWaveAt: number | null = null;
+      // kill the waves as they come: all but the last are out long before the event is over
+      for (let i = 0; i < 30 * 60 && lastWaveAt == null; i++) {
+        advance(tg, 1 / 30);
+        tg.game.dispatch({ type: 'debug', action: { kind: 'killAll' } });
+        if (s.fieldEvent) started = true;
+        if (started && endedAt == null && !s.fieldEvent) endedAt = s.floorTime;
+        if (w.spawner.nextWave === n) lastWaveAt = s.floorTime;
+        else if (endedAt == null) expect(w.spawner.nextWave, `seed ${seed} t ${s.floorTime}`).toBeLessThanOrEqual(n - 1);
+      }
+      expect(started).toBe(true);
+      expect(endedAt).not.toBeNull();
+      expect(lastWaveAt! - endedAt!).toBeGreaterThanOrEqual(FIELD_EVENT_LAST_WAVE_HOLD - 1 / 30 - 1e-9);
+      expect(lastWaveAt! - endedAt!).toBeLessThanOrEqual(FIELD_EVENT_LAST_WAVE_HOLD + 2 / 30);
+    }
   });
 
   it('cleanup on skipFloor, jumpFloor and quit (silent fail logged)', () => {
@@ -298,7 +332,7 @@ describe('멈추지 않는 프린터', () => {
   it('prints 2 every printEvery s (not while stunned); destroyed → its prints vanish (no kill credit) and pets reset for all', () => {
     const { tg, ev } = started('possessed_printer', [HUMAN, HUMAN2]);
     const pr = unit(tg, ev);
-    parkChars(tg, { x: pr.pos.x > 18 ? 2 : 34, y: 6 });
+    parkChars(tg, { x: pr.pos.x > 12 ? 1 : 23, y: 6 });
     pr.statuses.push({ id: 'stun', remaining: 6, total: 6, value: 0, sourcePlayer: 0 });
     advance(tg, 5.5);
     expect(ev.printed).toBe(0);
@@ -318,7 +352,7 @@ describe('멈추지 않는 프린터', () => {
   it('times out → it switches off, the prints stay', () => {
     const { tg, ev } = started('possessed_printer', [HUMAN]);
     const pr = unit(tg, ev);
-    parkChars(tg, { x: pr.pos.x > 18 ? 2 : 34, y: 6 });
+    parkChars(tg, { x: pr.pos.x > 12 ? 1 : 23, y: 6 });
     tg.w.tunables.invincible = true;
     advance(tg, 20.2);
     expect(eventsOf(tg, 'fieldEventEnd').at(-1)).toMatchObject({ success: false });
@@ -349,7 +383,7 @@ describe('깨어나지 않는 환자', () => {
     const { tg, ev } = started('sleeping_patient', [HUMAN]);
     const pt = unit(tg, ev);
     const prm = getFieldEvent('sleeping_patient').params;
-    parkChars(tg, { x: pt.pos.x > 18 ? 2 : 34, y: 6 });
+    parkChars(tg, { x: pt.pos.x > 12 ? 1 : 23, y: 6 });
     const m = spawnAt(tg, 'slime', { x: pt.pos.x + 1, y: pt.pos.y });
     applyDamage(tg.w, basicHit(0), m, 1e6, false);
     expect(ev.progress).toBeCloseTo(prm.startPct + prm.killBonus, 3);
@@ -362,7 +396,7 @@ describe('열린 엘리베이터 통로', () => {
   it('normal monsters on the hole fall (count as kills for the floor, no player credit); the mid boss stumbles once', () => {
     const { tg, ev } = started('open_shaft', [HUMAN]);
     const hole = ev.marks[0].pos;
-    parkChars(tg, { x: hole.x > 18 ? 2 : 34, y: 6 });
+    parkChars(tg, { x: hole.x > 12 ? 1 : 23, y: 6 });
     const kills = tg.w.spawner.kills;
     const ogre = spawnAt(tg, 'ogre', { ...hole });
     tick(tg.w);
@@ -451,7 +485,7 @@ describe('깨우면 안 되는 아이', () => {
   it('walks only with an escort; an enemy footprint startles it (back 3, cries), a heal footprint does not; exit → 작은 손', () => {
     const { tg, ev } = started('sleepwalker', [P_CLERIC, HUMAN2]);
     const ch = unit(tg, ev);
-    parkChars(tg, { x: ch.pos.x > 18 ? 2 : 34, y: 1 });
+    parkChars(tg, { x: ch.pos.x > 12 ? 1 : 23, y: 1 });
     advance(tg, 1);
     expect(ev.progress).toBe(0);
     const s = tg.w.state;

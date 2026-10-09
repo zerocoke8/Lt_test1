@@ -10,10 +10,10 @@
 // 기획 12차: FIELD_EVENTS=off|on (env, default off = the old numbers) — 돌발 괴담 at tunables.fieldEventChance (0.6).
 // The event report (per event success, seconds, cost) is in tests/review/critic-20f.ts (same seeds, same 'active').
 
-import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE } from '../../src/config';
+import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE, ZONES } from '../../src/config';
 import { BOSSES, MONSTERS, getPet } from '../../src/data';
 import { bestDropPoint } from '../../src/sim/bot';
-import { WAVE_SIZE, WAVES } from '../../src/sim/constants';
+import { WAVE_SIZE } from '../../src/sim/constants';
 import { createGameWithWorld, dispatch, tick } from '../../src/sim/game';
 import { canSwap, canUsePet } from '../../src/sim/players';
 import { applyOffer, rollOffers } from '../../src/sim/rewards';
@@ -44,13 +44,13 @@ for (const b of BOSSES) {
   b.stats.maxHp *= DATA.bossHp ?? 1;
   b.stats.atk *= DATA.bossAtk ?? 1;
 }
-/** Simulated src/config.ts edits (FLOOR_WAVES / WAVE_SIZE): {wavesFirst, wavesPerFloor, wavesMax, waveMin, waveMax}. */
+/**
+ * Simulated src/config.ts edits (ZONES[].waves / WAVE_SIZE): {waves, waveMin, waveMax} — 기획 16차: `waves` sets every
+ * zone's waves per normal floor (was wavesFirst / wavesPerFloor / wavesMax by floor number).
+ */
 const CONSTS: Record<string, number> = argv[7] ? JSON.parse(argv[7]) : {};
-const W = WAVES as { first: number; perFloor: number; max: number };
 const WS = WAVE_SIZE as { min: number; max: number };
-if (CONSTS.wavesFirst) W.first = CONSTS.wavesFirst;
-if (CONSTS.wavesPerFloor) W.perFloor = CONSTS.wavesPerFloor;
-if (CONSTS.wavesMax) W.max = CONSTS.wavesMax;
+if (CONSTS.waves) for (const z of ZONES) z.waves = CONSTS.waves;
 if (CONSTS.waveMin) WS.min = CONSTS.waveMin;
 if (CONSTS.waveMax) WS.max = CONSTS.waveMax;
 if (CONSTS.lateFactor != null) LATE_STAT_GROWTH.factor = CONSTS.lateFactor;

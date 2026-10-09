@@ -2,8 +2,8 @@
 
 import type { BossDef, CommandResult, FloorPlan, RewardOffer, Tunables, Vec2, WavePlan } from '../types';
 import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, BOSS_POS, floorStatMult, ZONES, zoneOf } from '../config';
-import { getBoss, getMonster } from '../data';
-import { BOT, SPAWN_POINTS, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVES } from './constants';
+import { FIELD_EVENT_LAST_WAVE_HOLD, getBoss, getMonster } from '../data';
+import { BOT, FIRST_WAVE_Y_TOP, MID_RING, SPAWN_POINTS, SPAWN_RING, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_NEXT } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
 import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvents';
@@ -11,7 +11,7 @@ import { clearGroggy, resetGroggy } from './groggy';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { refundUnlandedUlts, revive, syncMembers } from './players';
 import { applyOffer, rollOffers } from './rewards';
-import { autoExpeditionChoice, expeditionFloorClear, noteExpeditionFloor, planExpeditionFloor } from './expedition';
+import { enterStageEnd, expeditionCombatClear, planExpeditionFloor } from './expedition';
 import type { Rng } from './rng';
 import {
   activeEntity,
@@ -20,12 +20,14 @@ import {
   compactEntities,
   copy,
   countEnemies,
+  dist,
   emit,
   endRun,
   getEntity,
   isAlive,
   queuedEnemies,
   type PendingSpawn,
+  type SimEntity,
   type World,
 } from './world';
 
@@ -42,8 +44,8 @@ export function planFloor(floor: number, rng: Rng, tunables: Tunables): FloorPla
     const bossId = f <= ZONES[ZONES.length - 1].to ? zone.boss : ZONES[(f / 5 - 1) % ZONES.length].boss;
     return { floor: f, kind: 'boss', timeLimit: tunables.bossFloorTime, arena: { ...ARENA_BOSS }, statMult, waves: [], bossId, theme };
   }
-  // 기획서 9-1 (가정): 1층 first웨이브, 층마다 +perFloor (counted by floor number), capped so every wave fits the time limit.
-  const waveCount = Math.max(1, Math.min(WAVES.max, WAVES.first + (f - 1) * WAVES.perFloor));
+  // 기획 16차 템포: waves per floor by zone (5 · 5 · 6 · 6); `at` is the nominal max-gap schedule (only wave 0 waits for it).
+  const waveCount = Math.max(1, zone.waves);
   const pool = zone.pool.filter(e => (e.from ?? zone.from) <= f);
   const size = zone.waveSize;
   const waves: WavePlan[] = [];
@@ -111,8 +113,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   s.projectiles.length = 0;
   w.pending = [];
   s.floor = Math.max(1, Math.floor(n));
-  s.plan = w.expedition ? planExpeditionFloor(w.expedition.stage, s.floor, w.rng, w.tunables) : planFloor(s.floor, w.rng, w.tunables);
-  if (w.expedition) noteExpeditionFloor(w); // 기획 15차 원정
+  s.plan = w.expedition ? planExpeditionFloor(w.expedition.stage, w.rng, w.tunables) : planFloor(s.floor, w.rng, w.tunables); // 기획 16차 원정: one floor
   s.floorTime = 0;
   s.timeRemaining = s.plan.timeLimit;
   s.bossId = null;
@@ -125,6 +126,10 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   w.enragedEmptyTime = 0;
   s.phase = 'combat';
   w.spawner = { points: s.plan.kind === 'normal' ? makeSpawnPoints(w) : [], nextWave: 0, pending: [], kills: 0, midTriggered: false, deferred: [] };
+  // 기획 16차 템포: the wave target rotation starts at a seeded slot (0..5 ≡ uniform for 1, 2 or 3 players on the field)
+  w.spawner.lastWarnAt = -Infinity;
+  w.spawner.fieldEventSeenAt = -Infinity;
+  w.spawner.targetOffset = s.plan.kind === 'normal' ? w.rng.int(0, 5) : 0;
   // 기획 12차: this floor's 돌발 괴담 is planned on its own stream
   startFloorFieldEvent(w);
 
@@ -163,7 +168,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
       kind: 'monster',
       ownerPlayer: null,
       expiresIn: null,
-      hpMult: s.plan.bossHpMult ? hpMult * s.plan.bossHpMult : hpMult, // 기획 15차 원정 보스 HP × EXPEDITION.bossHp (지금 1.0)
+      hpMult: s.plan.bossHpMult ? hpMult * s.plan.bossHpMult : hpMult, // 기획 15차 원정 보스 HP × EXPEDITION.bossHp (기획 16차 밸런스: 0.8)
       atkMult: s.plan.statMult,
     });
     s.bossId = e.id;
@@ -193,8 +198,193 @@ function spawnPending(w: World, ps: PendingSpawn): void {
   emit(w, { type: 'spawn', entityId: e.id, pos: copy(e.pos), tier: def.tier === 'mid' ? 'mid' : 'normal' });
 }
 
-function scatter(w: World, p: Vec2): Vec2 {
-  return clampToArena(w, { x: p.x + w.rng.range(-SPAWN_SCATTER, SPAWN_SCATTER), y: p.y + w.rng.range(-SPAWN_SCATTER, SPAWN_SCATTER) });
+// ── 기획 16차 템포 (docs/tempo.md 2): waves near the party, inside the screen; the next wave once the field is almost clear ──
+
+/** Living ally field characters, in player order (at most one per player). */
+function fieldCharacters(w: World): SimEntity[] {
+  const out: SimEntity[] = [];
+  for (const p of w.state.players) {
+    const e = activeEntity(w, p);
+    if (isAlive(e)) out.push(e);
+  }
+  return out;
+}
+
+/**
+ * Clamp into the spawn box: x ∈ [xMargin, W − xMargin], y ∈ [top, H − yBottom] (never under the HUD, never off
+ * screen; `top` is FIRST_WAVE_Y_TOP for wave 0, below the floor-start banner).
+ */
+function inSpawnBox(w: World, p: Vec2, top: number = SPAWN_RING.yTop): Vec2 {
+  const a = arena(w);
+  const r = SPAWN_RING;
+  return { x: Math.min(a.width - r.xMargin, Math.max(r.xMargin, p.x)), y: Math.min(a.height - r.yBottom, Math.max(top, p.y)) };
+}
+
+function minDistTo(p: Vec2, chars: SimEntity[]): number {
+  let d = Infinity;
+  for (const c of chars) d = Math.min(d, dist(p, c.pos));
+  return d;
+}
+
+/** Up to SPAWN_RING.tries seeded samples on the ring around `anchor`; the first ≥ ring.clear from every character wins, else the farthest. */
+function ringPoint(w: World, anchor: Vec2, ring: { min: number; max: number; clear: number }, chars: SimEntity[], top?: number): Vec2 {
+  let best: Vec2 | null = null;
+  let bestD = -Infinity;
+  for (let i = 0; i < SPAWN_RING.tries; i++) {
+    const ang = w.rng.range(0, Math.PI * 2);
+    const r = w.rng.range(ring.min, ring.max);
+    const p = inSpawnBox(w, { x: anchor.x + Math.cos(ang) * r, y: anchor.y + Math.sin(ang) * r }, top);
+    const d = minDistTo(p, chars);
+    if (d >= ring.clear) return p;
+    if (d > bestD) {
+      best = p;
+      bestD = d;
+    }
+  }
+  return best!;
+}
+
+function arenaCentre(w: World): Vec2 {
+  const a = arena(w);
+  return { x: a.width / 2, y: a.height / 2 };
+}
+
+/**
+ * A wave group's spawn point: on the SPAWN_RING around the wave's target — the players with a field character take
+ * turns (from the floor's seeded offset), so with 3 players spread out every one of them gets fights. Empty field →
+ * around the arena centre.
+ */
+export function wavePoint(w: World, waveIdx: number): Vec2 {
+  const chars = fieldCharacters(w);
+  const target = chars.length > 0 ? chars[((w.spawner.targetOffset ?? 0) + waveIdx) % chars.length] : null;
+  return ringPoint(w, target ? target.pos : arenaCentre(w), SPAWN_RING, chars, spawnTop(waveIdx));
+}
+
+/** The spawn box top for a wave: wave 0 stays below the floor-start banner (FIRST_WAVE_Y_TOP). */
+function spawnTop(waveIdx: number): number {
+  return waveIdx === 0 ? FIRST_WAVE_Y_TOP : SPAWN_RING.yTop;
+}
+
+/**
+ * The mid boss / 수문장 spawn point: on the MID_RING around the centroid of the ally field characters (a crowded party
+ * whose ring has no clear sample: pushed out to MID_RING.clear from the nearest one, as keepClear does for members).
+ */
+export function midPoint(w: World): Vec2 {
+  const chars = fieldCharacters(w);
+  if (chars.length === 0) return ringPoint(w, arenaCentre(w), MID_RING, chars);
+  const c = { x: 0, y: 0 };
+  for (const e of chars) {
+    c.x += e.pos.x / chars.length;
+    c.y += e.pos.y / chars.length;
+  }
+  return keepClear(w, ringPoint(w, c, MID_RING, chars), chars, undefined, MID_RING.clear);
+}
+
+function scatter(w: World, p: Vec2, top?: number): Vec2 {
+  return inSpawnBox(w, { x: p.x + w.rng.range(-SPAWN_SCATTER, SPAWN_SCATTER), y: p.y + w.rng.range(-SPAWN_SCATTER, SPAWN_SCATTER) }, top);
+}
+
+/** Unit directions tried when a member must be pushed off a character: straight away first, then 8 around. */
+const PUSH_DIRS: readonly Vec2[] = Array.from({ length: 8 }, (_, k) => ({ x: Math.cos((k * Math.PI) / 4), y: Math.sin((k * Math.PI) / 4) }));
+
+/**
+ * A scattered member closer than `min` (SPAWN_RING.memberClear) to an ally field character (the box clamp or a crowded
+ * party can undo the group point's clearance) is moved to `min` from the nearest one — straight away from it,
+ * else the first of 8 directions that clears everyone inside the box, else the farthest of them. No rng.
+ */
+function keepClear(w: World, p: Vec2, chars: SimEntity[], top?: number, min: number = SPAWN_RING.memberClear): Vec2 {
+  let near: SimEntity | null = null;
+  let nd = Infinity;
+  for (const c of chars) {
+    const d = dist(p, c.pos);
+    if (d < nd) {
+      nd = d;
+      near = c;
+    }
+  }
+  if (!near || nd >= min - 1e-9) return p;
+  const away = nd > 1e-6 ? { x: (p.x - near.pos.x) / nd, y: (p.y - near.pos.y) / nd } : PUSH_DIRS[0];
+  let best = p;
+  let bestD = nd;
+  for (const u of [away, ...PUSH_DIRS]) {
+    const q = inSpawnBox(w, { x: near.pos.x + u.x * min, y: near.pos.y + u.y * min }, top);
+    const d = minDistTo(q, chars);
+    if (d >= min - 1e-9) return q;
+    if (d > bestD) {
+      best = q;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Enemies that hold the next wave back: every enemy 1, a mid boss WAVE_NEXT.midWeight; queued spawns (markers,
+ * deferred splits) too. 돌발 괴담 units and the boss count 0 (as in countEnemies).
+ */
+export function weightedAlive(w: World): number {
+  let n = 0;
+  for (const e of w.state.entities) {
+    if (e.team === 'enemy' && isAlive(e) && e.tier !== 'boss' && !e.eventTag) n += e.tier === 'mid' ? WAVE_NEXT.midWeight : 1;
+  }
+  for (const ps of w.spawner.pending) n += ps.mid ? WAVE_NEXT.midWeight : 1;
+  return n + w.spawner.deferred.length;
+}
+
+/** Remember the last floor second a 돌발 괴담 was planned or open (the last wave waits for it). */
+function noteFieldEvent(w: World): void {
+  if (w.state.fieldEvent || w.fieldEvents.plan) w.spawner.fieldEventSeenAt = w.state.floorTime;
+}
+
+/** The last wave is held while a 돌발 괴담 is planned / open and FIELD_EVENT_LAST_WAVE_HOLD s after — a floor never clears under one. */
+function lastWaveHeld(w: World): boolean {
+  return w.state.floorTime - (w.spawner.fieldEventSeenAt ?? -Infinity) < FIELD_EVENT_LAST_WAVE_HOLD - 1e-9;
+}
+
+/** Wave 0 at its `at`; later waves once the field is almost clear (≥ minGap after the last warning) or after the max gap. */
+export function nextWaveDue(w: World): boolean {
+  const s = w.state;
+  const sp = w.spawner;
+  const n = s.plan.waves.length;
+  const i = sp.nextWave;
+  if (i >= n) return false;
+  if (i === n - 1 && lastWaveHeld(w)) return false;
+  if (i === 0) return s.floorTime >= s.plan.waves[0].at - SPAWN_WARNING_TIME - 1e-9;
+  const since = s.floorTime - (sp.lastWarnAt ?? -Infinity);
+  const maxGap = s.plan.maxGap ?? w.tunables.waveInterval;
+  return (weightedAlive(w) <= WAVE_NEXT.alive && since >= WAVE_NEXT.minGap - 1e-9) || since >= maxGap - 1e-9;
+}
+
+/** R15 alive cap: a wave that would push the field over maxAliveMonsters waits (never dropped). */
+function waveFits(w: World): boolean {
+  const wave = w.state.plan.waves[w.spawner.nextWave];
+  const size = wave.spawns.reduce((a, g) => a + g.count, 0);
+  const alive = countEnemies(w) + queuedEnemies(w);
+  return alive === 0 || alive + size <= w.tunables.maxAliveMonsters;
+}
+
+function warnWave(w: World): void {
+  const sp = w.spawner;
+  const wave = w.state.plan.waves[sp.nextWave];
+  const chars = fieldCharacters(w);
+  const top = spawnTop(sp.nextWave);
+  for (const g of wave.spawns) {
+    const pt = wavePoint(w, sp.nextWave);
+    for (let k = 0; k < g.count; k++) {
+      const pos = keepClear(w, scatter(w, pt, top), chars, top);
+      sp.pending.push({ remaining: SPAWN_WARNING_TIME, monsterId: g.monsterId, pos, mid: false, wave: sp.nextWave });
+      emit(w, { type: 'spawnWarning', pos: copy(pos), delay: SPAWN_WARNING_TIME });
+    }
+  }
+  sp.lastWarnAt = w.state.floorTime;
+  sp.nextWave++;
+}
+
+/** The mid boss (수문장 too) comes with the wave midBossFromEnd from the end, or at midBossTimeTrigger s at the latest. */
+function midDue(w: World): boolean {
+  const s = w.state;
+  const withWave = Math.max(0, s.plan.waves.length - w.tunables.midBossFromEnd);
+  return w.spawner.nextWave > withWave || s.floorTime >= w.tunables.midBossTimeTrigger;
 }
 
 /** onDeath splits that waited for room (ondeath.ts) come out behind a short marker, oldest first, as room frees up. */
@@ -221,32 +411,15 @@ export function tickSpawner(w: World, dt: number): void {
   }
   releaseDeferred(w);
   if (plan.kind !== 'normal') return;
-  // R15: waves on schedule; postpone (never drop) when the alive cap would be exceeded.
-  while (sp.nextWave < plan.waves.length) {
-    const wave = plan.waves[sp.nextWave];
-    if (s.floorTime < wave.at - SPAWN_WARNING_TIME - 1e-9) break;
-    const size = wave.spawns.reduce((a, g) => a + g.count, 0);
-    const alive = countEnemies(w) + queuedEnemies(w);
-    if (alive > 0 && alive + size > w.tunables.maxAliveMonsters) break;
-    for (const g of wave.spawns) {
-      const pt = w.rng.pick(sp.points);
-      for (let k = 0; k < g.count; k++) {
-        const pos = scatter(w, pt);
-        sp.pending.push({ remaining: SPAWN_WARNING_TIME, monsterId: g.monsterId, pos, mid: false, wave: sp.nextWave });
-        emit(w, { type: 'spawnWarning', pos: copy(pos), delay: SPAWN_WARNING_TIME });
-      }
-    }
-    sp.nextWave++;
-  }
+  noteFieldEvent(w);
+  // 기획 16차 템포: at most one wave per tick; postponed (never dropped) by the alive cap.
+  if (nextWaveDue(w) && waveFits(w)) warnWave(w);
   // The mid boss obeys the same alive cap as waves (9-1 동시 최대 maxAliveMonsters): postponed, never dropped.
-  const midDue = plan.guardian
-    ? s.floorTime >= plan.guardian.at - 1e-9 // 기획 15차 원정 수문장: on time, not on kills
-    : sp.kills >= w.tunables.midBossKillTrigger || s.floorTime >= w.tunables.midBossTimeTrigger;
   const aliveNow = countEnemies(w) + queuedEnemies(w);
   const midRoom = aliveNow === 0 || aliveNow + 1 <= w.tunables.maxAliveMonsters;
-  if (plan.midBossId && !sp.midTriggered && midDue && midRoom) {
+  if (plan.midBossId && !sp.midTriggered && midDue(w) && midRoom) {
     sp.midTriggered = true;
-    const pos = clampToArena(w, w.rng.pick(sp.points));
+    const pos = midPoint(w);
     sp.pending.push({ remaining: SPAWN_WARNING_TIME, monsterId: plan.midBossId, pos, mid: true, wave: -1 });
     emit(w, { type: 'spawnWarning', pos: copy(pos), delay: SPAWN_WARNING_TIME });
   }
@@ -355,8 +528,8 @@ export function floorClear(w: World): void {
   }
   syncMembers(w);
 
-  if (w.expedition && expeditionFloorClear(w)) return; // 기획 15차 원정: floor 3 → 'stageClear'
-  if (s.floor >= w.tunables.maxFloor) {
+  if (w.expedition && expeditionCombatClear(w)) return; // 기획 16차 원정: won — boss stage → 'stageClear', normal → reward
+  if (!w.expedition && s.floor >= w.tunables.maxFloor) {
     endRun(w, 'victory', 'cleared');
     return;
   }
@@ -421,13 +594,16 @@ function finishRewardIfDone(w: World): void {
   if (s.phase !== 'reward') return;
   if (s.rewardOffersByPlayer.some(o => o != null)) return;
   if (openGoedamRoom(w)) return;
+  if (w.expedition) return enterStageEnd(w); // 기획 16차 원정: one floor per stage → back to the 원정 lobby
   startFloor(w, s.floor + 1, true);
 }
 
 /** 기획 10차: the room is over once every player pressed 계속 (bots and auto-leaves are done at once) → next floor. */
 function finishGoedamIfDone(w: World): void {
   const s = w.state;
-  if (s.phase === 'goedam' && goedamAllDone(s)) startFloor(w, s.floor + 1, true);
+  if (s.phase !== 'goedam' || !goedamAllDone(s)) return;
+  if (w.expedition) return enterStageEnd(w); // 기획 16차 원정: the stage ends after its room
+  startFloor(w, s.floor + 1, true);
 }
 
 /** Command 'goedam' (기획 10차): pick an option by id, or 'continue'. */
@@ -471,7 +647,6 @@ export function setPlayerBot(w: World, pi: number, isBot: boolean): void {
     b.ultAt = null;
     b.nextSwapAt = s.time + BOT.periodicSwap[0];
   }
-  if (isBot && s.phase === 'stageClear') autoExpeditionChoice(w, pi); // 기획 15차 원정: dropped at the clear = 수령
   if (isBot && s.phase === 'goedam') {
     // 기획 10차: a slot that drops in a 괴담 room leaves it ('지나간다', then 계속) — the room never waits on it
     autoResolveGoedam(w, pi);

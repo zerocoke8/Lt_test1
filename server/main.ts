@@ -2,7 +2,8 @@
 // Env: PORT (default 8080), HOST (0.0.0.0), STATIC_DIR (default: ../dist next to this file),
 //      DEBUG_NET=1 (log snapshot sizes), REWARD_TIMEOUT_SEC, GOEDAM_TIMEOUT_SEC, END_LINGER_MS (tests),
 //      MAX_GAMES (games running at once), MAX_CONNECTIONS, MAX_CONNECTIONS_PER_IP,
-//      EXP_QUEUE_SEC, EXP_CHOICE_SEC, EXP_LAUNCH_MS (기획 15차 원정 timings), EXP_DEBUG_UNLOCK=0 (refuse the debug unlock),
+//      EXP_QUEUE_SEC, EXP_LAUNCH_MS (기획 15차 원정 timings), EXP_RESULT_KEEP_MS (기획 16차: stage results kept by run id,
+//      default 24 h), EXP_DEBUG_UNLOCK=0 (refuse the debug unlock),
 //      EXP_SHARED_DEBUG=1 (host debug / tunables in 원정 rooms with other humans; tests),
 //      TRUST_PROXY=1 (behind Render's proxy: the per-IP limit reads X-Forwarded-For) or TRUST_PROXY=fly (Fly.io: Fly-Client-IP).
 
@@ -26,7 +27,7 @@ startServer({
   ...(num(env.MAX_CONNECTIONS) != null ? { maxConnections: num(env.MAX_CONNECTIONS)! } : {}),
   ...(num(env.MAX_CONNECTIONS_PER_IP) != null ? { maxConnectionsPerIp: num(env.MAX_CONNECTIONS_PER_IP)! } : {}),
   ...(num(env.EXP_QUEUE_SEC) != null ? { expQueueSec: num(env.EXP_QUEUE_SEC)! } : {}),
-  ...(num(env.EXP_CHOICE_SEC) != null ? { expChoiceSec: num(env.EXP_CHOICE_SEC)! } : {}),
+  ...(num(env.EXP_RESULT_KEEP_MS) != null ? { expResultKeepMs: num(env.EXP_RESULT_KEEP_MS)! } : {}),
   ...(num(env.EXP_LAUNCH_MS) != null ? { expLaunchMs: num(env.EXP_LAUNCH_MS)! } : {}),
   ...(env.EXP_DEBUG_UNLOCK === '0' ? { expDebugUnlock: false } : {}),
   ...(env.EXP_SHARED_DEBUG === '1' ? { expSharedDebug: true } : {}),

@@ -2,6 +2,8 @@
 // with its 4 slot tiles in the middle, the shared stash on the right (filters, sort, 5-column grid). Tapping an item
 // opens the compare drawer (장착 중 vs 선택, stat deltas, effect, source; 장착 · 해제 · 버리기 두 번 탭). Equipping pops the
 // changed part on the doll with a band-coloured ring (weapons swing) and plays 'ui.equip' (higher band = higher pitch).
+// 기획 16차: while a run exists (bag not claimed) the screen is read-only (5-4): a 「원정 중 · 읽기만」 strip, the action
+// buttons dimmed — a tap says why. Looking (filters, the compare drawer, NEW marks) still works.
 
 import { CHARACTERS, getCharacter } from '../data';
 import { BAND_COLOR, GEAR_SLOTS, SLOT_NAME_KO, bandOf, maxStartStage, type GearItem, type GearSlot } from '../data/gear';
@@ -16,6 +18,8 @@ import {
   loadoutOf,
   loadoutsFor,
   markSeen,
+  RUN_LOCK_REASON,
+  stashLocked,
   unequip,
   wearerOf,
 } from '../expedition/stash';
@@ -34,6 +38,8 @@ export interface EquipScreen {
   /** Open on a character (null = the party's first) and optionally a slot filter / the NEW filter. */
   show(charId: string | null, filter?: StashFilter): void;
   hide(): void;
+  /** 기획 16차: redraw from the current stash (another tab changed it). */
+  refresh(): void;
 }
 
 const FILTERS: { id: StashFilter; label: string }[] = [
@@ -56,13 +62,15 @@ export function stashView(items: readonly GearItem[], wornByMe: ReadonlySet<stri
 export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack(): void }): EquipScreen {
   const el = h('div', 'screen exp-equip exp-screen is-hidden', parent);
   const bar = h('div', 'exp-bar', el);
-  button('btn btn-secondary exp-back', '← 허브', bar, () => cb.onBack());
+  button('btn btn-secondary exp-back', '← 로비', bar, () => cb.onBack());
   h('div', 'exp-title', bar, '장비');
   const countChip = h('div', 'exp-chip', bar);
+  // 기획 16차: run in progress → read-only
+  const lockStrip = h('div', 'exp-chip exp-readonly is-hidden', bar, '🔒 원정 중 · 읽기만');
   h('div', 'exp-bar-gap', bar);
-  button('btn btn-secondary exp-auto', '최고 등급 자동 장착', bar, () => {
-    const changed = autoEquip(ctx.stash, ctx.party().characters);
-    ctx.save();
+  const autoBtn = button('btn btn-secondary exp-auto', '최고 등급 자동 장착', bar, () => {
+    if (refuseLocked()) return;
+    const changed = ctx.update(s => autoEquip(s, ctx.party().characters));
     if (changed.length === 0) ctx.toast('더 좋은 장비가 없어요', 'info');
     else {
       ctx.toast(`${changed.length}개 장착했어요`, 'good');
@@ -88,7 +96,7 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
       filter = slot;
       const it = equippedItem(ctx.stash, cur, slot);
       pick = it ? it.uid : null;
-      if (it) markSeen(ctx.stash, [it.uid]);
+      if (it) ctx.update(s => markSeen(s, [it.uid]));
       render();
     });
     s.dataset.slot = slot;
@@ -117,6 +125,14 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
   let discardArmed: { uid: string; at: number } | null = null;
   let othersOpen = false;
   let visible = false;
+
+  /** 기획 16차: a gear action while a run exists → the reason, nothing changes. */
+  function refuseLocked(): boolean {
+    if (!stashLocked(ctx.stash)) return false;
+    ctx.toast(RUN_LOCK_REASON, 'warn');
+    sfx.ui('ui.warn');
+    return true;
+  }
 
   function celebrate(it: GearItem): void {
     const band = bandOf(it.tier);
@@ -184,7 +200,11 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
     const party = ctx.party().characters;
     const low = Math.min(...party.map(id => lowestTier(loadoutOf(ctx.stash, id))));
     const max = maxStartStage(loadoutsFor(ctx.stash, party));
-    startLine.textContent = party.includes(cur) ? `원정대 최저 장비 T${low} → ${max}단계부터 출발` : '원정대 밖 캐릭터 · 편성에 넣으면 이 장비로 싸워요';
+    startLine.textContent = stashLocked(ctx.stash)
+      ? '원정 중 · 가방 장비는 수령한 뒤에 낄 수 있어요'
+      : party.includes(cur)
+        ? `원정대 최저 장비 T${low} → ${max}단계부터 출발`
+        : '원정대 밖 캐릭터 · 편성에 넣으면 이 장비로 싸워요';
   }
 
   function renderStash(): void {
@@ -216,8 +236,7 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
         selected: pick === it.uid,
         onClick: () => {
           pick = it.uid;
-          markSeen(ctx.stash, [it.uid]);
-          ctx.save();
+          ctx.update(s => markSeen(s, [it.uid]));
           render();
         },
       });
@@ -262,33 +281,40 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
       }
     }
     const btns = h('div', 'exp-drawer-btns', drawer);
-    if (wearer && !mine) h('div', 'exp-drawer-note', btns, `${getCharacter(wearer).name}이(가) 끼고 있어요 · 장착하면 옮겨 와요`);
+    const locked = stashLocked(ctx.stash);
+    btns.classList.toggle('is-locked', locked);
+    if (locked) h('div', 'exp-drawer-note exp-lock-note', btns, '🔒 수령하면 바꿀 수 있어요');
+    else if (wearer && !mine) h('div', 'exp-drawer-note', btns, `${getCharacter(wearer).name}이(가) 끼고 있어요 · 장착하면 옮겨 와요`);
     if (mine)
       button('btn btn-secondary exp-unequip', '해제', btns, () => {
-        unequip(ctx.stash, cur, it.slot);
-        ctx.save();
+        if (refuseLocked()) return;
+        ctx.update(s => unequip(s, cur, it.slot));
         pick = null;
         sfx.ui('ui.back');
         render();
-      });
+      }).dataset.sfx = '';
     else
       button('btn btn-primary exp-equip-btn', '장착', btns, () => {
-        const r = equip(ctx.stash, cur, it.uid);
+        if (refuseLocked()) return;
+        const r = ctx.update(s => {
+          const res = equip(s, cur, it.uid);
+          if (res.ok) markSeen(s, [it.uid]);
+          return res;
+        });
         if (!r.ok) {
           ctx.toast(r.reason ?? '장착할 수 없어요', 'warn');
+          render();
           return;
         }
-        markSeen(ctx.stash, [it.uid]);
-        ctx.save();
         pick = null;
         render();
         celebrate(it);
       }).dataset.sfx = '';
-    const armed = discardArmed && discardArmed.uid === it.uid && performance.now() - discardArmed.at < 3000;
+    const armed = !locked && discardArmed && discardArmed.uid === it.uid && performance.now() - discardArmed.at < 3000;
     button('btn btn-danger exp-discard', armed ? '한 번 더 누르면 버려요' : '버리기', btns, () => {
+      if (refuseLocked()) return;
       if (discardArmed && discardArmed.uid === it.uid && performance.now() - discardArmed.at < 3000) {
-        discard(ctx.stash, it.uid);
-        ctx.save();
+        ctx.update(s => discard(s, it.uid));
         discardArmed = null;
         pick = null;
         ctx.toast('버렸어요', 'info');
@@ -305,6 +331,10 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
   }
 
   function render(): void {
+    const locked = stashLocked(ctx.stash);
+    lockStrip.classList.toggle('is-hidden', !locked);
+    autoBtn.classList.toggle('is-locked', locked);
+    el.classList.toggle('is-readonly', locked);
     renderList();
     renderPaper();
     renderStash();
@@ -328,6 +358,9 @@ export function createEquipScreen(parent: HTMLElement, ctx: ExpCtx, cb: { onBack
     hide() {
       visible = false;
       el.classList.add('is-hidden');
+    },
+    refresh() {
+      if (visible) render();
     },
   };
 }

@@ -137,22 +137,23 @@ describe('charge (질주 휠체어 폭주): telegraphed line, then the rush alon
     expect(e.y).toBeCloseTo(11.5);
     expect((e.x - 30) / (e.y - 9)).toBeCloseTo(3 / 2); // same direction
     expect(chargeEnd({ x: 5, y: 6 }, { x: 8, y: 6 }, 2, A, 0.5)).toEqual({ x: 7, y: 6 }); // up to distance only
-    // in a real cast near the wall the caster stops inside, and the telegraph is just that long
+    // in a real cast near the wall the caster stops inside, and the telegraph is just that long (기획 16차: arena 24 wide)
     const tg = makeGame();
     quietFloor(tg);
-    const me = heroAt(tg, 33, 6);
-    const wc = spawnAt(tg, 'wheelchair_rush', { x: 30, y: 6 });
+    const W = tg.w.state.plan.arena.width;
+    const me = heroAt(tg, W - 3, 6);
+    const wc = spawnAt(tg, 'wheelchair_rush', { x: W - 6, y: 6 });
     tank(wc);
     wc.targetId = me.id;
     armSkill(wc, 0);
     advance(tg, 1 / TICK_RATE);
     const t = tg.w.state.telegraphs.find(x => x.area.shape === 'line')!;
-    expect(t.center.x).toBeCloseTo(35.5);
+    expect(t.center.x).toBeCloseTo(W - 0.5);
     clearEvents(tg);
     advance(tg, 1.0);
     const d = eventsOf(tg, 'dash');
     expect(d).toHaveLength(1);
-    expect(d[0].to.x).toBeCloseTo(35.5, 1);
+    expect(d[0].to.x).toBeCloseTo(W - 0.5, 1);
     expect(d[0].to.y).toBeCloseTo(6, 1);
   });
 

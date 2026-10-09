@@ -21,8 +21,10 @@ export class Hub implements RoomHost {
   private nameCounter = 0;
   private roomsDirty = false;
   private readonly timers: ReturnType<typeof setInterval>[] = [];
-  /** 기획 15차 원정: stage queues and session-held runs. */
+  /** 기획 15차 원정: stage queues and the runs being played. */
   readonly expedition: ExpeditionLobby;
+  /** 기획 16차: random per process (welcome.bootId) — a client whose stage ran under another boot id voids it. */
+  readonly bootId = randomId(8);
 
   constructor(opts: ServerOptions) {
     this.opts = opts;
@@ -201,7 +203,7 @@ export class Hub implements RoomHost {
       case 'setName': {
         const name = sanitizeName(msg.name);
         if (name) s.name = name;
-        this.send(s, { t: 'welcome', v: PROTOCOL_VERSION, sessionId: s.id, token: s.token, name: s.name });
+        this.send(s, this.welcome(s));
         if (s.room) this.roomChanged(s.room);
         return;
       }
@@ -263,7 +265,7 @@ export class Hub implements RoomHost {
       case 'expQueue':
       case 'expCancel':
       case 'expStartNow':
-      case 'expChoice':
+      case 'expStatus':
         this.expedition.handle(s, msg);
         return;
     }
@@ -297,13 +299,17 @@ export class Hub implements RoomHost {
     const name = sanitizeName(msg.name);
     if (name) s.name = name;
     else if (!s.name) s.name = `플레이어${++this.nameCounter}`;
-    this.send(s, { t: 'welcome', v: PROTOCOL_VERSION, sessionId: s.id, token: s.token, name: s.name });
+    this.send(s, this.welcome(s));
     if (s.room) s.room.onReconnect(s);
     else {
       this.send(s, { t: 'room', room: null });
       this.send(s, { t: 'rooms', rooms: this.roomList() });
     }
     this.expedition.onReconnect(s);
+  }
+
+  private welcome(s: Session): ServerMsg {
+    return { t: 'welcome', v: PROTOCOL_VERSION, sessionId: s.id, token: s.token, name: s.name, bootId: this.bootId };
   }
 
   /** Error reply (also used by the expedition lobby). */

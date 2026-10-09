@@ -3,7 +3,7 @@
 // The deviations it found (it.fails) are fixed; those tests now run as regular regression tests ("former deviations").
 
 import { describe, expect, it } from 'vitest';
-import { FLOOR_WAVES, TICK_RATE } from '../../src/config';
+import { TICK_RATE, ZONES, zoneOf } from '../../src/config';
 import { getCharacter, getMonster } from '../../src/data';
 import { applyDamage, killEntity } from '../../src/sim/combat';
 import { createUnit } from '../../src/sim/entities';
@@ -222,7 +222,7 @@ describe('R11 out → spectating → wipe', () => {
 
 describe('normal floor clear / cap (R15, R16)', () => {
   it('waves postponed at the cap are never dropped: every planned monster eventually spawns', () => {
-    const tg = makeGame({ tunables: { maxAliveMonsters: 6, invincible: true, monsterHpMult: 1e6, midBossTimeTrigger: 1e6, midBossKillTrigger: 1e6 } });
+    const tg = makeGame({ tunables: { maxAliveMonsters: 6, invincible: true, monsterHpMult: 1e6, midBossTimeTrigger: 1e6 } });
     const plan = tg.w.state.plan;
     const planned = plan.waves.reduce((a, w) => a + w.spawns.reduce((b, g) => b + g.count, 0), 0);
     let spawned = 0;
@@ -257,7 +257,7 @@ describe('normal floor clear / cap (R15, R16)', () => {
 
   it('the forced mid boss waits for room under the alive cap (postponed, never dropped), then comes', () => {
     // 기획서 9-1: "동시에 최대 30마리" holds for the mid boss too.
-    const tg = makeGame({ tunables: { invincible: true, monsterHpMult: 1e6, maxAliveMonsters: 30, midBossKillTrigger: 1e6, midBossTimeTrigger: 3 } });
+    const tg = makeGame({ tunables: { invincible: true, monsterHpMult: 1e6, maxAliveMonsters: 30, midBossTimeTrigger: 3 } });
     quietFloor(tg);
     tg.w.spawner.midTriggered = false;
     const slimes = [];
@@ -533,7 +533,7 @@ describe('R4 start card', () => {
 
 describe('former deviations', () => {
   it('R15: the alive cap also holds for the forced mid boss', () => {
-    const tg = makeGame({ tunables: { invincible: true, maxAliveMonsters: 30, midBossKillTrigger: 1e6, midBossTimeTrigger: 3 } });
+    const tg = makeGame({ tunables: { invincible: true, maxAliveMonsters: 30, midBossTimeTrigger: 3 } });
     quietFloor(tg);
     tg.w.spawner.midTriggered = false;
     for (let i = 0; i < 30; i++) {
@@ -584,17 +584,17 @@ describe('former deviations', () => {
     expect(new Set(counts).size).toBeGreaterThan(1);
   });
 
-  it('wave count "1층 N웨이브, 층마다 +1" counts by floor number (boss floors do not shift it); documented cap', () => {
+  it('기획 16차 템포: waves per normal floor come from the zone (로비 5 · 사무실 5 · 폐병동 6 · 옥상 6)', () => {
     const tg = makeGame({ tunables: { maxFloor: 20 } });
     const counts: Record<number, number> = {};
     const want: Record<number, number> = {};
-    for (const f of [1, 2, 4, 6, 9, 14]) {
+    for (const f of [1, 2, 4, 6, 9, 11, 14, 16, 19]) {
       tg.game.dispatch({ type: 'debug', action: { kind: 'jumpFloor', floor: f } });
       counts[f] = tg.w.state.plan.waves.length;
-      want[f] = Math.min(FLOOR_WAVES.max, FLOOR_WAVES.first + (f - 1) * FLOOR_WAVES.perFloor);
+      want[f] = zoneOf(f).waves;
     }
     expect(counts).toEqual(want);
-    expect(counts[6]).toBe(Math.min(FLOOR_WAVES.max, counts[4] + 2)); // floor 5 (boss) still counts as a floor
+    expect(ZONES.map(z => z.waves)).toEqual([5, 5, 6, 6]);
   });
 });
 

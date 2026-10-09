@@ -4,7 +4,7 @@
 - A Korean game designer (not a programmer). **Always reply in Korean**, in plain language, short sentences, no code jargon.
 - When a decision is needed: numbered questions, each with a recommended default marked (추천). They often answer "추천대로" or by number.
 - They test on a phone (844×390 landscape) through the Fly URL; show screenshots (SendUserFile) of what changed.
-- Decisions are recorded per round ("기획 N차") in `docs/game-design.md` (one `## N. N차 결정` section per round; §28 = 15차).
+- Decisions are recorded per round ("기획 N차") in `docs/game-design.md` (one `## N. N차 결정` section per round; §28 = 15차, §29 = 16차).
 
 ## Links
 - Multiplayer game (Fly, app `swap-tower-zerocoke8`): https://swap-tower-zerocoke8.fly.dev — `.github/workflows/fly-deploy.yml` deploys on every push to `claude/design-notes-v0` or `main` that touches src/server/build files (docs-only pushes do not deploy).
@@ -12,8 +12,8 @@
 
 ## Code map
 - `src/sim` deterministic 30 Hz sim (seeded Rng; never Math.random/Date), `src/data` content, `src/render` Canvas 2D drawing, `src/ui` DOM HUD/screens, `src/audio` WebAudio synth SFX (file override `src/audio/files/<id>.mp3`), `src/net` client, `server` Node ws server (server-authoritative; runs the same sim).
-- Docs: `docs/game-design.md` (decision log), `docs/balance.md` (benches, tables), `docs/prototype-architecture.md`, `docs/multiplayer.md`, feature specs (`goedam-rooms.md`, `combat-events.md`, `new-characters.md`, `boss-groggy.md`, `skill-renewal.md`, `sfx.md`, `expedition.md`), `docs/roguelike-choices.pdf`.
-- Benches: `tests/review/critic-20f.ts` (20-floor clear rates, 240/960 runs on matched seeds), `tests/playtest/drag-bench.ts` / `drag-value.ts` / `ult-bench.ts`.
+- Docs: `docs/game-design.md` (decision log), `docs/balance.md` (benches, tables), `docs/prototype-architecture.md`, `docs/multiplayer.md`, feature specs (`goedam-rooms.md`, `combat-events.md`, `new-characters.md`, `boss-groggy.md`, `skill-renewal.md`, `sfx.md`, `expedition.md`, `tempo.md`), `docs/roguelike-choices.pdf`.
+- Benches: `tests/review/critic-20f.ts` (20-floor clear rates + per-floor tempo telemetry, 240/960 runs on matched seeds), `tests/review/expedition-bench.ts` / `expedition-economy.ts` (원정, balance.md §16), `tests/playtest/drag-bench.ts` / `drag-value.ts` / `ult-bench.ts`.
 
 ## Checks (run all before any commit to the deploy branch)
 ```
@@ -45,5 +45,6 @@ npx playwright test            # phone, desktop, multi projects; ~10 min
 - Swap = drag a card onto the field; the new character appears there and casts its drag skill; the re-appear cooldown starts when a character LEAVES the field (6차). Stun pauses attack timers and cancels wind-ups (4차).
 - Ult gauge is per character (15차): field character fills in 30 s, bench at 1/3 (debug sliders).
 - 15 characters / 5 roles (탱커, 근접딜러, 원거리딜러, 힐러, 서포터); pets ×0.8 cooldowns; boss groggy; 괴담 rooms; 돌발 괴담; renewed multi-stage skills + ult cut-in; placeholder synth SFX.
-- Modes: 클래식 탑 (20 floors) and 원정 (15차, 12 stages × 3 floors, gear 무기/방어구/장신구/유물, extract-or-continue).
+- Modes: 클래식 탑 (20 floors) and 원정 (15차; 16차: 12 one-floor stages, gear 무기/방어구/장신구/유물). 원정: every stage ends in the 원정 lobby — 「수령」 (bag → stash, run ends) or 「N단계 매칭」 (bag at risk, buffs carry); gear/party locked while a run exists; normal stage = waves + 수문장 → 1 floor reward → lobby, boss stage (3/6/9/12) = boss only; fail = lose the bag only. The run lives in the browser stash (v2 `run`); the server checks it at join (`runJoinProblem`) and keeps results by run id 24 h (protocol 4, `welcome.bootId`).
+- Tempo (16차, both modes): next wave comes when ≤ 2 weighted enemies are left (mid boss = 3) and 2 s passed, or at the max gap (classic 8 s / 원정 11 s); spawns on a 5–8 cell ring around a rotating target player, ≥ 4 from allies, always on screen; normal arena 24×12 (camera fixed); classic waves per zone 5/5/6/6, mid boss with the 2nd-to-last wave; LATE_STAT_GROWTH 1.36. Debug 「전멸 (패배)」 forces a wipe.
 - Next planned after testing 원정: move rendering to PixiJS on a new branch (sim/server/UI stay); write a consolidated current-rules spec + migration plan first.

@@ -132,7 +132,7 @@ function roomAfter(w: World, floor: number): GoedamRoomDef | null {
   const forced = w.goedam.forced;
   w.goedam.forced = null;
   if (forced != null) return forcedRoom(w, floor, forced);
-  if (w.expedition) return expeditionRoomAfter(w, floor); // 기획 15차 원정: after stage floor 1, roomChance
+  if (w.expedition) return expeditionRoomAfter(w); // 기획 16차 원정: after a normal stage's reward, roomChance
   const slot = goedamSchedule(w.state.seed, w.tunables.goedamRoomsPerZone).find(x => x.floor === floor);
   if (!slot || w.goedam.seen.includes(slot.roomId)) return null;
   const room = getGoedamRoom(slot.roomId);

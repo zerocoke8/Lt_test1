@@ -1,6 +1,8 @@
 // 기획 15차 원정 모드: the stash (보관함) model — pure, no DOM, no storage (src/ui/expeditionStore.ts persists it under
 // localStorage 'swapTower.expedition.v1'). Items, what each of the 15 characters wears, NEW marks, first boss clears,
 // the expedition party (kept apart from the classic preset) and the debug 「단계 전부 해금」 flag (docs/expedition.md 10장).
+// 기획 16차: version 2 adds the run in progress (`run`, src/expedition/run.ts) — kept in the same record so 「수령」 (bag →
+// stash, run gone) is one save — and locks gear / party changes while it exists (5-4).
 // Every helper mutates the StashData it is given and returns a result; parseStash never throws (corrupt → empty).
 
 import { CHARACTERS, PETS, RELICS } from '../data';
@@ -10,6 +12,7 @@ import {
   GEAR_RARITIES,
   GEAR_SLOTS,
   RELIC_TIERS,
+  cleanPartyGear,
   cleanSpec,
   gearSpecProblem,
   maxStartStage,
@@ -21,10 +24,16 @@ import {
 } from '../data/gear';
 import { EXPEDITION_STAGES, isBossStage } from '../data/stages';
 import { mixSeed, Rng } from '../sim/rng';
+import { applyStageResult, runToJoin, type ApplyKind, type ExpeditionRun, type RunLock, type RunPending, type StageResult, type WonStage } from './run';
+import { RUN_ID_RE, runInfoProblem } from './runCheck';
 
 export const STASH_KEY = 'swapTower.expedition.v1';
 export const MODE_KEY = 'swapTower.mode.v1';
-export const STASH_VERSION = 1;
+export const STASH_VERSION = 2;
+/** 기획 16차: why a gear / party change is refused while a run exists. */
+export const RUN_LOCK_REASON = '원정 중에는 장비·편성을 바꿀 수 없어요';
+/** 기획 16차: a claim that another tab (or a running stage) got first. */
+export const RUN_GONE_REASON = '다른 창에서 이미 처리했어요';
 
 export interface StashPreset {
   characters: string[];
@@ -32,7 +41,7 @@ export interface StashPreset {
 }
 
 export interface StashData {
-  v: 1;
+  v: 2;
   /** Next item number (uids are 'g1', 'g2', …; never reused). */
   nextUid: number;
   items: GearItem[];
@@ -46,6 +55,8 @@ export interface StashData {
   preset: StashPreset | null;
   /** Debug 「단계 전부 해금」: ignore the start-stage rule. */
   unlockAll: boolean;
+  /** 기획 16차: the run in progress (bag not claimed yet), else null. */
+  run: ExpeditionRun | null;
 }
 
 export interface StashResult {
@@ -57,7 +68,7 @@ const CHAR_IDS = new Set(CHARACTERS.map(c => c.id));
 const PET_IDS = new Set(PETS.map(p => p.id));
 
 export function emptyStash(): StashData {
-  return { v: 1, nextUid: 1, items: [], equipped: {}, seen: [], bossFirstClears: [], preset: null, unlockAll: false };
+  return { v: 2, nextUid: 1, items: [], equipped: {}, seen: [], bossFirstClears: [], preset: null, unlockAll: false, run: null };
 }
 
 // ─────────────────────────── (De)serialisation ───────────────────────────
@@ -70,7 +81,10 @@ function cleanPreset(x: unknown): StashPreset | null {
   return ok(r.characters, CHAR_IDS) && ok(r.pets, PET_IDS) ? { characters: [...(r.characters as string[])], pets: [...(r.pets as string[])] } : null;
 }
 
-/** A stored stash (JSON text or a parsed object), cleaned: bad items, unknown characters, dangling refs dropped. */
+/**
+ * A stored stash (JSON text or a parsed object), cleaned: bad items, unknown characters, dangling refs dropped.
+ * Version 1 (기획 15차) reads as version 2 with no run; a stored run that is malformed or impossible is dropped.
+ */
 export function parseStash(raw: unknown): StashData {
   let x: unknown = raw;
   try {
@@ -78,7 +92,8 @@ export function parseStash(raw: unknown): StashData {
   } catch {
     return emptyStash();
   }
-  if (!x || typeof x !== 'object' || (x as { v?: unknown }).v !== STASH_VERSION) return emptyStash();
+  const v = x && typeof x === 'object' ? (x as { v?: unknown }).v : null;
+  if (v !== 1 && v !== STASH_VERSION) return emptyStash();
   const r = x as Record<string, unknown>;
   const s = emptyStash();
   const uids = new Set<string>();
@@ -109,7 +124,77 @@ export function parseStash(raw: unknown): StashData {
   s.bossFirstClears = [...new Set((Array.isArray(r.bossFirstClears) ? r.bossFirstClears : []).filter((n): n is number => Number.isInteger(n) && isBossStage(n as number) && (n as number) <= EXPEDITION_STAGES))];
   s.preset = cleanPreset(r.preset);
   s.unlockAll = r.unlockAll === true;
+  s.run = v === STASH_VERSION ? cleanRun(r.run) : null;
   return s;
+}
+
+// ─────────────────────────── The stored run (기획 16차) ───────────────────────────
+
+const STATUSES = new Set(['lobby', 'matching', 'inStage']);
+
+function cleanLock(x: unknown): RunLock | null {
+  if (!x || typeof x !== 'object') return null;
+  const r = x as Record<string, unknown>;
+  const preset = cleanPreset(r);
+  const gear = cleanPartyGear(r.gear, 3);
+  return preset && gear ? { characters: preset.characters, pets: preset.pets, gear } : null;
+}
+
+function cleanPending(x: unknown): RunPending | null {
+  if (!x || typeof x !== 'object') return null;
+  const r = x as Record<string, unknown>;
+  if (!Number.isInteger(r.stage) || typeof r.online !== 'boolean' || typeof r.tabId !== 'string' || typeof r.aliveAt !== 'number') return null;
+  if (r.bootId !== null && typeof r.bootId !== 'string') return null;
+  const p: RunPending = { stage: r.stage as number, online: r.online, bootId: (r.bootId as string | null) ?? null, tabId: r.tabId, aliveAt: r.aliveAt };
+  if (r.won && typeof r.won === 'object') p.won = r.won as WonStage; // checked against the run in cleanRun
+  return p;
+}
+
+/** A saved won stage is kept only when the run with it applied is still a run that can exist (else it is dropped). */
+function wonProblem(run: ExpeditionRun, won: WonStage): boolean {
+  if (!Array.isArray(won.loot) || won.loot.some(g => gearSpecProblem(g)) || typeof won.bossClear !== 'boolean') return true;
+  try {
+    const next: ExpeditionRun = { ...run, bag: run.bag.map(g => ({ ...g })), bossClears: [...run.bossClears], pending: { ...run.pending! } };
+    if (applyStageResult(next, { runId: run.id, stage: run.stage, outcome: 'cleared', ...won }) !== 'cleared') return true;
+    return !!runInfoProblem(runToJoin(next), next.stage, next.lock.gear, { debugOk: true, allowComplete: true });
+  } catch {
+    return true;
+  }
+}
+
+/** A stored run, re-checked like a join (runInfoProblem; stage 13 = cleared stage 12, waiting for its claim), or null. */
+function cleanRun(x: unknown): ExpeditionRun | null {
+  if (!x || typeof x !== 'object') return null;
+  const r = x as Record<string, unknown>;
+  const lock = cleanLock(r.lock);
+  if (r.v !== 2 || typeof r.id !== 'string' || !RUN_ID_RE.test(r.id) || !lock || !STATUSES.has(r.status as string)) return null;
+  if (!Number.isInteger(r.seed) || !Number.isInteger(r.stage)) return null;
+  const pending = r.status === 'inStage' ? cleanPending(r.pending) : null;
+  if (r.status === 'inStage' && !pending) return null;
+  const run: ExpeditionRun = {
+    v: 2,
+    id: r.id,
+    seed: (r.seed as number) >>> 0,
+    startStage: r.startStage as number,
+    stage: r.stage as number,
+    cleared: r.cleared as number,
+    bag: Array.isArray(r.bag) ? (r.bag as GearSpec[]).map(g => (gearSpecProblem(g) ? g : cleanSpec(g))) : (r.bag as GearSpec[]),
+    carry: (r.carry as ExpeditionRun['carry']) ?? null,
+    bossClears: r.bossClears as number[],
+    lock,
+    status: r.status as ExpeditionRun['status'],
+    pending,
+  };
+  try {
+    if (runInfoProblem(runToJoin(run), run.stage, lock.gear, { debugOk: true, allowComplete: true })) return null;
+  } catch {
+    return null; // malformed nested data (runToJoin copies it)
+  }
+  if (pending?.won) {
+    if (wonProblem(run, pending.won)) delete pending.won;
+    else pending.won = { loot: pending.won.loot.map(cleanSpec), carry: pending.won.carry, bossClear: pending.won.bossClear };
+  }
+  return run;
 }
 
 export function serializeStash(s: StashData): string {
@@ -192,8 +277,16 @@ export function addItems(s: StashData, specs: readonly GearSpec[], fromStage: nu
   return out;
 }
 
+/** 기획 16차: gear / party changes are locked while a run exists (5-4). */
+export function stashLocked(s: StashData): boolean {
+  return s.run != null;
+}
+
+const LOCKED: StashResult = { ok: false, reason: RUN_LOCK_REASON };
+
 /** Wear item uid on charId (it leaves whoever wore it; the piece it replaces goes back to the stash). */
 export function equip(s: StashData, charId: string, uid: string): StashResult {
+  if (stashLocked(s)) return LOCKED;
   if (!CHAR_IDS.has(charId)) return { ok: false, reason: '알 수 없는 캐릭터' };
   const item = itemByUid(s, uid);
   if (!item) return { ok: false, reason: '없는 장비' };
@@ -204,6 +297,7 @@ export function equip(s: StashData, charId: string, uid: string): StashResult {
 }
 
 export function unequip(s: StashData, charId: string, slot: GearSlot): StashResult {
+  if (stashLocked(s)) return LOCKED;
   const slots = s.equipped[charId];
   if (!slots?.[slot]) return { ok: false, reason: '빈 칸' };
   delete slots[slot];
@@ -212,6 +306,7 @@ export function unequip(s: StashData, charId: string, slot: GearSlot): StashResu
 
 /** 「버리기」: gone for good (taken off first). */
 export function discard(s: StashData, uid: string): StashResult {
+  if (stashLocked(s)) return LOCKED;
   const i = s.items.findIndex(x => x.uid === uid);
   if (i < 0) return { ok: false, reason: '없는 장비' };
   const was = wearerOf(s, uid);
@@ -227,6 +322,7 @@ export function discard(s: StashData, uid: string): StashResult {
  */
 export function autoEquip(s: StashData, partyIds: readonly string[]): string[] {
   const changed: string[] = [];
+  if (stashLocked(s)) return changed;
   for (const charId of partyIds) {
     if (!CHAR_IDS.has(charId)) continue;
     for (const slot of GEAR_SLOTS) {
@@ -251,6 +347,7 @@ export function recordBossClear(s: StashData, stage: number): void {
 }
 
 export function setPreset(s: StashData, preset: StashPreset): StashResult {
+  if (stashLocked(s)) return LOCKED;
   const p = cleanPreset(preset);
   if (!p) return { ok: false, reason: '편성 오류' };
   s.preset = p;
@@ -261,6 +358,7 @@ export function setPreset(s: StashData, preset: StashPreset): StashResult {
 
 /** 「선택 캐릭터 모든 칸 Tn 지급」: a common weapon / armor / charm of that tier, worn at once. */
 export function grantSet(s: StashData, charId: string, tier: number): GearItem[] {
+  if (stashLocked(s)) return [];
   const t = Math.max(1, Math.min(EXPEDITION_STAGES, Math.floor(tier)));
   const items = addItems(s, BASE_SLOTS.map(slot => ({ slot, tier: t, rarity: 'common' as GearRarity })), t);
   for (const it of items) equip(s, charId, it.uid);
@@ -269,11 +367,13 @@ export function grantSet(s: StashData, charId: string, tier: number): GearItem[]
 
 /** 「원정대 3명 한 벌 지급」. */
 export function grantPartySet(s: StashData, partyIds: readonly string[], tier: number): GearItem[] {
+  if (stashLocked(s)) return [];
   return partyIds.flatMap(id => grantSet(s, id, tier));
 }
 
 /** 「무작위 장비 10개」 (seeded by the stash's next uid, so it is repeatable in tests). */
 export function grantRandom(s: StashData, n: number): GearItem[] {
+  if (stashLocked(s)) return [];
   const rng = new Rng(mixSeed(0x57a54, s.nextUid));
   const specs: GearSpec[] = [];
   for (let k = 0; k < n; k++) {
@@ -289,14 +389,78 @@ export function grantRandom(s: StashData, n: number): GearItem[] {
 
 /** 「유물 8종 지급」 at tier 3 (or 6 · 9 · 12). */
 export function grantRelics(s: StashData, tier = 3): GearItem[] {
+  if (stashLocked(s)) return [];
   const t = RELIC_TIERS.includes(tier) ? tier : 3;
   return addItems(s, RELICS.map(r => ({ slot: 'relic' as GearSlot, tier: t, rarity: r.rarity, relicId: r.id })), t);
 }
 
-/** 「보관함 초기화」: everything gone (the expedition party and the unlock flag stay). */
+/** 「보관함 초기화」: everything gone (the expedition party and the unlock flag stay). Refused (same `s`) during a run. */
 export function resetStash(s: StashData): StashData {
+  if (stashLocked(s)) return s;
   const fresh = emptyStash();
   fresh.preset = s.preset;
   fresh.unlockAll = s.unlockAll;
   return fresh;
+}
+
+// ─────────────────────────── The run (기획 16차, 5장 · 10장) ───────────────────────────
+
+/** Floor rewards + 괴담 traces a run carries (they vanish at the claim). */
+export function runBuffCount(run: Pick<ExpeditionRun, 'carry'> | null | undefined): number {
+  return (run?.carry?.rewards.length ?? 0) + (run?.carry?.goedamTraces.length ?? 0);
+}
+
+/** A new run (refused while one exists). */
+export function beginRun(s: StashData, run: ExpeditionRun): StashResult {
+  if (s.run) return { ok: false, reason: '이미 진행 중인 원정이 있어요' };
+  s.run = run;
+  return { ok: true };
+}
+
+export interface ApplyResultOutcome {
+  kind: ApplyKind;
+  /** 'failed': how many bag items were lost. */
+  lost?: number;
+  /** 'cleared': this stage's loot (now in the bag). */
+  loot?: GearSpec[];
+}
+
+/**
+ * A stage result for the stored run (applied once: run id + stage must match). 'failed' ends the run (the bag is
+ * lost, equipped gear stays). A clear of stage 12 stays a run here — the caller claims it (claimRun, 「원정 완주!」).
+ */
+export function applyResult(s: StashData, r: StageResult): ApplyResultOutcome {
+  const run = s.run;
+  if (!run) return { kind: 'ignored' };
+  const lost = run.bag.length;
+  const kind = applyStageResult(run, r);
+  if (kind === 'failed') {
+    s.run = null;
+    return { kind, lost };
+  }
+  return kind === 'cleared' ? { kind, loot: r.loot.map(g => ({ ...g })) } : { kind };
+}
+
+export type ClaimResult = { ok: true; items: GearItem[]; buffs: number } | { ok: false; reason: string };
+
+/**
+ * 「수령」 (or the automatic claim after stage 12): the whole bag into the stash (fromStage = each item's tier), the
+ * run's boss clears recorded, the run gone — one mutation, one save. Refused when there is no run, it is another run,
+ * or a stage of it is running (another tab got there first).
+ */
+export function claimRun(s: StashData, runId: string): ClaimResult {
+  const run = s.run;
+  if (!run || run.id !== runId || run.status === 'inStage') return { ok: false, reason: RUN_GONE_REASON };
+  const items = run.bag.flatMap(g => addItems(s, [g], g.tier));
+  for (const st of run.bossClears) recordBossClear(s, st);
+  const buffs = runBuffCount(run);
+  s.run = null;
+  return { ok: true, items, buffs };
+}
+
+/** A cancelled first match: a run that cleared nothing simply goes away. True when it did. */
+export function dropEmptyRun(s: StashData): boolean {
+  if (!s.run || s.run.cleared > 0 || s.run.status === 'inStage') return false;
+  s.run = null;
+  return true;
 }

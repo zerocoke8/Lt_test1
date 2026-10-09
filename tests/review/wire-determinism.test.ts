@@ -14,10 +14,10 @@ import { BOT1, makeGame, type TestGame } from '../sim/helpers';
 const KEYS: Record<string, string[]> = {
   // expedition: 기획 15차 원정 only (absent in the classic tower)
   state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'bossGroggy', 'runResult', 'expedition'],
-  // stage … bossHpMult: 기획 15차 원정 floor plans only
-  plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'bossId', 'theme', 'stage', 'stageFloor', 'equivFloor', 'guardian', 'bossHpMult'],
-  guardian: ['monsterId', 'hpMult', 'atkMult', 'at'],
-  expedition: ['stage', 'stageFloor', 'boss', 'outcome', 'loot', 'choices', 'humans', 'goedamSeen'],
+  // stage … bossHpMult: 기획 15차 원정 floor plans only (기획 16차: one floor per stage, no stageFloor)
+  plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'maxGap', 'bossId', 'theme', 'stage', 'equivFloor', 'guardian', 'bossHpMult'],
+  guardian: ['monsterId', 'hpMult', 'atkMult'],
+  expedition: ['stage', 'boss', 'outcome', 'loot', 'humans', 'goedamSeen'],
   gearSpec: ['slot', 'tier', 'rarity', 'optionId', 'relicId'],
   wave: ['at', 'spawns'],
   entity: ['id', 'kind', 'team', 'defId', 'tier', 'pos', 'radius', 'facing', 'hp', 'maxHp', 'shield', 'statuses', 'targetId', 'targetHeldFor', 'ownerPlayer', 'partyIndex', 'anim', 'animTime', 'invulnTime', 'expiresIn', 'enraged', 'eventTag'],
@@ -170,7 +170,7 @@ describe('wire snapshot = contract only', () => {
 });
 
 describe('기획 15차 원정: wire snapshot = contract only', () => {
-  it('a geared boss stage (guardian-free) and a guardian floor up to the stage clear carry only contract keys', () => {
+  it('a geared guardian stage (through its floor reward) and a boss stage up to the stage end carry only contract keys', () => {
     const seen = new Set<string>();
     const bad = new Set<string>();
     const gear = [
@@ -185,7 +185,6 @@ describe('기획 15차 원정: wire snapshot = contract only', () => {
         tunables: { invincible: true },
         expedition: { stage },
       });
-      tg.game.dispatch({ type: 'debug', action: { kind: 'jumpFloor', floor: 3 } });
       for (let t = 0; t < 30 * 40 && tg.w.state.phase === 'combat'; t++) {
         if (t % 90 === 30) tg.game.dispatch({ type: 'swap', player: 0, partyIndex: ((t / 90) | 0) % 3, pos: { x: 6 + (t % 11), y: 6 } });
         tick(tg.w);
@@ -193,10 +192,14 @@ describe('기획 15차 원정: wire snapshot = contract only', () => {
       }
       tg.game.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } });
       for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
+      // 기획 16차: a normal stage ends after its floor reward
+      if (tg.w.state.phase === 'reward') tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
+      expect(tg.w.state.phase).toBe('stageClear');
+      for (const b of audit(cleanState(tg.w.state), seen)) bad.add(b);
       expect(JSON.stringify(JSON.parse(wireJson(tg.game.drainEvents())))).not.toMatch(/"(rt|src)":/);
     }
     expect([...bad]).toEqual([]);
-    for (const k of ['expedition:combat', 'expedition:stageClear', 'loot', 'gear']) expect(seen.has(k), k).toBe(true);
+    for (const k of ['expedition:combat', 'expedition:reward', 'expedition:stageClear', 'loot', 'gear']) expect(seen.has(k), k).toBe(true);
   });
 });
 

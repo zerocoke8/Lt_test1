@@ -130,6 +130,8 @@ export class Connection {
   offlineReason: OfflineReason | null = null;
   /** performance.now() of the last 'welcome' (start of the current online stretch). */
   onlineSince = 0;
+  /** 기획 16차 원정: the server process's boot id from the last 'welcome' (null before the first). */
+  bootId: string | null = null;
   private readonly opts: ConnectionOptions;
   private ws: WebSocket | null = null;
   private readonly handlers = new Map<string, Set<(m: ServerMsg) => void>>();
@@ -406,6 +408,7 @@ export class Connection {
       case 'welcome':
         this.sessionId = msg.sessionId;
         this.name = msg.name;
+        this.bootId = msg.bootId ?? null;
         this.rememberToken(msg.token);
         this.attempt = 0;
         this.everOnline = true;

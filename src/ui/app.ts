@@ -30,8 +30,8 @@ import { Stage } from './stage';
 import { createMainMenu } from './mainMenu';
 import { ExpeditionFlow, type FlowPhase } from './expeditionSolo';
 import { DEFAULT_EXP_PARTY, type ExpCtx } from './expeditionCtx';
-import { loadGearArtFiles, loadMode, loadStash, saveMode, saveStash } from './expeditionStore';
-import { loadoutOf, maxStartStageFor, setPreset } from '../expedition/stash';
+import { loadGearArtFiles, loadMode, loadStash, onStashChanged, saveMode, saveStash, updateStash } from './expeditionStore';
+import { RUN_LOCK_REASON, loadoutOf, maxStartStageFor, setPreset, stashLocked } from '../expedition/stash';
 import { setBattleGearFiles } from '../render/gearArt';
 import { createToaster } from './toast';
 import {
@@ -211,9 +211,9 @@ export function startApp(root: HTMLElement): void {
     onBack: () => showMain(),
     onStart: p => {
       if (preset.variant === 'expedition') {
-        // 기획 15차: the expedition party is kept apart from the classic preset
-        setPreset(expCtx.stash, p);
-        expCtx.save();
+        // 기획 15차: the expedition party is kept apart from the classic preset (기획 16차: refused while a run exists)
+        const r = expCtx.update(s => setPreset(s, p));
+        if (!r.ok) expCtx.toast(r.reason ?? RUN_LOCK_REASON, 'warn');
         preset.setVisible(false);
         screen = 'exp';
         expFlow.openHub();
@@ -270,9 +270,15 @@ export function startApp(root: HTMLElement): void {
     get stash() {
       return stash;
     },
-    save: () => void saveStash(stash),
-    replace: s => {
-      stash = s;
+    // 기획 16차: 「read → change → save」 (another tab may have changed the stored stash: a claim, a stage result)
+    update: fn => {
+      const r = updateStash(stash, fn);
+      stash = r.stash;
+      return r.result;
+    },
+    replace: fn => {
+      const r = updateStash(stash, s => fn(s));
+      stash = r.result;
       saveStash(stash);
     },
     party: () => stash.preset ?? DEFAULT_EXP_PARTY,
@@ -315,6 +321,12 @@ export function startApp(root: HTMLElement): void {
       hud: () => hud,
       showMain: () => showMain(),
       showPreset: () => {
+        // 기획 16차: the expedition party is locked while a run exists (5-4)
+        if (stashLocked(stash)) {
+          expCtx.toast(RUN_LOCK_REASON, 'warn');
+          expFlow.openHub();
+          return;
+        }
         screen = 'preset';
         mainMenu.hide();
         preset.setVariant('expedition', expCtx.party(), id => loadoutOf(stash, id));
@@ -324,7 +336,6 @@ export function startApp(root: HTMLElement): void {
       },
       tunables: () => ({ ...DEFAULT_TUNABLES, ...loadTunableOverrides() }),
       nickname: () => nickname,
-      coverHud: on => hud?.setCovered(on),
       connection: () => (soloBuild ? null : lobby.conn),
       localPlayer: () => localPlayer,
     },
@@ -348,8 +359,20 @@ export function startApp(root: HTMLElement): void {
     preset.setVisible(false);
     expFlow.hideAll();
     stage.canvas.classList.add('is-hidden');
-    mainMenu.show({ stashCount: stash.items.length, maxStage: maxStartStageFor(stash, expCtx.party().characters), lastMode: loadMode() });
+    mainMenu.show({
+      stashCount: stash.items.length,
+      maxStage: maxStartStageFor(stash, expCtx.party().characters),
+      lastMode: loadMode(),
+      run: stash.run ? { stage: stash.run.stage, bag: stash.run.bag.length, complete: stash.run.stage > 12 } : null,
+    });
   }
+
+  // 기획 16차: another tab saved the stash (a claim, a stage result, a heartbeat): read it again and redraw
+  onStashChanged(() => {
+    stash = loadStash();
+    expFlow.onStashChanged();
+    if (mainMenu.visible) showMain();
+  });
 
   const hudCallbacks: HudCallbacks = {
     onCardDown: (kind, index, ev, el) => drag.begin(kind, index, ev, el),
@@ -458,7 +481,7 @@ export function startApp(root: HTMLElement): void {
       else closeMenu();
       return;
     }
-    if (on && (!game || screen !== 'combat' || expFlow.phase === 'expChoice')) return;
+    if (on && (!game || screen !== 'combat')) return;
     if (on !== paused) sfx.ui(on ? 'ui.pause.open' : 'ui.pause.close');
     paused = on;
     if (on) {
@@ -476,7 +499,6 @@ export function startApp(root: HTMLElement): void {
     if (!menuOpen) sfx.ui('ui.pause.open');
     menuOpen = true;
     drag.cancel();
-    if (expFlow.phase === 'expChoice') return;
     pause.show(game.state, { multi: true, isHost: !!remote?.isHost, localPlayer, expedition: remoteExp });
   }
 
@@ -637,7 +659,8 @@ export function startApp(root: HTMLElement): void {
     const rg = remote;
     if (!rg) return;
     if (remoteExp) {
-      // 기획 15차 원정: always a personal leave — mid-stage my bag is lost, at the choice it is claimed
+      // 기획 15차 원정: always a personal leave — mid-stage my bag is lost; 기획 16차: after the combat was won it is still
+      // a clear (the server picks my reward / passes my room). Either way the server's expStageResult says which.
       if (rg.state.phase !== 'stageClear' && rg.state.phase !== 'runOver') rg.dispatch({ type: 'quit' });
       if (rg.state.phase === 'runOver') expFlow.onRunOver(rg);
       else expFlow.onNetQuit(rg);
@@ -716,7 +739,6 @@ export function startApp(root: HTMLElement): void {
   function appPhase(): AppPhase {
     if (screen === 'main') return 'main';
     if (screen === 'exp') return expFlow.phase ?? 'main';
-    if (screen === 'combat' && expFlow.phase === 'expChoice') return 'expChoice';
     if (screen === 'lobby') return pendingRemote || lobbyStarting ? 'starting' : lobby.room ? 'room' : 'lobby';
     if (screen !== 'combat' || !game) return screen === 'combat' ? 'preset' : screen;
     const s = game.state;
@@ -803,7 +825,9 @@ export function startApp(root: HTMLElement): void {
     reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.rewardDeadline ?? null });
     goedam.update(game.state, { localPlayer, multi: mode === 'multi', deadline: remote?.goedamDeadline ?? null });
     if (expFlow.playing) expFlow.frame(game, now);
-    hud?.setCovered(reward.visible || goedam.visible || paused || menuOpen || expFlow.phase === 'expChoice');
+    // 기획 16차: the flow may have left a won stage game just now (back to the 원정 lobby)
+    if (!game || screen !== 'combat') return;
+    hud?.setCovered(reward.visible || goedam.visible || paused || menuOpen);
     if (game.state.phase === 'runOver' && resultAt == null) resultAt = now + (quitRequested ? 0 : RESULT_DELAY_MS);
     if (resultAt != null && now >= resultAt) showResult();
   };

@@ -14,13 +14,17 @@ describe('TickSmoother (solo)', () => {
     const drawn: number[] = [];
     const before = JSON.stringify(g.state.entities.map(e => e.pos));
     // warm up until something walks
+    let mid = new Map<number, string>();
     for (let i = 0; i < 240; i++) {
       now += 1000 / 60;
       g.step(1 / 60);
       sm.view(g.state, now, 1);
+      if (i === 229) mid = new Map(g.state.entities.map(e => [e.id, JSON.stringify(e.pos)]));
     }
     expect(JSON.stringify(g.state.entities.map(e => e.pos))).not.toBe(before); // the sim itself moved
-    const id = g.state.entities.find(e => e.kind === 'monster' || e.kind === 'character')!.id;
+    // 기획 16차 템포: a unit that walked in the last warm-up frames (spawns come close, so the party may stand and fight)
+    const walker = g.state.entities.find(e => (e.kind === 'monster' || e.kind === 'character') && mid.has(e.id) && mid.get(e.id) !== JSON.stringify(e.pos));
+    const id = (walker ?? g.state.entities.find(e => e.kind === 'monster' || e.kind === 'character'))!.id;
     let prevRaw: { x: number; y: number } | null = null;
     let prevDrawn: { x: number; y: number } | null = null;
     let movingFrames = 0;

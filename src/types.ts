@@ -612,7 +612,11 @@ export type GroggyGainWhy = 'drag' | 'stun' | 'ult' | 'pet';
 // ─────────────────────────── Floor plan ───────────────────────────
 
 export interface WavePlan {
-  /** Seconds after floor start. */
+  /**
+   * Seconds after floor start. 기획 16차 템포: only wave 0 fires at its `at`; for later waves it is the nominal "every gap
+   * maxed" schedule (HUD / tools / tests) — the spawner warns the next wave once the field is almost clear, or after the
+   * max gap (FloorPlan.maxGap ?? Tunables.waveInterval).
+   */
   at: number;
   spawns: { monsterId: string; count: number }[];
 }
@@ -627,19 +631,22 @@ export interface FloorPlan {
   waves: WavePlan[];
   /** Normal floors: exactly one mid boss. */
   midBossId?: string;
+  /** 기획 16차 템포: max seconds between two wave warnings (unset = Tunables.waveInterval; 원정 sets EXPEDITION.waveGap). */
+  maxGap?: number;
   bossId?: string;
   /** 기획 8차: floor zone (1–5 로비·상가, 6–10 사무실, 11–15 폐병동, 16–20 옥상·이계) — drives pools and the background. */
   theme?: FloorTheme;
-  // 기획 15차 원정 (expedition only; absent in the classic tower): floor = stageFloor there
+  // 기획 15차 원정 (expedition only; absent in the classic tower). 기획 16차: a stage is one floor (floor is always 1)
   /** Stage 1..12. */
   stage?: number;
-  /** Floor within the stage (1..3; = FloorPlan.floor). */
-  stageFloor?: number;
-  /** The classic floor it stands for (0.5 steps; boss floors 5 · 10 · 15 · 20). */
+  /** The classic floor it stands for (0.5 steps; boss stages 5 · 10 · 15 · 20). */
   equivFloor?: number;
-  /** Floor 3 of a normal stage: the 수문장 (an enhanced mid boss, no groggy) spawning at `at` s. */
-  guardian?: { monsterId: string; hpMult: number; atkMult: number; at: number };
-  /** Boss stage floor 3: boss HP × this. */
+  /**
+   * A normal stage's 수문장 (the stage's mid boss, enhanced, no groggy); 기획 16차: it spawns like any mid boss (the
+   * spawner's mid trigger: with the second-to-last wave), no fixed time.
+   */
+  guardian?: { monsterId: string; hpMult: number; atkMult: number };
+  /** Boss stage: boss HP × this. */
   bossHpMult?: number;
 }
 
@@ -878,8 +885,9 @@ export interface RewardOffer {
 
 /**
  * 'goedam' (기획 10차): the 괴담 room after the reward phase, time frozen like 'reward'.
- * 'stageClear' (기획 15차 원정): floor 3 of a stage was cleared — terminal for this game (time frozen); loot is in
- * state.expedition and each human picks 「수령하고 나가기」 / 「다음 단계 도전」 (command 'expeditionChoice').
+ * 'stageClear' (기획 15차 원정, 기획 16차): the stage is over and won — terminal for this game (time frozen). A normal
+ * stage gets here after its floor reward (and 괴담 room), a boss stage right at the clear. Loot is in
+ * state.expedition; every player goes back to the 원정 lobby (no in-game choice any more).
  */
 export type SimPhase = 'combat' | 'reward' | 'goedam' | 'runOver' | 'stageClear';
 
@@ -933,30 +941,28 @@ export interface GameState {
 
 // ─────────────────────────── 원정 (기획 15차, docs/expedition.md) ───────────────────────────
 
-export type ExpeditionChoice = 'extract' | 'continue';
-
-/** The expedition read model of one stage game (snapshot-safe). */
+/** The expedition read model of one stage game (snapshot-safe). 기획 16차: one floor per stage, no choices. */
 export interface ExpeditionState {
   stage: number;
-  /** = GameState.floor (1..3). */
-  stageFloor: number;
-  /** Stages 3 · 6 · 9 · 12 (floor 3 = the zone boss, the loot has a boss box). */
+  /** Stages 3 · 6 · 9 · 12 (the zone boss alone; the loot has a boss box). */
   boss: boolean;
-  /** 'running' until floor 3 is cleared ('cleared', phase 'stageClear') or the stage is lost (wipe / timeout / quit). */
+  /**
+   * 'running' until the combat is won ('cleared' — final from that moment: loot rolled, phase 'reward' / 'goedam' then
+   * 'stageClear') or the stage is lost ('failed': wipe / timeout / quit before the clear).
+   */
   outcome: 'running' | 'cleared' | 'failed';
-  /** Loot per player index, rolled at the clear (humans only — bots and seats that started as bots get []). */
+  /** Loot per player index, rolled at the combat clear (humans only — seats that started as bots get []). */
   loot: GearSpec[][];
-  /** Per player index during 'stageClear': null = not chosen yet. Bots and disconnected seats are 'extract' at once. */
-  choices: (ExpeditionChoice | null)[];
-  /** Per player index: whether the seat started as a human (gets loot, has to choose). */
+  /** Per player index: whether the seat started as a human (gets loot). */
   humans: boolean[];
   /** 괴담 rooms seen earlier in this run (carried; a room never comes twice per run). This game's are in goedamLog. */
   goedamSeen: string[];
 }
 
 /**
- * What a continuing player takes into the next stage (server-held; the client never edits it): floor rewards, 괴담 traces
- * (with floors left), every character's ult charge, and the rooms already seen this run.
+ * What a continuing player takes into the next stage (기획 16차: kept in the browser's run, checked by the server's
+ * runJoinProblem at each join): floor rewards, 괴담 traces (with stages left), every character's ult charge, and the
+ * rooms already seen this run.
  */
 export interface ExpeditionCarry {
   rewards: AppliedReward[];
@@ -993,8 +999,10 @@ export type DebugAction =
   | { kind: 'fieldEventNext'; id?: FieldEventId }
   /** 기획 13차: set the boss groggy gauge (default 1 = break now; e.g. 0.85 = near full). Clears the lock. */
   | { kind: 'forceGroggy'; fill?: number }
-  /** 기획 15차 원정: clear the stage now (jump to floor 3 and clear it → 'stageClear'). */
-  | { kind: 'expeditionClearStage' };
+  /** 기획 15차 원정: clear the stage now (기획 16차: kill all → the clear; normal → floor reward, boss → 'stageClear'). */
+  | { kind: 'expeditionClearStage' }
+  /** 기획 16차: the party wipes now (combat only; tests / the debug panel — 원정 = the stage is lost). */
+  | { kind: 'wipeParty' };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
@@ -1003,8 +1011,6 @@ export type Command =
   | { type: 'chooseReward'; player: number; offerIndex: number }
   /** 기획 10차: pick a 괴담 room option by id, or 'continue' after reading the result card. */
   | { type: 'goedam'; player: number; option: string }
-  /** 기획 15차 원정: 「장비 수령하고 나가기」 / 「다음 단계 도전」 during 'stageClear'. */
-  | { type: 'expeditionChoice'; player: number; choice: ExpeditionChoice }
   | { type: 'quit' }
   | { type: 'debug'; action: DebugAction }
   /** Live tunables change (debug panel). In multiplayer only the room host may send it. */
@@ -1136,10 +1142,8 @@ export type GameEvent =
   | { type: 'bossGroggyEnd'; entityId: number }
   /** 기획 13차: gauge points of one action (only ≥ 5 points, for the '+N' pop). */
   | { type: 'groggyGain'; player: number; amount: number; why: GroggyGainWhy }
-  /** 기획 15차 원정: floor 3 cleared — the loot is in state.expedition.loot. */
+  /** 기획 15차 원정: the stage's combat is won (기획 16차: emitted at the clear) — the loot is in state.expedition.loot. */
   | { type: 'stageClear'; stage: number }
-  /** 기획 15차 원정: a player picked (or was given) 수령 / 도전. */
-  | { type: 'expeditionChoice'; player: number; choice: ExpeditionChoice; auto: boolean }
   /** 기획 15차 원정: a gear special effect / equipped relic fired (render / sound cue). */
   | { type: 'gearProc'; player: number; partyIndex: number; id: string; pos: Vec2 };
 
@@ -1159,10 +1163,13 @@ export interface Tunables {
   floorStatGrowth: number;
   normalFloorTime: number;
   bossFloorTime: number;
+  /** 기획 16차 템포: the max gap (s) between two wave warnings on a classic normal floor. */
   waveInterval: number;
   maxAliveMonsters: number;
   maxFloor: number;
-  midBossKillTrigger: number;
+  /** 기획 16차 템포: the mid boss is warned with the wave this many from the end (2 = the second-to-last). */
+  midBossFromEnd: number;
+  /** Fallback: the mid boss is due at this floor second at the latest. */
   midBossTimeTrigger: number;
   /** 0 = off. Otherwise characters drop a boss target after this many seconds (debug comparison for Q4). */
   bossLockReleaseSec: number;
@@ -1205,7 +1212,7 @@ export interface GameSetup {
   players: PlayerSetup[];
   tunables: Tunables;
   startFloor?: number;
-  /** 기획 15차 원정: play one stage (3 floors) instead of the classic tower. */
+  /** 기획 15차 원정: play one stage (기획 16차: one floor) instead of the classic tower. */
   expedition?: ExpeditionSetup;
 }
 

@@ -15,10 +15,13 @@ export const DEFAULT_TUNABLES: Tunables = {
   floorStatGrowth: 0.12,
   normalFloorTime: 120,
   bossFloorTime: 90,
+  // 기획 16차 템포: the MAX gap between two wave warnings (the next wave comes earlier once the field is almost clear)
   waveInterval: 8,
   maxAliveMonsters: 30,
   maxFloor: 20,
-  midBossKillTrigger: 12,
+  // 기획 16차 템포: the mid boss comes with the N-th wave from the end (2 = with the second-to-last wave)
+  midBossFromEnd: 2,
+  // fallback: the mid boss comes at this floor second at the latest (waves postponed by the alive cap)
   midBossTimeTrigger: 45,
   bossLockReleaseSec: 0,
   petCooldownMult: 1,
@@ -79,7 +82,8 @@ export const TICK_DT = 1 / TICK_RATE;
 /** World units visible horizontally on screen (camera follows the field character). Drops are limited to this view. */
 export const VIEW_WIDTH_UNITS = 24;
 
-export const ARENA_NORMAL = { width: 36, height: 12 };
+/** 기획 16차 템포: normal arena 36 → 24 wide (= the boss arena and the screen) — the camera stays centered. */
+export const ARENA_NORMAL = { width: 24, height: 12 };
 export const ARENA_BOSS = { width: 24, height: 12 };
 /** Boss sits at the top edge, mostly outside the walkable area. */
 export const BOSS_POS = { x: 12, y: -1.2 };
@@ -92,13 +96,6 @@ export const BOT_PRESETS = [
 ];
 
 /**
- * Normal-floor waves (기획서 9-1 (가정): 1층 first웨이브, 층마다 +perFloor).
- * Counted by floor number; capped at `max` (기획 8차: 10 → 8, 리뷰 후 → 6) so the last wave comes at
- * 1 + (n−1) × waveInterval = 41 s — a winning 20-floor run was ~25 min of combat; with 6 waves it is ~22 min.
- * Later zones get harder through bigger waves (ZONES[].waveSize), their monsters and the floor stat growth instead.
- */
-export const FLOOR_WAVES = { first: 5, perFloor: 1, max: 6 };
-/**
  * 기획 8차 (20층): monster HP·attack grow by `floorStatGrowth` per floor up to floor `from` (1~5층 unchanged), then by
  * `factor` × that per floor — the party only grows through rewards, so the full slope would outrun it by floor ~12.
  * (리뷰 후 0.6 → 0.7: shorter floors (6 waves), the softer patterns (붉은 마스크, 야근의 군주 2페이즈, 회복, 간호 인형) and
@@ -106,8 +103,9 @@ export const FLOOR_WAVES = { first: 5, perFloor: 1, max: 6 };
  * statMult(f) = 1 + g·(min(f, from) − 1) + g·factor·max(0, f − from).
  * 기획 13차 밸런스 (보스 그로기 + 스킬 리뉴얼로 20층 클리어 65 → 99.9%): 0.7 → 1.33 — 1~5층은 그대로라 강해진 손맛은
  * 초반에 그대로 느끼고, 6층부터 몬스터 HP·공격이 더 빨리 자람 (20층 statMult 2.74 → 3.87). docs/balance.md 12장.
+ * 기획 16차 템포: 1.33 → 1.36 — waves on clear + spawns near the party made every seat ~5 %p stronger (docs/tempo.md 3-1).
  */
-export const LATE_STAT_GROWTH = { from: 5, factor: 1.33 };
+export const LATE_STAT_GROWTH = { from: 5, factor: 1.36 };
 
 /** Monster stat multiplier of a floor (HP & attack, FloorPlan.statMult). */
 export function floorStatMult(floor: number, growth: number): number {
@@ -140,6 +138,11 @@ export interface ZoneDef {
   mids: string[];
   boss: string;
   waveSize: { min: number; max: number };
+  /**
+   * 기획 16차 템포: waves per normal floor of the zone (was 기획서 9-1 "1층 5웨이브, 층마다 +1, 최대 6" by floor number).
+   * The next wave comes as soon as the field is almost clear (src/sim/floor.ts nextWaveDue), so fewer waves.
+   */
+  waves: number;
   /** 기획 8차 리뷰: a short 괴담-style line on the zone's first floor banner (the place gone wrong). */
   lore: string;
 }
@@ -161,6 +164,7 @@ export const ZONES: ZoneDef[] = [
     mids: ['ogre', 'lich', 'elevator_girl', 'ogre'],
     boss: 'elevator_keeper',
     waveSize: WAVE_SIZE,
+    waves: 5,
     lore: '영업이 끝난 상가에 불이 켜져 있다. 셔터 너머에서 누가 웃는다.',
   },
   {
@@ -179,6 +183,7 @@ export const ZONES: ZoneDef[] = [
     mids: ['copier_beast', 'lich', 'copier_beast', 'elevator_girl'],
     boss: 'overtime_lord',
     waveSize: { min: 4, max: 6 },
+    waves: 5,
     lore: '시계는 계속 23:59. 아직 퇴근하지 못한 사람들이 있다.',
   },
   {
@@ -200,6 +205,7 @@ export const ZONES: ZoneDef[] = [
     lore: '폐쇄된 병동인데, 링거는 아직도 한 방울씩 떨어지고 있다.',
     // 리뷰 후 4~6 → 5~7 (웨이브 6개로 줄인 몫을 마릿수로; 사무실은 4~6 그대로 — 5~7이면 8·9층 전멸이 5배)
     waveSize: { min: 5, max: 7 },
+    waves: 6,
   },
   {
     theme: 'rooftop',
@@ -220,6 +226,7 @@ export const ZONES: ZoneDef[] = [
     boss: 'abyss_watcher',
     lore: '잠겨 있던 옥상 문이 열려 있다. 하늘이 눈을 뜨고 있다.',
     waveSize: { min: 5, max: 7 },
+    waves: 6,
   },
 ];
 

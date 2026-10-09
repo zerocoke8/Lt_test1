@@ -1,30 +1,28 @@
-// 기획 15차 원정 over the network (server/expedition.ts): the stage queue, the stage-clear choice and the run results
-// on top of a Connection. The stage game itself arrives as a normal 'start' (mode 'expedition') + snapshots and is
-// played through RemoteGame like a classic game. The run (bag, carry) is held by the server; this client only shows it
-// and puts `expExtracted.items` into the local stash.
+// 기획 15차 원정 over the network (server/expedition.ts): the stage queue and the stage results on top of a Connection.
+// The stage game itself arrives as a normal 'start' (mode 'expedition') + snapshots and is played through RemoteGame
+// like a classic game. 기획 16차: the run lives in the browser (StashData.run); this client sends it with every join
+// and applies the one expStageResult each stage game produces (matched by run id + stage, so a second delivery after a
+// reconnect / expStatus changes nothing). `bootId` tells whether a stage that was running is still known to the server.
 
-import type { ExpeditionChoice } from '../types';
 import type { GearLoadout } from '../data/gear';
 import type { Connection } from './connection';
-import type { PresetChoice, ServerMsg } from './protocol';
+import type { ExpRunInfo, PresetChoice, ServerMsg } from './protocol';
 
 export type ExpQueueMsg = Extract<ServerMsg, { t: 'expQueueState' }>;
-export type ExpStageClearMsg = Extract<ServerMsg, { t: 'expStageClear' }>;
-export type ExpExtractedMsg = Extract<ServerMsg, { t: 'expExtracted' }>;
-export type ExpBagLostMsg = Extract<ServerMsg, { t: 'expBagLost' }>;
+export type ExpStageResultMsg = Extract<ServerMsg, { t: 'expStageResult' }>;
 export type ExpErrorMsg = Extract<ServerMsg, { t: 'error' }>;
 
 export interface ExpeditionNetEvents {
   /** My queue changed (seats, countdown, launching). */
-  onQueue?(msg: ExpQueueMsg): void;
-  /** Left a queue of a run with nothing to claim. */
-  onCancelled?(): void;
-  onStageClear?(msg: ExpStageClearMsg): void;
-  /** Put `items` into the stash (also arrives after a reconnect when the claim happened offline). */
-  onExtracted?(msg: ExpExtractedMsg): void;
-  onBagLost?(msg: ExpBagLostMsg): void;
-  /** 'bad_gear' / 'stage_locked' / 'server_busy' / other refusals while in the expedition flow. */
-  onError?(msg: ExpErrorMsg): void;
+  queue?(msg: ExpQueueMsg): void;
+  /** I left the queue (expCancel answered). */
+  cancelled?(): void;
+  /** A stage game of my run is over for me: apply it (applyResult) — also arrives again after a reconnect. */
+  result?(msg: ExpStageResultMsg): void;
+  /** expStatus answer: the server knows nothing of that run's stage (it restarted) — treat it as void. */
+  noStage?(runId: string): void;
+  /** 'bad_gear' / 'stage_locked' / 'bad_run' / 'run_busy' / 'server_busy' / other refusals in the expedition flow. */
+  error?(msg: ExpErrorMsg): void;
 }
 
 export interface ExpJoin {
@@ -35,13 +33,15 @@ export interface ExpJoin {
   firstBossClears: number[];
   /** Debug 「단계 전부 해금」. */
   debugUnlock?: boolean;
+  /** The run (runToJoin), the first stage too; null only for a server-made run id (tests). */
+  run: ExpRunInfo | null;
 }
+
+const FLOW_ERRORS = new Set<ExpErrorMsg['code']>(['bad_gear', 'stage_locked', 'bad_run', 'run_busy', 'server_busy']);
 
 export class ExpeditionNet {
   /** The latest queue view (null = not queued). */
   queue: ExpQueueMsg | null = null;
-  /** The latest stage clear (null after the choice is settled). */
-  clear: ExpStageClearMsg | null = null;
   private readonly conn: Connection;
   private readonly ev: ExpeditionNetEvents;
   private readonly unsub: (() => void)[] = [];
@@ -55,37 +55,33 @@ export class ExpeditionNet {
       conn.on('expQueueState', m => {
         this.joining = false;
         this.queue = m;
-        this.ev.onQueue?.(m);
+        this.ev.queue?.(m);
       }),
       conn.on('expCancelled', () => {
         this.queue = null;
-        this.ev.onCancelled?.();
+        this.ev.cancelled?.();
       }),
       conn.on('start', m => {
         if (m.mode === 'expedition') this.queue = null;
       }),
-      conn.on('expStageClear', m => {
-        this.clear = m;
-        this.ev.onStageClear?.(m);
-      }),
-      conn.on('expExtracted', m => {
+      conn.on('expStageResult', m => {
         this.queue = null;
-        this.clear = null;
-        this.ev.onExtracted?.(m);
+        this.ev.result?.(m);
       }),
-      conn.on('expBagLost', m => {
-        this.queue = null;
-        this.clear = null;
-        this.ev.onBagLost?.(m);
-      }),
+      conn.on('expNoStage', m => this.ev.noStage?.(m.runId)),
       conn.on('error', m => {
-        if (m.code === 'bad_gear' || m.code === 'stage_locked' || m.code === 'server_busy' || this.joining || this.queue || this.clear) this.ev.onError?.(m);
+        if (FLOW_ERRORS.has(m.code) || this.joining || this.queue) this.ev.error?.(m);
         this.joining = false;
       }),
     );
   }
 
-  /** Start a run at `stage` (its queue). False = not connected. */
+  /** The server process the connection last talked to (welcome.bootId; null before the first welcome). */
+  get bootId(): string | null {
+    return this.conn.bootId;
+  }
+
+  /** Join the queue of `stage` with the run. False = not connected. */
   join(j: ExpJoin): boolean {
     this.joining = true;
     const sent = this.conn.send({
@@ -95,13 +91,14 @@ export class ExpeditionNet {
       pets: [...j.preset.pets],
       gear: j.gear,
       firstBossClears: [...j.firstBossClears],
+      run: j.run,
       ...(j.debugUnlock ? { debugUnlock: true } : null),
     });
     if (!sent) this.joining = false;
     return sent;
   }
 
-  /** Leave the queue (a continuing run claims its bag). */
+  /** Leave the queue (never claims; the run goes back to the lobby). */
   cancel(): boolean {
     return this.conn.send({ t: 'expCancel' });
   }
@@ -111,11 +108,12 @@ export class ExpeditionNet {
     return this.conn.send({ t: 'expStartNow' });
   }
 
-  /** 「장비 수령하고 나가기」 / 「다음 단계 도전」. */
-  choose(choice: ExpeditionChoice): boolean {
-    const ok = this.conn.send({ t: 'expChoice', choice });
-    if (ok) this.clear = null;
-    return ok;
+  /**
+   * Ask for the result of the run's `stage` (answer: expStageResult of that stage, or expNoStage when the server has
+   * none and the run is not queued / playing there; nothing while it is).
+   */
+  status(runId: string, stage: number): boolean {
+    return this.conn.send({ t: 'expStatus', runId, stage });
   }
 
   dispose(): void {

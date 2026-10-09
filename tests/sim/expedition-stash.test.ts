@@ -1,11 +1,17 @@
-// 기획 15차 원정 모드: the pure stash model (src/expedition/stash.ts) and the run model (src/expedition/run.ts) that the
-// solo controller and the server drive (docs/expedition.md 5장, 6장, 8-9, 10장).
+// 기획 15차 원정 모드: the pure stash model (src/expedition/stash.ts) (docs/expedition.md 5장, 6장, 8-9, 10장).
+// 기획 16차: version 2 keeps the run in progress (StashData.run) — v1 migration, the gear / party lock while a run
+// exists, the one-step claim and its refusals. The run model itself: tests/sim/expedition-run.test.ts.
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TUNABLES } from '../../src/config';
 import type { GearSpec } from '../../src/data/gear';
 import {
+  RUN_GONE_REASON,
+  RUN_LOCK_REASON,
   addItems,
+  applyResult,
   autoEquip,
+  beginRun,
+  claimRun,
+  dropEmptyRun,
   canStartAt,
   discard,
   emptyStash,
@@ -26,12 +32,14 @@ import {
   recordBossClear,
   resetStash,
   serializeStash,
+  runBuffCount,
   setPreset,
+  stashLocked,
   unequip,
   wearerOf,
+  type StashData,
 } from '../../src/expedition/stash';
-import { bagSummary, continueRun, extractRun, failRun, nextIsBoss, onStageCleared, runComplete, stageGameSetup, startRun } from '../../src/expedition/run';
-import { createGameWithWorld } from '../../src/sim/game';
+import { beginStage, startRun, type ExpeditionRun } from '../../src/expedition/run';
 
 const PARTY = ['guardian', 'blade', 'mage'];
 const W5: GearSpec = { slot: 'weapon', tier: 5, rarity: 'rare', optionId: 'w_scorch' };
@@ -40,6 +48,7 @@ describe('stash model', () => {
   it('survives garbage: corrupt / wrong version / bad items → cleaned or empty', () => {
     expect(parseStash(null)).toEqual(emptyStash());
     expect(parseStash('{not json')).toEqual(emptyStash());
+    expect(parseStash({ v: 3, items: [] })).toEqual(emptyStash());
     expect(parseStash({ v: 2, items: [] })).toEqual(emptyStash());
     const s = parseStash({
       v: 1,
@@ -143,49 +152,128 @@ describe('stash model', () => {
   });
 });
 
-describe('run model', () => {
-  it('stage 1 → clear → continue → stage 2 → clear → extract: bag in, carry along, bots fill seats', () => {
-    const run = startRun(1, 1234);
-    const seat = () => ({ name: '나', characters: PARTY, pets: ['frog_bomb', 'fairy_heal', 'cat_void'], gear: [{}, {}, {}], run, firstBossClear: false });
-    const setup1 = stageGameSetup([seat()], { ...DEFAULT_TUNABLES, invincible: true });
-    expect(setup1.players.map(p => p.isBot)).toEqual([false, true, true]);
-    expect(setup1.expedition).toEqual({ stage: 1, carry: [null, null, null], firstBossClear: [false, false, false], clearedThisRun: [0, 0, 0] });
-    const g1 = createGameWithWorld(setup1);
-    g1.game.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } });
-    const loot1 = onStageCleared(run, g1.game.state, 0);
-    expect(loot1).toHaveLength(2);
-    expect(run.bag).toHaveLength(2);
-    expect(run.status).toBe('choosing');
-    expect(runComplete(run)).toBe(false);
-    expect(nextIsBoss(run)).toBe(false);
-    expect(continueRun(run)).toBe(true);
-    expect(run.stage).toBe(2);
-    const setup2 = stageGameSetup([seat()], DEFAULT_TUNABLES);
-    expect(setup2.expedition!.carry![0]).toEqual(run.carry);
-    expect(setup2.expedition!.clearedThisRun![0]).toBe(1);
-    expect(setup2.seed).not.toBe(setup1.seed);
-    const g2 = createGameWithWorld(setup2);
-    expect(g2.game.state.expedition!.stage).toBe(2);
-    expect(g2.game.state.players[1].gear).toHaveLength(3); // bots T1
-    g2.game.dispatch({ type: 'debug', action: { kind: 'expeditionClearStage' } });
-    onStageCleared(run, g2.game.state, 0);
-    expect(bagSummary(run.bag)).toMatchObject({ count: 4, topTier: 2, byBand: [0, 4, 0, 0, 0] });
-    const items = extractRun(run);
-    expect(items).toHaveLength(4);
-    expect(run.bag).toEqual([]);
-    expect(run.status).toBe('extracted');
-    const s = emptyStash();
-    expect(addItems(s, items, 2)).toHaveLength(4);
+// ─────────────────────────── 기획 16차: the run in the stash ───────────────────────────
+
+const PETS = ['frog_bomb', 'fairy_heal', 'cat_void'];
+const RUN_ID = 'abcdEFGH12345678';
+
+function withRun(): { s: StashData; run: ExpeditionRun } {
+  const s = emptyStash();
+  grantPartySet(s, PARTY, 3);
+  const run = startRun(3, { characters: PARTY, pets: PETS, gear: loadoutsFor(s, PARTY) }, RUN_ID, 9);
+  expect(beginRun(s, run).ok).toBe(true);
+  return { s, run };
+}
+
+const cleared = (stage: number, loot: GearSpec[], bossClear = false) => ({
+  runId: RUN_ID,
+  stage,
+  outcome: 'cleared' as const,
+  loot,
+  carry: { rewards: [{ rewardId: 'atk_common', partyIndex: null }], goedamTraces: [{ id: 'silence', floorsLeft: 1 }], ult: [0, 0.5, 1] },
+  bossClear,
+});
+
+describe('stash v2: the run (기획 16차)', () => {
+  it('v1 reads as v2 with no run; a run survives a save / load; a broken run is dropped', () => {
+    const v1 = parseStash({ v: 1, nextUid: 1, items: [], equipped: {}, seen: [], bossFirstClears: [], preset: null, unlockAll: false });
+    expect(v1.v).toBe(2);
+    expect(v1.run).toBeNull();
+    const { s } = withRun();
+    expect(applyResult(s, cleared(3, [{ slot: 'relic', tier: 3, rarity: 'epic', relicId: 'echo_seal' }, { slot: 'weapon', tier: 3, rarity: 'common' }], true)).kind).toBe('cleared');
+    expect(s.run!.bag).toHaveLength(2);
+    const back = parseStash(serializeStash(s));
+    expect(back.run).toEqual(s.run);
+    expect(back).toEqual(s);
+    beginStage(s.run!, { stage: 4, online: true, bootId: 'b1', tabId: 't1', aliveAt: 5 });
+    expect(parseStash(serializeStash(s)).run).toEqual(s.run);
+    const bad = (patch: Partial<ExpeditionRun>) => parseStash(JSON.stringify({ ...s, run: { ...s.run, ...patch } })).run;
+    expect(bad({ id: 'x' })).toBeNull();
+    expect(bad({ stage: 9 })).toBeNull(); // stage ≠ startStage + cleared
+    expect(bad({ bag: [{ slot: 'weapon', tier: 9, rarity: 'common' }] })).toBeNull(); // tier above the stages played
+    expect(bad({ status: 'choosing' as never })).toBeNull();
+    expect(bad({ pending: null })).toBeNull(); // inStage without its pending
+    expect(bad({ carry: 'x' as never })).toBeNull();
+    expect(bad({ bag: 5 as never })).toBeNull();
+    expect(parseStash(JSON.stringify({ ...s, run: 'garbage' })).run).toBeNull();
   });
 
-  it('failing loses only the bag; the last stage cannot be continued', () => {
-    const run = startRun(12, 1);
-    run.bag.push(W5);
-    run.status = 'choosing';
-    expect(runComplete(run)).toBe(true);
-    expect(continueRun(run)).toBe(false);
-    expect(failRun(run)).toBe(1);
-    expect(run.bag).toEqual([]);
-    expect(run.status).toBe('failed');
+  it('gear / party changes are locked while a run exists (read-only); seen marks and boss clears still work', () => {
+    const { s } = withRun();
+    const [extra] = addItems(s, [W5], 5);
+    const before = serializeStash(s);
+    expect(stashLocked(s)).toBe(true);
+    expect(equip(s, 'guardian', extra.uid)).toEqual({ ok: false, reason: RUN_LOCK_REASON });
+    expect(unequip(s, 'guardian', 'weapon')).toEqual({ ok: false, reason: RUN_LOCK_REASON });
+    expect(discard(s, extra.uid)).toEqual({ ok: false, reason: RUN_LOCK_REASON });
+    expect(setPreset(s, { characters: PARTY, pets: PETS })).toEqual({ ok: false, reason: RUN_LOCK_REASON });
+    expect(autoEquip(s, PARTY)).toEqual([]);
+    expect(grantSet(s, 'guardian', 9)).toEqual([]);
+    expect(grantPartySet(s, PARTY, 9)).toEqual([]);
+    expect(grantRandom(s, 3)).toEqual([]);
+    expect(grantRelics(s)).toEqual([]);
+    expect(resetStash(s)).toBe(s);
+    expect(serializeStash(s)).toBe(before);
+    markSeen(s, [extra.uid]);
+    recordBossClear(s, 3);
+    expect(isNew(s, extra.uid)).toBe(false);
+    expect(s.bossFirstClears).toEqual([3]);
+    const other = startRun(1, s.run!.lock, 'otherRUN12345678', 1);
+    expect(beginRun(s, other).ok).toBe(false);
+  });
+
+  it('applyResult: cleared fills the bag once; failed drops the run (bag lost, worn gear kept); void keeps it', () => {
+    const { s } = withRun();
+    const worn = serializeStash({ ...s, run: null });
+    beginStage(s.run!, { stage: 3, online: false, bootId: null, tabId: 't', aliveAt: 0 });
+    const loot: GearSpec[] = [{ slot: 'armor', tier: 3, rarity: 'common' }, { slot: 'relic', tier: 3, rarity: 'rare', relicId: 'relay_flag' }];
+    expect(applyResult(s, cleared(3, loot, true))).toEqual({ kind: 'cleared', loot });
+    expect(applyResult(s, cleared(3, loot, true))).toEqual({ kind: 'ignored' }); // a second delivery
+    expect(s.run).toMatchObject({ stage: 4, cleared: 1, bag: loot, bossClears: [3], status: 'lobby', pending: null });
+    expect(runBuffCount(s.run)).toBe(2);
+    beginStage(s.run!, { stage: 4, online: true, bootId: 'b', tabId: 't', aliveAt: 0 });
+    expect(applyResult(s, { runId: RUN_ID, stage: 4, outcome: 'void', reason: 'server', loot: [], carry: null, bossClear: false })).toEqual({ kind: 'void' });
+    expect(s.run).toMatchObject({ stage: 4, status: 'lobby', bag: loot });
+    beginStage(s.run!, { stage: 4, online: true, bootId: 'b', tabId: 't', aliveAt: 0 });
+    expect(applyResult(s, { runId: 'someoneElse12345', stage: 4, outcome: 'failed', loot: [], carry: null, bossClear: false }).kind).toBe('ignored');
+    expect(applyResult(s, { runId: RUN_ID, stage: 4, outcome: 'failed', reason: 'wipe', loot: [], carry: null, bossClear: false })).toEqual({ kind: 'failed', lost: 2 });
+    expect(s.run).toBeNull();
+    expect(serializeStash(s)).toBe(worn);
+    expect(isFirstBossClear(s, 3)).toBe(true); // a lost run records nothing
+  });
+
+  it('claimRun: the whole bag into the stash and the run gone in one step; refused for another / running / no run', () => {
+    const { s } = withRun();
+    const n = s.items.length;
+    beginStage(s.run!, { stage: 3, online: false, bootId: null, tabId: 't', aliveAt: 0 });
+    applyResult(s, cleared(3, [{ slot: 'charm', tier: 3, rarity: 'common' }, { slot: 'relic', tier: 3, rarity: 'common', relicId: 'beast_collar' }], true));
+    beginStage(s.run!, { stage: 4, online: false, bootId: null, tabId: 't', aliveAt: 0 });
+    expect(claimRun(s, RUN_ID)).toEqual({ ok: false, reason: RUN_GONE_REASON }); // a stage is running
+    s.run!.status = 'lobby';
+    s.run!.pending = null;
+    expect(claimRun(s, 'otherRUN12345678')).toEqual({ ok: false, reason: RUN_GONE_REASON });
+    const r = claimRun(s, RUN_ID);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.items.map(i => [i.slot, i.fromStage])).toEqual([['charm', 3], ['relic', 3]]);
+    expect(r.buffs).toBe(2);
+    expect(s.items).toHaveLength(n + 2);
+    expect(r.items.every(i => isNew(s, i.uid))).toBe(true);
+    expect(s.run).toBeNull();
+    expect(isFirstBossClear(s, 3)).toBe(false);
+    expect(claimRun(s, RUN_ID)).toEqual({ ok: false, reason: RUN_GONE_REASON }); // double claim (stale tab)
+    expect(stashLocked(s)).toBe(false);
+  });
+
+  it('a cancelled first match drops an empty run only', () => {
+    const { s } = withRun();
+    expect(dropEmptyRun(s)).toBe(true);
+    expect(s.run).toBeNull();
+    const w = withRun();
+    beginStage(w.s.run!, { stage: 3, online: false, bootId: null, tabId: 't', aliveAt: 0 });
+    expect(dropEmptyRun(w.s)).toBe(false); // a stage is running
+    applyResult(w.s, cleared(3, []));
+    expect(w.s.run).toMatchObject({ status: 'lobby', cleared: 1 });
+    expect(dropEmptyRun(w.s)).toBe(false); // it cleared a stage: 수령 only
   });
 });

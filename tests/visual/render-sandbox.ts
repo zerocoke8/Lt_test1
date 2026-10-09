@@ -8,7 +8,7 @@
 //         scene=zoo [&zone=…] [&gallery|pack|boss|fx=…]: 기획 8차 zones, monster looks, bosses, new VFX (see zoo-sandbox.ts)
 
 import { createRenderer } from '../../src/render';
-import { BOSS_POS, BOT_PRESETS, DEFAULT_TUNABLES, PLAYER_COLORS } from '../../src/config';
+import { ARENA_NORMAL, BOSS_POS, BOT_PRESETS, DEFAULT_TUNABLES, PLAYER_COLORS } from '../../src/config';
 import { getBoss, getCharacter, getMonster } from '../../src/data';
 import type {
   ContributionStats,
@@ -202,7 +202,7 @@ function emptyState(floor: number, kind: 'normal' | 'boss', w: number, h: number
 // ─────────────────────────── normal floor ───────────────────────────
 
 function normalFixture(): Fixture {
-  const s = emptyState(2, 'normal', 36, 12);
+  const s = emptyState(2, 'normal', ARENA_NORMAL.width, ARENA_NORMAL.height); // 기획 16차: 24 wide (the whole screen)
   // local player's mage, bots' ranger + berserker, plus a turret summon (pet)
   const me = character(0, 1, 'mage', 14.5, 6.2, appear ? { facing: 0, anim: 'appear', animTime: 0.5, invulnTime: 0.5 } : { facing: 0, statuses: [st('atkUp', 3, 5)], anim: 'cast', animTime: 0.2 });
   const bot1 = character(1, 1, 'ranger', 11.2, 8.6, { facing: 0.2, hp: 300, anim: 'attack', animTime: 0.12, statuses: [st('haste', 2, 4)] });
@@ -216,7 +216,7 @@ function normalFixture(): Fixture {
   );
 
   const ogre = monster('ogre', 21.6, 6.4, { hp: 640, anim: 'cast', animTime: 0.5, statuses: [st('burn', 2, 4), st('vulnerable', 3, 5)] });
-  const lich = monster('lich', 27.5, 3.2, { hp: 700 });
+  const lich = monster('lich', 22.2, 3.2, { hp: 700 });
   const mons: Entity[] = [
     ogre,
     lich,
@@ -224,13 +224,13 @@ function normalFixture(): Fixture {
     monster('slime', 18.4, 9.0),
     monster('goblin', 16.8, 5.4, { hp: 20, anim: 'stunned', statuses: [st('stun', 0.6, 1)] }),
     monster('goblin', 20.5, 8.8, { anim: 'move' }),
-    monster('goblin', 23.4, 9.6, { anim: 'move' }),
-    monster('skeleton_archer', 24.2, 4.1, { anim: 'attack', animTime: 0.2 }),
-    monster('skeleton_archer', 25.4, 7.3),
+    monster('goblin', 22.4, 10.2, { anim: 'move' }),
+    monster('skeleton_archer', 19.4, 2.4, { anim: 'attack', animTime: 0.2 }),
+    monster('skeleton_archer', 22.9, 7.3),
     monster('bomb_bug', 16.0, 10.2, { anim: 'move', facing: Math.PI * 0.8 }),
     monster('bomb_bug', 9.8, 2.3, { anim: 'move', facing: 0 }),
     monster('golem', 22.8, 2.4, { hp: 150, statuses: [st('slow', 2, 3)] }),
-    monster('golem', 26.6, 10.4),
+    monster('golem', 4.4, 8.4),
     monster('slime', 8.4, 10.6, { facing: 0 }),
     monster('goblin', 7.2, 4.8, { facing: 0, anim: 'attack', animTime: 0.15 }),
   ];
@@ -240,11 +240,11 @@ function normalFixture(): Fixture {
 
   s.telegraphs.push(
     telegraph('enemy', { x: 19.6, y: 5.6 }, { x: 21.6, y: 6.4 }, { shape: 'circle', radius: 3 }, 0.5, 1.2), // ogre slam
-    telegraph('ally', { x: 24.6, y: 8.4 }, { x: 24.6, y: 8.4 }, { shape: 'circle', radius: 3 }, 0.35, 0.6), // meteor
-    telegraph('enemy', { x: 12.0, y: 9.6 }, { x: 27.5, y: 3.2 }, { shape: 'line', length: 9, width: 1.6 }, 0.9, 1.5),
+    telegraph('ally', { x: 20.6, y: 8.6 }, { x: 20.6, y: 8.6 }, { shape: 'circle', radius: 3 }, 0.35, 0.6), // meteor
+    telegraph('enemy', { x: 12.0, y: 9.6 }, { x: 22.2, y: 3.2 }, { shape: 'line', length: 9, width: 1.6 }, 0.9, 1.5),
   );
   s.zones.push(
-    zone('ally', 1, { x: 23.8, y: 4.2 }, 2.8, 'damage', 2.0, 3), // arrow rain
+    zone('ally', 1, { x: 21.6, y: 4.2 }, 2.8, 'damage', 2.0, 3), // arrow rain
     zone('ally', 0, { x: 12.4, y: 7.0 }, 3, 'heal', 3.0, 4), // cleric spring
     zone('enemy', null, { x: 9.0, y: 4.0 }, 2.5, 'debuff', 2.5, 4), // lich curse
   );
@@ -252,15 +252,15 @@ function normalFixture(): Fixture {
     projectile('ally', { x: 14.2, y: 8.0 }, ogre.id, ogre.pos, 18, '#06d6a0'),
     projectile('ally', { x: 17.6, y: 6.4 }, ogre.id, ogre.pos, 12, '#ff9e3d'),
     projectile('enemy', { x: 20.4, y: 5.0 }, me.id, me.pos, 10, '#e9ecef'),
-    projectile('enemy', { x: 25.0, y: 3.9 }, me.id, me.pos, 9, '#c77dff'),
+    projectile('enemy', { x: 21.2, y: 3.6 }, me.id, me.pos, 9, '#c77dff'),
     projectile('ally', { x: 14.0, y: 3.7 }, mons[11].id, mons[11].pos, 16, '#adb5bd'),
   );
 
   const script: Fixture['script'] = [
-    { at: 0.02, ev: { type: 'spawnWarning', pos: { x: 30.5, y: 6 }, delay: 1 } },
+    { at: 0.02, ev: { type: 'spawnWarning', pos: { x: 6.5, y: 2.2 }, delay: 1 } },
     { at: 0.02, ev: { type: 'spawnWarning', pos: { x: 4.2, y: 9.8 }, delay: 1 } },
     { at: 0.05, ev: { type: 'appear', player: 0, partyIndex: 1, entityId: me.id, pos: me.pos } },
-    { at: 0.05, ev: { type: 'skillCast', sourceId: me.id, player: 0, slot: 'drag', skillId: 'mage_d', name: '운석 낙하', center: { x: 24.6, y: 8.4 }, area: { shape: 'circle', radius: 3 }, team: 'ally' } },
+    { at: 0.05, ev: { type: 'skillCast', sourceId: me.id, player: 0, slot: 'drag', skillId: 'mage_d', name: '운석 낙하', center: { x: 20.6, y: 8.6 }, area: { shape: 'circle', radius: 3 }, team: 'ally' } },
     { at: 0.1, ev: { type: 'attack', sourceId: bot2.id, targetId: ogre.id, ranged: false } },
     { at: 0.1, ev: { type: 'damage', targetId: ogre.id, amount: 87, crit: true, pos: ogre.pos, targetTeam: 'enemy', absorbed: 0 } },
     { at: 0.2, ev: { type: 'damage', targetId: mons[2].id, amount: 31, crit: false, pos: mons[2].pos, targetTeam: 'enemy', absorbed: 0 } },

@@ -21,6 +21,7 @@ import {
 import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
+import { stageBannerSub } from './expeditionFormat';
 import { petIcon, portrait } from './preset';
 import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
 import { fieldUltGauge, memberUltGauge, ultFillTimes, ultSecondsLeft } from '../sim/ultMode';
@@ -195,6 +196,8 @@ function sx(f: number): string {
 export class Hud {
   /** 기획 15차 원정: the top-centre column (the expedition stage pill hangs under the floor / boss box). */
   readonly topCenter: HTMLElement;
+  /** The top-right row (DBG · timer · pause); 원정 puts its bag chip first in it. */
+  readonly topRight: HTMLElement;
   readonly root: HTMLElement;
   readonly charCards: CharCard[] = [];
   /** 기획 13차: bench-card effects of the renewed skills (앙코르 badge, revive cut, rewind). */
@@ -356,6 +359,7 @@ export class Hud {
 
     // ── top-right: timer + buttons ──
     const tr = h('div', 'hud-tr', this.root);
+    this.topRight = tr;
     const dbg = button('icon-btn btn-dbg hud-block', 'DBG', tr, () => cb.onDebug());
     dbg.setAttribute('aria-label', '디버그');
     this.dbgBtn = dbg;
@@ -725,6 +729,11 @@ export class Hud {
 
   // ─────────────────────────── events ───────────────────────────
 
+  /** 기획 16차 원정: the short 'N단계 클리어 · 가방 +k' banner before the lobby (src/ui/expeditionSolo.ts). */
+  stageEndBanner(big: string, sub: string): void {
+    this.banner(big, sub, 'clear');
+  }
+
   private banner(big: string, sub: string, kind: string, lore = '', trace = ''): void {
     this.bannerBox.replaceChildren();
     // 기획 8차 리뷰: mid-fight boss banners (phase change, enrage) must not cover the fight at the boss's feet, where
@@ -748,8 +757,8 @@ export class Hud {
       switch (e.type) {
         case 'floorStart':
           if (s.expedition) {
-            // 기획 15차 원정: '4단계 · 사무실 / 3층을 깨면 장비 2개' on floor 1, the stage floor after that
-            const t = expeditionBanner(s, e.floor, e.kind === 'boss' ? bossName(s.plan.bossId) : '');
+            // 기획 16차 원정: one floor per stage — '4단계 · 사무실 / 깨면 장비 1개'
+            const t = expeditionBanner(s);
             this.banner(t.big, t.sub, e.kind === 'boss' ? 'boss' : 'floor', '', traceBannerLine(s.players[this.localPlayer]));
           } else if (e.kind === 'boss') {
             const name = bossName(s.plan.bossId);
@@ -773,8 +782,16 @@ export class Hud {
           }
           break;
         case 'floorClear':
-          if (s.expedition && e.floor >= 3) this.banner(retreat ? '보스 퇴각!' : '단계 클리어!', `${s.expedition.stage}단계 돌파 · 전리품 공개`, 'clear');
-          else this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
+          if (s.expedition) {
+            // 기획 16차: a normal stage picks its floor reward next; a boss stage goes straight back to the lobby
+            const sub = s.expedition.boss ? `${retreat ? '보스 퇴각 · ' : ''}전리품은 원정 로비에서 공개` : '층 보상 1장을 고르면 원정 로비로';
+            this.banner(`${s.expedition.stage}단계 클리어!`, sub, 'clear');
+          } else
+            this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
+          break;
+        case 'spawn':
+          // 기획 16차 원정: the stage's 수문장 comes with the second-to-last wave
+          if (s.expedition && e.tier === 'mid' && s.plan.guardian) this.banner('수문장 등장!', `${monsterName(s.plan.guardian.monsterId)} — 모두 처치하면 단계 클리어`, 'floor');
           break;
         case 'enrage':
           this.banner('보스 광폭화!', '공격력 · 공격 속도 · 소환량 증가', 'enrage');
@@ -970,8 +987,9 @@ export class Hud {
       show(this.bossCast, false);
       this.castUntil = 0;
       this.bossLagFrac = 1;
-      setText(this.floorNum, s.expedition ? `${s.expedition.stage}단계 ${s.floor}층` : `${s.floor}층`);
-      const zone = s.expedition ? '' : zoneName(s.plan.theme, s.floor);
+      // 기획 16차 원정: '4단계 · 사무실' (one floor per stage)
+      setText(this.floorNum, s.expedition ? `${s.expedition.stage}단계` : `${s.floor}층`);
+      const zone = s.expedition ? (EXP_ZONES[Math.floor((s.expedition.stage - 1) / 3)] ?? '') : zoneName(s.plan.theme, s.floor);
       setText(this.floorZone, zone ? `· ${zone}` : '');
       show(this.floorZone, !!zone);
       const total = s.plan.waves.length;
@@ -1200,14 +1218,11 @@ export class Hud {
 
 const EXP_ZONES = ['로비', '사무실', '병동', '옥상'];
 
-/** Floor-start banner of an expedition stage floor (8-4). */
-export function expeditionBanner(s: GameState, floor: number, boss: string): { big: string; sub: string } {
+/** Stage-start banner of an expedition stage (기획 16차, 8-5: one floor per stage). */
+export function expeditionBanner(s: GameState): { big: string; sub: string } {
   const ex = s.expedition!;
   const zone = EXP_ZONES[Math.floor((ex.stage - 1) / 3)] ?? '';
-  if (floor === 1) return { big: `${ex.stage}단계 · ${zone}`, sub: ex.boss ? '보스 단계 · 장비 3개 + 유물 확률' : '3층을 깨면 장비 2개' };
-  if (boss) return { big: `${ex.stage}단계 3층 · 보스`, sub: `${boss} — 쓰러뜨리면 장비 3개 + 유물 확률` };
-  if (floor >= 3) return { big: `${ex.stage}단계 3층 · 수문장`, sub: `수문장과 몬스터를 모두 처치 · 제한시간 ${formatClock(s.plan.timeLimit)}` };
-  return { big: `${ex.stage}단계 ${floor}층`, sub: `몬스터를 모두 처치하세요 · 제한시간 ${formatClock(s.plan.timeLimit)}` };
+  return { big: `${ex.stage}단계 · ${zone}`, sub: stageBannerSub(ex.stage) };
 }
 
 // ─────────────────────────── 기획 8차 names ───────────────────────────

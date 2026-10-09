@@ -249,11 +249,19 @@ export interface PendingSpawn {
 }
 
 export interface SpawnerState {
+  /** Perimeter points of a normal floor — 돌발 괴담 placement only (기획 16차: waves spawn near the party). */
   points: Vec2[];
   nextWave: number;
   pending: PendingSpawn[];
   kills: number;
   midTriggered: boolean;
+  // 기획 16차 템포 (set by startFloor; absent = before any floor started)
+  /** floorTime of the last wave warning (−∞ before the first). */
+  lastWarnAt?: number;
+  /** Rolled once per floor: the wave target rotation starts at this player slot (mod the players on the field). */
+  targetOffset?: number;
+  /** Last floorTime a 돌발 괴담 was planned or open on this floor (the last wave is held until 2 s after). */
+  fieldEventSeenAt?: number;
   /**
    * 기획 8차 onDeath splits that did not fit under maxAliveMonsters: they come out (oldest first) as soon as there is
    * room, and the floor does not clear while any wait.
@@ -406,6 +414,7 @@ export function onRunEnd(fn: (w: World) => void): void {
 export function endRun(w: World, outcome: RunResult['outcome'], reason: RunResult['reason']): void {
   const s = w.state;
   if (s.phase === 'runOver' || s.phase === 'stageClear') return; // 기획 15차: a cleared stage cannot be lost any more
+  if (s.expedition?.outcome === 'cleared') return; // 기획 16차: nor during its floor reward / 괴담 room
   for (const fn of runEndHooks) fn(w);
   const last = w.floorTimes[w.floorTimes.length - 1];
   const alreadyLogged = !!last && last.floor === s.floor && last.outcome === 'clear';

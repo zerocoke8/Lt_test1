@@ -1,28 +1,32 @@
-// 기획 15차 원정 런 화면 (docs/expedition.md 8-4 ~ 8-8): the in-run stage pill (floor dots + 가방 chip, tap = bag preview),
-// the stage-clear screen (loot reveal + 수령하고 나가기 / 다음 단계 도전, double tap when the bag is at stake), the match
-// wait (seats, 15 s ring, bots fill), the failure screen (bag lost, worn gear safe) and the extract screen.
+// 기획 15차 원정 런 화면 (docs/expedition.md 8-5 ~ 8-8): the in-run stage pill (가방 chip, tap = bag preview), the loot
+// reveal, the match wait (seats, 15 s ring, bots fill), the failure screen (bag lost, worn gear safe) and the claim
+// screen. 기획 16차: the in-game choice screen is gone — every stage ends in the 원정 lobby (src/ui/expeditionHub.ts),
+// which shows the loot reveal (LootReveal, moved here from the choice screen) and decides 「수령」 / 「N단계 매칭」.
 // The screens only show what they are given and report taps; src/ui/expeditionSolo.ts drives them.
 
 import { getCharacter } from '../data';
 import { BAND_COLOR, RARITY_STARS, SLOT_NAME_KO, bandOf, type GearLoadout, type GearSpec } from '../data/gear';
-import { isBossStage } from '../data/stages';
-import { bagSummary } from '../expedition/run';
+import { EXPEDITION_STAGES, isBossStage } from '../data/stages';
+import { bagSummary, runComplete, type ExpeditionRun } from '../expedition/run';
+import { runBuffCount } from '../expedition/stash';
 import type { GameState, RunResult } from '../types';
 import { sfx } from '../audio';
-import { button, h, setClass, setText, show } from './dom';
+import { button, h, setText, show } from './dom';
 import { createDoll } from './expeditionDoll';
-import { familyOf, gearName, recommendWearers, stageTitle } from './expeditionFormat';
+import { familyOf, gearName, nextStageCard, recommendWearers, stageTitle } from './expeditionFormat';
 import { inspectTiles, type GearInspect } from './expeditionInfo';
 import { formatClock, formatNumber } from './format';
 
 // ─────────────────────────── pure helpers (tests/ui/expedition-logic.test.ts) ───────────────────────────
 
-/** 「다음 단계 도전」 needs a second tap within this long while the bag is not empty (5장). */
+/** 「N단계 매칭」 needs a second tap within this long while the bag is not empty (5-2). */
 export const CONFIRM_MS = 3000;
 /** Match queue: bots fill the empty seats after this long (7장). */
 export const MATCH_SECONDS = 15;
 /** Solo / offline: 「혼자 하기 · 봇 2명과 출발」 shows this long before the stage starts (8-6). */
 export const SOLO_MATCH_MS = 1000;
+/** 기획 16차: a won stage stays on screen this long (the clear banner) before the lobby. */
+export const STAGE_END_MS = 1500;
 
 /** Double-tap guard: returns whether this tap goes through, and the new armed time (null = disarmed). */
 export function confirmTap(armedAt: number | null, now: number, needConfirm: boolean, windowMs = CONFIRM_MS): { go: boolean; armedAt: number | null } {
@@ -58,24 +62,27 @@ export function bagTopBand(bag: readonly GearSpec[]): number {
   return bag.reduce((m, g) => Math.max(m, bandOf(g.tier)), 0);
 }
 
-// ─────────────────────────── in-run pill (8-4) ───────────────────────────
+// ─────────────────────────── in-run pill (8-5) ───────────────────────────
 
+/**
+ * The bag chip of a stage game (기획 16차 review: in the top-right row, left of DBG / the timer — never stacked under
+ * the centre panels over the fight; the stage itself is named by the floor box / the boss bar).
+ */
 export class ExpeditionPill {
   readonly el: HTMLElement;
-  private readonly dots: HTMLElement[] = [];
   private readonly bagChip: HTMLButtonElement;
   private readonly preview: HTMLElement;
   private bag: readonly GearSpec[] = [];
   private family: string | null = null;
   private inspect: GearInspect | null = null;
 
-  constructor(parent: HTMLElement) {
-    this.el = h('div', 'exp-pill hud-block', parent);
-    const dots = h('div', 'exp-pill-dots', this.el);
-    for (let i = 0; i < 3; i++) this.dots.push(h('span', 'exp-pill-dot', dots));
+  /** `row` = the HUD's top-right row (the chip goes first in it; the preview opens under the row). */
+  constructor(row: HTMLElement) {
+    this.el = h('div', 'exp-pill hud-block');
+    row.prepend(this.el);
     this.bagChip = button('exp-pill-bag', '', this.el, () => this.togglePreview());
     this.bagChip.dataset.sfx = 'ui.tap.soft';
-    this.preview = h('div', 'exp-bag-preview is-hidden', parent);
+    this.preview = h('div', 'exp-bag-preview is-hidden', row);
   }
 
   setBag(bag: readonly GearSpec[], family: string | null, inspect: GearInspect | null = null): void {
@@ -89,17 +96,7 @@ export class ExpeditionPill {
   }
 
   update(s: GameState): void {
-    const ex = s.expedition;
-    show(this.el, !!ex);
-    if (!ex) return;
-    this.dots.forEach((d, i) => {
-      const f = i + 1;
-      setClass(d, 'is-done', f < s.floor || (f === s.floor && ex.outcome === 'cleared'));
-      setClass(d, 'is-now', f === s.floor && ex.outcome === 'running');
-      setClass(d, 'is-last', f === 3);
-      setClass(d, 'is-boss', f === 3 && ex.boss);
-      setText(d, f === 3 ? (ex.boss ? '☠' : '◆') : '');
-    });
+    show(this.el, !!s.expedition);
   }
 
   private togglePreview(): void {
@@ -122,91 +119,114 @@ export class ExpeditionPill {
   }
 }
 
-// ─────────────────────────── stage clear + choice (8-5) ───────────────────────────
+// ─────────────────────────── lobby run view (기획 16차, 8-3) ───────────────────────────
 
-export interface ChoiceView {
-  stage: number;
-  /** This stage's loot (revealed one by one). */
-  loot: GearSpec[];
-  /** The whole bag including this stage's loot. */
-  bag: GearSpec[];
-  /** Floor-reward buffs carried / lost. */
+export type PathDot = 'skip' | 'done' | 'next' | 'todo';
+
+export interface RunLobbyView {
+  /** '원정 진행 중 · 3단계까지 클리어' (or '원정 시작 · 1단계 대기'). */
+  title: string;
+  /** 12 dots: before the start stage / cleared / next / later; boss stages get a gold skull. */
+  path: { stage: number; dot: PathDot; boss: boolean }[];
+  bagCount: number;
+  topTier: number;
+  /** [tier, count], highest first. */
+  tiers: [number, number][];
+  /** Bag head line: '가방 5개 · 최고 T3' / '가방이 비었어요'. */
+  bagHead: string;
+  /** Bag index → NEW (it came from the stage just cleared). */
+  isNew: boolean[];
+  next: number;
+  nextLine: string;
+  nextLoot: string;
+  nextBoss: boolean;
+  /** Red risk line. */
+  risk: string;
   buffs: number;
-  /** Stage 12 cleared: extract only (원정 완주). */
+  claimSub: string;
+  matchTitle: string;
+  matchSub: string;
+  /** 「N단계 매칭」 needs a double tap (the bag is at stake). */
+  needConfirm: boolean;
+  /** A stage of the run is being played / its result is awaited (no buttons). */
+  waiting: boolean;
+  /** Stage 12 cleared: claim only. */
   complete: boolean;
-  /** Multiplayer: auto-extract deadline (Date.now() ms), null = none (solo). */
-  deadline: number | null;
-  /** Weapon look for the tiles (the party's first character id). */
+}
+
+/** The lobby's run panel, from the stored run (pure). */
+export function runLobbyView(run: ExpeditionRun): RunLobbyView {
+  const sum = bagSummary(run.bag);
+  const buffs = runBuffCount(run);
+  const last = run.stage - 1;
+  const card = nextStageCard(Math.min(run.stage, EXPEDITION_STAGES));
+  const path = Array.from({ length: EXPEDITION_STAGES }, (_, i) => {
+    const st = i + 1;
+    const dot: PathDot = st < run.startStage ? 'skip' : st < run.stage ? 'done' : st === run.stage ? 'next' : 'todo';
+    return { stage: st, dot, boss: isBossStage(st) };
+  });
+  return {
+    title: run.cleared > 0 ? `원정 진행 중 · ${last}단계까지 클리어` : `원정 시작 · ${run.stage}단계 대기`,
+    path,
+    bagCount: sum.count,
+    topTier: sum.topTier,
+    tiers: tierCounts(run.bag),
+    bagHead: sum.count ? `가방 ${sum.count}개 · 최고 T${sum.topTier}` : '가방이 비었어요',
+    isNew: run.bag.map(g => g.tier === last),
+    next: run.stage,
+    nextLine: card.line,
+    nextLoot: card.loot,
+    nextBoss: card.boss,
+    risk: sum.count ? `실패하면 가방 ${sum.count}개를 잃어요 (장착 장비는 안전)` : '가방이 비어 있어요 · 실패해도 잃을 장비가 없어요',
+    buffs,
+    claimSub: sum.count ? `가방 ${sum.count}개 모두 보관함으로${buffs ? ` · 버프 ${buffs}개는 사라져요` : ''}` : `가방이 비어 있어요 · 원정을 끝내요${buffs ? ` · 버프 ${buffs}개는 사라져요` : ''}`,
+    matchTitle: `${run.stage}단계 매칭`,
+    matchSub: `새 동료와 매칭${buffs ? ` · 버프 ${buffs}개 유지` : ''}`,
+    needConfirm: sum.count > 0,
+    waiting: run.status === 'inStage',
+    complete: runComplete(run),
+  };
+}
+
+// ─────────────────────────── loot reveal (8-3: cards flip in the lobby) ───────────────────────────
+
+export interface RevealView {
+  stage: number;
+  loot: GearSpec[];
+  /** Bag size after this stage. */
+  bagCount: number;
   family: string | null;
-  /** Tap a tile → its sheet, compared with what the party wears (null = no compare). */
   inspect: GearInspect | null;
 }
 
-export class ChoiceScreen {
+/**
+ * 기획 16차: back in the lobby after a cleared stage, this stage's loot flips face up (band-pitched 「칭」, a gold 「유물!」
+ * stamp) over the lobby; 「가방에 넣기」 (or a tap outside the cards) closes it and the NEW tiles pop into the bag grid.
+ */
+export class LootReveal {
   readonly el: HTMLElement;
-  private view: ChoiceView | null = null;
-  private armedAt: number | null = null;
-  private contBtn: HTMLButtonElement | null = null;
-  private contSub: HTMLElement | null = null;
-  private timer: HTMLElement | null = null;
-  private decided = false;
-  private readonly cb: { onExtract(): void; onContinue(): void };
+  private onDone: (() => void) | null = null;
 
-  constructor(parent: HTMLElement, cb: { onExtract(): void; onContinue(): void }) {
-    this.cb = cb;
-    this.el = h('div', 'screen exp-choice exp-screen is-hidden', parent);
+  constructor(parent: HTMLElement) {
+    this.el = h('div', 'exp-reveal is-hidden', parent);
+    this.el.addEventListener('click', ev => {
+      if (ev.target === this.el) this.close();
+    });
   }
 
   get visible(): boolean {
     return !this.el.classList.contains('is-hidden');
   }
 
-  show(v: ChoiceView): void {
-    this.view = v;
-    this.armedAt = null;
-    this.decided = false;
-    this.el.classList.remove('is-hidden');
-    this.render();
-    sfx.ui('reward.open');
-    v.loot.forEach((g, i) => {
-      const band = bandOf(g.tier);
-      sfx.ui('exp.reveal', { delay: 0.35 + i * 0.32, rate: Math.pow(2, (band - 1) / 5) });
-      if (g.slot === 'relic') sfx.ui('exp.relic', { delay: 0.5 + i * 0.32 });
-    });
-  }
-
-  hide(): void {
-    this.el.classList.add('is-hidden');
-    this.view = null;
-  }
-
-  /** Per frame: countdown text and the double-tap guard running out. */
-  tick(): void {
-    const v = this.view;
-    if (!v) return;
-    if (this.timer && v.deadline != null) {
-      const left = Math.max(0, Math.ceil((v.deadline - Date.now()) / 1000));
-      setText(this.timer, `${left}초 뒤 자동으로 수령해요`);
-      setClass(this.timer, 'is-urgent', left <= 5);
-    }
-    if (this.armedAt != null && !isArmed(this.armedAt, performance.now())) {
-      this.armedAt = null;
-      this.syncContinue();
-    }
-  }
-
-  private render(): void {
-    const v = this.view!;
+  show(v: RevealView, onDone: () => void): void {
+    this.onDone = onDone;
     const el = this.el;
     el.replaceChildren();
-    const head = h('div', 'exp-ch-head', el);
-    h('div', 'exp-ch-title', head, v.complete ? '원정 완주!' : `${v.stage}단계 클리어!`);
-    h('div', 'exp-ch-sub', head, v.complete ? '12단계를 모두 깼어요 · 가방을 모두 받아요' : '장비를 가방에 담았어요');
-    this.timer = v.deadline != null ? h('div', 'exp-ch-timer', head) : null;
-
-    const main = h('div', 'exp-ch-main', el);
-    const left = h('div', 'exp-ch-left', main);
-    const reveal = h('div', 'exp-ch-reveal', left);
+    el.classList.remove('is-hidden');
+    const box = h('div', 'exp-reveal-box', el);
+    h('div', 'exp-reveal-title', box, `${v.stage}단계 클리어!`);
+    h('div', 'exp-reveal-sub', box, v.loot.length ? `가방 +${v.loot.length} · 이제 가방 ${v.bagCount}개` : `이번 단계 전리품 없음 · 가방 ${v.bagCount}개`);
+    const reveal = h('div', 'exp-ch-reveal', box);
     const wearers = v.inspect ? recommendWearers(v.loot, v.inspect.party, v.inspect.loadouts) : [];
     v.loot.forEach((g, i) => {
       const col = h('div', 'exp-loot-col', reveal);
@@ -218,7 +238,6 @@ export class ChoiceScreen {
       const front = h('div', 'exp-loot-front', inner);
       inspectTiles(front, el, [g], v.inspect, () => ({ family: v.family, size: 128 }), [wearers[i] ?? null]);
       if (g.slot === 'relic') h('div', 'exp-loot-stamp', front, '유물!');
-      // what it is, readable before deciding (name · slot · stars; ▲ = better than what someone wears)
       const cap = h('div', 'exp-loot-cap', col);
       cap.style.setProperty('--d', `${0.6 + i * 0.32}s`);
       const nm = h('div', 'exp-loot-name', cap, gearName(g, familyOf(wearers[i] ?? v.family)));
@@ -227,66 +246,25 @@ export class ChoiceScreen {
       h('div', 'exp-loot-slot', cap, `${SLOT_NAME_KO[g.slot]}${stars ? ` ${stars}` : ''}`);
       if (wearers[i]) h('div', 'exp-loot-up', cap, `▲ ${getCharacter(wearers[i]!).name}`);
     });
-    const sum = bagSummary(v.bag);
-    h('div', 'exp-ch-baghead', left, `원정 가방 ${sum.count}개 · 최고 T${sum.topTier} · 눌러서 보기`);
-    const grid = h('div', 'exp-ch-bag', left);
-    const newFrom = v.bag.length - v.loot.length;
-    inspectTiles(grid, el, v.bag, v.inspect, i => ({ family: v.family, isNew: i >= newFrom, size: 84 }));
-
-    const right = h('div', 'exp-ch-right', main);
-    // what 「도전」 puts at stake: a count and band-coloured tier chips (T1×2 · T4×1)
-    const risk = h('div', 'exp-risk', right);
-    h('span', 'exp-risk-label', risk, `걸린 장비 ${sum.count}개`);
-    for (const [tier, n] of tierCounts(v.bag)) {
-      const chip = h('span', 'exp-risk-chip', risk, `T${tier}×${n}`);
-      chip.style.setProperty('--bc', BAND_COLOR[bandOf(tier)]);
-    }
-    const ext = button('exp-choice-btn exp-extract', '', right, () => this.choose('extract'));
-    ext.dataset.sfx = '';
-    h('div', 'exp-exit-icon', ext);
-    const et = h('div', 'exp-choice-text', ext);
-    h('div', 'exp-choice-title', et, v.complete ? '모두 수령하기' : '장비 수령하고 나가기');
-    h('div', 'exp-choice-sub', et, `가방 ${sum.count}개 모두 보관함으로${v.buffs ? ` · 층 보상 버프 ${v.buffs}개는 사라져요` : ''}`);
-    if (!v.complete) {
-      const next = v.stage + 1;
-      if (isBossStage(next)) h('div', 'exp-next-boss', right, '다음은 보스 단계 — 장비 3개 + 유물 확률');
-      const cont = button('exp-choice-btn exp-continue', '', right, () => this.choose('continue'));
-      cont.dataset.sfx = '';
-      const ct = h('div', 'exp-choice-text', cont);
-      h('div', 'exp-choice-title', ct, '다음 단계 도전');
-      h('div', 'exp-choice-sub', ct, `${stageTitle(next)} · 새 동료와 매칭${v.buffs ? ` · 버프 ${v.buffs}개 유지` : ''}`);
-      this.contSub = h('div', 'exp-choice-risk', ct);
-      this.contBtn = cont;
-      this.syncContinue();
-    } else {
-      this.contBtn = null;
-      this.contSub = null;
-    }
+    h('div', 'exp-reveal-note', box, '가방 장비는 「수령」한 뒤에 낄 수 있어요');
+    button('btn btn-primary exp-reveal-ok', '가방에 넣기', box, () => this.close());
+    sfx.ui('reward.open');
+    v.loot.forEach((g, i) => {
+      sfx.ui('exp.reveal', { delay: 0.35 + i * 0.32, rate: Math.pow(2, (bandOf(g.tier) - 1) / 5) });
+      if (g.slot === 'relic') sfx.ui('exp.relic', { delay: 0.5 + i * 0.32 });
+    });
   }
 
-  private syncContinue(): void {
-    const v = this.view;
-    if (!v || !this.contBtn || !this.contSub) return;
-    const armed = isArmed(this.armedAt, performance.now());
-    this.contBtn.classList.toggle('is-armed', armed);
-    this.contSub.textContent = armed ? `한 번 더 누르면 도전 · 가방 ${v.bag.length}개가 걸려요` : v.bag.length ? `실패하면 가방 ${v.bag.length}개를 잃어요 (장착 장비는 안전)` : '실패해도 잃을 장비가 없어요';
+  hide(): void {
+    this.el.classList.add('is-hidden');
+    this.onDone = null;
   }
 
-  private choose(c: 'extract' | 'continue'): void {
-    if (this.decided || !this.view) return;
-    if (c === 'continue') {
-      const r = confirmTap(this.armedAt, performance.now(), this.view.bag.length > 0);
-      this.armedAt = r.armedAt;
-      if (!r.go) {
-        sfx.ui('ui.warn');
-        this.syncContinue();
-        return;
-      }
-      sfx.ui('ui.start');
-    } else sfx.ui('exp.extract');
-    this.decided = true;
-    if (c === 'extract') this.cb.onExtract();
-    else this.cb.onContinue();
+  private close(): void {
+    if (!this.visible) return;
+    const done = this.onDone;
+    this.hide();
+    done?.();
   }
 }
 
@@ -298,6 +276,8 @@ export interface MatchSeat {
   gear: GearLoadout[];
   kind: 'human' | 'bot' | 'empty';
   me?: boolean;
+  /** Buffs carried (other people's seats). */
+  buffs?: number;
 }
 
 export interface MatchView {
@@ -366,10 +346,12 @@ export class MatchScreen {
         const dolls = h('div', 'exp-seat-dolls', seat);
         s.characters.forEach((id, i) => createDoll(dolls, '', 86, 108, id, s.gear[i]));
         if (s.me) h('div', 'exp-seat-note', seat, v.buffs ? `버프 ${v.buffs}개 유지` : v.continuing ? '이어 가는 중' : '새 원정');
+        else if (s.kind === 'human' && s.buffs) h('div', 'exp-seat-note', seat, `버프 ${s.buffs}개`);
       }
       this.btns.replaceChildren();
       if (!v.solo) button('btn btn-primary exp-start-now', '바로 출발 (빈자리 봇)', this.btns, () => this.cb.onStartNow());
-      button('btn btn-secondary exp-cancel', v.continuing ? '그만두고 수령하기' : '취소', this.btns, () => this.cb.onCancel());
+      // 기획 16차: 「취소」 = back to the lobby, the bag stays (no claiming from the queue)
+      button('btn btn-secondary exp-cancel', '취소', this.btns, () => this.cb.onCancel());
     }
     show(this.ring, v.secondsLeft != null);
     if (v.secondsLeft != null) {
@@ -383,12 +365,13 @@ export class MatchScreen {
 
 export interface FailView {
   reason: RunResult['reason'];
+  /** 기획 16차: overrides the reason line (e.g. a solo stage whose tab was closed). */
+  reasonText?: string;
   stage: number;
-  floor: number;
   lost: GearSpec[];
   party: string[];
   gear: GearLoadout[];
-  /** Seconds played this run (all stages). */
+  /** Seconds played in the lost stage (0 = unknown). */
   playTime: number;
   family: string | null;
   /** Detail rows (my contribution of the last stage). */
@@ -430,8 +413,9 @@ export class RunResultScreen {
     el.classList.add('is-fail');
     const head = h('div', 'exp-rs-head', el);
     h('div', 'exp-rs-title', head, '원정 실패');
-    h('div', 'exp-rs-reason', head, v.reason === 'timeout' ? '시간 초과' : v.reason === 'quit' ? '도중에 나감' : '전멸');
-    h('div', 'exp-rs-facts', head, `도달 ${v.stage}단계 ${v.floor}층 · 잃은 장비 ${v.lost.length}개 · 플레이 시간 ${formatClock(v.playTime)}`);
+    h('div', 'exp-rs-reason', head, v.reasonText ?? (v.reason === 'timeout' ? '시간 초과' : v.reason === 'quit' ? '도중에 나감' : '전멸'));
+    const time = v.playTime > 0 ? ` · 이번 단계 ${formatClock(v.playTime)}` : '';
+    h('div', 'exp-rs-facts', head, `도달 ${v.stage}단계 · 잃은 장비 ${v.lost.length}개${time}`);
     const main = h('div', 'exp-rs-main', el);
     const left = h('div', 'exp-rs-col exp-rs-lost', main);
     h('div', 'exp-rs-col-title', left, v.lost.length ? '가방을 잃었어요' : '가방이 비어 있었어요');
@@ -448,8 +432,8 @@ export class RunResultScreen {
     const detail = h('div', 'exp-rs-detail is-hidden', el);
     for (const d of v.details) h('span', 'exp-rs-detail-row', detail, `${d.label} ${formatNumber(d.value)}`);
     const btns = h('div', 'exp-rs-btns', el);
-    button('btn btn-secondary exp-rs-more', '상세 보기', btns, () => detail.classList.toggle('is-hidden'));
-    button('btn btn-primary exp-rs-hub', '원정 허브로', btns, () => this.cb.onHub());
+    if (v.details.length) button('btn btn-secondary exp-rs-more', '상세 보기', btns, () => detail.classList.toggle('is-hidden'));
+    button('btn btn-primary exp-rs-hub', '원정 로비로', btns, () => this.cb.onHub());
     if (v.lost.length) sfx.ui('exp.bagLost', { delay: 0.3 });
   }
 
@@ -460,7 +444,8 @@ export class RunResultScreen {
     el.classList.add('is-extract');
     const head = h('div', 'exp-rs-head', el);
     h('div', 'exp-exit-icon is-big', head);
-    h('div', 'exp-rs-title', head, v.complete ? '원정 완주!' : '탈출 성공!');
+    h('div', 'exp-rs-title', head, v.complete ? '원정 완주!' : '수령 완료!');
+    el.classList.toggle('is-complete', v.complete);
     const top = v.items.reduce<GearSpec | null>((m, g) => (!m || g.tier > m.tier ? g : m), null);
     const slotKo = top ? { weapon: '무기', armor: '방어구', charm: '장신구', relic: '유물' }[top.slot] : '';
     h('div', 'exp-rs-facts', head, `보관함 +${v.items.length}${top ? ` · 최고 T${top.tier} ${slotKo}` : ''}${v.buffsLost ? ` · 사라진 버프 ${v.buffsLost}개` : ''}`);
@@ -475,6 +460,6 @@ export class RunResultScreen {
     if (!v.items.length) h('div', 'exp-empty', g, '가져온 장비가 없어요');
     const btns = h('div', 'exp-rs-btns', el);
     if (v.items.length) button('btn btn-secondary exp-rs-equip', '바로 장착하기', btns, () => this.cb.onEquipNew());
-    button('btn btn-primary exp-rs-hub', '원정 허브로', btns, () => this.cb.onHub());
+    button('btn btn-primary exp-rs-hub', '원정 로비로', btns, () => this.cb.onHub());
   }
 }

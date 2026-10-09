@@ -238,7 +238,6 @@ const SAMPLES: { [K in GameEvent['type']]: Extract<GameEvent, { type: K }> } = {
   reviveCut: { type: 'reviveCut', player: 0, partyIndex: 1, seconds: 5, from: 0 },
   swapCdCut: { type: 'swapCdCut', player: 0, seconds: 2, from: 0 },
   stageClear: { type: 'stageClear', stage: 1 },
-  expeditionChoice: { type: 'expeditionChoice', player: 0, choice: 'extract', auto: false },
   gearProc: { type: 'gearProc', player: 0, partyIndex: 0, id: 'w_appear_bolt', pos: P },
   appear: { type: 'appear', player: 0, partyIndex: 0, entityId: 100, pos: P },
   dash: { type: 'dash', entityId: 100, from: P, to: P, duration: 0.2 },

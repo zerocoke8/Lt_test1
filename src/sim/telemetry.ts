@@ -68,7 +68,7 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   waveInterval: [0.5, 120],
   maxAliveMonsters: [1, 200, true],
   maxFloor: [1, 200, true],
-  midBossKillTrigger: [0, 1000, true],
+  midBossFromEnd: [1, 6, true], // 기획 16차 템포
   midBossTimeTrigger: [0, 3600],
   bossLockReleaseSec: [0, 600],
   petCooldownMult: [0, 10],

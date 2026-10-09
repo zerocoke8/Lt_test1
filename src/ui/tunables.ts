@@ -40,10 +40,11 @@ export const SLIDERS: SliderSpec[] = [
   { group: '전투', key: 'bossLockReleaseSec', label: '보스 타겟 고정 해제 (0=끔)', min: 0, max: 20, step: 0.5, unit: '초' },
   { group: '층 구성', key: 'normalFloorTime', label: '일반층 제한시간', min: 30, max: 300, step: 5, unit: '초' },
   { group: '층 구성', key: 'bossFloorTime', label: '보스층 제한시간', min: 30, max: 300, step: 5, unit: '초' },
-  { group: '층 구성', key: 'waveInterval', label: '웨이브 간격', min: 2, max: 20, step: 0.5, unit: '초' },
+  // 기획 16차 템포: the max gap — the next wave comes earlier once the field is almost clear
+  { group: '층 구성', key: 'waveInterval', label: '웨이브 최대 간격', min: 2, max: 20, step: 0.5, unit: '초' },
   { group: '층 구성', key: 'maxAliveMonsters', label: '동시 최대 몬스터', min: 5, max: 60, step: 1 },
   { group: '층 구성', key: 'maxFloor', label: '최고층', min: 1, max: 50, step: 1, unit: '층' },
-  { group: '층 구성', key: 'midBossKillTrigger', label: '중형보스 등장 처치 수', min: 0, max: 40, step: 1, unit: '마리' },
+  { group: '층 구성', key: 'midBossFromEnd', label: '중형보스: 끝에서 N번째 웨이브', min: 1, max: 6, step: 1, unit: '번째' },
   { group: '층 구성', key: 'midBossTimeTrigger', label: '중형보스 강제 등장', min: 5, max: 120, step: 5, unit: '초' },
   { group: '층 구성', key: 'goedamRoomsPerZone', label: '괴담 방 (구역당)', min: 0, max: 2, step: 1, unit: '개' },
   // 기획 12차: 0 = 돌발 괴담 off entirely (also the floor-2 toad)

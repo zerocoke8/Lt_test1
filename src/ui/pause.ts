@@ -6,6 +6,7 @@ import type { GameState, PlayerState } from '../types';
 import { getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, goedamTraceKind } from '../data';
 import { button, h } from './dom';
 import { formatClock } from './format';
+import { stageTitle } from './expeditionFormat';
 import { toggleFullscreen } from './stage';
 import { createSoundPanel, type SoundPanel } from './soundPanel';
 import { CUTIN } from '../render/cutin';
@@ -102,7 +103,7 @@ export class PauseMenu {
         ? '멀티 게임은 멈추지 않아요 · 방장이 나가면 모두의 런이 끝나요'
         : '멀티 게임은 멈추지 않아요 · 나가면 내 자리는 봇이 이어서 해요'
       : '';
-    this.info.textContent = s ? `${s.floor}층 · ${s.plan.kind === 'boss' ? '보스층' : '일반층'} · 진행 ${formatClock(s.time)}` : '';
+    this.info.textContent = s ? `${placeLabel(s)} · 진행 ${formatClock(s.time)}` : '';
     this.renderLists(s?.players[view.localPlayer ?? 0] ?? null);
     this.sound.sync();
     this.el.classList.remove('is-hidden');
@@ -146,4 +147,11 @@ export class PauseMenu {
 
 function cutInLabel(): string {
   return CUTIN.short ? '궁극기 컷인: 짧게' : '궁극기 컷인: 기본';
+}
+
+/** '7층 · 일반층' / 기획 16차 원정: '4단계 · 사무실' (+ ' · 보스 단계'). */
+function placeLabel(s: GameState): string {
+  const boss = s.plan.kind === 'boss';
+  if (s.expedition) return `${stageTitle(s.expedition.stage)}${boss ? ' · 보스 단계' : ''}`;
+  return `${s.floor}층 · ${boss ? '보스층' : '일반층'}`;
 }

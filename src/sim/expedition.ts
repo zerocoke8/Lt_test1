@@ -1,20 +1,20 @@
-// 기획 15차 원정 모드 (docs/expedition.md): one game = one stage of 3 floors. Floor plans (3-1 ~ 3-3), the stage clear
-// ('stageClear' phase, loot, 수령 / 도전 choices), the stage's 괴담 room and 돌발 괴담, the carry between stages and the
-// loot rolls. The classic tower reaches this file only through `if (w.expedition)` branches (floor.ts, goedam.ts,
-// fieldEvents.ts, game.ts) — see docs/prototype-architecture.md for the list.
+// 기획 15차 원정 모드 (docs/expedition.md): one game = one stage. 기획 16차: a stage is ONE floor — a normal stage (waves
+// + the 수문장) ends with one floor reward (and maybe a 괴담 room), a boss stage right at the clear; then phase
+// 'stageClear' and every player goes back to the 원정 lobby (the run itself lives in src/expedition/run.ts). This file:
+// the stage plan (3-1 ~ 3-3), the combat clear (loot) and the stage end, the stage's 괴담 room and 돌발 괴담, the carry
+// between stages and the loot rolls. The classic tower reaches this file only through `if (w.expedition)` branches
+// (floor.ts, goedam.ts, fieldEvents.ts, game.ts) — see docs/prototype-architecture.md for the list.
 // Every roll here is on its own seeded stream (mixSeed(seed, salt, …)) except the wave composition, which uses the run
 // rng exactly like a classic floor plan.
 
 import type {
   ExpeditionCarry,
-  ExpeditionChoice,
   ExpeditionSetup,
   ExpeditionState,
   FieldEventId,
   FloorPlan,
   GameState,
   GoedamRoomDef,
-  Command,
   CommandResult,
   Tunables,
   WavePlan,
@@ -55,8 +55,6 @@ export interface ExpeditionRt {
 const SALT = 0xe6ed15;
 const STREAM = { loot: 1, room: 2, fieldPlan: 3, fieldStart: 4 } as const;
 
-export const STAGE_FLOORS = 3;
-
 const ok: CommandResult = { ok: true };
 const fail = (reason: string): CommandResult => ({ ok: false, reason });
 
@@ -69,21 +67,10 @@ export function expeditionStatMult(e: number, growth: number): number {
   return 1 + growth * early + growth * LATE_STAT_GROWTH.factor * late;
 }
 
-/** One stage floor. Waves are drawn with `rng` (the run rng, like planFloor); floor 3 = guardian floor or the zone boss. */
-export function planExpeditionFloor(stage: number, stageFloor: number, rng: Rng, tunables: Tunables): FloorPlan {
-  const s = clampStage(stage);
-  const j = Math.max(1, Math.min(STAGE_FLOORS, Math.floor(stageFloor)));
-  const e = equivFloor(s, j);
-  const zone = ZONES[stageZoneIndex(s)];
-  const theme = stageTheme(s);
-  const statMult = expeditionStatMult(e, tunables.floorStatGrowth) * (EXPEDITION.stageMult[s - 1] ?? 1);
-  const mids = EXPEDITION.mids[s - 1];
-  const tag = { stage: s, stageFloor: j, equivFloor: e };
-  if (j === STAGE_FLOORS && isBossStage(s)) {
-    const t = EXPEDITION.bossEnrage;
-    return { floor: j, kind: 'boss', timeLimit: t, arena: { ...ARENA_BOSS }, statMult, waves: [], bossId: mids[2], theme, ...tag, bossHpMult: EXPEDITION.bossHp };
-  }
-  const waveCount = Math.max(1, Math.floor(EXPEDITION.waves[j - 1] ?? 6));
+/** A stage's waves: the zone pool (filtered by e), zone.waveSize, the nominal "every gap maxed" schedule (`at`). */
+function stageWaves(stage: number, e: number, rng: Rng): WavePlan[] {
+  const zone = ZONES[stageZoneIndex(stage)];
+  const waveCount = Math.max(1, Math.floor(EXPEDITION.waves[stage - 1] ?? 6));
   const pool = zone.pool.filter(x => (x.from ?? zone.from) <= e);
   const waves: WavePlan[] = [];
   for (let i = 0; i < waveCount; i++) {
@@ -95,13 +82,38 @@ export function planExpeditionFloor(stage: number, stageFloor: number, rng: Rng,
     }
     waves.push({ at: 1 + i * EXPEDITION.waveGap, spawns: [...counts].map(([monsterId, count]) => ({ monsterId, count })) });
   }
-  const timeLimit = EXPEDITION.timeLimit[j - 1] ?? tunables.normalFloorTime;
-  const plan: FloorPlan = { floor: j, kind: 'normal', timeLimit, arena: { ...ARENA_NORMAL }, statMult, waves, midBossId: mids[j - 1], theme, ...tag };
-  if (j === STAGE_FLOORS) {
-    plan.guardian = { monsterId: mids[2], hpMult: EXPEDITION.guardianHp, atkMult: EXPEDITION.guardianAtk, at: EXPEDITION.guardianAt };
-    plan.midBossId = mids[2];
+  return waves;
+}
+
+/**
+ * 기획 16차: the one floor of a stage (state.floor is always 1). A boss stage = the zone boss alone (enrage after
+ * bossEnrage s); a normal stage = waves (drawn with `rng`, the run rng, like planFloor) with the max gap waveGap, and
+ * the 수문장 (STAGE_FOE) as the floor's mid boss.
+ */
+export function planExpeditionFloor(stage: number, rng: Rng, tunables: Tunables): FloorPlan {
+  const s = clampStage(stage);
+  const e = equivFloor(s);
+  const theme = stageTheme(s);
+  const statMult = expeditionStatMult(e, tunables.floorStatGrowth) * (EXPEDITION.stageMult[s - 1] ?? 1);
+  const foe = EXPEDITION.foes[s - 1];
+  const tag = { stage: s, equivFloor: e };
+  if (isBossStage(s)) {
+    const t = EXPEDITION.bossEnrage;
+    return { floor: 1, kind: 'boss', timeLimit: t, arena: { ...ARENA_BOSS }, statMult, waves: [], bossId: foe, theme, ...tag, bossHpMult: EXPEDITION.bossHp };
   }
-  return plan;
+  return {
+    floor: 1,
+    kind: 'normal',
+    timeLimit: EXPEDITION.timeLimit,
+    arena: { ...ARENA_NORMAL },
+    statMult,
+    waves: stageWaves(s, e, rng),
+    maxGap: EXPEDITION.waveGap,
+    midBossId: foe,
+    guardian: { monsterId: foe, hpMult: EXPEDITION.guardianHp, atkMult: EXPEDITION.guardianAtk },
+    theme,
+    ...tag,
+  };
 }
 
 // ─────────────────────────── Setup (createWorld) ───────────────────────────
@@ -147,102 +159,86 @@ export function initExpedition(w: World, setup: ExpeditionSetup, humans: boolean
   w.goedam.seen.push(...seen);
   const state: ExpeditionState = {
     stage: rt.stage,
-    stageFloor: 1,
     boss: isBossStage(rt.stage),
     outcome: 'running',
     loot: s.players.map(() => []),
-    choices: s.players.map(() => null),
     humans: humans.slice(),
     goedamSeen: [...seen],
   };
   s.expedition = state;
 }
 
-// ─────────────────────────── Floor hooks ───────────────────────────
-
-/** startFloor: keep the read model's floor in step. */
-export function noteExpeditionFloor(w: World): void {
-  if (w.state.expedition) w.state.expedition.stageFloor = w.state.floor;
-}
+// ─────────────────────────── Clear → stage end (기획 16차) ───────────────────────────
 
 /**
- * floorClear, after the heal (where the classic tower checks the last floor): floor 3 → the stage is cleared. True =
- * the game is over for this stage (phase 'stageClear'); false = floors 1–2 go on to the usual reward.
+ * floorClear, after the heal (where the classic tower checks the last floor): the combat is won — the clear is final
+ * from here (a quit during the reward / room is still a clear). Loot is rolled per human now. True = a boss stage: the
+ * game is over at once (phase 'stageClear', no floor reward); false = a normal stage goes on to the usual reward phase
+ * and ends in finishRewardIfDone / finishGoedamIfDone (→ enterStageEnd).
  */
-export function expeditionFloorClear(w: World): boolean {
-  const s = w.state;
-  if (s.floor < STAGE_FLOORS) return false;
-  stageClear(w);
-  return true;
-}
-
-function stageClear(w: World): void {
+export function expeditionCombatClear(w: World): boolean {
   const s = w.state;
   const ex = s.expedition!;
   const rt = w.expedition!;
-  s.phase = 'stageClear';
   ex.outcome = 'cleared';
-  ex.stageFloor = s.floor;
+  ex.loot = s.players.map((p, i) => (ex.humans[i] ? rollStageLoot(s.seed, rt.stage, i, p.gear ?? [], rt.firstBossClear[i], rt.clearedThisRun[i]) : []));
+  emit(w, { type: 'stageClear', stage: rt.stage });
+  if (s.plan.kind !== 'boss') return false;
+  enterStageEnd(w);
+  return true;
+}
+
+/** The stage is over and won: terminal phase 'stageClear' (time frozen). Each player's result: stageResultFromState. */
+export function enterStageEnd(w: World): void {
+  const s = w.state;
+  if (s.phase === 'stageClear' || s.phase === 'runOver') return;
+  s.phase = 'stageClear';
   s.rewardOffers = null;
   s.rewardOffersByPlayer = s.players.map(() => null);
   w.humanOffers = null;
   s.goedam = null;
   s.runResult = { outcome: 'victory', reason: 'cleared', floorReached: s.floor, duration: s.time };
-  ex.loot = s.players.map((p, i) => (ex.humans[i] ? rollStageLoot(s.seed, rt.stage, i, p.gear ?? [], rt.firstBossClear[i], rt.clearedThisRun[i]) : []));
-  emit(w, { type: 'stageClear', stage: rt.stage });
-  for (const p of s.players) if (p.isBot) setChoice(w, p.id, 'extract', true);
 }
 
-// A wipe / timeout / quit loses the stage (and the unclaimed bag).
+/** Is this an expedition stage whose combat is already won (a quit / drop now still counts as a clear)? */
+export function expeditionWon(w: World): boolean {
+  return !!w.expedition && w.state.expedition?.outcome === 'cleared';
+}
+
+// A wipe / timeout / quit before the clear loses the stage (and the unclaimed bag).
 onRunEnd(w => {
   const ex = w.state.expedition;
   if (ex && ex.outcome === 'running') ex.outcome = 'failed';
 });
 
-// ─────────────────────────── Choice (5장) ───────────────────────────
-
-function setChoice(w: World, pi: number, choice: ExpeditionChoice, auto: boolean): void {
-  const ex = w.state.expedition!;
-  if (ex.choices[pi] != null) return;
-  ex.choices[pi] = choice;
-  emit(w, { type: 'expeditionChoice', player: pi, choice, auto });
-}
-
-/** Pure check over the public state (the sim and a multiplayer client agree). */
-export function canExpeditionChoiceState(s: GameState, pi: number, choice: unknown): CommandResult {
+/**
+ * Player pi's result of a finished stage, read from the public state (solo controller, server): the loot, the carry
+ * for the next stage and whether it was a boss stage. Null unless the stage is over and won (phase 'stageClear').
+ */
+export function stageResultFromState(s: GameState, pi: number): { loot: GearSpec[]; carry: ExpeditionCarry; bossClear: boolean } | null {
   const ex = s.expedition;
-  if (!ex || s.phase !== 'stageClear') return fail('단계 클리어가 아님');
-  if (!Number.isInteger(pi) || pi < 0 || pi >= s.players.length) return fail('잘못된 대상');
-  if (choice !== 'extract' && choice !== 'continue') return fail('잘못된 선택');
-  if (ex.choices[pi] != null) return fail('이미 골랐음');
-  return ok;
+  if (!ex || s.phase !== 'stageClear' || ex.outcome !== 'cleared' || !s.players[pi]) return null;
+  return { loot: (ex.loot[pi] ?? []).map(g => ({ ...g })), carry: extractCarry(s, pi), bossClear: ex.boss };
 }
 
-/** Command 'expeditionChoice'. */
-export function expeditionChoice(w: World, pi: number, choice: ExpeditionChoice): CommandResult {
-  const r = canExpeditionChoiceState(w.state, pi, choice);
-  if (r.ok) setChoice(w, pi, choice, false);
-  return r;
-}
-
-/** A seat that turns bot (disconnect) at / after the clear takes the safe side: 수령하고 나가기. */
-export function autoExpeditionChoice(w: World, pi: number): void {
-  if (w.state.phase === 'stageClear' && w.state.expedition) setChoice(w, pi, 'extract', true);
-}
-
-/** Everyone has chosen (bots at once). */
-export function expeditionDecided(s: GameState): boolean {
-  return !!s.expedition && s.phase === 'stageClear' && s.expedition.choices.every(c => c != null);
-}
-
-/** The server's 20 s choice deadline: 'extract' for whoever has not chosen. Pure. */
-export function expeditionChoiceTimeoutCommands(s: GameState): Command[] {
-  if (!s.expedition || s.phase !== 'stageClear') return [];
-  const out: Command[] = [];
-  s.expedition.choices.forEach((c, player) => {
-    if (c == null) out.push({ type: 'expeditionChoice', player, choice: 'extract' });
-  });
-  return out;
+/**
+ * 기획 16차: player pi's result once the combat is won but the stage is not over yet (floor reward / 괴담 room open).
+ * What a drop now would give (as on the server, where the seat's bot finishes): the loot, the carry with the open
+ * floor reward picked (a seeded choice among its non-relic offers), the room passed. Null before the clear. The solo
+ * controller saves it with the run so a reload / tab kill after the win still counts as a clear (5-3).
+ */
+export function wonResultFromState(s: GameState, pi: number): { loot: GearSpec[]; carry: ExpeditionCarry; bossClear: boolean } | null {
+  const ex = s.expedition;
+  if (!ex || ex.outcome !== 'cleared' || !s.players[pi] || s.phase === 'runOver') return null;
+  const done = stageResultFromState(s, pi);
+  if (done) return done;
+  const carry = extractCarry(s, pi);
+  const offers = (s.rewardOffersByPlayer[pi] ?? []).filter(o => !o.isRelic);
+  if (offers.length > 0) {
+    const o = offers[((s.seed >>> 0) + pi) % offers.length];
+    carry.rewards.push({ rewardId: o.rewardId, partyIndex: o.partyIndex });
+  }
+  return { loot: (ex.loot[pi] ?? []).map(g => ({ ...g })), carry, bossClear: ex.boss };
 }
 
 // ─────────────────────────── Carry (7장) ───────────────────────────
@@ -262,10 +258,10 @@ export function extractCarry(s: GameState, pi: number): ExpeditionCarry {
 
 // ─────────────────────────── Debug ───────────────────────────
 
-/** Debug 'expeditionClearStage': jump to floor 3 and clear it at once. */
+/** Debug 'expeditionClearStage': only while the stage's combat runs. */
 export function canDebugClearStage(w: World): CommandResult {
   if (!w.expedition || !w.state.expedition) return fail('원정이 아님');
-  if (w.state.phase === 'runOver' || w.state.phase === 'stageClear') return fail('이미 끝남');
+  if (w.state.phase !== 'combat') return fail('전투 중이 아님');
   return ok;
 }
 
@@ -275,16 +271,19 @@ function usesRelicEffect(r: GoedamRoomDef): boolean {
   return r.options.some(o => [...(o.cost ?? []), ...o.outcomes.flatMap(x => x.effects)].some(e => e.kind === 'relic'));
 }
 
-/** The room after stage floor `floor` (only floor 1, roomChance; 저주받은 유물 never), or null. */
-export function expeditionRoomAfter(w: World, floor: number): GoedamRoomDef | null {
+/**
+ * The room after a normal stage's floor reward (기획 16차: roomChance 0.2; never after a boss stage; 저주받은 유물 never;
+ * a room never comes twice per run), or null.
+ */
+export function expeditionRoomAfter(w: World): GoedamRoomDef | null {
   const s = w.state;
   const rt = w.expedition!;
-  if (floor !== 1) return null;
+  if (s.plan.kind !== 'normal') return null;
   const chance = Math.min(1, EXPEDITION.roomChance * Math.max(0, w.tunables.goedamRoomsPerZone));
   const rng = new Rng(mixSeed(s.seed, SALT, STREAM.room, rt.stage));
   if (!(chance > 0) || !rng.chance(chance)) return null;
   const theme = stageTheme(rt.stage);
-  const e = Math.floor(equivFloor(rt.stage, floor));
+  const e = Math.floor(equivFloor(rt.stage));
   const cands = GOEDAM_ROOMS.filter(r => r.zone === theme && !usesRelicEffect(r) && !w.goedam.seen.includes(r.id));
   if (cands.length === 0) return null;
   const fit = cands.filter(r => goedamRoomWeight(r, e, theme) > 0);
@@ -294,28 +293,29 @@ export function expeditionRoomAfter(w: World, floor: number): GoedamRoomDef | nu
 // ─────────────────────────── 돌발 괴담 (3-2) ───────────────────────────
 
 /**
- * This stage floor's event: floors 1–2 at EXPEDITION.fieldEventChance (stage 1 floor 2 = the toad), never floor 3.
- * The tunable fieldEventChance only switches them off (0). `prev` = the event of the floor before (no repeat).
+ * 기획 16차: this stage's event — normal stages only, stage 1 = the toad for sure, else EXPEDITION.fieldEventChance on
+ * the stage's own stream. The tunable fieldEventChance only switches them off (0). `prev` = the event planned before
+ * (never the same twice in a row; with one floor per stage it is always null today). Its start lies in
+ * fieldEventWindow (the spawner holds the last wave while it runs, so it always ends before the clear).
  */
 export function planExpeditionFieldEvent(w: World, prev: FieldEventId | null): FieldEventPlan | null {
   const s = w.state;
   const rt = w.expedition!;
-  if (s.plan.kind !== 'normal' || s.floor >= STAGE_FLOORS || !(w.tunables.fieldEventChance > 0)) return null;
-  let id: FieldEventId | null = null;
-  if (rt.stage === 1 && s.floor === 2) id = 'lucky_toad';
+  if (s.plan.kind !== 'normal' || !(w.tunables.fieldEventChance > 0)) return null;
+  let id: FieldEventId;
+  if (rt.stage === 1) id = 'lucky_toad';
   else {
-    const rng = new Rng(mixSeed(s.seed, SALT, STREAM.fieldPlan, rt.stage, s.floor));
+    const rng = new Rng(mixSeed(s.seed, SALT, STREAM.fieldPlan, rt.stage));
     if (!rng.chance(EXPEDITION.fieldEventChance)) return null;
     const theme = s.plan.theme ?? stageTheme(rt.stage);
-    const e = s.plan.equivFloor ?? equivFloor(rt.stage, s.floor);
-    const beforeBoss = isBossStage(rt.stage) && s.floor === STAGE_FLOORS - 1;
-    const cands = FIELD_EVENTS.filter(d => d.from <= Math.max(2, e) && d.weights[theme] > 0 && d.id !== prev && !(beforeBoss && d.notBeforeBoss));
+    const e = s.plan.equivFloor ?? equivFloor(rt.stage);
+    const cands = FIELD_EVENTS.filter(d => d.from <= Math.max(2, e) && d.weights[theme] > 0 && d.id !== prev);
     if (cands.length === 0) return null;
     id = rng.weighted(cands, d => d.weights[theme]).id;
   }
   const win = fieldEventWindow(getFieldEvent(id), s.plan);
   if (!win) return null;
-  const startAt = new Rng(mixSeed(s.seed, SALT, STREAM.fieldStart, rt.stage, s.floor)).range(win[0], win[1]);
+  const startAt = new Rng(mixSeed(s.seed, SALT, STREAM.fieldStart, rt.stage)).range(win[0], win[1]);
   return { floor: s.floor, id, startAt, latest: win[1] };
 }
 
@@ -337,8 +337,9 @@ function rollBase(rng: Rng, party: readonly (GearLoadout | null | undefined)[], 
 }
 
 /**
- * A player's loot for clearing `stage` (tier = stage): 2 base items (slot leaning to what the party lacks), and on a
- * boss stage the boss box — a relic for sure on the first clear, else BOSS_RELIC_CHANCE, else 1 more base item.
+ * A player's loot for clearing `stage` (tier = stage, 기획 16차): EXPEDITION.lootNormal base items on a normal stage
+ * (slot leaning to what the party lacks); on a boss stage lootBossBase base items + the boss box — a relic for sure on
+ * the first clear, else BOSS_RELIC_CHANCE, else 1 more base item.
  */
 export function rollStageLoot(
   seed: number,
@@ -351,7 +352,9 @@ export function rollStageLoot(
   const s = clampStage(stage);
   const rng = lootRng(seed, s, pi);
   const boss = isBossStage(s);
-  const out: GearSpec[] = [rollBase(rng, party, s, boss, clearedThisRun), rollBase(rng, party, s, boss, clearedThisRun)];
+  const base = Math.max(0, Math.floor(boss ? EXPEDITION.lootBossBase : EXPEDITION.lootNormal));
+  const out: GearSpec[] = [];
+  for (let i = 0; i < base; i++) out.push(rollBase(rng, party, s, boss, clearedThisRun));
   if (!boss) return out;
   if (firstBossClear || rng.chance(BOSS_RELIC_CHANCE[s] ?? 0)) {
     const r = rng.weighted(RELICS, x => RELIC_RARITY_WEIGHTS[x.rarity]);

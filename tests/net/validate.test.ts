@@ -41,6 +41,13 @@ describe('parseClientMsg', () => {
       '{"t":"joinRoom","code":"ABCD","preset":{"characters":["blade","blade"],"pets":["frog_bomb","frog_bomb","frog_bomb"]}}',
       '{"t":"setName","name":' + JSON.stringify('x'.repeat(500)) + '}',
       '{"t":"ping"}',
+      // 기획 16차 원정: the in-game choice is gone; expStatus needs a run id
+      '{"t":"expChoice","choice":"extract"}',
+      '{"t":"cmd","seq":1,"cmd":{"type":"expeditionChoice","choice":"extract"}}',
+      '{"t":"expStatus"}',
+      '{"t":"expStatus","runId":"../../etc"}',
+      '{"t":"expStatus","runId":"abcdefgh1234","stage":13}',
+      '{"t":"expStatus","runId":"abcdefgh1234","stage":"2"}',
     ]) {
       expect(parseClientMsg(raw), raw).toBeNull();
     }

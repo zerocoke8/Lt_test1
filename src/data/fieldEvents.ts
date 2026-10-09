@@ -15,8 +15,13 @@ export const LOCK_RELEASE = 8;
 export const FIELD_EVENT_SALT = 0xfe12c4;
 /** Earliest floor second an event may start (warning included). */
 export const FIELD_EVENT_EARLIEST = 8;
-/** An event must be over this many seconds before the floor's last wave (so a floor never clears under it). */
-export const FIELD_EVENT_MARGIN = 2;
+/** 기획 16차 템포: latest planned start second (waves no longer come at fixed times, so the window is fixed). */
+export const FIELD_EVENT_LATEST = 12;
+/**
+ * 기획 16차 템포: the floor's LAST wave is held while an event is planned or open, and for this many seconds after it
+ * ended — so a floor never clears under an event (was: the event had to end 2 s before the last wave's fixed time).
+ */
+export const FIELD_EVENT_LAST_WAVE_HOLD = 2;
 /** Floors with events: 2..FIELD_EVENT_LAST_FLOOR, normal floors only. Floor 2 is always the toad. */
 export const FIELD_EVENT_LAST_FLOOR = 19;
 export const FIELD_EVENT_FIRST_FLOOR = 2;
@@ -30,11 +35,11 @@ export function lockRadius(range: number): number {
   return Math.max(LOCK_MIN, range + LOCK_EXTRA);
 }
 
-/** 비상등: fixed x bands (left / middle / right), y anywhere in LAMP_Y. */
+/** 비상등: fixed x bands (left / middle / right), y anywhere in LAMP_Y. 기획 16차 템포: for the 24-wide normal arena. */
 export const LAMP_BANDS: readonly [number, number][] = [
-  [2.5, 6.5],
-  [15, 21],
-  [29.5, 33.5],
+  [2, 5],
+  [10, 14],
+  [19, 22],
 ];
 export const LAMP_Y: readonly [number, number] = [2, 10];
 

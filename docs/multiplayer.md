@@ -14,7 +14,7 @@
 ```
 
 - **서버 권위** (R32): 모든 판정은 서버의 sim이 함. 브라우저는 "카드 2를 (x, y)에 놓음" 같은 명령만 보냄.
-- **통신 버전 2** (`PROTOCOL_VERSION`, 10차에서 1 → 2: 괴담 방 명령 `{type:'goedam', option}`과 스냅샷의 `goedamDeadline`). 버전이 다른 옛 탭은 혼자 하기로 조용히 넘어가지 않고, 매칭 화면에 「게임 버전이 달라요 · 새로고침」 안내와 `새로고침` 버튼이 고정으로 뜸 (다시 접속을 시도하지 않음).
+- **통신 버전 4** (`PROTOCOL_VERSION`; 10차 1 → 2: 괴담 방 명령 `{type:'goedam', option}`과 스냅샷의 `goedamDeadline`; 15차 2 → 3: 원정 메시지; **16차 3 → 4: 원정 런은 브라우저가 들고 단계마다 결과 한 번, `welcome.bootId`** — 5-6). 버전이 다른 옛 탭은 혼자 하기로 조용히 넘어가지 않고, 매칭 화면에 「게임 버전이 달라요 · 새로고침」 안내와 `새로고침` 버튼이 고정으로 뜸 (다시 접속을 시도하지 않음).
   - 서버는 명령의 `player`를 **보낸 사람의 자리 번호로 덮어씀**. 남의 캐릭터를 조작할 수 없음.
 - 서버는 30Hz로 sim을 돌리고 **초당 15번 스냅샷**(게임 상태 전체 + 그 사이 연출 이벤트)을 보냄.
   - 스냅샷은 sim 내부 값을 빼고 소수점 2자리로 줄인 JSON. 화면에 안 쓰는 값은 줄임 (웨이브 구성은 개수만, 튜닝값은 바뀔 때 + 1초마다, 튜닝 로그는 런이 끝난 뒤에만).
@@ -34,9 +34,9 @@
 | `src/net/connection.ts` | WebSocket 연결, `/healthz` 확인(응답 없는 서버는 3분 동안 다시 확인), 재접속(점점 길게 기다림), 핑·조용한 끊김 감지, 접속 토큰, 다른 탭에 자리를 넘김(4001) |
 | `src/net/lobbyClient.ts` | 방 목록·내 방·시작 알림 |
 | `src/net/remoteGame.ts` | 서버 스냅샷을 `Game` 인터페이스로 감쌈 (보간, 명령 전송, 튜닝 전달) |
-| `src/net/expeditionNet.ts` | 원정(15차) 대기열·단계 클리어 선택·수령/가방 잃음 알림 |
+| `src/net/expeditionNet.ts` | 원정 대기열·단계 결과(`expStageResult`)·결과 묻기(`expStatus`)·서버 부팅 번호 (16차) |
 | `src/ui/lobby.ts` | 매칭 화면 / 방 화면 |
-| `server/expedition.ts` | 원정 단계별 대기열·사람별 런(가방·이어 가기 정보)·원정 방 규칙 |
+| `server/expedition.ts` | 원정 단계별 대기열·런 확인(`runJoinProblem`)·런 번호별 결과 24시간 보관·원정 방 규칙 (16차) |
 | `server/*.ts` | 게임 서버 (`main.ts` 진입점 → `dist-server/index.js`로 묶음) |
 | `Dockerfile`, `render.yaml` | 배포 |
 
@@ -98,16 +98,20 @@
    - 새 메시지·필드 없음: 클라가 스냅샷 `events`와 상태만 듣고 소리를 냄(`src/audio`, 서버는 가져오지 않음).
    - 내 드래그·궁극기는 전체 소리, 다른 플레이어·봇 것은 −8dB + 먹먹하게(궁극기는 마지막 박자 + 연타 4번까지, 한 번에 하나), 그들의 일반스킬·기본 공격·펫·궁극기 준비는 소리 없음. 몬스터·보스·돌발 괴담·층 소리는 모두 같음.
    - 재접속·멈칫 뒤 몰려온 이벤트(0.25초 넘게 밀린 프레임)는 우선순위 4 이상만 냄. 연결 끊김/복구·방 인원 변화·봇이 자리 이어받음에 짧은 알림음.
-5-6. **원정** (기획 15차, [`expedition.md`](expedition.md) 5·7장, `server/expedition.ts`, 클라 `src/net/expeditionNet.ts`)
-   - 방 코드·방 목록 없이 **단계별 대기열**: `expQueue {stage, characters, pets, gear, firstBossClears, debugUnlock?}` → 같은 단계끼리 최대 3명. 3명이 차면 바로, 첫 사람이 들어온 뒤 **15초**(또는 `expStartNow`)면 빈자리를 봇으로 채우고 1초 뒤 출발. 대기열 화면은 `expQueueState {seats, you, secondsLeft, deadline, launching, continuing, bagCount}`(출발 직전에는 봇 자리까지).
-   - 서버 확인: 장비 형식(3명분, 칸·등급 1~12·유물 등급 3/6/9/12·아는 효과/유물 id, `cleanPartyGear`) → 틀리면 `error bad_gear`. 시작 단계 ≤ `maxStartStage`(무기·방어구·장신구 9칸 최저 등급 + 1) → 넘으면 `error stage_locked`. 장비는 나올 수 있는 조합만(T1~3 일반만, 희귀·영웅 ⇔ 효과 1개, 유물 별 = 그 유물 희귀도). 디버그 「단계 전부 해금」(`debugUnlock`)은 서버가 허용할 때만(기본 허용, `EXP_DEBUG_UNLOCK=0`이면 거절). 보관함은 브라우저에 있어서 조작 자체는 못 막음(프로토).
-   - 한 단계 = 숨은 방 하나 = 게임 한 판(`start.mode = 'expedition'`, 그 뒤는 보통 스냅샷). 원정 방에서는 `나가기`가 방장이어도 **그 사람만** 나감(그 사람 가방은 잃음, 자리는 봇). 디버그·튜닝은 대기열 첫 사람(방장)만, 그리고 **방에 사람이 방장 혼자일 때만**(다른 사람이 있으면 거절, 테스트는 `EXP_SHARED_DEBUG=1`). 사람이 모두 끊겨도 방을 닫지 않고(클래식은 60초 뒤 닫음) 봇이 단계를 끝까지 하고 결과대로 정산 — 20분은 안전장치.
-   - 3층 클리어(`stageClear`) → 사람마다 `expStageClear {loot, bag, deadline, nextStage}` → **20초** 안에 `expChoice`(또는 게임 명령 `expeditionChoice`). 스냅샷에 `choiceDeadline`, 다른 사람 선택은 `state.expedition.choices`에. 고른 사람은 바로 `gameEnded`를 받고 방을 떠남:
-     - 수령 → `expExtracted {items, reason, bossClears}` → 클라가 보관함에 넣고 깬 보스 단계를 기록(끊겨서 `expStageClear`를 못 받았어도). 시간 초과(`timeout`)·클리어 순간 끊김(`disconnect`)·12단계 뒤 「도전」(`complete`)도 수령.
-     - 도전 → 다음 단계 대기열로 자동(`expQueueState continuing`). 층 보상·괴담 흔적·캐릭터별 궁극기·가방·깬 단계 수는 **서버가 보관**(클라에서 안 받음). 대기열에서 그만두면(`expCancel`) 수령.
-   - 전멸·시간 초과 → 그 방 모두 `expBagLost {count, reason}`(낀 장비는 클라 보관함이라 그대로). 끊긴 사람에게 갈 결과는 서버가 들고 있다가 다시 접속하면 보냄.
+5-6. **원정** (기획 15차 · **16차**, [`expedition.md`](expedition.md) 5·7·10장, `server/expedition.ts`, 클라 `src/net/expeditionNet.ts`)
+   - 16차: **1단계 = 1층**, 단계가 끝나면 모두 각자의 원정 로비로. 게임 안 선택(`expChoice`·`expeditionChoice`·`choiceDeadline`)은 없어짐. **런(가방·이어 가기 정보·깬 수)은 브라우저 보관함(v2)에 있고**, 서버는 대기열·단계 게임 동안만 들고 있음.
+   - 방 코드·방 목록 없이 **단계별 대기열**: `expQueue {stage, characters, pets, gear, firstBossClears, debugUnlock?, run}` → 같은 단계끼리 최대 3명. 3명이 차면 바로, 첫 사람이 들어온 뒤 **15초**(또는 `expStartNow`)면 빈자리를 봇으로 채우고 1초 뒤 출발. 대기열 화면은 `expQueueState {seats, you, secondsLeft, deadline, launching, continuing, bagCount}`(출발 직전에는 봇 자리까지). `expCancel` → `expCancelled`(아무것도 수령하지 않음, 런은 로비로). 16차 리뷰 수정: 대기열에 없는데 `expCancel`이 와도(끊긴 사이 `lobbyGraceMs` 15초가 지나 빠졌거나 서버가 재시작됨) 늘 `expCancelled`로 답하고, 끊긴 사이 대기열에서 빠진 세션에는 재접속 때 `expCancelled`를 보냄.
+   - `run` = `ExpRunInfo {id, startStage, cleared, bag, carry, bossClears}`(첫 단계도 깬 수 0으로 보냄; `null`이면 서버가 번호를 만듦 — 테스트용). 다음 단계 = `startStage + cleared`.
+   - 서버 확인: 장비 형식(3명분, `cleanPartyGear`) → `error bad_gear`. 새 런(깬 수 0)의 시작 단계 ≤ `maxStartStage` → 넘으면 `error stage_locked`(디버그 「단계 전부 해금」은 서버가 허용할 때만, `EXP_DEBUG_UNLOCK=0`이면 거절). 런 확인(`src/expedition/runCheck.ts`의 `runJoinProblem`: 다음 단계 = 시작 + 깬 수, 가방 아이템이 나올 수 있는 조합이고 등급이 시작 단계 ~ 다음 단계 − 1, 유물은 보스 단계 등급만, 단계별 개수 ≤ 그 단계 전리품 최대, 보상·흔적·방 id가 진짜, 흔적 남은 단계 ≤ 원래 길이, 궁극기 0~1 세 개, 보상 ≤ 깬 수 × 2, 깬 수 0이면 빈 가방, 보스 클리어 ⊆ 지나온 보스 단계) → 틀리면 `error bad_run`(「원정 기록이 이상해서 출발할 수 없어요」). 같은 런 번호가 이미 대기·진행 중이면 `error run_busy`(「다른 창에서 이미 진행 중이에요」). 크기 제한(가방 64, 보상 48, 흔적 16, 본 방 64, 번호 `[A-Za-z0-9_-]{8,40}`)을 넘는 메시지는 버림. 보관함이 브라우저에 있어서 조작 자체는 못 막음(프로토).
+   - 한 단계 = 숨은 방 하나 = 게임 한 판(`start.mode = 'expedition'`, 그 뒤는 보통 스냅샷). 원정 방에서는 `나가기`가 방장이어도 **그 사람만** 나감(자리는 봇). 디버그·튜닝은 대기열 첫 사람(방장)만, 그리고 **방에 사람이 방장 혼자일 때만**(테스트는 `EXP_SHARED_DEBUG=1`). 사람이 모두 끊겨도 방을 닫지 않고 봇이 단계를 끝까지 함 — 20분은 안전장치.
+   - **단계 결과** `expStageResult {runId, stage, outcome, reason?, loot, carry, bossClear}` — 사람마다 단계당 한 번, 결과를 먼저 보내고 `gameEnded`:
+     - `cleared`: 일반 단계는 층 보상을 고른 뒤(괴담 방이 있으면 그 뒤), 보스 단계는 클리어 순간. `loot` = 이번 전리품, `carry` = 다음 단계로 들고 갈 층 보상·흔적·궁극기·본 방, `bossClear` = 보스 단계였음. 전투를 다 이긴 뒤 나가거나 끊겨도 `cleared`(보상은 무작위, 괴담 방은 「지나간다」).
+     - `failed` (`reason` `wipe`·`timeout`·`quit`·`abandon`): 전멸·시간 초과면 그 방 모두, 전투 중 나가기면 그 사람만. 클라가 가방을 버림(낀 장비는 그대로).
+     - `void` (`reason` `error`): 이기기 전에 서버 sim이 깨짐 → 아무 일도 없던 것으로, 같은 단계를 다시. 서버 재시작·배포 중이던 단계는 결과가 없음 → 클라가 `welcome.bootId`가 바뀐 것을 보고 `void`로 처리.
+   - 결과는 **런 번호로 24시간**(`EXP_RESULT_KEEP_MS`) 보관: 끊긴 사람은 다시 접속하면 받고, 어느 창이든 `expStatus {runId, stage}`로 물으면 그 **단계의** `expStageResult`, 없고 그 런이 대기·진행 중도 아니면 `expNoStage {runId}`(서버가 재시작됐거나 대기열에서 빠짐 → `void`). 16차 리뷰 수정: 전에는 지난 단계 결과를 다시 보내서, 「N단계 매칭」 대기 중 창이 죽으면 런이 「단계 중」에 갇혔음. `stage`가 없으면(옛 클라) 마지막 결과. 클라는 런 번호와 단계가 맞을 때 한 번만 적용(`applyStageResult`).
    - 클래식 방은 그대로(목록·코드에는 원정 방이 안 보임). 원정 판도 동시 게임 수(`MAX_GAMES`)에 들어감 — 가득이면 대기열이 2초마다 다시 출발을 시도.
-   - **클라 화면 흐름**(`src/ui/expeditionSolo.ts`의 `ExpeditionFlow`, 온라인일 때): 허브 「N단계부터 출발」 → 서버에 연결돼 있으면 `expQueue`, 아니면(아티팩트·오프라인) 봇 2명과 혼자. 매칭 대기 화면은 `expQueueState` 그대로(자리·15초 원·「바로 출발 (빈자리 봇)」·「취소」/「그만두고 수령하기」). 단계 게임은 클래식처럼 `RemoteGame`으로(`app.ts`가 `start.mode`를 보고 원정 흐름에 넘김). 3층 클리어 → `expStageClear`의 전리품·가방으로 선택 화면(20초 남은 시간 표시) → 고르면 `gameEnded` 뒤 `expExtracted`(보관함에 넣고 탈출 화면) 또는 다음 `expQueueState`(다음 단계 매칭 화면). 전멸·시간 초과·나가기 → 실패 화면(가방만 잃음). 원정 게임이 끝나도 클래식처럼 매칭 화면으로 돌아가지 않음.
+   - **클라 화면 흐름**(`src/ui/expeditionSolo.ts`의 `ExpeditionFlow`, 16차): 런은 보관함(v2)의 `run`. 「N단계 매칭」/「출발」 → 런을 「단계 중」(`pending {online, bootId, tabId}`)으로 **먼저 저장한 뒤** `expQueue {…, run: runToJoin(run)}`. 단계 게임은 클래식처럼 `RemoteGame`으로(`app.ts`가 `start.mode`를 보고 원정 흐름에 넘김). `expStageResult` → `applyResult`(런 번호·단계가 맞을 때 한 번만): `cleared` = 1.5초 클리어 배너 → 로비(전리품 공개, 가방 +k), `failed` = 실패 화면(가방 잃음), `void` = 알림 「서버 점검으로 단계가 취소됐어요 · 가방은 그대로예요」 + 로비. 로비의 「수령」은 서버 없이 브라우저에서(`claimRun`).
+   - **다시 맞추기**(`reconcileDecision`, 시작할 때·`welcome` 때·다른 창이 저장할 때·로비에서 2초마다): 「단계 중」인 런이 온라인이고 `welcome.bootId`가 저장된 것과 다르면 `void`, 같으면 `expStatus {runId, stage}`로 물음(`expNoStage`면 `void`). 대기 중에 다시 연결되면 부팅 번호가 다를 때 매칭 취소(로비로, 가방 그대로), 같으면 `expStatus`로 확인. 「매칭」인데 대기열이 없으면 로비로. 대기 중에 새로고침하면 저장된 런과 같은 대기열은 이어받고, 아니면 그 대기열을 취소함.
 6. **나가기 / 연결 끊김** (R34)
    - 방장이 아닌 사람이 `나가기` → 매칭 화면으로. 그 자리는 봇이 런 끝까지 이어서 함.
    - 방장이 `나가기` → **모두의 런이 끝남** → 결과 화면.
@@ -254,9 +258,9 @@ docker run -p 8080:8080 swap-tower
 | 명령 | 내용 |
 |---|---|
 | `npx vitest run tests/net tests/sim/multi-players.test.ts` | 서버 방 로직 (생성/참가/가득 참/방장 넘김과 방 이름/봇 채우기/명령 자리 강제/방장 전용 디버그/보상 시간 초과/끊김→봇→재접속/나가기/스냅샷 줄이기, 괴담 방: 마감이 새로 시작·시간 초과 '지나간다'·보낸 사람 자리·거절 이유·방장 끊김은 그 자리만·재접속) + `RemoteGame`(괴담 명령 미리 검사·두 번 탭 막기·마감) + 통신 버전 다름 + sim 멀티 규칙 |
-| `npx vitest run tests/net/expedition.test.ts` | 원정 서버(15차): 3명 바로 출발·혼자 15초 뒤 봇 2·바로 출발·취소, 장비/시작 단계 거절, 클리어 → 둘은 이어 가서 2단계에서 다시 만나고(보상·궁극기 유지) 하나는 수령, 선택 시간 초과 = 수령, 클리어 때 끊김 = 수령 후 재접속 때 전달, 보스 첫 클리어 유물·12단계 완주, 도중 나가기 = 그 사람만 가방 잃음, 전멸/시간 초과 = 모두 잃음, 매칭된 방에서 방장 디버그·튜닝 거절(혼자면 허용), 모두 끊겨도 단계 계속, 클래식 방 영향 없음 |
+| `npx vitest run tests/net/expedition.test.ts` | 원정 서버(16차): 3명 바로 출발·혼자 15초 뒤 봇 2·바로 출발·취소(수령 없음), 장비/시작 단계 거절, `bad_run`·`run_busy`, 일반 단계 = 층 보상 뒤 사람마다 `cleared`(전리품 1·이어 가기 정보) → 이어 가는 `expQueue`에 보상·궁극기 그대로, 클리어 뒤 나가기 = `cleared`, 보스 단계 = 클리어 순간 결과(첫 클리어 유물), 끊긴 사람은 재접속 때·`expStatus`로 받음, `expNoStage`, 지난 단계 결과만 있는 `expStatus {stage}` = `expNoStage`, 끊긴 사이 빠진 대기열 = 재접속 때 `expCancelled`·빈 `expCancel`에도 답, 결과 보관 시간, 서버 오류 = `void`(클리어 뒤면 `cleared`), 도중 나가기 = 그 사람만 `failed`, 전멸/시간 초과 = 모두 `failed`, 매칭된 방에서 방장 디버그 거절, 모두 끊겨도 단계 계속, `welcome.bootId`, 클래식 방 영향 없음 |
 | `npx playwright test --project=multi` | 실제 서버 + 폰 브라우저 3개 (844×390@3x, 실제 터치). 아래 흐름. 스크린샷 `docs/screenshots/multi-*.png` |
-| `npx playwright test multi-expedition` | 원정 온라인(15차): 폰 2개가 같은 1단계 대기열 → 15초 뒤 봇 1 → 서로의 장비가 상대 스냅샷에 보임 → 1층 보상 → 단계 클리어(두 화면 전리품 표 같음, 20초 표시) → 한 명 수령(보관함 +2), 한 명 도전 → 혼자 2단계 대기열 → 15초 뒤 봇 2 → 층 보상 유지 → 수령(보관함 +4). 혼자 「바로 출발」 → 2단계 도중 메뉴 「나가기」 = 실패 화면, 보관함 그대로. 스크린샷 `expedition-match-online.png`·`expedition-choice-online.png` |
+| `npx playwright test multi-expedition` | 원정 온라인(16차): 폰 2개가 같은 1단계 대기열 → 15초 뒤 봇 1 → 서로의 장비가 상대 스냅샷에 보임 → 단계 클리어(두 화면 전리품 표 같음) → 각자 층 보상 → 둘 다 각자 원정 로비(전리품 공개, 가방 1) → 한 명 「수령」(보관함 +1), 한 명 「2단계 매칭」(두 번 탭) → 혼자 2단계 대기열 → 15초 뒤 봇 2 → 층 보상·가방 유지 → 클리어 → 로비(가방 2) → 「수령」(보관함 +2). 둘이 2단계 → 한 명이 도중에 「나가기」 = 그 사람만 실패 화면(가방 1 잃음), 다른 사람은 깨고 가방 유지. 새 런 매칭 「취소」 = 로비(런 없음). 둘이 1단계 → 한 명이 로비에서 새로고침해도 런 그대로 → 둘이 2단계에서 전멸(디버그 「전멸」) = 각자 가방만 잃음(보관함·낀 장비 그대로). 스크린샷 `expedition-match-online.png` |
 | `npx playwright test artifact` | 혼자 하기 전용 빌드를 서버 없는 정적 호스트에서: 요청은 페이지 하나뿐, 콘솔 에러 0, 혼자 하기 동작 |
 | `npm run typecheck:server` | 서버 타입 검사 (Node 타입) |
 

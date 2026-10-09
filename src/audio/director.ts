@@ -109,7 +109,6 @@ export const EVENT_SOUNDS: Record<GameEvent['type'], string> = {
   groggyGain: 'groggy.fill',
   // 기획 15차 원정: the screens (src/ui/expedition*) play 'exp.*' themselves; the events stay silent here
   stageClear: 'none',
-  expeditionChoice: 'none',
   gearProc: 'none',
 };
 
@@ -451,7 +450,6 @@ export class Director {
         return;
       }
       case 'stageClear':
-      case 'expeditionChoice':
       case 'gearProc':
         return; // 기획 15차 원정: the expedition screens play their own cues
       default: {

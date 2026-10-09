@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS_POS, DEFAULT_TUNABLES, FLOOR_WAVES, MONSTER_UNLOCK_FLOOR, ZONES, zoneOf } from '../../src/config';
+import { ARENA_NORMAL, BOSS_POS, DEFAULT_TUNABLES, MONSTER_UNLOCK_FLOOR, ZONES, zoneOf } from '../../src/config';
 import { BOSS_IDS, getBoss, getMonster, MID_BOSS_IDS } from '../../src/data';
 import { planFloor } from '../../src/sim';
 import { applyDamage } from '../../src/sim/combat';
@@ -8,27 +8,27 @@ import { Rng } from '../../src/sim/rng';
 import { active, advance, BOT1, BOT2, clearEvents, eventsOf, HUMAN, killActive, makeGame, ultOf } from './helpers';
 
 describe('planFloor', () => {
-  it('boss every 5 floors, wave count first + 1 per floor number (capped), zone pools, one mid boss per normal floor', () => {
+  it('boss every 5 floors, waves per zone (기획 16차: 5 · 5 · 6 · 6), zone pools, one mid boss per normal floor', () => {
     const t = DEFAULT_TUNABLES;
     const rng = new Rng(5);
     const plans = Array.from({ length: 20 }, (_, i) => planFloor(i + 1, rng, t));
     expect(plans.filter(p => p.kind === 'boss').map(p => p.floor)).toEqual([5, 10, 15, 20]);
     const normals = plans.filter(p => p.kind === 'normal');
-    // 기획서 9-1 (가정) "1층 N웨이브, 층마다 +1": counted by floor number, so a boss floor in between does not shift it
-    for (const p of normals) expect(p.waves.length).toBe(Math.min(FLOOR_WAVES.max, FLOOR_WAVES.first + (p.floor - 1) * FLOOR_WAVES.perFloor));
-    expect(normals.slice(0, 5).map(p => p.waves.length)).toEqual([5, 6, 6, 6, 6]); // floors 1–4, 6 (기획 8차 리뷰: max 6)
-    expect(Math.max(...normals.map(p => p.waves.length))).toBe(FLOOR_WAVES.max);
-    // the cap keeps the last wave well inside the time limit
-    expect(1 + (FLOOR_WAVES.max - 1) * t.waveInterval).toBeLessThan(t.normalFloorTime * 0.65);
+    for (const p of normals) expect(p.waves.length).toBe(zoneOf(p.floor).waves);
+    expect(normals.map(p => p.waves.length)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6]);
+    // even with every gap maxed the last wave is warned well inside the time limit
+    expect(1 + (Math.max(...ZONES.map(z => z.waves)) - 1) * t.waveInterval).toBeLessThan(t.normalFloorTime * 0.65);
     for (const p of normals) {
       const zone = zoneOf(p.floor);
       expect(p.theme).toBe(zone.theme);
       expect(p.timeLimit).toBe(t.normalFloorTime);
-      expect(p.arena).toEqual({ width: 36, height: 12 });
+      expect(p.arena).toEqual({ width: 24, height: 12 }); // 기획 16차: = the boss arena = the screen
+      expect(p.arena).toEqual(ARENA_NORMAL);
+      expect(p.maxGap).toBeUndefined(); // classic: Tunables.waveInterval
       expect(MID_BOSS_IDS).toContain(p.midBossId);
       expect(zone.mids).toContain(p.midBossId);
       p.waves.forEach((wv, i) => {
-        expect(wv.at).toBeCloseTo(1 + i * t.waveInterval);
+        expect(wv.at).toBeCloseTo(1 + i * t.waveInterval); // the nominal max-gap schedule (only wave 0 waits for it)
         const n = wv.spawns.reduce((a, g) => a + g.count, 0);
         expect(n).toBeGreaterThanOrEqual(zone.waveSize.min);
         expect(n).toBeLessThanOrEqual(zone.waveSize.max);
@@ -112,10 +112,11 @@ describe('planFloor', () => {
 });
 
 describe('R15/R16 normal floor', () => {
-  it('spawns waves with 1 s warnings, clears only after every wave and the mid boss are dead', () => {
-    const tg = makeGame({ tunables: { invincible: true, midBossKillTrigger: 999, midBossTimeTrigger: 40 } });
+  it('spawns waves with 1 s warnings, the next one once the field is clear, the mid boss with wave n − 2; clears only after all are dead', () => {
+    const tg = makeGame({ tunables: { invincible: true } });
     const s = tg.game.state;
     const plan = s.plan;
+    const n = plan.waves.length;
     const total = plan.waves.reduce((a, wv) => a + wv.spawns.reduce((b, g) => b + g.count, 0), 0);
     advance(tg, 0.5);
     expect(eventsOf(tg, 'spawnWarning').length).toBe(plan.waves[0].spawns.reduce((a, g) => a + g.count, 0));
@@ -126,44 +127,61 @@ describe('R15/R16 normal floor', () => {
     tg.game.dispatch({ type: 'debug', action: { kind: 'killAll' } });
     advance(tg, 1 / 30);
     expect(s.monstersAlive).toBe(0);
-    expect(s.wavesRemaining).toBe(plan.waves.length - 1);
+    expect(s.wavesRemaining).toBe(n - 1);
     expect(s.phase).toBe('combat');
-    // kill everything as it comes until every wave is out
+    // 기획 16차 템포: the field is empty → wave 1 is warned 2 s after wave 0's warning (not at its nominal 8 s)
+    advance(tg, 1);
+    expect(tg.w.spawner.nextWave).toBe(2);
+    expect(s.floorTime).toBeLessThan(plan.waves[1].at - 1);
+    // kill everything as it comes until every wave is out (the mid boss comes with wave n − 2)
     for (let t = 0; t < 120 && s.wavesRemaining > 0; t++) {
       advance(tg, 1);
+      if (tg.w.spawner.nextWave < n - 2) expect(tg.w.spawner.midTriggered).toBe(false);
       tg.game.dispatch({ type: 'debug', action: { kind: 'killAll' } });
     }
     advance(tg, 1 / 30);
     expect(s.wavesRemaining).toBe(0);
     expect(s.monstersAlive).toBe(0);
+    expect(s.floorTime).toBeLessThan(plan.waves[n - 1].at); // well ahead of the old fixed schedule
     expect(eventsOf(tg, 'spawn').filter(e => e.tier === 'normal').length).toBe(total);
-    // all waves dead but the mid boss has not come yet → still not clear
-    expect(s.midBossSpawned).toBe(false);
-    expect(s.phase).toBe('combat');
-    while (!s.midBossSpawned && s.floorTime < 45) advance(tg, 0.5);
-    expect(s.floorTime).toBeGreaterThanOrEqual(40);
+    expect(eventsOf(tg, 'spawn').filter(e => e.tier === 'mid').map(e => s.entities.find(x => x.id === e.entityId)?.defId ?? plan.midBossId)).toEqual([plan.midBossId]);
+    expect(s.midBossSpawned).toBe(true);
+    // killAll took the mid boss too → the floor is clear
+    expect(eventsOf(tg, 'floorClear')).toEqual([{ type: 'floorClear', floor: 1 }]);
+    expect(s.phase).toBe('reward');
+    expect(tg.game.telemetry().floorTimes[0]).toMatchObject({ floor: 1, outcome: 'clear' });
+  });
+
+  it('clears only after the mid boss is dead too', () => {
+    const tg = makeGame({ tunables: { invincible: true } });
+    const s = tg.game.state;
+    tg.w.spawner.nextWave = s.plan.waves.length; // every wave out and dead
+    advance(tg, 1.2); // the mid boss is due at once (its wave was passed): 1 s marker, then it stands
+    expect(s.midBossSpawned).toBe(true);
     const mid = s.entities.find(e => e.tier === 'mid');
-    expect(mid?.defId).toBe(plan.midBossId);
+    expect(mid?.defId).toBe(s.plan.midBossId);
     advance(tg, 1);
     expect(s.phase).toBe('combat'); // mid boss still alive
     clearEvents(tg);
     tg.game.dispatch({ type: 'debug', action: { kind: 'killAll' } });
     advance(tg, 1 / 30);
     expect(eventsOf(tg, 'floorClear')).toEqual([{ type: 'floorClear', floor: 1 }]);
-    expect(s.phase).toBe('reward');
-    expect(tg.game.telemetry().floorTimes[0]).toMatchObject({ floor: 1, outcome: 'clear' });
   });
 
-  it('mid boss is forced in at midBossTimeTrigger even with few kills', () => {
-    const tg = makeGame({ tunables: { invincible: true, midBossTimeTrigger: 5, midBossKillTrigger: 999 } });
+  it('mid boss is forced in at midBossTimeTrigger even when the waves are held back', () => {
+    // waves never come early (nobody dies) nor late (max gap 999): only the time fallback can bring the mid boss
+    const tg = makeGame({ tunables: { invincible: true, midBossTimeTrigger: 5, midBossFromEnd: 1, waveInterval: 999 } });
+    tg.game.state.players[0].party.forEach(m => (m.normalCooldownRemaining = 999));
+    active(tg).rt.base.atk = 0;
     advance(tg, 5.0);
+    expect(tg.w.spawner.nextWave).toBe(1);
     expect(tg.game.state.midBossSpawned).toBe(false);
     advance(tg, 1.1);
     expect(tg.game.state.midBossSpawned).toBe(true);
   });
 
   it('postpones (never drops) waves while the alive cap is reached', () => {
-    const tg = makeGame({ tunables: { invincible: true, maxAliveMonsters: 6, waveInterval: 2, midBossTimeTrigger: 999, midBossKillTrigger: 999 } });
+    const tg = makeGame({ tunables: { invincible: true, maxAliveMonsters: 6, waveInterval: 2, midBossTimeTrigger: 999 } });
     const s = tg.game.state;
     const total = s.plan.waves.reduce((a, wv) => a + wv.spawns.reduce((b, g) => b + g.count, 0), 0);
     tg.game.state.players[0].party.forEach(m => (m.normalCooldownRemaining = 999));

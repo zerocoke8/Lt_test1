@@ -31,16 +31,21 @@ export function rewardProgress(s: GameState): { done: number; total: number } {
   return { done: total - pending, total };
 }
 
-/** '7층 클리어!' (기획 15차 원정: '4단계 1층 클리어!'). */
+/** '7층 클리어!' (기획 16차 원정: '4단계 클리어!' — one floor per stage). */
 export function rewardTitle(s: GameState): string {
-  return s.expedition ? `${s.expedition.stage}단계 ${s.floor}층 클리어!` : `${s.floor}층 클리어!`;
+  return s.expedition ? `${s.expedition.stage}단계 클리어!` : `${s.floor}층 클리어!`;
 }
+
+/** 기획 16차 원정: the floor reward is a run buff — 「수령」 in the lobby ends the run and it goes away (5-2). */
+export const EXP_REWARD_NOTE = '수령하면 이 보상은 사라져요';
 
 export class RewardOverlay {
   readonly el: HTMLElement;
   private readonly title: HTMLElement;
   private readonly sub: HTMLElement;
   private readonly timer: HTMLElement;
+  /** 기획 16차 원정: 「수령하면 이 보상은 사라져요」. */
+  private readonly expNote: HTMLElement;
   private readonly row: HTMLElement;
   private readonly wait: HTMLElement;
   private readonly waitText: HTMLElement;
@@ -56,6 +61,7 @@ export class RewardOverlay {
     this.title = h('div', 'rw-title', head);
     this.sub = h('div', 'rw-sub', head);
     this.timer = h('div', 'rw-timer is-hidden', head);
+    this.expNote = h('div', 'rw-exp-note is-hidden', head, EXP_REWARD_NOTE);
     this.row = h('div', 'rw-row', this.el);
     this.wait = h('div', 'rw-wait is-hidden', this.el);
     h('div', 'rw-wait-spin', this.wait);
@@ -72,6 +78,7 @@ export class RewardOverlay {
     const waiting = !offers && view.multi && s.phase === 'reward' && !!me;
     this.waiting = waiting;
     this.el.classList.toggle('is-hidden', !offers && !waiting);
+    show(this.expNote, !!s.expedition && !!offers);
     // countdown (R33: the server picks at random when it runs out)
     const left = view.deadline != null && s.phase === 'reward' ? Math.max(0, Math.ceil((view.deadline - Date.now()) / 1000)) : null;
     show(this.timer, left != null && (!!offers || waiting));

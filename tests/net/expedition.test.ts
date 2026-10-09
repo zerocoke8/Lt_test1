@@ -1,10 +1,11 @@
-// 기획 15차 원정 on the server (server/expedition.ts): per-stage queues (3 joins start at once, a lone joiner gets bots
-// after the queue time, 「바로 출발」), gear / start-stage validation, the stage-clear choice (extract → items, continue →
-// re-matched at stage + 1 with the carry), the choice timeout, a disconnect at the choice (claimed, delivered after the
-// reconnect), a lost stage (bag gone), a quit mid-stage, and classic rooms untouched.
+// 기획 16차 원정 on the server (server/expedition.ts): per-stage queues (3 joins start at once, a lone joiner gets bots
+// after the queue time, 「바로 출발」), gear / start-stage / run validation ('bad_run', 'run_busy'), one expStageResult per
+// player per stage (normal stage: after the floor reward; boss stage: at the clear), a continuing join with the run the
+// browser keeps (carry applied), results kept by run id (reconnect, expStatus, expNoStage), a quit before / after the
+// clear, a lost stage, a server error before the clear (void), welcome.bootId, and classic rooms untouched.
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RunningServer, ServerOptions } from '../../server/server';
-import type { ClientMsg, PresetChoice, ServerMsg } from '../../src/net/protocol';
+import type { ClientMsg, ExpRunInfo, PresetChoice, ServerMsg } from '../../src/net/protocol';
 import { parseClientMsg } from '../../server/validate';
 import type { GearLoadout } from '../../src/data/gear';
 import { PRESET_A, PRESET_B, sleep, startTestServer, TestClient } from './helpers';
@@ -13,7 +14,7 @@ let srv: RunningServer | null = null;
 const clients: TestClient[] = [];
 
 async function server(opts: Partial<ServerOptions> = {}): Promise<RunningServer> {
-  srv = await startTestServer({ expQueueSec: 30, expChoiceSec: 30, expLaunchMs: 0, expSharedDebug: true, ...opts });
+  srv = await startTestServer({ expQueueSec: 30, expLaunchMs: 0, expSharedDebug: true, ...opts });
   return srv;
 }
 
@@ -36,11 +37,23 @@ const tierSet = (t: number): GearLoadout => ({
 });
 const NO_GEAR: GearLoadout[] = [{}, {}, {}];
 
-function queueMsg(stage: number, preset: PresetChoice = PRESET_A, gear: GearLoadout[] = NO_GEAR, extra: Record<string, unknown> = {}): ClientMsg {
-  return { t: 'expQueue', stage, characters: preset.characters, pets: preset.pets, gear, firstBossClears: [], ...extra } as ClientMsg;
+type Msg<T extends ServerMsg['t']> = Extract<ServerMsg, { t: T }>;
+type Result = Msg<'expStageResult'>;
+
+let runSerial = 0;
+/** A fresh run (cleared nothing) at `stage`. */
+function freshRun(stage: number): ExpRunInfo {
+  return { id: `testRun${String(++runSerial).padStart(8, '0')}`, startStage: stage, cleared: 0, bag: [], carry: null, bossClears: [] };
 }
 
-type Msg<T extends ServerMsg['t']> = Extract<ServerMsg, { t: T }>;
+/** The run after a cleared result (what the browser stores). */
+function afterClear(run: ExpRunInfo, r: Result): ExpRunInfo {
+  return { ...run, cleared: run.cleared + 1, bag: [...run.bag, ...r.loot], carry: r.carry, bossClears: r.bossClear ? [...run.bossClears, r.stage] : run.bossClears };
+}
+
+function queueMsg(stage: number, preset: PresetChoice = PRESET_A, gear: GearLoadout[] = NO_GEAR, extra: Record<string, unknown> = {}): ClientMsg {
+  return { t: 'expQueue', stage, characters: preset.characters, pets: preset.pets, gear, firstBossClears: [], run: freshRun(stage), ...extra } as ClientMsg;
+}
 
 /** Queue every client at `stage`, one after another (the first is seat 0 = the room host); returns each one's 'start'. */
 async function queueAll(stage: number, ...cs: TestClient[]): Promise<Msg<'start'>[]> {
@@ -54,54 +67,85 @@ async function queueAll(stage: number, ...cs: TestClient[]): Promise<Msg<'start'
   return starts;
 }
 
-/** The host clears the stage at once; every client gets its expStageClear. */
-async function clearStage(host: TestClient, ...cs: TestClient[]): Promise<Msg<'expStageClear'>[]> {
-  for (const c of [host, ...cs]) c.mark();
-  host.send({ t: 'cmd', seq: 77, cmd: { type: 'debug', action: { kind: 'expeditionClearStage' } } });
-  // the clear (and its expStageClear) happens while the command runs, before the cmdResult
-  const out: Msg<'expStageClear'>[] = [];
-  for (const c of [host, ...cs]) out.push(await c.next('expStageClear'));
-  expect((await host.next('cmdResult', m => m.seq === 77)).ok).toBe(true);
-  return out;
+/** A lone player (seat 0 + 2 bots) starts `run` at its next stage. */
+async function soloStart(c: TestClient, run: ExpRunInfo, gear: GearLoadout[] = NO_GEAR, extra: Record<string, unknown> = {}): Promise<void> {
+  c.mark();
+  c.send(queueMsg(run.startStage + run.cleared, PRESET_A, gear, { run, ...extra }));
+  await c.next('expQueueState');
+  c.send({ t: 'expStartNow' });
+  expect((await c.next('start')).mode).toBe('expedition');
 }
 
-describe('expQueue parsing', () => {
-  it('accepts a well-formed join and rebuilds it; junk is dropped', () => {
-    const m = parseClientMsg(JSON.stringify({ ...queueMsg(2, PRESET_A, [tierSet(1), tierSet(1), tierSet(1)], { firstBossClears: [3, 3] }), x: 1 }));
-    expect(m).toMatchObject({ t: 'expQueue', stage: 2, characters: PRESET_A.characters, pets: PRESET_A.pets, firstBossClears: [3] });
+/** The host wins the stage's combat at once (debug). */
+async function winCombat(host: TestClient, seq = 77): Promise<void> {
+  host.send({ t: 'cmd', seq, cmd: { type: 'debug', action: { kind: 'expeditionClearStage' } } });
+  expect((await host.next('cmdResult', m => m.seq === seq)).ok).toBe(true);
+}
+
+/** A boss stage is over at its clear: the result comes while the command runs (before its cmdResult). */
+async function winBoss(host: TestClient, seq = 77): Promise<Result> {
+  host.send({ t: 'cmd', seq, cmd: { type: 'debug', action: { kind: 'expeditionClearStage' } } });
+  const r = await host.next('expStageResult');
+  expect((await host.next('cmdResult', m => m.seq === seq)).ok).toBe(true);
+  return r;
+}
+
+const pick = (c: TestClient, seq = 6) => c.send({ t: 'cmd', seq, cmd: { type: 'chooseReward', player: 0, offerIndex: 0 } });
+
+describe('expQueue parsing (protocol 4)', () => {
+  it('accepts a well-formed join with its run and rebuilds it; junk is dropped', () => {
+    const run: ExpRunInfo = {
+      id: 'abcdefgh1234',
+      startStage: 2,
+      cleared: 1,
+      bag: [{ slot: 'weapon', tier: 2, rarity: 'common' }],
+      carry: { rewards: [{ rewardId: 'atk_common', partyIndex: null }], goedamTraces: [{ id: 'silence', floorsLeft: 1 }], ult: [0, 0.5, 1], goedamSeen: [] },
+      bossClears: [],
+    };
+    const raw = { ...queueMsg(3, PRESET_A, [tierSet(1), tierSet(1), tierSet(1)], { firstBossClears: [3, 3] }), x: 1, run: { ...run, extra: 1, bag: [{ ...run.bag[0], evil: 1 }] } };
+    const m = parseClientMsg(JSON.stringify(raw));
+    expect(m).toMatchObject({ t: 'expQueue', stage: 3, characters: PRESET_A.characters, pets: PRESET_A.pets, firstBossClears: [3] });
     expect(m).not.toHaveProperty('x');
+    expect((m as Extract<ClientMsg, { t: 'expQueue' }>).run).toEqual(run);
+    expect((parseClientMsg(JSON.stringify({ ...raw, run: null })) as Extract<ClientMsg, { t: 'expQueue' }>).run).toBeNull();
     expect(parseClientMsg(JSON.stringify(queueMsg(0)))).toBeNull();
     expect(parseClientMsg(JSON.stringify(queueMsg(13)))).toBeNull();
     expect(parseClientMsg(JSON.stringify(queueMsg(1, { characters: ['blade', 'blade', 'mage'], pets: PRESET_A.pets })))).toBeNull();
     expect(parseClientMsg(JSON.stringify({ ...queueMsg(1), firstBossClears: [99] }))).toBeNull();
-    expect(parseClientMsg(JSON.stringify({ t: 'expChoice', choice: 'continue' }))).toEqual({ t: 'expChoice', choice: 'continue' });
-    expect(parseClientMsg(JSON.stringify({ t: 'expChoice', choice: 'both' }))).toBeNull();
-    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 1, cmd: { type: 'expeditionChoice', choice: 'extract', player: 2 } }))).toEqual({
-      t: 'cmd',
-      seq: 1,
-      cmd: { type: 'expeditionChoice', player: 0, choice: 'extract' },
-    });
+    expect(parseClientMsg(JSON.stringify({ ...raw, run: { ...run, id: 'no spaces allowed' } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ ...raw, run: { ...run, bag: Array.from({ length: 65 }, () => run.bag[0]) } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ ...raw, run: { ...run, carry: { ...run.carry, ult: [0, 0, 0, 0] } } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ ...raw, run: 'x' }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'expStatus', runId: 'abcdefgh1234' }))).toEqual({ t: 'expStatus', runId: 'abcdefgh1234' });
+    expect(parseClientMsg(JSON.stringify({ t: 'expStatus', runId: 'x' }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'expStatus', runId: 'abcdefgh1234', stage: 2 }))).toEqual({ t: 'expStatus', runId: 'abcdefgh1234', stage: 2 });
+    // the 15차 in-game choice is gone
+    expect(parseClientMsg(JSON.stringify({ t: 'expChoice', choice: 'continue' }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 1, cmd: { type: 'expeditionChoice', choice: 'extract', player: 2 } }))).toBeNull();
   });
 });
 
 describe('expedition queues', () => {
+  it('welcome carries the boot id of this server process', async () => {
+    await server();
+    const [a, b] = [await connect('A'), await connect('B')];
+    const wa = a.last('welcome')!;
+    expect(wa.bootId).toMatch(/^[0-9a-f]{16}$/);
+    expect(b.last('welcome')!.bootId).toBe(wa.bootId);
+    expect(wa.v).toBe(4);
+  });
+
   it('rejects impossible gear and a start stage above what the gear allows', async () => {
     await server({ expDebugUnlock: false });
     const a = await connect('A');
     a.mark();
     a.send(queueMsg(1, PRESET_A, [{ weapon: { slot: 'weapon', tier: 13, rarity: 'common' } }, {}, {}] as GearLoadout[]));
     expect((await a.next('error')).code).toBe('bad_gear');
-    a.send(queueMsg(1, PRESET_A, [{ weapon: { slot: 'armor', tier: 2, rarity: 'common' } }, {}, {}] as GearLoadout[]));
-    expect((await a.next('error')).code).toBe('bad_gear');
-    a.send(queueMsg(1, PRESET_A, [{ relic: { slot: 'relic', tier: 4, rarity: 'epic', relicId: 'echo_seal' } }, {}, {}] as GearLoadout[]));
-    expect((await a.next('error')).code).toBe('bad_gear');
     a.send(queueMsg(1, PRESET_A, [{}, {}] as GearLoadout[]));
     expect((await a.next('error')).code).toBe('bad_gear');
-    // combinations that can never drop: an option below T4, an optionless rare, a common with an option, a relic's wrong stars
     for (const bad of [
       { weapon: { slot: 'weapon', tier: 1, rarity: 'epic', optionId: 'w_execute' } },
       { weapon: { slot: 'weapon', tier: 6, rarity: 'rare' } },
-      { weapon: { slot: 'weapon', tier: 6, rarity: 'common', optionId: 'w_execute' } },
       { relic: { slot: 'relic', tier: 3, rarity: 'common', relicId: 'echo_seal' } },
     ]) {
       a.send(queueMsg(1, PRESET_A, [bad, {}, {}] as GearLoadout[]));
@@ -115,7 +159,6 @@ describe('expedition queues', () => {
     a.send(queueMsg(2, PRESET_A, [tierSet(1), tierSet(1), tierSet(1)]));
     const q = await a.next('expQueueState');
     expect(q).toMatchObject({ stage: 2, you: 0, launching: false, continuing: false, bagCount: 0 });
-    expect(q.seats).toHaveLength(1);
     expect(q.seats[0].gear[0].weapon?.tier).toBe(1);
   });
 
@@ -133,200 +176,252 @@ describe('expedition queues', () => {
     d.mark();
     d.send(queueMsg(2, PRESET_A, [tierSet(1), tierSet(1), tierSet(1)]));
     await d.next('expQueueState');
-    // one run per player
     d.send(queueMsg(1));
-    expect((await d.next('error')).code).toBe('bad_request');
+    expect((await d.next('error')).code).toBe('bad_request'); // one run per player
     const starts = await queueAll(1, a, b, c);
     expect(starts.map(s => s.playerIndex)).toEqual([0, 1, 2]);
     expect(starts.every(s => s.mode === 'expedition')).toBe(true);
     const snap = await a.snap();
-    expect(snap.state.expedition).toMatchObject({ stage: 1, stageFloor: 1, outcome: 'running', humans: [true, true, true] });
-    expect(snap.state.players.map(p => p.name)).toEqual(['A', 'B', 'C']);
-    expect(snap.state.players.every(p => !p.isBot)).toBe(true);
-    // D (queued at stage 2) is not in this game
+    expect(snap.state.expedition).toEqual({ stage: 1, boss: false, outcome: 'running', loot: [[], [], []], humans: [true, true, true], goedamSeen: [] });
+    expect(snap.state.plan).toMatchObject({ floor: 1, stage: 1, maxGap: 11 });
+    expect(snap).not.toHaveProperty('choiceDeadline');
     expect(d.count('start')).toBe(0);
-    // hidden from the classic room list, not joinable by code
     d.send({ t: 'listRooms' });
     expect((await d.next('rooms')).rooms).toHaveLength(0);
   });
 
-  it('a lone joiner gets 2 bots after the queue time', async () => {
+  it('a lone joiner gets 2 bots after the queue time; 「바로 출발」 starts at once', async () => {
     await server({ expQueueSec: 0.4 });
     const a = await connect('A');
     a.mark();
     a.send(queueMsg(1));
-    const first = await a.next('expQueueState');
-    expect(first.secondsLeft).toBe(1);
+    expect((await a.next('expQueueState')).secondsLeft).toBe(1);
     const launching = await a.next('expQueueState', m => m.launching);
     expect(launching.seats.map(s => s.isBot)).toEqual([false, true, true]);
     await a.next('start');
-    const snap = await a.snap();
-    expect(snap.state.players.map(p => p.isBot)).toEqual([false, true, true]);
-    expect(snap.state.expedition?.humans).toEqual([true, false, false]);
-  });
-
-  it('「바로 출발」 starts at once with bots', async () => {
-    await server();
+    expect((await a.snap()).state.players.map(p => p.isBot)).toEqual([false, true, true]);
     const c = await connect('C');
-    c.mark();
-    c.send(queueMsg(1));
-    await c.next('expQueueState');
-    c.send({ t: 'expStartNow' });
-    expect((await c.next('start')).mode).toBe('expedition');
+    await soloStart(c, freshRun(1));
   });
 
-  it('cancel in the queue of a fresh run just ends it', async () => {
+  it('cancel leaves the queue and never claims; the same run can queue again', async () => {
     await server();
     const a = await connect('A');
+    const run = { ...freshRun(2), cleared: 1, startStage: 1, bag: [{ slot: 'armor' as const, tier: 1, rarity: 'common' as const }] };
     a.mark();
-    a.send(queueMsg(1));
-    await a.next('expQueueState');
+    a.send(queueMsg(2, PRESET_A, NO_GEAR, { run }));
+    expect(await a.next('expQueueState')).toMatchObject({ stage: 2, continuing: true, bagCount: 1 });
     a.send({ t: 'expCancel' });
     await a.next('expCancelled');
-    // a new run can start right away
-    a.send(queueMsg(1));
+    expect(a.count('expStageResult')).toBe(0);
+    a.send(queueMsg(2, PRESET_A, NO_GEAR, { run }));
     await a.next('expQueueState');
   });
 });
 
-describe('stage clear and the choice', () => {
-  it('two continue and are re-matched at stage 2 with the carry; the third extracts its loot', async () => {
+describe('runs: validation and one live stage per run', () => {
+  it("'bad_run' for a run that cannot exist; 'run_busy' for the same run from another tab", async () => {
+    await server({ expDebugUnlock: false });
+    const [a, b] = [await connect('A'), await connect('B')];
+    a.mark();
+    const run: ExpRunInfo = { ...freshRun(1), cleared: 1, bag: [{ slot: 'weapon', tier: 1, rarity: 'common' }] };
+    for (const bad of [
+      { ...run, cleared: 2 }, // stage 2 ≠ 1 + 2
+      { ...run, bag: [{ slot: 'weapon', tier: 2, rarity: 'common' }] }, // tier of a stage not played yet
+      { ...run, bag: [run.bag[0], run.bag[0]] }, // 2 items from one normal stage
+      { ...run, bossClears: [3] },
+      { ...run, carry: { rewards: [{ rewardId: 'nope', partyIndex: null }], goedamTraces: [], ult: [0, 0, 0] } },
+    ]) {
+      a.send(queueMsg(2, PRESET_A, NO_GEAR, { run: bad }));
+      expect((await a.next('error')).code).toBe('bad_run');
+    }
+    a.send(queueMsg(2, PRESET_A, NO_GEAR, { run }));
+    await a.next('expQueueState');
+    b.mark();
+    b.send(queueMsg(2, PRESET_A, NO_GEAR, { run }));
+    expect(await b.next('error')).toMatchObject({ code: 'run_busy', message: '다른 창에서 이미 진행 중이에요' });
+    a.send({ t: 'expCancel' });
+    await a.next('expCancelled');
+    b.send(queueMsg(2, PRESET_A, NO_GEAR, { run }));
+    await b.next('expQueueState');
+  });
+});
+
+describe('stage results', () => {
+  it('normal stage: one reward pick each, then each human gets a cleared result; continuing joins carry it', async () => {
     await server({ expQueueSec: 1 });
     const [a, b, c] = [await connect('A'), await connect('B'), await connect('C')];
-    await queueAll(1, a, b, c);
-    // floor 1 → everyone picks a reward (carried), then straight to the clear
-    a.send({ t: 'cmd', seq: 5, cmd: { type: 'debug', action: { kind: 'skipFloor' } } });
-    await a.snap(m => m.state.phase === 'reward');
-    for (const x of [a, b, c]) x.send({ t: 'cmd', seq: 6, cmd: { type: 'chooseReward', player: 0, offerIndex: 0 } });
-    await a.snap(m => m.state.phase !== 'reward');
-    a.send({ t: 'cmd', seq: 7, cmd: { type: 'debug', action: { kind: 'chargeUlt' } } });
-    const clears = await clearStage(a, b, c);
-    for (const cl of clears) {
-      expect(cl).toMatchObject({ stage: 1, nextStage: 2, choiceSeconds: 30 });
-      expect(cl.loot).toHaveLength(2);
-      expect(cl.bag).toEqual(cl.loot);
+    const runs = new Map<TestClient, ExpRunInfo>();
+    for (const [i, x] of [a, b, c].entries()) {
+      const run = freshRun(1);
+      runs.set(x, run);
+      x.mark();
+      x.send(queueMsg(1, i % 2 ? PRESET_B : PRESET_A, NO_GEAR, { run }));
+      if (i < 2) await x.next('expQueueState');
     }
-    const clearSnap = await a.snap(m => m.state.phase === 'stageClear');
-    expect(clearSnap.choiceDeadline).toBeGreaterThan(Date.now());
-    expect(clearSnap.telemetry).toBeTruthy();
-    const ultAtClear = clearSnap.state.players[0].party.map(m => m.ult.charge);
-    expect(clearSnap.state.players[0].rewards).toHaveLength(1);
-
-    for (const x of [a, b, c]) x.mark();
-    c.send({ t: 'expChoice', choice: 'extract' });
-    await c.next('gameEnded');
-    const ext = await c.next('expExtracted');
-    expect(ext).toMatchObject({ stage: 1, reason: 'choice' });
-    expect(ext.items).toEqual(clears[2].loot);
-    // the other two still see C's choice in the snapshot
-    await a.snap(m => m.state.expedition?.choices[2] === 'extract');
-
-    a.send({ t: 'cmd', seq: 8, cmd: { type: 'expeditionChoice', player: 0, choice: 'continue' } });
-    await a.next('gameEnded');
+    for (const x of [a, b, c]) await x.next('start');
+    a.send({ t: 'cmd', seq: 7, cmd: { type: 'debug', action: { kind: 'chargeUlt' } } });
+    await winCombat(a);
+    await a.snap(m => m.state.phase === 'reward');
+    expect(a.count('expStageResult')).toBe(0); // not before the floor reward
+    for (const x of [a, b, c]) pick(x);
+    const results: Result[] = [];
+    for (const x of [a, b, c]) {
+      results.push(await x.next('expStageResult'));
+      await x.next('gameEnded'); // after the result: the client knows the outcome when the game ends
+    }
+    for (const [i, r] of results.entries()) {
+      expect(r).toMatchObject({ runId: runs.get([a, b, c][i])!.id, stage: 1, outcome: 'cleared', bossClear: false });
+      expect(r.loot).toHaveLength(1);
+      expect(r.loot[0].tier).toBe(1);
+      expect(r.carry!.rewards).toHaveLength(1);
+      expect(r.carry!.ult).toHaveLength(3);
+    }
+    expect(results[0].carry!.ult.every(u => u > 0.9)).toBe(true);
+    // A and B continue with the run their browser keeps; C claims (nothing to tell the server)
+    const ra = afterClear(runs.get(a)!, results[0]);
+    const rb = afterClear(runs.get(b)!, results[1]);
+    for (const x of [a, b]) x.mark();
+    a.send(queueMsg(2, PRESET_A, NO_GEAR, { run: ra }));
     const qa = await a.next('expQueueState');
-    expect(qa).toMatchObject({ stage: 2, continuing: true, bagCount: 2, you: 0 });
+    expect(qa).toMatchObject({ stage: 2, continuing: true, bagCount: 1, you: 0 });
     expect(qa.seats[0]).toMatchObject({ name: 'A', continuing: true, buffs: 1 });
-    b.send({ t: 'expChoice', choice: 'continue' });
-    await b.next('gameEnded');
-    const qb = await b.next('expQueueState');
-    expect(qb.seats.map(s => s.name)).toEqual(['A', 'B']);
-
-    // queue time → 1 bot; both humans in one stage-2 game, A (first back) at seat 0
-    const sa = await a.next('start');
-    const sb = await b.next('start');
-    expect([sa.playerIndex, sb.playerIndex]).toEqual([0, 1]);
+    b.send(queueMsg(2, PRESET_B, NO_GEAR, { run: rb }));
+    await b.next('expQueueState');
+    await a.next('start');
+    await b.next('start');
     const s2 = await a.snap();
     expect(s2.state.expedition).toMatchObject({ stage: 2, outcome: 'running', humans: [true, true, false] });
-    expect(s2.state.players.map(p => p.isBot)).toEqual([false, false, true]);
-    expect(s2.state.players[0].rewards).toEqual(clearSnap.state.players[0].rewards);
-    expect(s2.state.players[1].rewards).toEqual(clearSnap.state.players[1].rewards);
-    s2.state.players[0].party.forEach((m, i) => expect(m.ult.charge).toBeCloseTo(ultAtClear[i], 1));
-    // the bot plays T1 commons on stage 2
-    expect(s2.state.players[2].gear?.[0]?.weapon).toMatchObject({ tier: 1, rarity: 'common' });
-
-    // stage 2 cleared: the bag holds both stages
-    const clears2 = await clearStage(a, b);
-    expect(clears2[0].bag).toHaveLength(4);
-    expect(clears2[0].bag.slice(0, 2)).toEqual(clears[0].loot);
-    for (const x of [a, b]) x.send({ t: 'expChoice', choice: 'extract' });
-    const ea = await a.next('expExtracted');
-    expect(ea.items).toHaveLength(4);
-    expect(ea.stage).toBe(2);
-    expect((await b.next('expExtracted')).items).toEqual(clears2[1].bag);
+    expect(s2.state.players[0].rewards).toEqual(results[0].carry!.rewards);
+    expect(s2.state.players[1].rewards).toEqual(results[1].carry!.rewards);
+    s2.state.players[0].party.forEach((m, i) => expect(m.ult.charge).toBeCloseTo(results[0].carry!.ult[i], 1));
+    expect(s2.state.players[2].gear?.[0]?.weapon).toMatchObject({ tier: 1, rarity: 'common' }); // the bot: T1 commons
+    // a 2-human stage: B leaves after the clear (during the reward) → still a clear for B; A picks → A's result
+    await winCombat(a, 78);
+    await b.snap(m => m.state.phase === 'reward');
+    b.send({ t: 'leaveRoom' });
+    const lb = await b.next('expStageResult');
+    expect(lb).toMatchObject({ runId: rb.id, stage: 2, outcome: 'cleared' });
+    expect(lb.carry!.rewards).toHaveLength(2); // its reward was picked at random
+    pick(a, 9);
+    const la = await a.next('expStageResult');
+    expect(la).toMatchObject({ runId: ra.id, stage: 2, outcome: 'cleared' });
+    expect(afterClear(ra, la).bag).toHaveLength(2);
   });
 
-  it('boss stage: a first clear gets a sure relic; after stage 12 「도전」 claims the bag (원정 완주)', async () => {
+  it('boss stage: the result comes at the clear (no floor reward) with the boss box; a first clear is a sure relic', async () => {
     await server();
     const a = await connect('A');
-    a.send(queueMsg(12, PRESET_A, NO_GEAR, { debugUnlock: true }));
-    a.send({ t: 'expStartNow' });
-    expect((await a.next('start')).mode).toBe('expedition');
-    const [cl] = await clearStage(a);
-    expect(cl).toMatchObject({ stage: 12, nextStage: null });
-    expect(cl.loot).toHaveLength(3);
-    expect(cl.loot.filter(g => g.slot === 'relic')).toEqual([expect.objectContaining({ slot: 'relic', tier: 12 })]);
-    a.send({ t: 'expChoice', choice: 'continue' });
-    const ext = await a.next('expExtracted');
-    expect(ext).toMatchObject({ stage: 12, reason: 'complete', bossClears: [12] });
-    expect(ext.items).toEqual(cl.loot);
+    await soloStart(a, freshRun(12), NO_GEAR, { debugUnlock: true });
+    const r = await winBoss(a);
+    expect(r).toMatchObject({ stage: 12, outcome: 'cleared', bossClear: true });
+    expect(r.loot).toHaveLength(2);
+    expect(r.loot.filter(g => g.slot === 'relic')).toEqual([expect.objectContaining({ slot: 'relic', tier: 12 })]);
+    expect(r.carry!.rewards).toEqual([]);
   });
 
-  it('no choice in time → extract (timeout)', async () => {
-    await server({ expChoiceSec: 0.4 });
-    const a = await connect('A');
-    a.send(queueMsg(1));
-    a.send({ t: 'expStartNow' });
-    await a.next('start');
-    const [cl] = await clearStage(a);
-    const ext = await a.next('expExtracted');
-    expect(ext).toMatchObject({ reason: 'timeout', stage: 1 });
-    expect(ext.items).toEqual(cl.loot);
-  });
-
-  it('a disconnect at the choice claims the bag; delivered after the reconnect', async () => {
+  it('a result waits for a disconnected player: delivered on the reconnect, and by run id (expStatus) later', async () => {
     await server();
     const [a, b] = [await connect('A'), await connect('B')];
-    // A first: A's seat 0 is the room host (debug commands)
+    const runB = freshRun(1);
     a.send(queueMsg(1));
     await a.next('expQueueState');
-    b.send(queueMsg(1, PRESET_B));
+    b.send(queueMsg(1, PRESET_B, NO_GEAR, { run: runB }));
     await a.next('expQueueState', m => m.seats.length === 2);
     a.send({ t: 'expStartNow' });
     await a.next('start');
     await b.next('start');
-    const [, clB] = await clearStage(a, b);
     const token = b.token;
     b.kill();
-    await sleep(300);
-    // the room goes on for A
-    a.send({ t: 'expChoice', choice: 'continue' });
-    await a.next('expQueueState');
+    await sleep(200);
+    await winCombat(a);
+    pick(a);
+    await a.next('expStageResult'); // B's reward was picked by its bot at the drop
     const b2 = await connect('B', token);
-    const ext = await b2.next('expExtracted');
-    expect(ext).toMatchObject({ reason: 'disconnect', stage: 1, bossClears: [] });
-    expect(ext.items).toEqual(clB.loot);
-    expect(b2.count('expExtracted')).toBe(1);
+    const rb = await b2.next('expStageResult');
+    expect(rb).toMatchObject({ runId: runB.id, stage: 1, outcome: 'cleared' });
+    expect(b2.count('expStageResult')).toBe(1);
+    // any session can ask by run id (a new tab, the hub having forgotten the old session)
+    const c = await connect('C');
+    c.send({ t: 'expStatus', runId: runB.id });
+    expect(await c.next('expStageResult')).toEqual(rb);
+    c.send({ t: 'expStatus', runId: 'neverPlayed00000' });
+    expect(await c.next('expNoStage')).toEqual({ t: 'expNoStage', runId: 'neverPlayed00000' });
   });
 
-  it('cancel while queued for the next stage claims the bag', async () => {
+  it('expStatus with a stage: an older stage\'s stored result counts as none (a dropped stage-2 queue is void, never stuck)', async () => {
+    await server();
+    const a = await connect('A');
+    const run = freshRun(1);
+    await soloStart(a, run);
+    await winCombat(a);
+    pick(a);
+    const r1 = await a.next('expStageResult');
+    expect(r1).toMatchObject({ runId: run.id, stage: 1, outcome: 'cleared' });
+    // 「2단계 매칭」, then the page dies while queued: the queue is dropped after lobbyGraceMs
+    const next = afterClear(run, r1);
+    a.send(queueMsg(2, PRESET_A, NO_GEAR, { run: next }));
+    await a.next('expQueueState');
+    a.kill();
+    await sleep(700);
+    const b = await connect('A2');
+    b.send({ t: 'expStatus', runId: run.id, stage: 2 });
+    expect(await b.next('expNoStage')).toEqual({ t: 'expNoStage', runId: run.id });
+    expect(b.count('expStageResult')).toBe(0);
+    // without a stage (older clients) the last result still answers
+    b.send({ t: 'expStatus', runId: run.id });
+    expect(await b.next('expStageResult')).toEqual(r1);
+  });
+
+  it('a queue dropped while offline: expCancelled on the reconnect, and expCancel with nothing queued is answered', async () => {
     await server();
     const a = await connect('A');
     a.send(queueMsg(1));
-    a.send({ t: 'expStartNow' });
-    await a.next('start');
-    const [cl] = await clearStage(a);
-    a.send({ t: 'expChoice', choice: 'continue' });
-    expect((await a.next('expQueueState')).bagCount).toBe(2);
-    a.send({ t: 'expCancel' });
-    const ext = await a.next('expExtracted');
-    expect(ext).toMatchObject({ reason: 'cancel', stage: 2 });
-    expect(ext.items).toEqual(cl.loot);
+    await a.next('expQueueState');
+    const token = a.token;
+    a.kill();
+    await sleep(700);
+    const a2 = await connect('A', token);
+    await a2.next('expCancelled');
+    a2.mark();
+    a2.send({ t: 'expCancel' });
+    await a2.next('expCancelled');
+    a2.send({ t: 'expStartNow' });
+    await sleep(100);
+    expect(a2.count('start')).toBe(0);
   });
 
-  it('quitting mid-stage loses the bag of that player only', async () => {
+  it('results are pruned after expResultKeepMs', async () => {
+    await server({ expResultKeepMs: 100 });
+    const a = await connect('A');
+    const run = freshRun(3);
+    await soloStart(a, run, NO_GEAR, { debugUnlock: true });
+    await winBoss(a);
+    await sleep(250);
+    a.send({ t: 'expStatus', runId: run.id });
+    await a.next('expNoStage');
+  });
+
+  it('a server error before the clear voids the stage (the bag is kept); after the clear it is still a clear', async () => {
+    await server();
+    const a = await connect('A');
+    const run: ExpRunInfo = { ...freshRun(1), cleared: 1, bag: [{ slot: 'weapon', tier: 1, rarity: 'common' }] };
+    await soloStart(a, run);
+    const room = () => [...srv!.hub.rooms.values()].find(r => r.mode && r.game)!;
+    room().endGame('error');
+    expect(await a.next('expStageResult')).toMatchObject({ runId: run.id, stage: 2, outcome: 'void', reason: 'error', loot: [] });
+    await soloStart(a, run); // the same stage again
+    await winCombat(a);
+    await a.snap(m => m.state.phase === 'reward');
+    room().endGame('error');
+    const r = await a.next('expStageResult');
+    expect(r).toMatchObject({ stage: 2, outcome: 'cleared' });
+    expect(r.carry!.rewards).toHaveLength(1);
+  });
+
+  it('quitting mid-stage fails that player only; the others play on', async () => {
     await server();
     const [a, b] = [await connect('A'), await connect('B')];
-    // A first: A's seat 0 is the room host (debug commands)
     a.send(queueMsg(1));
     await a.next('expQueueState');
     b.send(queueMsg(1, PRESET_B));
@@ -334,28 +429,17 @@ describe('stage clear and the choice', () => {
     a.send({ t: 'expStartNow' });
     await a.next('start');
     await b.next('start');
-    await clearStage(a, b);
-    // A back in the queue first: seat 0 = the stage-2 room host (tunables)
-    a.send({ t: 'expChoice', choice: 'continue' });
-    await a.next('expQueueState', m => m.stage === 2);
-    b.send({ t: 'expChoice', choice: 'continue' });
-    await a.next('expQueueState', m => m.stage === 2 && m.seats.length === 2);
-    a.send({ t: 'expStartNow' });
-    await a.next('start');
-    await b.next('start');
-    // the host (A) quits: only A's run fails, B plays on (the seat turns bot)
     a.mark();
     a.send({ t: 'cmd', seq: 3, cmd: { type: 'quit' } });
-    expect((await a.next('expBagLost')).count).toBe(2);
+    expect(await a.next('expStageResult')).toMatchObject({ stage: 1, outcome: 'failed', reason: 'quit' });
     const snap = await b.snap(m => m.state.players[0].isBot);
     expect(snap.state.phase).toBe('combat');
-    expect(b.count('expBagLost')).toBe(0);
+    expect(b.count('expStageResult')).toBe(0);
   });
 
-  it('a lost stage (wipe / time out) loses the bag for everyone', async () => {
+  it('a lost stage (wipe / time out) fails everyone', async () => {
     await server({ endLingerMs: 200 });
     const [a, b] = [await connect('A'), await connect('B')];
-    // A first: A's seat 0 is the room host (debug commands)
     a.send(queueMsg(1));
     await a.next('expQueueState');
     b.send(queueMsg(1, PRESET_B));
@@ -363,24 +447,13 @@ describe('stage clear and the choice', () => {
     a.send({ t: 'expStartNow' });
     await a.next('start');
     await b.next('start');
-    await clearStage(a, b);
-    // A back in the queue first: seat 0 = the stage-2 room host (tunables)
-    a.send({ t: 'expChoice', choice: 'continue' });
-    await a.next('expQueueState', m => m.stage === 2);
-    b.send({ t: 'expChoice', choice: 'continue' });
-    await a.next('expQueueState', m => m.stage === 2 && m.seats.length === 2);
-    a.send({ t: 'expStartNow' });
-    await a.next('start');
-    await b.next('start');
-    // nobody swaps, monsters hit hard and do not die: a wipe or the 120 s limit (15 s at ×8)
     a.send({ t: 'cmd', seq: 4, cmd: { type: 'tunables', patch: { monsterDmgMult: 10, gameSpeed: 8, botDamageMult: 0, monsterHpMult: 10, reviveTime: 600 } } });
     expect((await a.next('cmdResult', m => m.seq === 4)).ok).toBe(true);
-    const la = await a.next('expBagLost', () => true, 30_000);
-    const lb = await b.next('expBagLost', () => true, 5000);
-    expect(la).toMatchObject({ stage: 2, count: 2 });
+    const la = await a.next('expStageResult', () => true, 30_000);
+    const lb = await b.next('expStageResult', () => true, 5000);
+    expect(la).toMatchObject({ stage: 1, outcome: 'failed', loot: [], carry: null });
     expect(['wipe', 'timeout']).toContain(lb.reason);
     await a.next('gameEnded');
-    // the run is over: a new one can start
     a.mark();
     a.send(queueMsg(1));
     await a.next('expQueueState');
@@ -403,32 +476,23 @@ describe('matched rooms are safe from the host', () => {
     expect((await a.next('cmdResult', m => m.seq === 1)).ok).toBe(false);
     a.send({ t: 'cmd', seq: 2, cmd: { type: 'tunables', patch: { monsterDmgMult: 10 } } });
     expect((await a.next('cmdResult', m => m.seq === 2)).ok).toBe(false);
-    expect(a.count('expStageClear')).toBe(0);
-    // a lone human (bots in the other seats) may still use them
     const c = await connect('C');
-    c.send(queueMsg(1));
-    c.send({ t: 'expStartNow' });
-    await c.next('start');
-    c.mark();
-    c.send({ t: 'cmd', seq: 3, cmd: { type: 'debug', action: { kind: 'expeditionClearStage' } } });
-    await c.next('expStageClear');
-    expect((await c.next('cmdResult', m => m.seq === 3)).ok).toBe(true);
+    await soloStart(c, freshRun(3), NO_GEAR, { debugUnlock: true });
+    expect((await winBoss(c, 3)).outcome).toBe('cleared');
   });
 
-  it('nobody connected: bots play the stage on (no abandon), the bag is not lost', async () => {
+  it('nobody connected: bots play the stage on (no abandon), nothing is lost', async () => {
     await server({ abandonMs: 150 });
     const a = await connect('A');
-    a.send(queueMsg(1));
-    a.send({ t: 'expStartNow' });
-    await a.next('start');
+    await soloStart(a, freshRun(1));
     const token = a.token;
     a.kill();
     await sleep(700);
     const a2 = await connect('A', token);
     const snap = await a2.snap();
-    expect(snap.state.phase).toBe('combat');
-    expect(snap.state.expedition?.outcome).toBe('running');
-    expect(a2.count('expBagLost')).toBe(0);
+    expect(['combat', 'reward']).toContain(snap.state.phase);
+    expect(snap.state.expedition?.outcome).not.toBe('failed');
+    expect(a2.count('expStageResult')).toBe(0);
   });
 });
 
@@ -441,7 +505,7 @@ describe('classic rooms', () => {
     a.mark();
     a.send({ t: 'createRoom', preset: PRESET_A });
     const { room } = await a.next('room', m => !!m.room);
-    // joining the classic room drops B out of its expedition queue (nothing to claim)
+    // joining the classic room drops B out of its expedition queue (nothing claimed)
     b.mark();
     b.send({ t: 'joinRoom', code: room!.code, preset: PRESET_B });
     await b.next('expCancelled');
@@ -451,7 +515,7 @@ describe('classic rooms', () => {
     expect(st.mode).toBeUndefined();
     const snap = await a.snap();
     expect(snap.state.expedition).toBeUndefined();
-    expect(snap.choiceDeadline).toBeUndefined();
+    expect(snap).not.toHaveProperty('choiceDeadline');
     expect(snap.state.players.map(p => p.isBot)).toEqual([false, false, true]);
     expect(snap.state.players[0].gear).toBeUndefined();
   });

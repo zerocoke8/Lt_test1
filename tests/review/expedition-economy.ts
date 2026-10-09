@@ -1,24 +1,27 @@
 // 기획 15차 원정 경제 bench (docs/expedition.md 11-1 진행 속도): a pure Monte Carlo of one solo player's progression,
 // no combat sim. Stage clears use the rates the combat bench measured (tests/review/expedition-bench.ts MODE=chain: a run
 // started at stage s in T(s − 1) commons with 2 bots, carrying its floor rewards on), stage times its stage-mode medians;
-// loot is the real rollStageLoot and the stash the real one (src/expedition/stash.ts, 자동 장착 after every extraction).
+// loot is the real rollStageLoot (its counts = EXPEDITION.lootNormal / lootBossBase + the boss box) and the stash the
+// real one (src/expedition/stash.ts, 자동 장착 after every claim). 기획 16차: a stage is one floor; every stage ends in
+// the lobby, where the policy claims (「수령」) or matches the next stage.
 // Run: npx vite-node tests/review/expedition-economy.ts
 //
 //   PLAYERS=400 SEED0=7    simulated players per policy
 //   HOURS=15               stop a player after this much play
-//   OVERHEAD=60            seconds outside combat per stage (reward picks, banners, room, choice, matching)
+//   OVERHEAD=45            seconds outside combat per stage (banner, reward pick, room 1/5, lobby, matching)
 //   CHAIN=dir              read chain_<s>.json (expedition-bench MODE=chain STAGES=s) and stage times from d0_*.json
 //                          in dir instead of the tables below
 //
 // Policies (start at the highest stage the gear allows unless named otherwise):
-//   boss    = 「다음 보스까지 가고 나감」: continue until a boss stage (3·6·9·12) is cleared, then extract
-//   k1..k3  = extract after k stages cleared (k1 = 「단계마다 바로 나감」)
-//   greedy  = continue until a failure or stage 12
-//   from1   = always start at stage 1 and go as far as possible (never extract before 12)
+//   boss    = 「다음 보스까지 가고 수령」: match on until a boss stage (3·6·9·12) is cleared, then claim
+//   k1..k3  = claim after k stages cleared (k1 = 「단계마다 바로 수령」)
+//   greedy  = match on until a failure or stage 12
+//   from1   = always start at stage 1 and go as far as possible (never claim before 12)
 // A failure loses the bag. The clear rate of a stage depends on where the run started (the carry and the bots' gear grow
 // with the stage, the player's own gear does not); a player whose gear is above the start rule's minimum is treated as
 // exactly at it (conservative). Output per policy: hours (median / p25 / p75) until the 9 base slots are all ≥ T3 / T6 /
-// T9 / T11 / T12, runs (extractions + losses) to T11, relics owned at 5 h, share of runs lost, stage 12 first cleared.
+// T9 / T11 / T12, runs (claims + losses) to T11, relics owned at 5 h, share of runs lost, stage 12 first cleared, and
+// (기획 16차) the pace over the first 5 h: stages played and base items claimed per hour played.
 
 import fs from 'node:fs';
 import { EXPEDITION_STAGES, isBossStage } from '../../src/data/stages';
@@ -31,29 +34,34 @@ const env = (globalThis as { process?: { env: Record<string, string | undefined>
 const PLAYERS = Number(env.PLAYERS ?? 400);
 const SEED0 = Number(env.SEED0 ?? 7);
 const HOURS = Number(env.HOURS ?? 15);
-const OVERHEAD = Number(env.OVERHEAD ?? 60);
+const OVERHEAD = Number(env.OVERHEAD ?? 45);
 const PARTY = ['blade', 'mage', 'cleric'];
 
 /**
- * CHAIN[s − 1][k] = clear % of stage s + k in a run started at stage s (T(s − 1), 직접 교체 + 2 bots, 240 runs each;
- * balance.md 15장). Cells with fewer than 20 runs reaching them fall back to the last measured one.
+ * CHAIN[s − 1][k] = clear % of stage s + k in a run started at stage s (T(s − 1), 직접 교체 + 2 bots, 240 runs each).
+ * Cells with fewer than 20 runs reaching them fall back to the last measured one.
+ * 기획 16차 밸런스 (balance.md 16-7): one-floor stages, each stage started from the lobby with the real carry
+ * (expedition-bench.ts MODE=chain STAGES=s RUNS=240), the tuned EXPEDITION numbers.
  */
 const CHAIN: (number | null)[][] = [
-  [100, 98.3, 88.1, 88, 89.6, 82.9, 92.6, 83.3, 82.9, 92, 90, 87.5],
-  [98.8, 86.1, 93.1, 91.1, 86.1, 91.9, 89.8, 82.9, 94.1, 91.7, 76.1],
-  [89.6, 87.9, 89.9, 85.9, 89, 90, 82.1, 94.8, 93.4, 74.1],
-  [92.9, 91.5, 81.4, 89.2, 87.2, 76.7, 89.9, 91, 70.4],
-  [86.3, 81.2, 92.9, 86.5, 80.7, 90.8, 89.9, 73],
-  [81.7, 90.3, 84.7, 77.3, 84.5, 90.8, 76.4],
-  [89.2, 89.7, 78.1, 90.7, 91.9, 76.8],
-  [84.2, 76.7, 85.8, 86.5, 67],
-  [75, 86.1, 87.1, 62.2],
-  [88.8, 87.8, 64.2],
-  [84.6, 69],
-  [59.2],
+  [100, 95, 90.8, 92.3, 88, 61.3, 88.3, 92.3, 50, 90.5, 78.9, 23.3],
+  [94.6, 90.7, 97.1, 90.5, 61.9, 89.3, 84, 57.1, 89.6, 81.4, 37.1],
+  [87.1, 96.2, 93.5, 66, 92.7, 86.1, 56.6, 89.3, 80, 40],
+  [90, 90.7, 70.9, 90.6, 89.7, 58.4, 90.9, 83.3, 32],
+  [88.3, 82.5, 92, 94.4, 68.4, 92.3, 79.2, 53.9],
+  [84.2, 88.6, 89.9, 65.8, 89.6, 83.2, 48.1],
+  [88.8, 91.1, 68.6, 93.2, 85.5, 54.7],
+  [85.4, 75.1, 95.5, 89.8, 53],
+  [68.3, 92.7, 87.5, 63.2],
+  [88.3, 88.7, 66],
+  [81.3, 66.2],
+  [63.3],
 ];
-/** Combat median seconds of each stage (stage mode, Δ = 0, 480 runs). */
-const COMBAT_S = [178, 206.2, 253, 221.3, 225, 263.1, 254.2, 259.5, 276.4, 258, 247.5, 261.7];
+/**
+ * Combat median seconds of each stage (stage mode, Δ = 0). 기획 16차 밸런스 (balance.md 16장): one-floor stages, 960 runs,
+ * the tuned EXPEDITION numbers.
+ */
+const COMBAT_S = [49.6, 63.7, 88.5, 65, 72.8, 112.3, 79.6, 81.3, 102.8, 74.2, 76.1, 88];
 
 function readJson(p: string): { cells: Record<string, unknown>[] } {
   const txt = fs.readFileSync(p, 'utf8');
@@ -108,6 +116,11 @@ interface PlayerRec {
   at: number[];
   runsTo11: number;
   relicsAt5h: number;
+  /** 기획 16차: pace over the first 5 h — stages played, base items claimed into the stash. */
+  stagesAt5h: number;
+  itemsAt5h: number;
+  /** Hours played within the first 5 h (less when the player is done sooner). */
+  h5: number;
   runs: number;
   lostRuns: number;
   firstStage12: number;
@@ -118,7 +131,7 @@ const stageHours = (stage: number, cleared: boolean) => ((cleared ? COMBAT_S[sta
 function simulate(policy: Policy, k: number): PlayerRec {
   const rng = new Rng(mixSeed(SEED0, k, POLICIES.indexOf(policy)));
   const s = emptyStash();
-  const rec: PlayerRec = { at: MILESTONES.map(() => Infinity), runsTo11: Infinity, relicsAt5h: 0, runs: 0, lostRuns: 0, firstStage12: Infinity };
+  const rec: PlayerRec = { at: MILESTONES.map(() => Infinity), runsTo11: Infinity, relicsAt5h: 0, stagesAt5h: 0, itemsAt5h: 0, h5: 0, runs: 0, lostRuns: 0, firstStage12: Infinity };
   const relics = () => s.items.filter(x => x.slot === 'relic').length;
   let hours = 0;
   while (hours < HOURS) {
@@ -138,6 +151,7 @@ function simulate(policy: Policy, k: number): PlayerRec {
       const ok = rng.chance(chainProb(start, stage));
       const before = hours;
       hours += stageHours(stage, ok);
+      if (before < 5) rec.stagesAt5h++;
       if (before < 5 && hours >= 5) rec.relicsAt5h = relics();
       if (!ok) {
         rec.lostRuns++;
@@ -151,6 +165,7 @@ function simulate(policy: Policy, k: number): PlayerRec {
       if (stopAfter(policy, stage, cleared)) break;
       stage++;
     }
+    if (bag.length && hours <= 5) rec.itemsAt5h += bag.filter(x => x.slot !== 'relic').length;
     if (bag.length) {
       addItems(s, bag, stage);
       autoEquip(s, PARTY);
@@ -158,6 +173,7 @@ function simulate(policy: Policy, k: number): PlayerRec {
     }
   }
   if (hours < 5) rec.relicsAt5h = relics();
+  rec.h5 = Math.min(5, hours);
   return rec;
 }
 
@@ -176,6 +192,8 @@ for (const policy of POLICIES) {
     runsToT11: h2(pctl(recs.map(r => r.runsTo11), 0.5)),
     firstStage12ClearH: h2(pctl(recs.map(r => r.firstStage12), 0.5)),
     relicsAt5h: h2(recs.reduce((a, r) => a + r.relicsAt5h, 0) / PLAYERS),
+    stagesPerHour: h2(recs.reduce((a, r) => a + r.stagesAt5h, 0) / recs.reduce((a, r) => a + r.h5, 0)),
+    itemsPerHour: h2(recs.reduce((a, r) => a + r.itemsAt5h, 0) / recs.reduce((a, r) => a + r.h5, 0)),
     lostRunPct: h2((100 * recs.reduce((a, r) => a + r.lostRuns, 0)) / Math.max(1, recs.reduce((a, r) => a + r.runs, 0))),
   };
 }
