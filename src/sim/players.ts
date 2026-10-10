@@ -1,10 +1,10 @@
 // Player-level rules: swap (R1–R4, R12), ult (R9), pets (R14), revive (R10), bench timers.
 
-import type { CommandResult, GameState, PlayerState, Tunables, Vec2 } from '../types';
+import type { CommandResult, GameState, PlayerState, SkillAction, Tunables, Vec2 } from '../types';
 import { ULT_CUTIN } from '../config';
 import { getCharacter, getPet } from '../data';
 import { tickBenchRegen } from './bench';
-import { APPEAR_SHIELD_DURATION } from './constants';
+import { APPEAR_SHIELD_DURATION, MIN_SWAP_COOLDOWN } from './constants';
 import { addShield, hitDamage } from './combat';
 import { petCooldownFor, swapCooldownFor } from './cooldowns';
 import { charCtx, petCtx } from './ctx';
@@ -17,6 +17,26 @@ import { addTelegraph, castSkill } from './skills';
 import { benchMaxHp, effStats } from './stats';
 import { applyStatus, tickStatusTimers } from './status';
 import { fieldUltGauge, refundUlt, tickUlt, ultCastableSince } from './ultMode';
+import { creditJust, findJustThreats, justCooldown, justParams, type JustThreat } from './justSwap';
+import {
+  hasRewards,
+  rwCanSwap,
+  rwCooldownOnLeave,
+  rwOnAppear,
+  rwOnDragEnd,
+  rwOnJustSwap,
+  rwOnLand,
+  rwOnLeave,
+  rwOnPet,
+  rwOnTeamSwap,
+  rwOnUlt,
+  rwDragRadiusAdd,
+  rwPetRadiusAdd,
+  rwTick,
+  rwUltMult,
+} from './rewards/hooks';
+import { relayFlagBoost } from './rewards/swap';
+import type { AppearInfo, DragMods } from './rewards/types';
 import {
   activeEntity,
   aliveEnemiesOf,
@@ -26,6 +46,8 @@ import {
   emit,
   getEntity,
   type CastCtx,
+  type SimEntity,
+  type SimMember,
   type SimPlayer,
   type World,
 } from './world';
@@ -56,7 +78,8 @@ export function canSwapState(s: GameState, pi: number, idx: number): CommandResu
   if (p.activeIndex === idx) return fail('이미 필드에 있음');
   if (m.dead) return fail('사망');
   // A card's own cooldown is the more useful reason, so it wins over the shared 0.5 s appear lock.
-  if (m.swapCooldownRemaining > 0) return fail('쿨타임');
+  // 기획 17차: a reward may let a cooling card in (이중 장전: a charge left) — pure, so the client agrees.
+  if (m.swapCooldownRemaining > 0 && !rwCanSwap(p, idx)) return fail('쿨타임');
   if (p.appearLock > 0) return fail('등장 중');
   return ok;
 }
@@ -93,31 +116,99 @@ export function canSwap(w: World, pi: number, idx: number): CommandResult {
 export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandResult {
   const r = canSwap(w, pi, idx);
   if (!r.ok) return r;
-  const p = w.state.players[pi];
+  swapIn(w, w.state.players[pi], idx, pos, false);
+  return ok;
+}
+
+/**
+ * 기획 17차 (빈자리의 대타, fx.forceSwap): put card idx on the field now — no cooldown, appear-lock or 저스트 check.
+ * False when it cannot come (down, already on the field, out, not in combat).
+ */
+export function forceSwapIn(w: World, p: SimPlayer, idx: number, pos: Vec2): boolean {
+  const m = p.party[idx];
+  if (!m || m.dead || p.out || p.activeIndex === idx || w.state.phase !== 'combat') return false;
+  swapIn(w, p, idx, pos, true);
+  return true;
+}
+
+/** What a 저스트 교대 of this swap carries from the leave to the appear beat. */
+interface JustLeave {
+  threats: JustThreat[];
+  outIndex: number;
+  pos: Vec2;
+  cdCut: number;
+  mult: number;
+}
+
+/**
+ * The re-appear cooldown card idx gets now (기획 6차: it starts when the card is swapped OUT): the rewards' cooldown
+ * rules (기획 17차: final = zero ? 0 : max(4, base × mult − flat); base already ≥ 4 unless a debug slider made it shorter).
+ */
+function leaveCooldown(w: World, p: SimPlayer, idx: number): number {
+  const base = swapCooldownFor(w, p, idx);
+  const cd = rwCooldownOnLeave(w, p, idx);
+  if (cd.zero || base <= 0) return 0;
+  if (cd.mult === 1 && cd.flat === 0) return base;
+  return Math.max(Math.min(base, MIN_SWAP_COOLDOWN), base * cd.mult - cd.flat);
+}
+
+/**
+ * 기획 17차 (준비 즉시, 오래 쉰 자의 분노): keep m.rt.readyAt = the time the card last became ready. A cooldown that
+ * counts down, is cut to 0 directly (rewards, 괴담, debug) or starts at 0 (출근 도장) all stamp it here.
+ */
+function markCooling(w: World, m: SimMember, leaving = false): void {
+  if (m.swapCooldownRemaining > 0) {
+    m.rt.cooling = true;
+    return;
+  }
+  if (m.rt.cooling === false && !leaving) return;
+  m.rt.readyAt = w.state.time;
+  m.rt.cooling = false;
+}
+
+/** 1) The field character leaves (its cooldown starts, leave effects): who left where, and the 저스트 it makes. */
+function leaveField(w: World, p: SimPlayer, forced: boolean): { leave: AppearInfo['leave']; just: JustLeave | null } {
+  const old = activeEntity(w, p);
+  if (!old) {
+    p.activeIndex = null;
+    return { leave: null, just: null };
+  }
+  const leaveIdx = p.activeIndex!;
+  const leavePos = copy(old.pos);
+  // 기획 17차 저스트 교대: judged before the character leaves (what would have hit it)
+  const threats = forced ? [] : findJustThreats(w, p, old);
+  const jp = threats.length ? justParams(w, p) : null;
+  const leaveCtx = charCtx(w, old, 'passive', { id: 'relay_flag', name: '교대의 깃발' });
+  const hpFrac = old.hp / Math.max(1, old.maxHp);
+  benchActive(w, p);
+  rwOnLeave(w, p, { idx: leaveIdx, entity: old, pos: leavePos, hpFrac, ctx: leaveCtx, just: threats.length > 0 });
+  // 기획 6차: the re-appear (= drag skill) cooldown starts when a character is swapped OUT, not when it appears.
+  // 기획 17차: the 저스트 cut takes a share of what is left (the ring keeps its full length).
+  const lm = p.party[leaveIdx];
+  const cd = leaveCooldown(w, p, leaveIdx);
+  lm.swapCooldownTotal = cd;
+  lm.swapCooldownRemaining = jp ? justCooldown(cd, jp.cut) : cd;
+  markCooling(w, lm, true);
+  emit(w, { type: 'leave', player: p.id, partyIndex: leaveIdx, pos: leavePos });
+  if (hasRelic(p, 'relay_flag')) relayExplosion(w, p, leaveCtx, leavePos);
+  else if (p.gear) gearOnLeave(w, p, leaveIdx, leaveCtx, leavePos, hpFrac); // 기획 15차 원정
+  const leave = { idx: leaveIdx, pos: copy(leavePos), defId: lm.defId };
+  if (!jp) return { leave, just: null };
+  return { leave, just: { threats, outIndex: leaveIdx, pos: leavePos, cdCut: cd - lm.swapCooldownRemaining, mult: jp.mult } };
+}
+
+function swapIn(w: World, p: SimPlayer, idx: number, pos: Vec2, forced: boolean): void {
   const t = w.tunables;
+  const m = p.party[idx];
+  const cooling = m.swapCooldownRemaining;
+  const sinceReady = cooling > 0 || m.rt.cooling ? 0 : Math.max(0, w.state.time - (m.rt.readyAt ?? 0));
 
   // 1) leaving character
-  const old = activeEntity(w, p);
-  if (old) {
-    const leaveIdx = p.activeIndex!;
-    const leavePos = copy(old.pos);
-    const leaveCtx = charCtx(w, old, 'passive', { id: 'relay_flag', name: '교대의 깃발' });
-    benchActive(w, p);
-    // 기획 6차: the re-appear (= drag skill) cooldown starts when a character is swapped OUT, not when it appears.
-    const lm = p.party[leaveIdx];
-    lm.swapCooldownTotal = swapCooldownFor(w, p, leaveIdx);
-    lm.swapCooldownRemaining = lm.swapCooldownTotal;
-    emit(w, { type: 'leave', player: p.id, partyIndex: leaveIdx, pos: leavePos });
-    if (hasRelic(p, 'relay_flag')) relayExplosion(w, leaveCtx, leavePos);
-    else if (p.gear) gearOnLeave(w, p, leaveIdx, leaveCtx, leavePos, old.hp / Math.max(1, old.maxHp)); // 기획 15차 원정
-  } else {
-    p.activeIndex = null;
-  }
+  const { leave, just } = leaveField(w, p, forced);
 
   // 2) appearing character at the drop point
   const at = clampToArena(w, pos);
   const e = createCharacterEntity(w, p, idx, at);
-  const m = p.party[idx];
   const def = getCharacter(m.defId);
   e.anim = 'appear';
   e.animTime = t.appearLockTime;
@@ -127,49 +218,117 @@ export function doSwap(w: World, pi: number, idx: number, pos: Vec2): CommandRes
   const oa = def.passive.onAppear;
   if (oa) applyStatus(e, oa.status, oa.duration, oa.value, p.id, 'passive');
   const shieldFrac = appearShieldFrac(p, idx);
-  if (shieldFrac > 0) addShield(e, shieldFrac * e.maxHp, APPEAR_SHIELD_DURATION);
+  if (shieldFrac > 0) addShield(e, shieldFrac * e.maxHp, APPEAR_SHIELD_DURATION, w);
 
   // the appearing character has no cooldown while on field (기획 6차: it starts when this one is swapped out)
   m.swapCooldownRemaining = 0;
+  m.rt.cooling = false;
   p.appearLock = t.appearLockTime;
   p.stats.swaps++;
   emit(w, { type: 'appear', player: p.id, partyIndex: idx, entityId: e.id, pos: copy(at) });
+  if (just) emitJust(w, p, just, idx, e, at);
   fieldEventOnDrop(w, p, 'swap', idx, at, e); // 기획 12차: lock onto a 돌발 괴담 target, light lamps, startle the child
   // 기획 15차 원정: appear effects of the gear (shield, ult charge, bolts) and the rested-rage drag bonus
   const rage = p.gear ? gearOnAppear(w, p, idx, e, charCtx(w, e, 'passive', null)) : 1;
+  const info: AppearInfo = { idx, e, at: copy(at), leave, just: !!just, sinceReady, cooling, forced };
+  const mods = rwOnAppear(w, p, info); // 기획 17차 floor rewards
 
   // 3) drag skill at the drop point
   const ctx = charCtx(w, e, 'drag', def.drag);
   ctx.point = copy(at);
   if (rage !== 1) ctx.dmgMult *= rage;
+  ctx.radiusMult += rwDragRadiusAdd(p, idx); // 기획 17차: the pure radius additions (the drag preview shows them too)
+  applyDragMods(ctx, e, mods, just?.mult ?? null);
   castSkill(w, ctx, def.drag.actions);
   if (p.gear) gearOnLand(w, p, idx, at, ctx);
-  const echoK = relicScale(p, idx, 'echo_seal'); // 기획 15차 원정: an equipped seal echoes its wearer only
-  if (echoK > 0) {
-    const power = relicParam('echo_seal', 'power') * echoK;
-    // 기획 13차: the echo never fills the boss groggy gauge (one swap = one score)
-    const echo: CastCtx = { ...ctx, dmgMult: ctx.dmgMult * power, healMult: ctx.healMult * power, shieldMult: ctx.shieldMult * power, noGroggy: true };
-    const delay = relicParam('echo_seal', 'delay');
-    // telegraph every part of the footprint (e.g. all five meteors), each spot once (bard's two bands share one).
-    // Self-only parts (shields, cooldown cuts) have no footprint on the field — the drag preview hides them too.
-    const ids: number[] = [];
-    const seen = new Set<string>();
-    for (const part of partsForActions(def.drag.actions, ctx.radiusMult)) {
-      if (part.affects === 'self') continue;
-      const c = { x: at.x + part.offset.x, y: at.y + part.offset.y };
-      const key = `${c.x},${c.y},${JSON.stringify(part.area)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      ids.push(addTelegraph(w, 'ally', c, c, part.area, delay).id);
-    }
-    w.pending.push({ kind: 'echo', ctx: echo, actions: def.drag.actions, remaining: delay, telegraphId: ids[0] ?? null, extraTelegraphIds: ids.slice(1) });
-  }
-  return ok;
+  rwOnLand(w, p, info, ctx);
+  if (just) justLanded(w, p, just, idx, e, at, ctx);
+  echoSeal(w, p, idx, at, ctx, def.drag.actions);
+  dragEnd(w, p, idx, at, ctx, def.drag.actions);
+  rwOnTeamSwap(w, p, info);
 }
 
-function relayExplosion(w: World, ctx: CastCtx, at: Vec2): void {
-  const radius = relicParam('relay_flag', 'radius');
-  const amount = relicParam('relay_flag', 'amount');
+/** 기획 17차: the onAppear multipliers and the 저스트 power (damage / heal / shield only — statuses, radius, groggy as they are). */
+function applyDragMods(ctx: CastCtx, e: SimEntity, mods: DragMods, justMult: number | null): void {
+  ctx.dmgMult *= mods.dmgMult;
+  ctx.healMult *= mods.healMult;
+  ctx.shieldMult *= mods.shieldMult;
+  ctx.radiusMult *= mods.radiusMult;
+  if (mods.forceCrit) ctx.forceCrit = true;
+  if (mods.groggyMult !== 1) ctx.groggyMult = mods.groggyMult;
+  if (mods.invulnAdd > 0) e.invulnTime += mods.invulnAdd;
+  if (justMult != null) {
+    ctx.dmgMult *= justMult;
+    ctx.healMult *= justMult;
+    ctx.shieldMult *= justMult;
+    ctx.justMult = justMult;
+  }
+}
+
+function emitJust(w: World, p: SimPlayer, j: JustLeave, idx: number, e: SimEntity, at: Vec2): void {
+  const first = j.threats[0];
+  emit(w, {
+    type: 'justSwap',
+    player: p.id,
+    outIndex: j.outIndex,
+    inIndex: idx,
+    inEntityId: e.id,
+    pos: copy(j.pos),
+    drop: copy(at),
+    sourceId: first.sourceId,
+    skillId: first.skillId,
+    boss: first.boss,
+    dodged: j.threats.length,
+    telegraphIds: j.threats.map(x => x.telegraphId),
+    landIn: first.landIn,
+    cdCut: j.cdCut,
+  });
+}
+
+/** 기획 17차: after the drag cast + onLand — credit the 저스트 (stats, once per telegraph) and run the reward hooks. */
+function justLanded(w: World, p: SimPlayer, j: JustLeave, idx: number, e: SimEntity, at: Vec2, drag: CastCtx): void {
+  creditJust(w, p, j.threats);
+  const threats = j.threats.map(x => ({ telegraphId: x.telegraphId, sourceId: x.sourceId, skillId: x.skillId, boss: x.boss, landIn: x.landIn }));
+  rwOnJustSwap(w, p, { outIndex: j.outIndex, inIndex: idx, e, pos: copy(j.pos), drop: copy(at), threats, cdCut: j.cdCut, drag });
+}
+
+/** Relic 메아리 인장: the drag again 1 s later at 50 % (기획 15차 원정: an equipped seal echoes its wearer only). */
+function echoSeal(w: World, p: SimPlayer, idx: number, at: Vec2, ctx: CastCtx, actions: SkillAction[]): void {
+  const echoK = relicScale(p, idx, 'echo_seal');
+  if (!(echoK > 0)) return;
+  const power = relicParam('echo_seal', 'power') * echoK;
+  // 기획 13차: the echo never fills the boss groggy gauge (one swap = one score)
+  const echo: CastCtx = { ...ctx, dmgMult: ctx.dmgMult * power, healMult: ctx.healMult * power, shieldMult: ctx.shieldMult * power, noGroggy: true };
+  const delay = relicParam('echo_seal', 'delay');
+  // telegraph every part of the footprint (e.g. all five meteors), each spot once (bard's two bands share one).
+  // Self-only parts (shields, cooldown cuts) have no footprint on the field — the drag preview hides them too.
+  const ids: number[] = [];
+  const seen = new Set<string>();
+  for (const part of partsForActions(actions, ctx.radiusMult)) {
+    if (part.affects === 'self') continue;
+    const c = { x: at.x + part.offset.x, y: at.y + part.offset.y };
+    const key = `${c.x},${c.y},${JSON.stringify(part.area)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ids.push(addTelegraph(w, 'ally', c, c, part.area, delay).id);
+  }
+  w.pending.push({ kind: 'echo', ctx: echo, actions, remaining: delay, telegraphId: ids[0] ?? null, extraTelegraphIds: ids.slice(1) });
+}
+
+/** 기획 17차: the reward hooks' onDragEnd when the drag's last part lands (instant drags: now). Players with rewards only. */
+function dragEnd(w: World, p: SimPlayer, idx: number, at: Vec2, ctx: CastCtx, actions: readonly SkillAction[]): void {
+  if (!hasRewards(p)) return;
+  let last = 0;
+  for (const a of actions) last = Math.max(last, (a.delay ?? 0) + (Math.max(1, a.hits ?? 1) - 1) * (a.hitInterval ?? 0.2));
+  if (last <= 1e-9) rwOnDragEnd(w, p, idx, at, ctx);
+  else w.pending.push({ kind: 'rewardDelay', player: p.id, tag: 'dragEnd', remaining: last, data: { idx }, pos: copy(at), ctx });
+}
+
+/** Relic 교대의 깃발 at the leave spot (기획 17차: with 교대 폭발 owned the two are one blast, relayFlagBoost). */
+function relayExplosion(w: World, p: SimPlayer, ctx: CastCtx, at: Vec2): void {
+  const boost = relayFlagBoost(p);
+  const radius = relicParam('relay_flag', 'radius') + boost.radiusAdd;
+  const amount = relicParam('relay_flag', 'amount') * boost.amountMult;
   const c: CastCtx = { ...ctx, casterId: null, selfId: null, source: 'relic', slot: 'passive', isDrag: false, origin: copy(at), point: copy(at) };
   emit(w, { type: 'skillCast', sourceId: null, player: c.player, slot: 'passive', skillId: 'relay_flag', name: c.name, center: copy(at), area: { shape: 'circle', radius }, team: 'ally' });
   for (const t of aliveEnemiesOf(w, 'ally')) {
@@ -203,18 +362,28 @@ export function useUlt(w: World, pi: number): CommandResult {
   p.stats.ultDelayTotal += Math.max(0, w.state.time - fullSince);
   p.stats.ultDelayCount++;
   p.stats.ultsUsed++;
+  const spent = g.charge; // 기획 17차: > 1 with 두 번 차는 게이지
   g.charge = 0;
   g.fullSince = null;
   // 기획 13차 컷인 (docs/skill-renewal.md 2-3): the cut-in starts on every screen; the sim keeps running, the caster is
   // invulnerable for the guard and stands still for castTime, and the effects land from ULT_CUTIN.firstHit s on
   emit(w, { type: 'ultCast', player: p.id, entityId: e.id, defId: def.id, skillId: sk.id, name: sk.name });
   e.invulnTime = Math.max(e.invulnTime, ULT_CUTIN.guard);
-  castSkill(w, { ...charCtx(w, e, 'ult', sk), ultCast: { landed: false, member: p.activeIndex } }, sk.actions);
+  const idx = p.activeIndex!;
+  const ctx: CastCtx = { ...charCtx(w, e, 'ult', sk), ultCast: { landed: false, member: idx } };
+  const um = rwUltMult(p, idx); // 기획 17차 floor rewards
+  if (um !== 1) {
+    ctx.dmgMult *= um;
+    ctx.healMult *= um;
+    ctx.shieldMult *= um;
+  }
+  castSkill(w, ctx, sk.actions);
   if (sk.castTime && sk.castTime > 0) {
     e.rt.lockTime = Math.max(e.rt.lockTime, sk.castTime);
     e.anim = 'cast';
     e.animTime = Math.max(e.animTime, sk.castTime);
   }
+  rwOnUlt(w, p, idx, e, ctx, spent);
   return ok;
 }
 
@@ -253,7 +422,17 @@ export function usePet(w: World, pi: number, petIndex: number, pos: Vec2): Comma
   const slot = p.pets[petIndex];
   const def = getPet(slot.defId);
   const at = clampToArena(w, pos);
-  castSkill(w, petCtx(w, p, def, at), [def.action]);
+  const ctx = petCtx(w, p, def, at);
+  // 기획 17차 floor rewards: pet power / radius
+  const mods = rwOnPet(w, p, petIndex, at);
+  const radius = (1 + rwPetRadiusAdd(p)) * mods.radius;
+  if (mods.power !== 1 || radius !== 1) {
+    ctx.dmgMult *= mods.power;
+    ctx.healMult *= mods.power;
+    ctx.shieldMult *= mods.power;
+    ctx.radiusMult *= radius;
+  }
+  castSkill(w, ctx, [def.action]);
   fieldEventOnDrop(w, p, 'pet', petIndex, at, null); // 기획 12차 (after the cast: new summons lock on too)
   slot.cooldownTotal = petCooldownFor(w, p, petIndex);
   slot.cooldownRemaining = slot.cooldownTotal;
@@ -279,6 +458,8 @@ export function tickPlayers(w: World, dt: number): void {
     for (const s of p.pets) s.cooldownRemaining = t.instantCooldowns ? 0 : dec(s.cooldownRemaining, dt);
     p.party.forEach((m, idx) => {
       m.swapCooldownRemaining = t.instantCooldowns ? 0 : dec(m.swapCooldownRemaining, dt);
+      markCooling(w, m); // 기획 17차 (준비 즉시, 오래 쉰 자의 분노)
+      if (idx === p.activeIndex && !m.dead) m.fieldTime = (m.fieldTime ?? 0) + dt; // 기획 17차 지명권 default
       m.normalCooldownRemaining = t.instantCooldowns ? 0 : dec(m.normalCooldownRemaining, dt);
       if (m.dead) {
         m.reviveRemaining = dec(m.reviveRemaining, dt);
@@ -299,6 +480,7 @@ export function tickPlayers(w: World, dt: number): void {
     // 기획 12차: 메딕 대기실 간호 — the one bench regen (src/sim/bench.ts)
     tickBenchRegen(w, p, dt);
     if (p.gear) tickGearBench(w, p, dt); // 기획 15차 원정: rested stacks, 응급 후송
+    rwTick(w, p, dt); // 기획 17차 floor rewards
   }
 }
 

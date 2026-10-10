@@ -178,11 +178,14 @@ export function cleanse(statuses: StatusInstance[]): void {
   for (let i = statuses.length - 1; i >= 0; i--) if (DEBUFFS.has(statuses[i].id)) statuses.splice(i, 1);
 }
 
-/** Count down timers and drop expired statuses (used for field and bench). */
-export function tickStatusTimers(statuses: StatusInstance[], dt: number): void {
+/** Count down timers and drop expired statuses (used for field and bench). onExpire (기획 17차): each one that ran out. */
+export function tickStatusTimers(statuses: StatusInstance[], dt: number, onExpire?: (s: StatusInstance) => void): void {
   for (let i = statuses.length - 1; i >= 0; i--) {
     const s = statuses[i];
     s.remaining -= dt;
-    if (s.remaining <= 1e-6) statuses.splice(i, 1);
+    if (s.remaining <= 1e-6) {
+      statuses.splice(i, 1);
+      onExpire?.(s);
+    }
   }
 }

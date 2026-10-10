@@ -49,6 +49,9 @@ export const APPEAR_SHIELD_DURATION = 4;
 export const TURRET_POWER = 0.5;
 /** Max normal-skill cooldown reduction from rewards. */
 export const MAX_COOLDOWN_REDUCTION = 0.8;
+/** 기획 17차: max pet cooldown reduction from 펫 훈련 copies (summed), and the floor of a pet's cooldown after every multiplier. */
+export const MAX_PET_COOLDOWN_REDUCTION = 0.5;
+export const MIN_PET_COOLDOWN = 8;
 /** Min gap between two monster skill casts of the same unit (boss patterns don't stack). */
 export const MONSTER_SKILL_GAP = 1.5;
 /** Normal monsters' first skill cast is delayed by a seeded 0..this (≤ 35 % of its cooldown) so a group never syncs. */

@@ -1,0 +1,260 @@
+import type { RewardFamilyDef } from '../../types';
+import { pct } from './base';
+
+// 기획 17차 Track B — 궁극기·보스·펫·상태이상 + 저스트 (docs/floor-rewards.md). Behaviour: src/sim/rewards/combat.ts.
+// Numbers per rarity live in params (the sim reads them by key); 「두 번」 adds power / % and keeps the larger radius /
+// duration unless a family says otherwise.
+
+const s = (v: number): string => `${Math.round(v * 10) / 10}`;
+
+/** 원한의 쪽지: the burst share grows by this per extra copy (35 % → 50 %). */
+export const GRUDGE_TWICE = 0.15;
+
+export const COMBAT_FAMILIES: RewardFamilyDef[] = [
+  // ─────────────── 궁극기 ───────────────
+  {
+    key: 'swap_charge',
+    name: '교대 충전',
+    tags: ['ult', 'swap'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { ult: 0.04 }, rare: { ult: 0.06 }, epic: { ult: 0.08 } },
+    describe: v => `등장할 때 그 캐릭터 궁 게이지 +${pct(v.ult)}`,
+  },
+  {
+    key: 'intermission',
+    name: '막간 박수',
+    tags: ['ult', 'swap'],
+    target: 'party',
+    botWeight: 1,
+    params: { rare: { cut: 0.5 }, epic: { cut: 1 } },
+    describe: v => (v.cut >= 1 ? '궁극기를 쓰면 대기 카드 2장 재등장 쿨 0초' : `궁극기를 쓰면 대기 카드 2장 남은 재등장 쿨 −${pct(v.cut)}`),
+  },
+  {
+    key: 'ult_linger',
+    name: '궁극기 여운',
+    tags: ['ult', 'leave'],
+    target: 'party',
+    botWeight: 1,
+    params: { epic: { power: 0.6, window: 8 } }, // 기획 17차 밸런스: 0.4 → 0.6
+    describe: v => `궁극기를 쓰고 ${v.window}초 안에 그 캐릭터가 퇴장하면, 퇴장 자리에서 그 궁의 마지막 동작을 ${pct(v.power)}로 한 번 더`,
+  },
+  {
+    key: 'duet',
+    name: '둘이서',
+    tags: ['ult'],
+    target: 'party',
+    botWeight: 1,
+    params: { epic: { power: 0.6, duration: 8, interval: 0.6, range: 6 } },
+    describe: v => `궁극기를 쓰면 ${v.duration}초 동안 대기 캐릭터(공격력 높은 쪽) 잔상이 ${s(v.interval)}초마다 투사체 (공격력 ${pct(v.power)})`,
+  },
+  {
+    key: 'overcharge',
+    name: '두 번 차는 게이지',
+    tags: ['ult'],
+    target: 'party',
+    unique: true,
+    botWeight: 1,
+    params: { legendary: { cap: 2, power: 1, delay: 0.8 } }, // 기획 17차 밸런스: 0.7 → 1.0 (legendaries were below the basic epics)
+    describe: v => `궁 게이지가 ${pct(v.cap)}까지 참. 100% 넘게 차서 쓰면 게이지를 모두 쓰고 ${s(v.delay)}초 뒤 ${pct(v.power)}로 한 번 더`,
+  },
+  // ─────────────── 보스 ───────────────
+  {
+    key: 'groggy_drop',
+    name: '그로기 낙하',
+    tags: ['boss'],
+    target: 'party',
+    botWeight: 0.6,
+    params: { rare: { groggy: 1.6, range: 3, vuln: 0.15, vulnTime: 1 } },
+    describe: v => `보스·중형보스 반경 ${v.range} 안에 착지하면 그 교대의 그로기 점수 ×${v.groggy}, 보스 ${v.vulnTime}초 받는 피해 +${pct(v.vuln)}`,
+  },
+  {
+    key: 'groggy_rush',
+    name: '그로기 러시',
+    tags: ['boss', 'swap'],
+    target: 'party',
+    botWeight: 1,
+    params: { rare: { cdCut: 0.5, drag: 0.3 } },
+    describe: v => `보스가 그로기에 빠지면 대기 카드 남은 재등장 쿨 −${pct(v.cdCut)}, 그로기 중 등장하면 드래그 +${pct(v.drag)}`,
+  },
+  {
+    key: 'crusher',
+    name: '파쇄자',
+    tags: ['boss'],
+    target: 'party',
+    requires: 'tankOrMelee',
+    botWeight: 1,
+    params: { common: { groggy: 1.5 }, rare: { groggy: 1.75 } },
+    describe: v => `탱커·근접딜러의 드래그가 보스에 맞으면 그로기 점수 ×${v.groggy}`,
+  },
+  // ─────────────── 펫 ───────────────
+  {
+    key: 'pet_call',
+    name: '펫 호출 신호',
+    tags: ['pet', 'appear'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { seconds: 1.5 }, rare: { seconds: 2.5 } },
+    describe: v => `등장할 때 쿨이 가장 많이 남은 펫 쿨 −${s(v.seconds)}초`,
+  },
+  {
+    key: 'pet_scent',
+    name: '주인 냄새',
+    tags: ['pet', 'appear'],
+    target: 'party',
+    botWeight: 0.6,
+    params: { rare: { power: 0.4, radius: 3, duration: 3 } },
+    describe: v => `등장 뒤 ${v.duration}초 동안 착지점 반경 ${v.radius} 안에서 쓴 펫 효과 +${pct(v.power)}`,
+  },
+  {
+    key: 'tamer',
+    name: '조련사의 손길',
+    tags: ['pet'],
+    target: 'party',
+    requires: 'support',
+    botWeight: 1,
+    params: { common: { refund: 0.3, haste: 0.2, duration: 4 } },
+    describe: v => `서포터가 필드에 있을 때 펫을 쓰면 그 펫 쿨 ${pct(v.refund)} 돌려받고 서포터 공격 속도 +${pct(v.haste)} ${v.duration}초`,
+  },
+  {
+    key: 'pet_breeder',
+    name: '펫 사육사',
+    tags: ['pet'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { power: 0.2, radius: 0.2 }, rare: { power: 0.35, radius: 0.2 }, epic: { power: 0.5, radius: 0.2 } },
+    describe: v => `펫 효과 +${pct(v.power)}, 펫 범위 +${pct(v.radius)}`,
+  },
+  // ─────────────── 상태이상 ───────────────
+  {
+    key: 'fire_hand',
+    name: '불붙은 손',
+    tags: ['status', 'appear'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { dps: 0.15, duration: 3 }, rare: { dps: 0.25, duration: 3 } },
+    describe: v => `드래그가 맞힌 적에게 ${v.duration}초 화상 (초당 공격력 ${pct(v.dps)})`,
+  },
+  {
+    key: 'burn_chain',
+    name: '연쇄 화상',
+    tags: ['status'],
+    target: 'party',
+    requires: 'burnSource', // 기획 17차: without a burn of my own it does nothing
+    botWeight: 1,
+    params: { rare: { radius: 2, min: 2 } },
+    describe: v => `내 화상이 걸린 적이 쓰러지면 반경 ${v.radius} 적에게 화상이 옮겨 붙음 (남은 시간, 최소 ${v.min}초)`,
+  },
+  {
+    key: 'spell_ext',
+    name: '주문 연장',
+    tags: ['status'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { pct: 0.25 }, rare: { pct: 0.4 } },
+    describe: v => `내가 거는 기절·속박·둔화 지속 +${pct(v.pct)} (그로기 점수는 그대로)`,
+  },
+  {
+    key: 'expose',
+    name: '약점 노출',
+    tags: ['status', 'boss'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { control: 0.15, slow: 0.08 }, rare: { control: 0.25, slow: 0.12 } }, // 기획 17차 밸런스: 0.3/0.15 · 0.45/0.2 → (balance.md 17-3)
+    describe: v => `기절·속박된 적과 그로기 보스에게 피해 +${pct(v.control)}, 둔화된 적에게 +${pct(v.slow)}`,
+  },
+  {
+    key: 'possess',
+    name: '홀린 자',
+    tags: ['status'],
+    target: 'party',
+    botWeight: 1,
+    params: { epic: { duration: 3, icd: 8 } }, // 기획 17차 밸런스: icd 10 → 8
+    describe: v => `드래그가 맞힌 일반 적 1명을 ${v.duration}초 조종 (${v.icd}초에 1번, 보스·중형보스·소환체 X)`,
+  },
+  {
+    key: 'ghost_hunter',
+    name: '괴담 사냥꾼',
+    tags: ['ult'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { ult: 0.25, seconds: 3 } },
+    describe: v => `돌발 괴담 성공 때 필드 캐릭터 궁 +${pct(v.ult)}, 대기 카드 남은 재등장 쿨 −${v.seconds}초`,
+  },
+  {
+    key: 'grudge',
+    name: '원한의 쪽지',
+    tags: ['leave', 'status'],
+    target: 'party',
+    botWeight: 1,
+    params: { epic: { pct: 0.35, duration: 4, range: 6, bossCap: 0.06, icd: 10 } },
+    describe: v =>
+      `퇴장할 때 ${v.range}칸 안 가장 가까운 적에게 ${v.duration}초 표식, 끝날 때 그동안 받은 피해의 ${pct(v.pct)} 폭발 (보스 최대 HP ${pct(v.bossCap)}까지, 같은 적 ${v.icd}초에 1번)`,
+  },
+  // ─────────────── 저스트 교대 ───────────────
+  {
+    key: 'just_counter',
+    name: '되받아치기',
+    tags: ['just', 'attack'],
+    target: 'party',
+    botWeight: 1,
+    params: { rare: { power: 1.5, stun: 0.5 }, epic: { power: 2.5, stun: 0.5 } },
+    describe: v => `저스트 교대 때 공격한 적에게 공격력 ${pct(v.power)} 피해 + 기절 ${s(v.stun)}초 (보스는 피해만)`,
+  },
+  {
+    key: 'just_cd',
+    name: '간발의 차',
+    tags: ['just', 'swap'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { seconds: 1.5 }, rare: { seconds: 2.5 } },
+    describe: v => `저스트 교대 때 내 대기 카드 남은 재등장 쿨 −${s(v.seconds)}초`,
+  },
+  {
+    key: 'just_ult',
+    name: '아슬아슬',
+    tags: ['just', 'ult'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { ult: 0.08 }, rare: { ult: 0.12 }, epic: { ult: 0.16 } },
+    describe: v => `저스트 교대 때 등장 캐릭터 궁 +${pct(v.ult)}`,
+  },
+  {
+    key: 'just_window',
+    name: '찰나의 감각',
+    tags: ['just'],
+    target: 'party',
+    unique: true,
+    botWeight: 1,
+    params: { rare: { window: 0.2 } },
+    describe: v => `저스트 창 +${s(v.window)}초 (최대 0.9초)`,
+  },
+  {
+    key: 'just_guard',
+    name: '헛손질',
+    tags: ['just', 'survive'],
+    target: 'party',
+    botWeight: 1,
+    params: { common: { shield: 0.1, radius: 3, duration: 3 }, rare: { shield: 0.15, radius: 3, duration: 3 } },
+    describe: v => `저스트 교대 때 반경 ${v.radius} 아군(팀) 보호막 최대 HP ${pct(v.shield)} ${v.duration}초`,
+  },
+  {
+    key: 'just_freeze',
+    name: '멈춘 숨',
+    tags: ['just', 'status'],
+    target: 'party',
+    botWeight: 1,
+    params: { epic: { slow: 0.6, duration: 2, radius: 4 } },
+    describe: v => `저스트 교대 때 반경 ${v.radius} 적 ${v.duration}초 둔화 ${pct(v.slow)} + 등장 캐릭터 드래그 치명타 확정`,
+  },
+  {
+    key: 'just_ghost',
+    name: '귀신 같은 몸놀림',
+    tags: ['just'],
+    target: 'party',
+    unique: true,
+    botWeight: 1,
+    params: { legendary: { power: 0.5, cut: 0.3, window: 0.1 } },
+    describe: v => `저스트 보상 2배: 드래그 +100%, 퇴장 쿨 −70%, 창 +${s(v.window)}초 (상한 ×2.0 · 70% · 0.9초)`,
+  },
+];

@@ -2,6 +2,8 @@
 // (교대의 깃발, merged with 「교대 폭발」). players.ts calls in at the swap's leave / appear / land beats and once per tick
 // for the bench, always behind `if (p.gear)` — a classic player never reaches this file.
 // Extra damage from gear never fills the boss groggy gauge (its contexts carry no groggy mark) and counts as 'relic'.
+// 기획 17차: a floor reward with the same effect takes it over (one proc, powers added, radius / targets the larger —
+// src/sim/rewards/swap.ts rewardTakesOver); the gear branch here then stays quiet.
 
 import type { SkillAction, Vec2 } from '../types';
 import { GEAR_OPTIONS, optionParam, optionValue, type GearOptionDef } from '../data/gear';
@@ -9,6 +11,7 @@ import { addShield, hitDamage, killEntity } from './combat';
 import { PULSE_INTERVAL } from './constants';
 import { charOptionLevel, charRelicMult } from './expeditionGear';
 import { relicParam } from './modifiers';
+import { rewardTakesOver } from './rewards/swap';
 import { castSkill } from './skills';
 import { addUltCharge } from './ultMode';
 import { aliveEnemiesOf, copy, dist, emit, type CastCtx, type SimEntity, type SimPlayer, type World } from './world';
@@ -66,7 +69,7 @@ function zoneAt(w: World, ctx: CastCtx, radius: number, duration: number, tick: 
 export function gearOnLeave(w: World, p: SimPlayer, idx: number, ctx: CastCtx, at: Vec2, hpFrac: number): void {
   const flag = charRelicMult(p, idx, 'relay_flag');
   const bl = lv(p, idx, 'w_relay_blast');
-  if (flag > 0 || bl) {
+  if ((flag > 0 || bl) && !rewardTakesOver(p, idx, 'w_relay_blast')) {
     let radius: number;
     let amount: number;
     if (flag > 0 && bl) {
@@ -84,13 +87,13 @@ export function gearOnLeave(w: World, p: SimPlayer, idx: number, ctx: CastCtx, a
     proc(w, p, idx, id, at);
   }
   const he = lv(p, idx, 'a_heal_echo');
-  if (he) {
+  if (he && !rewardTakesOver(p, idx, 'a_heal_echo')) {
     const r = optionParam('a_heal_echo', 'radius');
     zoneAt(w, gearCtx(ctx, 'a_heal_echo', at), r, optionParam('a_heal_echo', 'duration'), 1, 'allies', [{ kind: 'heal', amount: optionValue('a_heal_echo', he) }]);
     proc(w, p, idx, 'a_heal_echo', at);
   }
   const ds = lv(p, idx, 'a_drop_shield');
-  if (ds) {
+  if (ds && !rewardTakesOver(p, idx, 'a_drop_shield')) {
     // damage taken −v while inside: a short defUp refreshed every tick (def is the damage-reduction share)
     const r = optionParam('a_drop_shield', 'radius');
     zoneAt(w, gearCtx(ctx, 'a_drop_shield', at), r, optionParam('a_drop_shield', 'duration'), 0.5, 'allies', [
@@ -100,7 +103,7 @@ export function gearOnLeave(w: World, p: SimPlayer, idx: number, ctx: CastCtx, a
   }
   const ev = lv(p, idx, 'a_evac');
   const m = p.party[idx];
-  if (ev && hpFrac <= optionParam('a_evac', 'hpBelow') + 1e-9 && w.state.time >= (m.rt.evacReadyAt ?? 0) - 1e-9) {
+  if (ev && !rewardTakesOver(p, idx, 'a_evac') && hpFrac <= optionParam('a_evac', 'hpBelow') + 1e-9 && w.state.time >= (m.rt.evacReadyAt ?? 0) - 1e-9) {
     m.rt.evac = { left: optionParam('a_evac', 'duration'), rate: optionValue('a_evac', ev), acc: 0 };
     m.rt.evacReadyAt = w.state.time + optionParam('a_evac', 'cooldown');
     proc(w, p, idx, 'a_evac', at);
@@ -122,7 +125,7 @@ export function gearOnAppear(w: World, p: SimPlayer, idx: number, e: SimEntity, 
     proc(w, p, idx, 'c_ult_charge', e.pos);
   }
   const bo = lv(p, idx, 'w_appear_bolt');
-  if (bo) {
+  if (bo && !rewardTakesOver(p, idx, 'w_appear_bolt')) {
     const n = optionParam('w_appear_bolt', 'targets', bo);
     const ctx = gearCtx(base, 'w_appear_bolt', e.pos);
     const near = aliveEnemiesOf(w, 'ally')
@@ -134,7 +137,7 @@ export function gearOnAppear(w: World, p: SimPlayer, idx: number, e: SimEntity, 
     if (near.length) proc(w, p, idx, 'w_appear_bolt', e.pos);
   }
   const m = p.party[idx];
-  const rr = lv(p, idx, 'c_rested_rage');
+  const rr = rewardTakesOver(p, idx, 'c_rested_rage') ? 0 : lv(p, idx, 'c_rested_rage');
   const stacks = rr ? Math.min(optionParam('c_rested_rage', 'maxStacks'), Math.floor((m.rt.rested ?? 0) + 1e-9)) : 0;
   m.rt.rested = 0;
   if (stacks > 0) proc(w, p, idx, 'c_rested_rage', e.pos);
@@ -144,7 +147,7 @@ export function gearOnAppear(w: World, p: SimPlayer, idx: number, e: SimEntity, 
 /** The wearer's drag landed at `at` (drag: its drag context). */
 export function gearOnLand(w: World, p: SimPlayer, idx: number, at: Vec2, drag: CastCtx): void {
   const sc = lv(p, idx, 'w_scorch');
-  if (sc) {
+  if (sc && !rewardTakesOver(p, idx, 'w_scorch')) {
     const tick = 0.5;
     zoneAt(w, gearCtx(drag, 'w_scorch', at), optionParam('w_scorch', 'radius'), optionParam('w_scorch', 'duration'), tick, 'enemies', [
       { kind: 'damage', amount: optionValue('w_scorch', sc) * tick },
@@ -153,7 +156,7 @@ export function gearOnLand(w: World, p: SimPlayer, idx: number, at: Vec2, drag: 
     proc(w, p, idx, 'w_scorch', at);
   }
   const ex = lv(p, idx, 'w_execute');
-  if (ex) {
+  if (ex && !rewardTakesOver(p, idx, 'w_execute')) {
     const r = optionParam('w_execute', 'radius');
     const frac = optionValue('w_execute', ex);
     const ctx = gearCtx(drag, 'w_execute', at);

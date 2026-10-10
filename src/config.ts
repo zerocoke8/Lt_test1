@@ -39,7 +39,21 @@ export const DEFAULT_TUNABLES: Tunables = {
   // 기획 15차 궁극기 개별 게이지 (the rule; 14차 option C): field 30 s, bench at 1/3 of that rate
   ultFieldChargeTime: 30,
   ultBenchRatio: 1 / 3,
+  // 기획 17차 저스트 교대 (docs/just-swap.md): window 0.5 s (0 = off), drag ×1.5, leaving cooldown −40 %, no internal
+  // cooldown, bots try 3 % of the threats they see (기획 17차 밸런스, balance.md 17-4: 30 % → 3 % — a bot dodge is worth far
+  // more than the reward; at 30 % the bot-style seat went 71 → 99 %)
+  justSwapWindow: 0.5,
+  justSwapDragMult: 1.5,
+  justSwapCdCut: 0.4,
+  justSwapIcd: 0,
+  botJustChance: 0.03,
 };
+
+/**
+ * 기획 17차 저스트 교대 — structural numbers: the window is min(window + bonus, short × telegraph total + bonus, maxWindow);
+ * reward caps (drag power ×, cooldown cut, window); the cut never leaves less than minCooldown s.
+ */
+export const JUST_SWAP = { short: 0.6, maxWindow: 0.9, maxPower: 2, maxCut: 0.7, minCooldown: 2.4, credited: 16 } as const;
 
 /**
  * 기획 13차 보스 그로기 — structural numbers (docs/boss-groggy.md 2~3장). Gauge max = bossGroggyThreshold × BossDef

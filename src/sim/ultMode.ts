@@ -10,6 +10,7 @@
 
 import type { PlayerState, Tunables, UltGauge } from '../types';
 import { ultChargeRate } from './modifiers';
+import { rwChargeMult, rwGaugeCap } from './rewards/hooks';
 import { emit, type SimPlayer, type World } from './world';
 
 // ─────────────────────────── Pure (sim, client snapshot, HUD, bots) ───────────────────────────
@@ -39,8 +40,9 @@ export function memberUltGauge(p: PlayerState, idx: number): UltGauge | null {
 type UltTunables = Pick<Tunables, 'ultFieldChargeTime' | 'ultBenchRatio'>;
 
 /** Fill times of this player now (traces included): on the field / on the bench (Infinity at ratio 0). Pure. */
-export function ultFillTimes(t: UltTunables, p: PlayerState): { field: number; bench: number } {
-  const field = Math.max(0.01, t.ultFieldChargeTime) / ultChargeRate(p);
+export function ultFillTimes(t: UltTunables, p: PlayerState, idx: number | null = null): { field: number; bench: number } {
+  // 기획 17차: floor rewards change the charge speed (#궁극기 set, …)
+  const field = Math.max(0.01, t.ultFieldChargeTime) / (ultChargeRate(p) * rwChargeMult(p, idx));
   const ratio = Math.max(0, t.ultBenchRatio);
   return { field, bench: ratio > 0 ? field / ratio : Infinity };
 }
@@ -50,8 +52,8 @@ export function ultFillTimes(t: UltTunables, p: PlayerState): { field: number; b
  * 0). idx null → the field character's (the gauge the ult button shows).
  */
 export function ultFillTime(t: UltTunables, p: PlayerState, idx: number | null = null): number {
-  const { field, bench } = ultFillTimes(t, p);
   const i = idx ?? p.activeIndex;
+  const { field, bench } = ultFillTimes(t, p, i);
   return i != null && i === p.activeIndex ? field : bench;
 }
 
@@ -75,10 +77,14 @@ export function ultCastableSince(g: UltGauge, now: number, appearedAt: number | 
 
 // ─────────────────────────── Sim ───────────────────────────
 
-/** Set one gauge (0..1). Full: fullSince starts now + 'ultReady'; below full: fullSince cleared (기획 10차). */
+/**
+ * Set one gauge (0..1; 기획 17차 두 번 차는 게이지: up to the reward gauge cap). Full: fullSince starts now + 'ultReady';
+ * below full: fullSince cleared (기획 10차).
+ */
 function setGauge(w: World, p: SimPlayer, g: UltGauge, value: number, partyIndex: number): void {
   // near-full snap: 0.7 of tick charge + 0.3 can land at 0.99999… (no ultReady otherwise)
-  g.charge = value > 1 - 1e-9 ? 1 : Math.max(0, value);
+  const cap = rwGaugeCap(p);
+  g.charge = value > 1 - 1e-9 ? (value > cap - 1e-9 ? cap : Math.max(1, value)) : Math.max(0, value);
   if (g.charge >= 1) {
     if (g.fullSince == null) {
       g.fullSince = w.state.time;
@@ -122,11 +128,12 @@ export function refundUlt(w: World, p: SimPlayer, member: number | null): void {
 /** Per-tick charge (R9 time-only) of one player that is not out. */
 export function tickUlt(w: World, p: SimPlayer, dt: number): void {
   const t = w.tunables;
+  const cap = rwGaugeCap(p);
   p.party.forEach((m, i) => {
     const g = m.ult;
-    if (g.charge < 1) {
+    if (g.charge < cap - 1e-9) {
       const fill = ultFillTime(t, p, i);
       if (Number.isFinite(fill)) setGauge(w, p, g, g.charge + dt / fill, i);
-    } else if (g.fullSince == null) setGauge(w, p, g, 1, i);
+    } else if (g.fullSince == null) setGauge(w, p, g, g.charge, i);
   });
 }

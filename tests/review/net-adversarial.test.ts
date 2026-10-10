@@ -333,7 +333,10 @@ describe('R33 reward edge cases', () => {
     expect(r.rewardDeadline).toBeGreaterThan(Date.now() + 20_000);
     expect(r.state.rewardOffersByPlayer[1]?.length).toBe(3);
     b.kill();
-    a.send({ t: 'cmd', seq: 2, cmd: { type: 'chooseReward', player: 1, offerIndex: 2 } });
+    // 기획 17차: 빚쟁이의 방문 grants a second (epic) reward at once — pick a card that adds exactly one
+    const mine = r.state.rewardOffersByPlayer[0] ?? [];
+    const pick = Math.max(0, mine.findIndex((o, i) => i >= 1 && o.family !== 'debt'));
+    a.send({ t: 'cmd', seq: 2, cmd: { type: 'chooseReward', player: 1, offerIndex: pick } });
     const next = await a.snap(m => m.state.floor === 2 && m.state.phase === 'combat', 3000);
     expect(next.state.players.map(p => p.rewards.length + p.relics.length)).toEqual([1, 1, 1]);
   });

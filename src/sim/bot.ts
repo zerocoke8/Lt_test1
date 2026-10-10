@@ -11,6 +11,7 @@ import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
 import { fieldUltGauge, memberUltGauge } from './ultMode';
 import { previewPartsFor } from './preview';
+import { findJustThreats } from './justSwap';
 import { activeEntity, clamp, clampToArena, copy, dist, getEntity, isAlive, type SimEntity, type SimPlayer, type World } from './world';
 
 type Dispatch = (cmd: Command) => CommandResult;
@@ -197,6 +198,9 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
     b.ultAt = null;
   }
 
+  justThink(w, p, dispatch); // 기획 17차 저스트 교대
+  if (s.phase !== 'combat') return;
+
   eventThink(w, p, dispatch); // 기획 12차: once per 돌발 괴담, swap toward it (src/sim/botEvents.ts)
   if (s.phase !== 'combat') return;
 
@@ -323,6 +327,62 @@ function ultCard(p: SimPlayer, ready: number[], enemies: SimEntity[]): number | 
     }
   }
   return best;
+}
+
+// ─────────────────────────── 기획 17차: 저스트 교대 (docs/just-swap.md 「봇」) ───────────────────────────
+
+/** Telegraph ids a bot remembers having rolled for. */
+const JUST_ROLLED_KEPT = 16;
+
+/**
+ * A 저스트-able attack on the field character and a ready card: one roll per attack (botJustChance) — a hit swaps at
+ * once (card: groggy > full ult > most HP; drop: the usual aim). Not when an ult is due within 0.5 s. Chance 0 (or
+ * the 저스트 off) → no rng draw at all.
+ */
+function justThink(w: World, p: SimPlayer, dispatch: Dispatch): void {
+  const chance = w.tunables.botJustChance;
+  if (!(chance > 0) || !(w.tunables.justSwapWindow > 0)) return;
+  const me = activeEntity(w, p);
+  if (!me) return;
+  const b = p.rt.bot;
+  const rolled = b.justRolled ?? [];
+  const fresh = findJustThreats(w, p, me).filter(t => !rolled.includes(t.telegraphId));
+  if (fresh.length === 0) return;
+  const ready = p.party.map((_, i) => i).filter(i => canSwap(w, p.id, i).ok);
+  if (ready.length === 0) return;
+  if (b.ultAt != null && b.ultAt - w.state.time <= JUST_ULT_SKIP + 1e-9) return;
+  let go = false;
+  for (const t of fresh) {
+    rolled.push(t.telegraphId);
+    if (w.rng.chance(chance)) go = true;
+  }
+  b.justRolled = rolled.slice(-JUST_ROLLED_KEPT);
+  if (!go) return;
+  const idx = justCard(w, p, ready);
+  if (dispatch({ type: 'swap', player: p.id, partyIndex: idx, pos: bestDropPoint(w, p, idx) }).ok) {
+    b.nextSwapAt = w.state.time + w.rng.range(BOT.periodicSwap[0], BOT.periodicSwap[1]);
+    b.reactAt = null;
+  }
+}
+
+/** A bot does not try a 저스트 when its ult is due this soon (s). */
+const JUST_ULT_SKIP = 0.5;
+
+/** The card a 저스트 brings in: the groggy pick, else a full-ult card (longest full), else the healthiest. */
+function justCard(w: World, p: SimPlayer, ready: number[]): number {
+  const g = groggyCard(w, p, ready);
+  if (g != null) return g;
+  let ult: number | null = null;
+  let since = Infinity;
+  for (const i of ready) {
+    const gauge = memberUltGauge(p, i);
+    if (gauge && gauge.charge >= 1 && (gauge.fullSince ?? 0) < since) {
+      ult = i;
+      since = gauge.fullSince ?? 0;
+    }
+  }
+  if (ult != null) return ult;
+  return [...ready].sort((a, c) => p.party[c].hp / Math.max(1, p.party[c].maxHp) - p.party[a].hp / Math.max(1, p.party[a].maxHp) || a - c)[0];
 }
 
 // ─────────────────────────── 기획 13차: boss groggy (docs/boss-groggy.md 7장) ───────────────────────────

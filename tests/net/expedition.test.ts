@@ -132,7 +132,7 @@ describe('expedition queues', () => {
     const wa = a.last('welcome')!;
     expect(wa.bootId).toMatch(/^[0-9a-f]{16}$/);
     expect(b.last('welcome')!.bootId).toBe(wa.bootId);
-    expect(wa.v).toBe(4);
+    expect(wa.v).toBe(5); // 기획 17차: protocol 5
   });
 
   it('rejects impossible gear and a start stage above what the gear allows', async () => {

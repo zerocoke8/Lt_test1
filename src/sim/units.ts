@@ -15,6 +15,7 @@ import { castSkill, startAction } from './skills';
 import { effStats } from './stats';
 import { constrainTether, hasStatus, isBossy, statusValue, tickStatusTimers } from './status';
 import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type PendingHit, type SimEntity, type SimStatus, type World } from './world';
+import { rwStatusExpire } from './rewards/hooks';
 
 export function tickUnits(w: World, dt: number): void {
   const ents = w.state.entities;
@@ -81,7 +82,8 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
     if (!isAlive(e)) return;
   }
   const stasis = stopped ? e.statuses.find(x => x.id === 'stasis') : undefined;
-  tickStatusTimers(e.statuses, dt);
+  // 기획 17차: an enemy's status from a player ran out → that player's reward hooks (원한의 쪽지)
+  tickStatusTimers(e.statuses, dt, e.team === 'enemy' ? st => st.sourcePlayer != null && rwStatusExpire(w, e, st) : undefined);
   if (e.team === 'enemy' && e.statuses.length) tauntSource(w, e); // 기획 13차: a taunt ends with its taunter (also while stunned)
   if (stasis && !e.statuses.includes(stasis)) {
     endStasis(w, e, stasis as SimStatus);
@@ -206,7 +208,8 @@ export function nearestEnemy(w: World, e: SimEntity, filter?: (o: SimEntity) => 
 export function pickTarget(w: World, e: SimEntity, extra?: (o: SimEntity) => boolean): SimEntity | null {
   const ok = (o: SimEntity) => !extra || extra(o);
   if (e.team === 'ally') return nearestEnemy(w, e, o => o.eventTag !== 'target' && ok(o)) ?? nearestEnemy(w, e, ok);
-  return nearestEnemy(w, e, o => o.eventTag !== 'ward' && ok(o));
+  // 기획 17차: reward afterimages / turrets / mines are never targeted
+  return nearestEnemy(w, e, o => o.eventTag !== 'ward' && !o.rt.untargetable && ok(o));
 }
 
 /** 기획 13차 도발: the unit that taunted e while it is still on the field (else the taunt is dropped). */
@@ -380,6 +383,7 @@ function separate(w: World): void {
     for (let j = i + 1; j < n; j++) {
       const b = list[j];
       if (a.rt.stationary && b.rt.stationary) continue;
+      if (a.rt.untargetable || b.rt.untargetable) continue; // 기획 17차: reward shooters / mines push nobody
       const minD = a.radius + b.radius;
       let dx = b.pos.x - a.pos.x;
       let dy = b.pos.y - a.pos.y;

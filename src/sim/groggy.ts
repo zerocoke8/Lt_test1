@@ -8,6 +8,7 @@ import type { BossDef, BossGroggyState, GroggyGainWhy, SkillAction } from '../ty
 import { GROGGY } from '../config';
 import { applyGroggy, clearStun } from './status';
 import { emit, getEntity, type CastCtx, type SimEntity, type World } from './world';
+import { rwGroggyMult, rwOnGroggyBreak } from './rewards/hooks';
 
 // ─────────────────────────── State ───────────────────────────
 
@@ -114,7 +115,9 @@ export function groggyOnAction(w: World, ctx: CastCtx, action: SkillAction, targ
   const boss = bossId != null ? targets.find(t => t.id === bossId) : undefined;
   if (!boss || !w.state.bossGroggy || !canGain(w, boss)) return;
   const r = actionPoints(ctx, action);
-  if (r && r.points > 0 && addGroggyPoints(w, boss, ctx.player, r.points, r.why)) ctx.groggyMark.broke = true;
+  // 기획 17차: reward groggy multipliers of this cast (그로기 낙하, 파쇄자, 붉은 달 — together max ×2)
+  const points = r ? r.points * rwGroggyMult(w, ctx) : 0;
+  if (r && points > 0 && addGroggyPoints(w, boss, ctx.player, points, r.why)) ctx.groggyMark.broke = true;
 }
 
 /** Returns true when these points broke the boss. */
@@ -152,7 +155,27 @@ export function breakBoss(w: World, boss: SimEntity, player: number | null): voi
   applyGroggy(boss, duration, player);
   // also older parts no longer in rt.windup (a pattern started before the last one): all of them break with '끊김!'
   for (const p of w.pending) if (p.kind === 'hit' && p.ctx.casterId === boss.id && !p.started) p.cancelled = true;
+  w.groggy.rewardGain = 0; // 기획 17차: a new cycle for the rewards' direct fill
   emit(w, { type: 'bossGroggy', entityId: boss.id, player, count: g.count, duration });
+  rwOnGroggyBreak(w, boss);
+}
+
+/**
+ * 기획 17차 (fx.addRewardGroggy): rewards fill the gauge share frac directly (합동 의식, 삼인 분향) — not while groggy or
+ * locked, at most `cap` per groggy cycle. Returns what went in.
+ */
+export function rewardGroggy(w: World, frac: number, player: number | null, cap: number): number {
+  const g = w.state.bossGroggy;
+  const boss = groggyBoss(w);
+  if (!g || !boss || !canGain(w, boss) || w.state.phase !== 'combat' || !(frac > 0)) return 0;
+  const add = Math.min(frac, Math.max(0, cap - (w.groggy.rewardGain ?? 0)), 1 - g.fill);
+  if (!(add > 0)) return 0;
+  g.fill = Math.min(1, g.fill + add);
+  w.groggy.rewardGain = (w.groggy.rewardGain ?? 0) + add;
+  w.groggy.sinceGain = 0;
+  if (g.fill >= 1 - 1e-9) breakBoss(w, boss, player);
+  else g.near = g.fill >= GROGGY.nearAt;
+  return add;
 }
 
 /** Groggy over: gauge 0, 10 s lock, the first pattern at least wakeGap s later (its cooldowns were frozen). */

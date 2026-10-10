@@ -13,12 +13,17 @@ import type { GearLoadout, GearSpec } from '../data/gear';
  *     expStageResult per stage (kept by run id), expStatus / expNoStage, welcome.bootId; the in-game choice is gone
  *     (expChoice, expStageClear, expExtracted, expBagLost, snap.choiceDeadline removed).
  */
-export const PROTOCOL_VERSION = 4;
+/*     5 = 기획 17차: chooseReward.member (지명권), the 'rerollReward' command, the floor-reward / 저스트 state and events
+ *     (PlayerState.rerolls · rewardState · rewardPicksLeft, offer tags / target / member, justSwap · rewardProc · tagSet),
+ *     reward timeout 30 s picked by the bot score (botPickIndex). */
+export const PROTOCOL_VERSION = 5;
 export const MAX_ROOM_PLAYERS = 3;
 /** Snapshot broadcast rate (Hz). The server sim still ticks at 30 Hz. */
 export const SNAPSHOT_HZ = 15;
-/** Real seconds each human gets to pick a floor reward before the server picks at random. */
-export const REWARD_TIMEOUT_SEC = 20;
+/** Real seconds each human gets to pick a floor reward (기획 17차: 20 → 30) before the server picks the bot's card. */
+export const REWARD_TIMEOUT_SEC = 30;
+/** 기획 17차: 다시 뽑기 is refused this close to the reward auto-pick (s) — the client greys the button, the server refuses. */
+export const REROLL_MIN_LEFT_SEC = 3;
 /** 기획 10차: real seconds for the whole 괴담 room (fresh when it opens); then 'leave' for the unchosen, 'continue' for the rest. */
 export const GOEDAM_TIMEOUT_SEC = 25;
 /** A 괴담 option id on the wire ('leave', 'press', … or 'continue'). */

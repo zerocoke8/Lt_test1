@@ -143,3 +143,50 @@ export function loadCutIn(): CutInSettings {
 export function saveCutIn(c: CutInSettings): void {
   write(CUTIN_KEY, sanitizeCutIn(c));
 }
+
+// ─────────────── 기획 17차 저스트 교대: device settings (진동 · 저스트 도우미 · 저스트 슬로) + the learner count ───────────────
+
+const FEEL_KEY = 'swapTower.feel.v1';
+/** docs/just-swap.md: the 「지금!」 chevrons show until this many 저스트 교대 succeeded on this device. */
+const JUST_TUTOR_KEY = 'justTutor';
+export const JUST_TUTOR_GOAL = 5;
+
+export interface FeelSettings {
+  /** Short vibration on my 저스트 (Android Chrome; iPhones ignore it). */
+  vibrate: boolean;
+  /** 「지금!」 chevrons over ready bench cards (learner help, until JUST_TUTOR_GOAL successes). */
+  justHelper: boolean;
+  /** Solo: my device runs the game at 0.3× for 0.3 s after my 저스트 (multiplayer never slows). */
+  justSlow: boolean;
+}
+
+export const FEEL_DEFAULTS: Readonly<FeelSettings> = { vibrate: true, justHelper: true, justSlow: true };
+
+/** Live settings (the pause menu writes here). */
+export const FEEL: FeelSettings = { ...FEEL_DEFAULTS };
+
+export function sanitizeFeel(raw: unknown): FeelSettings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const flag = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d);
+  return { vibrate: flag(r.vibrate, FEEL_DEFAULTS.vibrate), justHelper: flag(r.justHelper, FEEL_DEFAULTS.justHelper), justSlow: flag(r.justSlow, FEEL_DEFAULTS.justSlow) };
+}
+
+export function loadFeel(): FeelSettings {
+  return sanitizeFeel(read(FEEL_KEY));
+}
+
+export function saveFeel(f: FeelSettings): void {
+  write(FEEL_KEY, sanitizeFeel(f));
+}
+
+/** 저스트 교대 successes on this device (storage blocked → 0: the help shows every time). */
+export function justTutorCount(): number {
+  const v = read(JUST_TUTOR_KEY);
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+}
+
+export function bumpJustTutor(): number {
+  const n = Math.min(999, justTutorCount() + 1);
+  write(JUST_TUTOR_KEY, n);
+  return n;
+}

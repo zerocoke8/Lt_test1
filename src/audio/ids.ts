@@ -41,6 +41,10 @@ const RULES: Rule[] = [
   ['doll.burst', { prio: 2, db: -12, gap: 60 }],
   ['dash.', { prio: 2, db: -14, gap: 120 }],
   ['normal.', { prio: 2, db: -14, gap: 80 }],
+  // 기획 17차 저스트 교대: mine (hero, loud) / another player's (small) / the attack whiffing on the empty spot
+  ['just.swap.far', { prio: 3, db: -15, gap: 150 }],
+  ['just.swap', { bus: 'hero', prio: 5, db: -4, gap: 250, group: 'hero' }],
+  ['just.whiff', { prio: 3, db: -12, gap: 120 }],
   // 3-3 attacks · hits
   ['atk.', { prio: 1, db: -20, gap: 100, group: 'atk', variants: 3 }],
   ['hit.multi', { prio: 1, db: -16, gap: 45, group: 'hit', variants: 3 }],
@@ -112,6 +116,9 @@ const RULES: Rule[] = [
   ['ui.reward.pulse', { bus: 'ui', prio: 3, db: -12, gap: 200, group: 'ui' }],
   ['ui.', { bus: 'ui', prio: 3, db: -14, gap: 50, group: 'ui' }],
   ['reward.pick.', { bus: 'ui', prio: 4, db: -8, gap: 200 }],
+  // 기획 17차: a floor reward fired in the fight (quiet, effect bus) / a synergy set completed / 다시 뽑기
+  ['reward.proc', { bus: 'sfx', prio: 1, db: -14, gap: 300 }],
+  ['reward.set', { bus: 'ui', prio: 4, db: -8, gap: 400 }],
   ['reward.', { bus: 'ui', prio: 4, db: -10, gap: 300 }],
   ['relic.get', { bus: 'ui', prio: 4, db: -8, gap: 300 }],
   ['relic.', { prio: 2, db: -16, gap: 300 }],

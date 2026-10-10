@@ -163,6 +163,71 @@ test('artifact build (기획 15차): per-character ult gauges with the debug 「
   expect(w.requests).toEqual(['/']);
 });
 
+test('artifact build (기획 17차): floor reward (다시 뽑기 · 지명권) and a 저스트 교대, solo, zero console errors', async ({ page }) => {
+  pageMode = 'artifact';
+  const w = watch(page);
+  await page.goto(base);
+  await page.waitForFunction(() => window.__proto?.phase === 'preset');
+  const box = (await page.locator('.preset .btn-start').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForFunction(() => window.__proto?.phase === 'combat', undefined, { timeout: 10_000 });
+  await page.evaluate(() => {
+    const g = window.__proto!.game!;
+    g.tunables.invincible = true;
+    g.tunables.goedamRoomsPerZone = 0;
+    g.state.players[0].rerolls = 5;
+  });
+  await page.waitForTimeout(800);
+  // the floor reward screen: 다시 뽑기 until a card asks 「누구에게?」, give it to the third character
+  await page.evaluate(() => window.__proto!.game!.dispatch({ type: 'debug', action: { kind: 'skipFloor' } }));
+  await page.waitForFunction(() => window.__proto?.phase === 'reward');
+  await expect(page.locator('.rw-card')).toHaveCount(3);
+  await expect(page.locator('.rw-reroll')).toHaveText('다시 뽑기 5');
+  for (let n = 4; (await page.locator('.rw-card:has(.rw-who)').count()) === 0 && n >= 0; n--) {
+    const before = await page.evaluate(() => (window.__proto!.game!.state.rewardOffersByPlayer[0] ?? []).map(o => o.rewardId).join());
+    await page.locator('.rw-reroll').click();
+    await page.waitForFunction(b => (window.__proto!.game!.state.rewardOffersByPlayer[0] ?? []).map(o => o.rewardId).join() !== b, before);
+    await page.waitForTimeout(450);
+  }
+  const card = page.locator('.rw-card:has(.rw-who)').first();
+  await expect(card).toBeVisible();
+  const idx = await card.evaluate(el => [...el.parentElement!.children].indexOf(el));
+  const id = await page.evaluate(i => window.__proto!.game!.state.rewardOffersByPlayer[0]![i].rewardId, idx);
+  await card.locator('.rw-who-p').nth(2).click();
+  await card.locator('.rw-pick').click();
+  await page.waitForFunction(() => window.__proto?.phase === 'combat' && window.__proto.game!.state.floor === 2);
+  expect(await page.evaluate(() => window.__proto!.game!.state.players[0].rewards.at(-1))).toMatchObject({ rewardId: id, partyIndex: 2 });
+  await page.waitForTimeout(2500); // past the appear invulnerability
+
+  // 저스트 연습: swap on the gold cue → 「저스트!」 stamp, this device's clock dips (solo)
+  await page.evaluate(() => window.__proto!.game!.dispatch({ type: 'debug', action: { kind: 'justDrill' } }));
+  let just = 0;
+  for (let k = 0; k < 4 && just === 0; k++) {
+    await page.evaluate(async () => {
+      const api = window.__proto!;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 5000) {
+        await new Promise(f => requestAnimationFrame(() => f(null)));
+        const s = api.game!.state;
+        const p = s.players[0];
+        const me = s.entities.find(e => e.id === p.party[p.activeIndex ?? 0]?.entityId);
+        const t = me && s.telegraphs.find(x => x.team === 'enemy' && Math.hypot(x.center.x - me.pos.x, x.center.y - me.pos.y) < 0.6);
+        if (!me || !t || t.remaining > 0.4 || t.remaining <= 0.2) continue;
+        const i = p.party.findIndex((m, j) => j !== p.activeIndex && !m.dead && m.swapCooldownRemaining <= 0);
+        if (i >= 0 && api.ui.dragTo('swap', i, { x: me.pos.x + 2.5, y: me.pos.y }).ok) return;
+      }
+    });
+    await page.waitForTimeout(300);
+    just = await page.evaluate(() => window.__proto!.game!.state.players[0].stats.justSwaps);
+  }
+  expect(just).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__proto!.ui.justStamps.some(s => s.mine))).toBe(true);
+  await page.evaluate(() => window.__proto!.game!.dispatch({ type: 'debug', action: { kind: 'justDrill' } }));
+  await page.waitForTimeout(1000);
+  expect(w.errors, w.errors.join('\n')).toEqual([]);
+  expect(w.requests).toEqual(['/']);
+});
+
 test('artifact build (기획 15차 · 16차 원정): solo expedition without a server, the run and the stash survive a reload, zero console errors', async ({ page }) => {
   pageMode = 'artifact';
   const w = watch(page);

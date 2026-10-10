@@ -25,6 +25,7 @@ export function startTestServer(opts: Partial<ServerOptions> = {}): Promise<Runn
     host: '127.0.0.1',
     staticDir: testStaticDir(),
     rewardTimeoutSec: 0.6,
+    rerollMinLeftSec: 0, // the timeouts here are far shorter than the real 30 s
     goedamTimeoutSec: 0.6,
     endLingerMs: 300,
     lobbyGraceMs: 400,

@@ -5,12 +5,15 @@ import type { AreaShape, Dir, GameState, PreviewPart, SkillAction, Vec2 } from '
 import { getCharacter, getPet } from '../data';
 import { scaleArea, scaleDash } from './geometry';
 import { skillMod } from './modifiers';
+import { rwDragRadiusAdd, rwPetRadiusAdd } from './rewards/hooks';
 
 /** Radius multiplier the sim applies when this card is dropped (drag: skill 'radius' rewards; pets: none). */
 export function previewRadiusMult(state: GameState, player: number, kind: 'swap' | 'pet', index: number): number {
   const p = state.players[player];
-  if (!p || kind === 'pet') return 1;
-  return 1 + skillMod(p, index, 'drag', 'radius');
+  if (!p) return 1;
+  // 기획 17차: the rewards' pure radius additions (per-swap extras from onAppear are not shown)
+  if (kind === 'pet') return 1 + rwPetRadiusAdd(p);
+  return 1 + skillMod(p, index, 'drag', 'radius') + rwDragRadiusAdd(p, index);
 }
 
 /**
@@ -84,5 +87,5 @@ export function previewPartsFor(state: GameState, player: number, kind: 'swap' |
   }
   const pet = p.pets[index];
   if (!pet) return fallback;
-  return partsForActions([getPet(pet.defId).action], 1);
+  return partsForActions([getPet(pet.defId).action], previewRadiusMult(state, player, kind, index));
 }

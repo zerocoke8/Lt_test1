@@ -3,7 +3,7 @@
 
 import type { CommandResult, DebugAction, Game, Tunables } from '../types';
 import { DEFAULT_TUNABLES } from '../config';
-import { FIELD_EVENTS, GOEDAM_ROOMS } from '../data';
+import { FIELD_EVENTS, GOEDAM_ROOMS, RARITY_LABEL, REWARDS } from '../data';
 import { button, h } from './dom';
 import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tunables';
 import type { ToastKind } from './toast';
@@ -187,6 +187,7 @@ export class DebugPanel {
       this.run(ev ? { kind: 'fieldEventNext', id: ev.id } : { kind: 'fieldEventNext' }, `돌발 괴담 (${ev ? ev.name : '아무거나'})`);
     });
     this.bumpEvent(0);
+    this.rewardSection();
 
     // render-only feel (this device): applied right away, saved locally — works in solo and multiplayer
     Object.assign(JUICE, loadJuice());
@@ -291,6 +292,33 @@ export class DebugPanel {
     this.collapsed = on;
     this.el.classList.toggle('is-collapsed', on);
     this.collapseBtn.textContent = on ? '펼치기' : '접기';
+  }
+
+  /**
+   * 기획 17차: 「저스트 연습」 (every 3 s a weak 1.2 s attack under my field character, toggle), 「보상 주기」 (any floor
+   * reward by id, to the chosen member) and 「전설 카드 보기」 (the next normal reward screen shows a legendary).
+   */
+  private rewardSection(): void {
+    const sec = this.section('저스트 · 층 보상');
+    const row = h('div', 'dbg-btnrow dbg-two', sec);
+    button('dbg-btn dbg-just', '저스트 연습 (켜기/끄기)', row, () => this.run({ kind: 'justDrill' }, '저스트 연습'));
+    button('dbg-btn', '전설 카드 보기', row, () => this.run({ kind: 'offerFixture' }, '다음 보상 화면에 전설'));
+    const pick = h('div', 'dbg-reward', sec);
+    const list = h('select', 'dbg-select dbg-reward-id', pick);
+    for (const r of REWARDS) {
+      const o = h('option', '', list, `${r.name.split('{char}').join('○○')} · ${RARITY_LABEL[r.rarity]}`);
+      o.value = r.id;
+    }
+    const who = h('select', 'dbg-select dbg-reward-member', pick);
+    for (const [v, t] of [['', '기본 대상'], ['0', '1번'], ['1', '2번'], ['2', '3번']] as const) {
+      const o = h('option', '', who, t);
+      o.value = v;
+    }
+    button('dbg-btn dbg-go', '보상 주기', pick, () => {
+      const member = who.value === '' ? null : Number(who.value);
+      const name = list.selectedOptions[0]?.textContent ?? list.value;
+      this.run({ kind: 'grantReward', rewardId: list.value, member }, `보상 주기 (${name})`);
+    });
   }
 
   private bumpFloor(d: number): void {

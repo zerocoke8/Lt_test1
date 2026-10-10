@@ -219,3 +219,42 @@ export function partKick(settings: JuiceSettings, s: number, n: number): { stop:
   if (n <= 0) return { stop: 0, shake: 3 };
   return { stop: base * 0.5 * (0.8 + 0.4 * s), shake: 4 + 4 * s };
 }
+
+// ─────────────────────────── 기획 17차 저스트 교대: the solo slow feel (docs/just-swap.md 연출) ───────────────────────────
+
+/** My 저스트 (solo only): the local game runs at SCALE for HOLD ms, then eases back to 1 over EASE ms; ≤ once per GAP ms. */
+export const JUST_SLOW = { scale: 0.3, holdMs: 300, easeMs: 150, gapMs: 2000 } as const;
+/** My 저스트: a 60 ms render hit-stop (outside the per-second budget, like the groggy break). */
+export const JUST_STOP_SEC = 0.06;
+
+/**
+ * Time scale `sinceMs` after the slow started: 0.3 for 300 ms, then linear back to 1 over 150 ms; 1 before / after
+ * (negative / NaN = no slow). PURE.
+ */
+export function justTimeScale(sinceMs: number): number {
+  if (!(sinceMs >= 0)) return 1;
+  if (sinceMs < JUST_SLOW.holdMs) return JUST_SLOW.scale;
+  const t = (sinceMs - JUST_SLOW.holdMs) / JUST_SLOW.easeMs;
+  if (t >= 1) return 1;
+  return JUST_SLOW.scale + (1 - JUST_SLOW.scale) * t;
+}
+
+/** The slow clock of one device: start() at my 저스트 (ignored within JUST_SLOW.gapMs of the last start). */
+export class JustSlow {
+  private startedAt = -Infinity;
+
+  /** Start a slow at `nowMs`; false when the last one began less than gapMs ago. */
+  start(nowMs: number): boolean {
+    if (nowMs - this.startedAt < JUST_SLOW.gapMs) return false;
+    this.startedAt = nowMs;
+    return true;
+  }
+
+  scale(nowMs: number): number {
+    return justTimeScale(nowMs - this.startedAt);
+  }
+
+  reset(): void {
+    this.startedAt = -Infinity;
+  }
+}

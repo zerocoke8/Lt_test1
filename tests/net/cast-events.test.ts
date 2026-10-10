@@ -1,7 +1,7 @@
 // Multiplayer gets the cast-readability event fields (damage source/skillName, skillCast delay/hits/hitInterval):
 // - through the real game server's snapshots (another player's drag skill arrives with its timing and names),
 // - and the wire copy (rounded, internal keys dropped) renders exactly the same effects as the local events.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_TUNABLES } from '../../src/config';
 import { getCharacter } from '../../src/data';
 import { createGame } from '../../src/sim';
@@ -95,6 +95,9 @@ function syncMemos(memos: Map<number, UnitMemo>, s: GameState): void {
 
 describe('wire copy renders the same casts', () => {
   it('local events and their snapshot copy spawn the same effects, numbers and names (me and the other player)', () => {
+    // 기획 17차: the renderer jitters numbers with Math.random and merges numbers of one skill within CLUSTER_R of that
+    // jittered spot — two Vfx instances could merge differently at the edge; a fixed value keeps the comparison exact
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const g = createGame({
       seed: 11,
       players: [
@@ -141,5 +144,6 @@ describe('wire copy renders the same casts', () => {
       expect(signature(remote.v), `frame ${i}`).toBe(signature(local.v));
     }
     expect(casts).toBeGreaterThan(10);
+    rnd.mockRestore();
   });
 });

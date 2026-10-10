@@ -38,10 +38,10 @@ interface StoredRun {
   bag: { tier: number }[];
 }
 interface Stored {
+  run: (StoredRun & { carry?: { rewards: { rewardId: string }[] } | null }) | null;
   items: { uid: string; slot: string; tier: number }[];
   equipped: Record<string, Record<string, string>>;
   bossFirstClears: number[];
-  run: StoredRun | null;
 }
 const stash = (page: Page) => page.evaluate(k => JSON.parse(localStorage.getItem(k) ?? 'null') as Stored | null, STASH_KEY);
 
@@ -126,7 +126,11 @@ test('원정: 1단계 → 클리어 → 층 보상 → 로비(런 진행 중, �
   // the floor reward (+ whatever a 괴담 room gave) is carried
   await expect(page.locator('.exp-buff-chip')).toContainText('버프');
   await tap('.exp-buff-chip');
-  expect(await page.locator('.exp-buff-row').count()).toBeGreaterThanOrEqual(1);
+  // 기획 17차: the carried floor rewards show as 「내 빌드」 lines (traces stay plain rows) — the picked one by its family
+  expect(await page.locator('.exp-buff-list .bp-line, .exp-buff-row').count()).toBeGreaterThanOrEqual(1);
+  const carried = ((await stash(page))?.run?.carry?.rewards ?? []).map(r => r.rewardId);
+  expect(carried.length).toBeGreaterThanOrEqual(1);
+  for (const id of carried) await expect(page.locator(`.exp-buff-list .bp-line[data-family="${id.replace(/_(common|rare|epic|legendary)$/, '')}"]`)).toHaveCount(1);
   await tap('.exp-buff-list');
   expect((await stash(page))?.run).toMatchObject({ stage: 2, cleared: 1, status: 'lobby' });
   expect((await stash(page))?.items).toHaveLength(0); // the bag is not in the stash yet
@@ -150,7 +154,14 @@ test('원정: 1단계 → 클리어 → 층 보상 → 로비(런 진행 중, �
   await tap('.exp-equip .exp-back');
   await phase(page, 'expHub');
 
-  // a reload in the lobby keeps the run (main card: 「진행 중: 2단계 대기 · 가방 1」)
+  // a reload in the lobby keeps the run (main card: 「진행 중: 2단계 대기 · 가방 1」).
+  // 기획 17차 migration: first turn the saved run into a 16차 save (no rerolls / rewardState / dragCharges in the carry);
+  // it must load as is and start the next stage with 1 다시 뽑기 and the same rewards.
+  await page.evaluate(k => {
+    const st = JSON.parse(localStorage.getItem(k)!);
+    for (const c of [st.run.carry, st.run.pending?.won?.carry]) if (c) for (const f of ['rerolls', 'rewardState', 'dragCharges']) delete c[f];
+    localStorage.setItem(k, JSON.stringify(st));
+  }, STASH_KEY);
   await page.reload();
   await phase(page, 'main');
   await expect(page.locator('.mm-exp-foot')).toHaveText('진행 중: 2단계 대기 · 가방 1');
@@ -166,8 +177,13 @@ test('원정: 1단계 → 클리어 → 층 보상 → 로비(런 진행 중, �
   await phase(page, 'expMatch');
   await phase(page, 'combat');
   expect(await page.evaluate(() => window.__proto!.game!.state.expedition?.stage)).toBe(2);
-  // the floor reward of stage 1 is carried
-  expect(await page.evaluate(() => window.__proto!.game!.state.players[0].rewards.length)).toBeGreaterThanOrEqual(1);
+  // the floor reward of stage 1 is carried (the old-format save starts with the default 1 다시 뽑기)
+  const st2 = await page.evaluate(() => {
+    const p = window.__proto!.game!.state.players[0];
+    return { rewards: p.rewards.map(r => r.rewardId), rerolls: p.rerolls };
+  });
+  expect(st2.rewards.slice(0, carried.length)).toEqual(carried);
+  expect(st2.rerolls).toBe(1);
   await expect(page.locator('.exp-pill-bag')).toHaveText('가방 1');
 
   await clearStage(page);

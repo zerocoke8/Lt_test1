@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { BOSSES, CHARACTERS, FIELD_EVENTS, GOEDAM_ROOMS, PETS } from '../../src/data';
 import type { Entity, GameEvent, GameState, PlayerState } from '../../src/types';
 import { DASH_LAND } from '../../src/render/dashtime';
-import { Director, EVENT_SOUNDS, mergeFrame, type Routed, type SoundReq } from '../../src/audio/director';
+import { Director, EVENT_SOUNDS, JUST_DUCK, mergeFrame, type Routed, type SoundReq } from '../../src/audio/director';
 import { AudioEngine, DUCK_FLOOR_DB, duckDb } from '../../src/audio/engine';
 import { GROUP_CAP, dbToGain, familyDefault, sfxRow } from '../../src/audio/ids';
 import { BAKE_BUSY_MS, BAKE_SLICE_MS, Baker, bakeBudget, bakeSamples } from '../../src/audio/bake';
@@ -239,6 +239,10 @@ const SAMPLES: { [K in GameEvent['type']]: Extract<GameEvent, { type: K }> } = {
   swapCdCut: { type: 'swapCdCut', player: 0, seconds: 2, from: 0 },
   stageClear: { type: 'stageClear', stage: 1 },
   gearProc: { type: 'gearProc', player: 0, partyIndex: 0, id: 'w_appear_bolt', pos: P },
+  // 기획 17차
+  justSwap: { type: 'justSwap', player: 0, outIndex: 0, inIndex: 1, inEntityId: 100, pos: P, drop: P, sourceId: 1, skillId: 'x', boss: false, dodged: 1, telegraphIds: [7], landIn: 0.3, cdCut: 4 },
+  rewardProc: { type: 'rewardProc', player: 0, partyIndex: 0, entityId: 100, rewardId: 'bolt', pos: P },
+  tagSet: { type: 'tagSet', player: 0, tag: 'swap' },
   appear: { type: 'appear', player: 0, partyIndex: 0, entityId: 100, pos: P },
   dash: { type: 'dash', entityId: 100, from: P, to: P, duration: 0.2 },
   blink: { type: 'blink', entityId: 1, from: P, to: P },
@@ -848,5 +852,37 @@ describe('기획 13차 리뷰: loops, late bakes, far voices, ducks', () => {
     expect(during.sounds.find(x => x.id === 'boss.windup.doors')?.db).toBe(3);
     const after = d.route([cast], state({ tick: 103, telegraphs: [{ ...tel, id: 9 }] }), view({ now: 3 }));
     expect(after.sounds.find(x => x.id === 'boss.windup.doors')?.db).toBe(0);
+  });
+
+  it('기획 17차: my 저스트 is loud with a −5 dB 0.25 s duck, anyone else\'s small; the dodged attack whiffs when it lands', () => {
+    const mine = route([SAMPLES.justSwap]);
+    expect(ids(mine)).toEqual(['just.swap']);
+    expect(mine.ctl).toContainEqual(expect.objectContaining({ kind: 'duck', target: 'sfx', db: JUST_DUCK[0], hold: JUST_DUCK[1] }));
+    const far = route([{ ...SAMPLES.justSwap, player: 1 }]);
+    expect(ids(far)).toEqual(['just.swap.far']);
+    expect(far.ctl.some(c => c.kind === 'duck')).toBe(false);
+    // the telegraph of my 저스트 lands → just.whiff (with the impact); a cut one does not whiff
+    const d = new Director();
+    const tel = { id: 7, team: 'enemy' as const, center: P, origin: P, area: { shape: 'circle' as const, radius: 2 }, remaining: 0.3, total: 1 };
+    d.route([], state({ telegraphs: [tel] }), view({ now: 1 }));
+    d.route([SAMPLES.justSwap], state({ tick: 101, telegraphs: [tel] }), view({ now: 1.05 }));
+    expect(ids(d.route([], state({ tick: 102, telegraphs: [] }), view({ now: 1.4 })))).toContain('just.whiff');
+    const d2 = new Director();
+    d2.route([], state({ telegraphs: [tel] }), view({ now: 1 }));
+    d2.route([SAMPLES.justSwap], state({ tick: 101, telegraphs: [tel] }), view({ now: 1.05 }));
+    const cut: GameEvent = { type: 'interrupt', sourceId: 1, telegraphId: 7, pos: P, name: 'x' };
+    expect(ids(d2.route([cut], state({ tick: 102, telegraphs: [] }), view({ now: 1.4 })))).not.toContain('just.whiff');
+  });
+
+  it('기획 17차: reward cues — a proc on my unit (quiet), a set completed, the skip toast is silent; new ids have recipes', () => {
+    expect(ids(route([SAMPLES.rewardProc]))).toEqual(['reward.proc']);
+    expect(ids(route([{ ...SAMPLES.rewardProc, player: 1 }]))).toEqual([]);
+    expect(ids(route([{ ...SAMPLES.rewardProc, entityId: null, partyIndex: null, text: '빚 · 이번 보상 없음' }]))).toEqual([]);
+    expect(ids(route([SAMPLES.tagSet]))).toEqual(['reward.set']);
+    expect(ids(route([{ ...SAMPLES.tagSet, player: 1 }]))).toEqual([]);
+    for (const id of ['just.swap', 'just.swap.far', 'just.whiff', 'reward.reroll', 'reward.pick.legend', 'reward.set', 'reward.proc']) expect(hasRecipe(id), id).toBe(true);
+    expect(sfxRow('just.swap').bus).toBe('hero');
+    expect(sfxRow('just.swap.far').db).toBeLessThan(sfxRow('just.swap').db);
+    expect(sfxRow('reward.proc')).toMatchObject({ db: -14, gap: 300 });
   });
 });

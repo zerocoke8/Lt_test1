@@ -24,16 +24,19 @@ const KEYS: Record<string, string[]> = {
   status: ['id', 'remaining', 'total', 'value', 'sourcePlayer', 'data'], // data: 기획 13차 taunt / tether / root / stasis
   // 기획 15차: no shared 'ult' gauge and no 14차 'energy' pool on the player any more
   // gear: 기획 15차 원정 equipped gear per party index (absent in the classic tower)
-  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog', 'gear'],
+  // rerolls / rewardState / rewardPicksLeft: 기획 17차 floor rewards (다시 뽑기, run counters, 욕심쟁이 pick 2)
+  player: ['id', 'name', 'isBot', 'color', 'party', 'activeIndex', 'pets', 'out', 'disconnected', 'appearLock', 'relics', 'rewards', 'stats', 'goedamTraces', 'goedamLog', 'gear', 'rerolls', 'rewardState', 'rewardPicksLeft'],
   // ult: 기획 15차 the character's own gauge (the rule)
-  member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId', 'ult'],
+  // fieldTime / dragCharges: 기획 17차 (지명권 default, 이중 장전)
+  member: ['defId', 'hp', 'maxHp', 'shield', 'statuses', 'dead', 'reviveRemaining', 'swapCooldownRemaining', 'swapCooldownTotal', 'normalCooldownRemaining', 'entityId', 'ult', 'fieldTime', 'dragCharges'],
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
-  stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage'],
+  stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage', 'justSwaps', 'justDodged'],
   telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total'],
   zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
   projectile: ['id', 'team', 'pos', 'targetId', 'targetPos', 'speed', 'color'],
-  offer: ['rewardId', 'partyIndex', 'name', 'description', 'rarity', 'isRelic'],
+  // family … rarityBumped: 기획 17차 (tags, 지명권 member / role, curse · coop · economy flag, 대가 text, 상자 bump)
+  offer: ['rewardId', 'partyIndex', 'name', 'description', 'rarity', 'isRelic', 'family', 'tags', 'target', 'member', 'role', 'flag', 'cost', 'rarityBumped'],
   applied: ['rewardId', 'partyIndex'],
   goedam: ['roomId', 'floor', 'label', 'players'],
   goedamProgress: ['stage', 'options', 'params', 'choice', 'outcome'],

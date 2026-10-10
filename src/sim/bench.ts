@@ -5,6 +5,7 @@
 import type { DamageSource, Effect } from '../types';
 import { PULSE_INTERVAL } from './constants';
 import { mergeStatus } from './status';
+import { receivedMultOf } from './rewards/base';
 import { activeEntity, emit, type SimPlayer, type World } from './world';
 
 /**
@@ -13,9 +14,10 @@ import { activeEntity, emit, type SimPlayer, type World } from './world';
  */
 export function benchHeal(w: World, p: SimPlayer, frac: number, healMult: number, creditPlayer: number | null): number {
   let total = 0;
+  const received = receivedMultOf(p); // 기획 17차 #생존
   p.party.forEach((m, idx) => {
     if (idx === p.activeIndex || m.dead) return;
-    const actual = Math.min(m.maxHp - m.hp, frac * m.maxHp * healMult);
+    const actual = Math.min(m.maxHp - m.hp, frac * m.maxHp * healMult * received);
     if (!(actual > 0)) return;
     m.hp += actual;
     total += actual;

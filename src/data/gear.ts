@@ -16,7 +16,8 @@ export const GEAR_SLOTS: readonly GearSlot[] = ['weapon', 'armor', 'charm', 'rel
 export const BASE_SLOTS = ['weapon', 'armor', 'charm'] as const;
 export type BaseSlot = (typeof BASE_SLOTS)[number];
 
-export type GearRarity = Rarity;
+/** 기획 17차: gear keeps 3 rarities (전설 is a floor-reward rarity only). */
+export type GearRarity = Exclude<Rarity, 'legendary'>;
 export const GEAR_RARITIES: readonly GearRarity[] = ['common', 'rare', 'epic'];
 
 /** What the sim sees of one piece (PlayerSetup.gear / PlayerState.gear). */

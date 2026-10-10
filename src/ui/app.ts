@@ -5,12 +5,14 @@
 
 import './styles.css';
 import './expedition.css';
-import type { Command, CommandResult, DragPreview, Game, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
+import type { Command, CommandResult, DragPreview, Game, GameEvent, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../config';
 import { createGame } from '../sim';
 import { fieldUltGauge } from '../sim/ultMode';
 import { createRenderer } from '../render';
 import { TickSmoother } from '../render/smooth';
+import { JustSlow } from '../render/juice';
+import { JUST_FX, JUST_LOG, cueAgeSec, type JustStampLog } from '../render/justFx';
 import { isSoloOnlyBuild, type NetStatus } from '../net/connection';
 import { LobbyClient, type StartMsg } from '../net/lobbyClient';
 import { RemoteGame } from '../net/remoteGame';
@@ -34,6 +36,7 @@ import { loadGearArtFiles, loadMode, loadStash, onStashChanged, saveMode, saveSt
 import { RUN_LOCK_REASON, loadoutOf, maxStartStageFor, setPreset, stashLocked } from '../expedition/stash';
 import { setBattleGearFiles } from '../render/gearArt';
 import { createToaster } from './toast';
+import { FEEL, loadFeel } from './storage';
 import {
   loadNickname,
   loadPreset,
@@ -79,6 +82,9 @@ export interface ProtoApi {
     readonly drawState: GameState | null;
     /** Test hook (기획 13차): the last few ult cut-ins on this screen — 'full' (mine) or 'mini' (another player's corner banner). */
     readonly cutIns: ReturnType<Renderer['cutInLog']>;
+    /** Test hook (기획 17차): the last 「저스트!」 stamps this screen drew, and this device's game-clock scale now (solo slow). */
+    readonly justStamps: readonly JustStampLog[];
+    readonly clockScale: number;
   };
   /** 기획 13차 효과음: play / ids / recent (last 64 requests, kept even when muted). */
   readonly sfx: SfxDebugApi;
@@ -102,6 +108,9 @@ export function startApp(root: HTMLElement): void {
   const renderer = createRenderer(stage.canvas);
   /** Solo: positions blended between sim ticks (30 Hz sim, 60 Hz screen). Multiplayer interpolates in RemoteGame. */
   const smoother = new TickSmoother();
+  // 기획 17차 저스트 교대: my 저스트 slows this device's solo game for a moment (multiplayer never changes the clock)
+  const justSlow = new JustSlow();
+  Object.assign(FEEL, loadFeel());
 
   let game: Game | null = null;
   let hud: Hud | null = null;
@@ -162,11 +171,21 @@ export function startApp(root: HTMLElement): void {
   // ─────────────────────────── screens ───────────────────────────
 
   const drag = new DragController({ stage, game: () => game, renderer: () => renderer, hud: () => hud, localPlayer: () => localPlayer });
-  const reward = new RewardOverlay(stage.screenLayer, i => {
-    const offer = game?.state.rewardOffersByPlayer[localPlayer]?.[i];
-    const r = game?.dispatch({ type: 'chooseReward', player: localPlayer, offerIndex: i });
-    if (r && !r.ok) hud?.toast(r.reason ?? '선택할 수 없어요', 'warn');
-    else if (offer) sfx.ui(offer.isRelic ? 'relic.get' : `reward.pick.${offer.rarity}`);
+  const reward = new RewardOverlay(stage.screenLayer, {
+    onChoose: (i, member) => {
+      const offer = game?.state.rewardOffersByPlayer[localPlayer]?.[i];
+      // 기획 17차 지명권: member / role cards carry the chosen party index
+      const r = game?.dispatch({ type: 'chooseReward', player: localPlayer, offerIndex: i, ...(member != null ? { member } : null) });
+      if (r && !r.ok) hud?.toast(r.reason ?? '선택할 수 없어요', 'warn');
+      else if (offer) sfx.ui(offer.isRelic ? 'relic.get' : offer.rarity === 'legendary' ? 'reward.pick.legend' : `reward.pick.${offer.rarity}`);
+    },
+    onReroll: () => {
+      // 기획 17차 다시 뽑기
+      const r = game?.dispatch({ type: 'rerollReward', player: localPlayer });
+      if (r && !r.ok) hud?.toast(r.reason ?? '다시 뽑을 수 없어요', 'warn');
+      else sfx.ui('reward.reroll');
+    },
+    onAutoPicked: text => hud?.toast(text, 'info'),
   });
   // 기획 10차: the 괴담 room sits right above the reward screen (pause / debug / result stack over it)
   const goedam = new GoedamScreen(stage.screenLayer, {
@@ -514,7 +533,11 @@ export function startApp(root: HTMLElement): void {
 
   function newHud(g: Game): Hud {
     hud?.destroy();
-    const hd = new Hud(stage.hudLayer, g, hudCallbacks, { localPlayer, multi: mode === 'multi', locate: w => renderer.worldToScreen(w) });
+    justSlow.reset();
+    JUST_FX.multi = mode === 'multi';
+    // 기획 17차: the multiplayer 「지금!」 cue runs early by the snapshot age + half the ping
+    const cueAge = mode === 'multi' ? () => (remote ? cueAgeSec(remote.snapshotAgeMs, remote.latencyMs) : 0) : undefined;
+    const hd = new Hud(stage.hudLayer, g, hudCallbacks, { localPlayer, multi: mode === 'multi', locate: w => renderer.worldToScreen(w), cueAge });
     hd.setDebugAllowed(canDebug());
     hd.setSpectateAction(mode === 'solo' ? '결과 보기' : remote?.isHost && !remoteExp ? null : '나가기');
     return hd;
@@ -767,6 +790,19 @@ export function startApp(root: HTMLElement): void {
     if (mode === 'solo' && document.hidden && screen === 'combat' && game?.state.phase === 'combat' && !paused) setPaused(true);
   });
 
+  /** 기획 17차: my 저스트 → the solo slow (설정 「저스트 슬로」) and a short buzz (설정 「진동」, Android Chrome only). */
+  function onMyJust(events: readonly GameEvent[], now: number): void {
+    if (!events.some(e => e.type === 'justSwap' && e.player === localPlayer)) return;
+    if (mode === 'solo' && FEEL.justSlow) justSlow.start(now);
+    if (FEEL.vibrate) {
+      try {
+        navigator.vibrate?.([15, 30, 25]);
+      } catch {
+        /* not supported (iPhone): nothing */
+      }
+    }
+  }
+
   // ── loop ──
   let last = performance.now();
   let lastLobbyRefresh = 0;
@@ -801,12 +837,16 @@ export function startApp(root: HTMLElement): void {
       return;
     }
     const running = !stage.portrait && (mode === 'multi' || !paused);
-    if (running) game.step(dt);
+    // 기획 17차: solo only — the same ticks, run slower for a moment after my 저스트 (results are unchanged)
+    const slow = mode === 'solo' && FEEL.justSlow ? justSlow.scale(now) : 1;
+    if (running) game.step(dt * slow);
     const events = game.drainEvents();
+    onMyJust(events, now);
+    reward.onEvents(events, localPlayer); // 기획 17차: 「#퇴장 3개 모음!」 stamp
     drag.frame();
     uiState.dragPreview = drag.dragPreview;
     uiState.freezeCamera = drag.active;
-    const drawState = mode === 'solo' ? smoother.view(game.state, now, game.tunables.gameSpeed) : game.state;
+    const drawState = mode === 'solo' ? smoother.view(game.state, now, game.tunables.gameSpeed * slow) : game.state;
     lastDrawState = drawState;
     renderer.render(drawState, events, running ? dt : 0, uiState);
     // 기획 13차 효과음: solo pause / portrait stop the sound (multiplayer menu keeps playing)
@@ -903,6 +943,12 @@ export function startApp(root: HTMLElement): void {
       },
       get cutIns() {
         return renderer.cutInLog();
+      },
+      get justStamps() {
+        return JUST_LOG.slice();
+      },
+      get clockScale() {
+        return mode === 'solo' && FEEL.justSlow ? justSlow.scale(performance.now()) : 1;
       },
     },
   };

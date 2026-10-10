@@ -440,6 +440,10 @@ def('boss.enrage', () => r(seq(2, 0.45, (_, t) => tone('saw', 600, 900, 0.4, { t
 def('enrage.heart', () => r(heart(0, 0.8), { loop: 0.7 }));
 def('boss.retreat', () => r([...chord(110, 'min', 1.2, { w: 'saw' }), ...boom(60, 28, 1)], { reverse: true, rev: 0.6 }));
 def('groggy.fill', () => r([bell(523, 0.35, { parts: [1, 2, 3] })]));
+// 기획 17차 저스트 교대: '팅-샹' (two bright notes) over a reversed wind; another player's is a small chime; the whiff
+def('just.swap', () => r([whoosh(600, 4200, 0.32, { e: 'swell', g: 0.7 }), ping(2093, 0.12, { t: 0.02, g: 0.8 }), bell(3136, 0.7, { t: 0.11, parts: [1, 2.01, 2.76], g: 0.7 }), ...partials([1568, 2349], 0.5, { t: 0.11, g: 0.45 })], { rev: 0.35 }));
+def('just.swap.far', () => r([ping(2093, 0.08, { g: 0.5 }), chime(3136, { t: 0.07, g: 0.45 })], { rev: 0.2 }));
+def('just.whiff', () => r([whoosh(4500, 900, 0.22, { g: 0.9 }), noise('white', 0.08, { t: 0.02, hp: [5000], g: 0.4 })]));
 def('groggy.break', () => r([...glass(12, 0, 1), bell(98, 1.8, { parts: [1, 1.48, 2.1, 2.9], g: 0.8 }), tone('sin', 120, 30, 0.9, { g: 0.9 })], { rev: 0.4 }));
 def('groggy.stars', () => r(seq(4, 0.25, (i, t) => ping(2000 + ((i * 377) % 1000), 0.12, { t, g: 0.4 })), { loop: 1 }));
 def('groggy.recover', () => r([tone('saw', 70, 90, 0.7, { vib: [12, 0.5], g: 0.5, e: 'hump' }), whoosh(400, 1500, 0.6)], { dist: 1.5 }));
@@ -556,6 +560,11 @@ def('reward.open', () => r([...seq(3, 0.09, (_, t) => noise('pink', 0.06, { t, b
 def('reward.pick.common', () => r([...click(0, 2000), chime(1046, { t: 0.03 })]));
 def('reward.pick.rare', () => r([...chord(784, 'maj', 0.6, { w: 'sin' }), ...seq(4, 0.04, (i, t) => ping(2600 + i * 300, 0.1, { t, g: 0.2 }))], { rev: 0.3 }));
 def('reward.pick.epic', () => r([whoosh(500, 3000, 0.5), ...chord(523, 'maj', 1, { t: 0.2, w: 'saw', a: 0.1 }), ...coin(0.5)], { rev: 0.4 }));
+// 기획 17차: 전설 pick, 다시 뽑기 (cards shuffled), a synergy set stamped, a reward proc in the fight (tiny)
+def('reward.pick.legend', () => r([...riser(0.35, 300, 1200, { g: 0.5 }), ...chord(523, 'maj', 1.3, { t: 0.32, w: 'saw', a: 0.05 }), bell(1046, 1.2, { t: 0.32, g: 0.7 }), ...seq(6, 0.05, (i, t) => coin(t + 0.4, 0.5 - i * 0.05)), ...crash(0.8, { t: 0.32, g: 0.3 })], { rev: 0.45 }));
+def('reward.reroll', () => r([...seq(5, 0.045, (i, t) => noise('pink', 0.05, { t, bp: [2200 + i * 400], q: 1.6, g: 0.8 })), whoosh(800, 3200, 0.28, { t: 0.05, g: 0.5 }), chime(1568, { t: 0.26, g: 0.6 })]));
+def('reward.set', () => r([...click(0, 900, 1), ...boom(120, 60, 0.18, { g: 0.6 }), ...arp([784, 988, 1175, 1568], 0.06, 0.35, { t: 0.05, w: 'tri' }), bell(1568, 0.9, { t: 0.3, g: 0.6 })], { rev: 0.35 }));
+def('reward.proc', () => r([ping(1760, 0.06, { g: 0.5 }), ping(2637, 0.08, { t: 0.04, g: 0.35 })]));
 def('relic.get', () => r([bell(392, 1.5, { g: 0.8 }), ...seq(5, 0.05, (i, t) => ping(3000 + i * 300, 0.1, { t: t + 0.1, g: 0.2 }))], { rev: 0.4 }));
 def('relic.proc', () => r([chime(2093, { g: 0.6 })]));
 def('result.best', () => r([ping(1568, 0.12)]));

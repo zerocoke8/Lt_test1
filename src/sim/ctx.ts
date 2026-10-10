@@ -107,6 +107,7 @@ function woundedAllyFor(w: World, e: SimEntity, slot: SkillSlot): number | null 
  * under that skill's slot (its burst is part of the drag skill's value); pet turrets and the rest stay 'summon'.
  */
 function summonSource(e: SimEntity): DamageSource {
+  if (e.rt.rewardSource) return 'relic'; // 기획 17차: reward summons (afterimages, turret, straw doll)
   const slot = e.rt.summonSlot;
   return slot === 'normal' || slot === 'drag' || slot === 'ult' ? slot : 'summon';
 }

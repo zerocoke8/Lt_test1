@@ -4,6 +4,7 @@
 // the old shared PlayerState.ult field — i.e. the 15차 refactor itself changed nothing else.
 // 기획 16차 템포: re-recorded once (rich run only; the boss run is unchanged) for the intended classic tempo change —
 // wave-on-clear, ring spawns near the party, normal arena width 24, waves per zone, LATE_STAT_GROWTH 1.36.
+// 기획 17차: 저스트 교대 + 층 보상 확장 (offers, rerolls, bots pick by score) — both runs re-recorded.
 // A rich multiplayer run (human + 2 bots, 괴담 rooms, 돌발 괴담, rewards, swaps, pets, ults, debug actions, a disconnect)
 // and a boss floor. The public state (sim-internal 'rt' stripped) is hashed every 10 ticks and every event is hashed in
 // order. If one of these fails, a default rule changed. Only re-record them for an intended rule change of today's game.
@@ -86,11 +87,11 @@ function bossRun(): RunHash {
   return hashRun(tg, 30 * 90, { 60: { type: 'debug', action: { kind: 'forceGroggy', fill: 0.85 } }, 90: { type: 'debug', action: { kind: 'chargeUlt' } } });
 }
 
-describe('golden: today\'s rules stay bit-identical (기획 16차: tempo)', () => {
-  it('rich 3-player run (rooms, field events, rewards, swaps, pets, ults, disconnect) matches the round-16 hashes', () => {
+describe('golden: today\'s rules stay bit-identical (기획 17차: 저스트 교대 + 층 보상)', () => {
+  it('rich 3-player run (rooms, field events, rewards, swaps, pets, ults, disconnect) matches the round-17 hashes', () => {
     expect(richRun()).toEqual(GOLDEN.rich);
   }, 120_000);
-  it('boss floor (groggy, ult, bot) matches the round-15 hashes', () => {
+  it('boss floor (groggy, ult, bot) matches the round-17 hashes', () => {
     expect(bossRun()).toEqual(GOLDEN.boss);
   }, 60_000);
 });
@@ -98,7 +99,11 @@ describe('golden: today\'s rules stay bit-identical (기획 16차: tempo)', () =
 // 기획 15차: per-character ult is the default (recorded once for that rule change).
 // 기획 16차 템포: rich re-recorded (wave-on-clear, ring spawns, width 24, zone waves, LATE 1.36) — one floor further in 300 s;
 // re-recorded again for the round's review fixes (mid boss weight 2, members ≥ 2.5 from the party, wave 0 below the banner).
+// 기획 17차: 저스트 교대 + 층 보상 확장 (offers, rerolls, bots pick by score) — numbers updated once after all
+// reward tracks and the balance pass landed (the boss run differs from the CORE capture only by botJustChance 0.3 → 0.03);
+// rich re-recorded for the round's review fixes (offer caps by tag, bot score 전설 2.6, 펫 쿨 cap, 연쇄 화상 needs a burn,
+// 욕심 without the skipped screen, 'ready since' stamps).
 const GOLDEN = {
-  rich: { state: 1537125942, events: 1743867907, ticks: 9000, floor: 7, kinds: 'bossGroggy,fieldEventEnd,goedamOpen,swapCdCut,ultCast,ultReady' },
-  boss: { state: 1309462957, events: 1727523516, ticks: 2700, floor: 5, kinds: 'bossGroggy,swapCdCut,ultCast,ultReady' },
+  rich: { state: 1795544179, events: 2619879786, ticks: 9000, floor: 7, kinds: 'bossGroggy,fieldEventEnd,goedamOpen,swapCdCut,ultCast,ultReady' },
+  boss: { state: 3116372816, events: 243971659, ticks: 2700, floor: 5, kinds: 'bossGroggy,swapCdCut,ultCast,ultReady' },
 };

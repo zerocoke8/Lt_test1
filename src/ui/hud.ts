@@ -3,6 +3,8 @@
 //  좌하단: 내 캐릭터 카드 3장 (카드마다 일반스킬 쿨 마름모) · 하단 중앙: 궁극기 게이지 · 우하단: 펫 카드 3장
 //  중앙: 배너(층 시작/클리어/광폭화), 필드 비었을 때 안내, 관전 안내
 //  기획 10차: 우상단 타이머 아래 흔적 칩 (아이콘 + 남은 층, 최대 4개 + '+n'), 층 시작 배너의 흔적 한 줄, 흔적 만료 토스트
+//  기획 17차: 필드 카드 저스트 신호 (빨강 = 위험, 금색 = 지금!), 초보 「지금!」 화살표, 보상 칩 (빚·상자·욕심·촛불·손톱),
+//            이중 장전 충전 칸, 두 번 차는 게이지 (궁극기 버튼 안쪽 두 번째 고리)
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
 import {
@@ -31,6 +33,9 @@ import { createToaster, type ToastKind } from './toast';
 import { GroggyHud, groggyDown } from './groggyHud';
 import { CardFx } from './cardFx';
 import { FieldEventHud } from './fieldEventHud';
+import { JustHud } from './justHud';
+import { justParams } from '../sim/justSwap';
+import { rwGaugeCap } from '../sim/rewards/hooks';
 import { sfx } from '../audio';
 
 /** Solo runs: the human is player 0. Multiplayer passes the server slot as HudOptions.localPlayer. */
@@ -38,6 +43,9 @@ export const LOCAL_PLAYER = 0;
 const DOM_INTERVAL_MS = 1000 / 30 - 2;
 const ULT_R = 50;
 const ULT_C = 2 * Math.PI * ULT_R;
+/** 기획 17차 두 번 차는 게이지: the inner ring (charge above 100 %). */
+const ULT_R2 = 40;
+const ULT_C2 = 2 * Math.PI * ULT_R2;
 /** Hold a card this long without moving → skill sheet. */
 const LONG_PRESS_MS = 420;
 /** Finger travel (client px) that turns a long-press into a drag. */
@@ -72,6 +80,8 @@ export interface HudOptions {
   multi?: boolean;
   /** World → logical screen px (the renderer's camera): the skill sheet keeps clear of my character. */
   locate?: (world: Vec2) => Vec2;
+  /** 기획 17차 multiplayer: seconds the 저스트 '지금!' cue runs early (snapshot age + half the ping). */
+  cueAge?: () => number;
 }
 
 /** A slot driven by the AI although it is not one of the stock bots (a dropped human, R34). */
@@ -108,6 +118,8 @@ interface CharCard {
   normT: HTMLElement;
   /** 기획 14차 궁극기 개별 게이지: this card's own ult gauge, a small ring at the portrait's lower-right. */
   ultRing: HTMLElement;
+  /** 기획 17차 이중 장전: charge pips over the portrait (hidden without the reward). */
+  charges: HTMLElement;
 }
 
 interface PetCard {
@@ -201,7 +213,13 @@ export class Hud {
   readonly root: HTMLElement;
   readonly charCards: CharCard[] = [];
   /** 기획 13차: bench-card effects of the renewed skills (앙코르 badge, revive cut, rewind). */
-  private readonly cardFx = new CardFx(() => this.charCards);
+  private readonly cardFx = new CardFx(
+    () => this.charCards,
+    () => {
+      const me = this.game.state.players[this.localPlayer];
+      return me ? justParams({ tunables: this.game.tunables }, me).mult : 1.5;
+    },
+  );
   readonly petCards: PetCard[] = [];
   readonly localPlayer: number;
   readonly multi: boolean;
@@ -248,6 +266,8 @@ export class Hud {
   // ult
   private readonly ult: HTMLElement;
   private readonly ultArc: SVGCircleElement;
+  /** 기획 17차 두 번 차는 게이지: the charge above 100 % as an inner ring. */
+  private readonly ultArc2: SVGCircleElement;
   private readonly ultPct: HTMLElement;
   private readonly ultSub: HTMLElement;
   private readonly ultName: HTMLElement;
@@ -285,6 +305,8 @@ export class Hud {
   private fieldEvent!: FieldEventHud;
   /** 기획 13차: boss groggy row / pill / held phase banner (ui/groggyHud.ts). */
   private readonly groggy: GroggyHud;
+  /** 기획 17차: 저스트 cue, learner chevrons, reward chips (ui/justHud.ts). */
+  private readonly just: JustHud;
 
   constructor(layer: HTMLElement, game: Game, cb: HudCallbacks, opts: HudOptions = {}) {
     this.game = game;
@@ -402,10 +424,12 @@ export class Hud {
       // 기획 14차 궁극기 개별 게이지: mirrored on the right edge — gold sweep = charge, lit when full
       const ultRing = h('div', 'cc-ult', el);
       h('span', 'cc-ult-g', ultRing, '궁');
+      const charges = h('div', 'cc-charges is-hidden', frame);
+      h('span', 'cc-just-chev', el, '지금!');
       // hover help on the card itself (the diamond lets pointers through to the card, so a title there never shows)
       el.title = `${def.name} · 왼쪽 아래 마름모 = 일반스킬 ${def.normal.name} 쿨 (자동) · 길게 누르면 스킬 정보`;
       el.addEventListener('pointerdown', ev => this.onCardPointerDown(i, ev, el));
-      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, por, norm, normT, ultRing });
+      this.charCards.push({ el, def, pips, cd, count, hpFill, hpShield, state, por, norm, normT, ultRing, charges });
     });
 
     // ── bottom-center: ult gauge ──
@@ -429,6 +453,15 @@ export class Hud {
     }
     this.ultArc.setAttribute('stroke-dasharray', ULT_C.toFixed(2));
     this.ultArc.setAttribute('transform', 'rotate(-90 60 60)');
+    this.ultArc2 = document.createElementNS(svgNs, 'circle');
+    this.ultArc2.setAttribute('class', 'ult-arc2');
+    this.ultArc2.setAttribute('cx', '60');
+    this.ultArc2.setAttribute('cy', '60');
+    this.ultArc2.setAttribute('r', String(ULT_R2));
+    this.ultArc2.setAttribute('stroke-dasharray', ULT_C2.toFixed(2));
+    this.ultArc2.setAttribute('stroke-dashoffset', ULT_C2.toFixed(2));
+    this.ultArc2.setAttribute('transform', 'rotate(-90 60 60)');
+    svg.appendChild(this.ultArc2);
     this.ult.appendChild(svg);
     const core = h('div', 'ult-core', this.ult);
     this.ultPct = h('div', 'ult-pct', core);
@@ -474,6 +507,15 @@ export class Hud {
       localPlayer: this.localPlayer,
       toast: (text, kind) => this.toast(text, kind),
       pulseTargets: () => ({ ult: this.ult, pets: this.petCards.map(c => c.el), chars: this.charCards.map(c => c.el), traces: this.traces }),
+    });
+    const cueAge = opts.cueAge ?? (() => 0);
+    this.just = new JustHud({
+      root: this.root,
+      localPlayer: this.localPlayer,
+      toast: (text, kind) => this.toast(text, kind),
+      covered: () => this.covered,
+      tunables: () => this.game.tunables,
+      cueAge,
     });
   }
 
@@ -754,6 +796,7 @@ export class Hud {
     for (const e of events) {
       if (this.groggy.onEvent(s, e)) continue; // 기획 13차: a phase crossed while the boss is down waits for it to stand up
       if (this.cardFx.onEvent(e, this.localPlayer)) continue;
+      this.just.onEvent(s, e); // 기획 17차
       switch (e.type) {
         case 'floorStart':
           if (s.expedition) {
@@ -907,6 +950,8 @@ export class Hud {
     this.updateCenter(s, me);
     this.updateSheet(s, me);
     this.updateTraces(me);
+    this.just.updateChips(s, me); // 기획 17차
+    this.just.flush();
     if (this.tipUntil > 0 && (now > this.tipUntil || s.phase !== 'combat')) {
       this.tipUntil = 0;
       show(this.tip, false);
@@ -1040,6 +1085,8 @@ export class Hud {
 
   private updateCards(s: GameState, me: PlayerState): void {
     const combat = s.phase === 'combat' && !me.out;
+    // 기획 17차: the 저스트 cue of my field character (once per DOM update)
+    const cue = combat ? this.just.cue(s) : { danger: false, now: false };
     const simDt = this.prevSimTime >= 0 ? Math.max(0, s.time - this.prevSimTime) : 0;
     this.prevSimTime = s.time;
     me.party.forEach((m, i) => {
@@ -1062,6 +1109,8 @@ export class Hud {
       setClass(c.el, 'is-ready', ready);
       // 기획 13차: the boss is down — every ready card says '지금!' (the finishing swap)
       setClass(c.el, 'is-now', ready && groggyDown(s));
+      this.just.applyCard(c.el, active && !m.dead, ready, cue);
+      this.updateCharges(c, m);
       // re-appear cooldown = drag-skill cooldown (기획서 4장): the seconds are the big number on the portrait only
       setText(c.state, me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : cooling ? '쿨타임' : ready ? '교체가능' : '교체불가');
       // big countdown: revive time when dead, else the re-appear cooldown of a benched card.
@@ -1099,6 +1148,19 @@ export class Hud {
     setStyle(c.ultRing, '--u', `${Math.round(charge * 72) * 5}deg`);
     const left = ultSecondsLeft(this.game.tunables, me, i);
     setAttr(c.ultRing, 'title', full ? '궁극기 준비' : `궁극기 ${Math.floor(charge * 100)}%${Number.isFinite(left) ? ` · ${countdown(left)}초 후` : ''}`);
+  }
+
+  /** 기획 17차 이중 장전: one pip per charge (filled = ready to use even while the card cools down). */
+  private updateCharges(c: CharCard, m: PlayerState['party'][number]): void {
+    const n = m.dragCharges;
+    show(c.charges, n != null);
+    if (n == null) return;
+    const key = String(n);
+    if (c.charges.dataset.n === key) return;
+    c.charges.dataset.n = key;
+    c.charges.replaceChildren();
+    for (let k = 0; k < 2; k++) h('i', k < n ? 'is-on' : '', c.charges);
+    c.charges.title = `이중 장전 · 충전 ${n}/2`;
   }
 
   /** "-3초" floating off a card whose re-appear cooldown was just cut, plus a flash of its countdown. */
@@ -1154,6 +1216,12 @@ export class Hud {
     // per-character gauges (기획 15차) → the field character's own (an empty field shows an empty, disabled button)
     const gauge = fieldUltGauge(me);
     const charge = Math.max(0, Math.min(1, gauge?.charge ?? 0));
+    // 기획 17차 두 번 차는 게이지: above 100 % fills an inner ring up to the cap
+    const cap = rwGaugeCap(me);
+    const over = cap > 1 ? Math.max(0, Math.min(1, ((gauge?.charge ?? 0) - 1) / (cap - 1))) : 0;
+    setAttr(this.ultArc2, 'stroke-dashoffset', (ULT_C2 * (1 - over)).toFixed(1));
+    setClass(this.ult, 'has-over', cap > 1);
+    setClass(this.ult, 'is-over', over > 0);
     const full = charge >= 1;
     const activeDef = me.activeIndex != null ? getCharacter(me.party[me.activeIndex].defId) : null;
     const usable = full && !!activeDef && !me.out && s.phase === 'combat';
@@ -1161,10 +1229,11 @@ export class Hud {
     setClass(this.ult, 'is-full', usable);
     setClass(this.ult, 'is-charged', full);
     setClass(this.ult, 'is-disabled', !activeDef || me.out);
-    setText(this.ultPct, me.out ? '—' : full ? (usable ? '탭!' : '100%') : `${Math.floor(charge * 100)}%`);
+    const pct = Math.floor((gauge?.charge ?? 0) * 100);
+    setText(this.ultPct, me.out ? '—' : full ? (usable ? '탭!' : `${pct}%`) : `${Math.floor(charge * 100)}%`);
     // charge is time-only (R9): seconds until full = what's left × charge time (기획 10차: traces change its speed)
     const left = ultSecondsLeft(this.game.tunables, me);
-    setText(this.ultSub, me.out ? '관전 중' : full ? (activeDef ? '준비 완료' : '필드 비었음') : !gauge ? '필드 비었음' : `${countdown(left)}초 후`);
+    setText(this.ultSub, me.out ? '관전 중' : full ? (activeDef ? (over > 0 ? `${pct}%` : '준비 완료') : '필드 비었음') : !gauge ? '필드 비었음' : `${countdown(left)}초 후`);
     setText(this.ultName, activeDef ? activeDef.ult.name : '—');
     setStyle(this.ultName, 'color', activeDef ? activeDef.color : '');
   }
