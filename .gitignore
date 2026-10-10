@@ -6,3 +6,7 @@ dist-server/
 test-results/
 playwright-report/
 dist-artifact/
+
+# local secrets (API keys) — never commit
+.env
+.env.*
