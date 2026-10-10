@@ -24,7 +24,9 @@
 //   OVERHEAD=45               seconds outside combat per stage (banner, reward pick, room 1/5, lobby, matching) for
 //                             the modelled stage total (spec 3-3: about 45 s)
 //
-// Rewards: player 0 takes the first offer (active) or a random one (botseat); 괴담 rooms: '지나간다'.
+// Rewards (기획 17차): player 0 picks by botPickIndex (as the bots and the server timeout do); the chain carry keeps the
+// rerolls / rewardState counters through the real run model (extractCarry / applyCarry). 괴담 rooms: '지나간다'.
+// JUST=off: no 저스트 교대 (justSwapWindow 0) — the 16차 rule, for comparison.
 // Bots get T(stage − 1) commons from the sim (seatGear). Per cell: clear / wipe / timeout %, combat seconds (median /
 // p90), modelled total (combat + OVERHEAD), guardian alive time, boss enrage %, groggy breaks, character deaths per run
 // (all / player 0), loot of player 0 (rarity mix, relics per boss box).
@@ -44,6 +46,7 @@ import { fieldUltGauge, memberUltGauge } from '../../src/sim/ultMode';
 import { activeEntity, clampToArena, dist, isAlive, type SimEntity, type World } from '../../src/sim/world';
 import type { GameEvent, Tunables, Vec2 } from '../../src/types';
 import { goedamPilot, parseGoedamPolicy, type RewardPick } from '../playtest/goedam-policy';
+import { botPickIndex } from '../../src/sim/rewards';
 
 type Policy = 'active' | 'botseat';
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
@@ -186,7 +189,8 @@ function botSeatThink(w: World): void {
   ps.forEach((q, i) => (q.isBot = was[i]));
 }
 
-const rewardPick: RewardPick = POLICY === 'botseat' ? (offers, _pi, w) => w.rng.int(0, offers.length - 1) : () => 0;
+/** 기획 17차: player 0 picks like the bots (botPickIndex + the card's default member) in both policies. */
+const rewardPick: RewardPick = (offers, pi, w) => Math.max(0, botPickIndex(w.state.players[pi], offers));
 const GOEDAM = parseGoedamPolicy('leave');
 
 // ─────────────────────────── one stage ───────────────────────────
@@ -308,7 +312,7 @@ function summarize(stage: number, delta: number, recs: StageRec[]): Record<strin
   };
 }
 
-const tunables: Tunables = { ...DEFAULT_TUNABLES, ...TUN };
+const tunables: Tunables = { ...DEFAULT_TUNABLES, ...(env.JUST === 'off' ? { justSwapWindow: 0 } : {}), ...TUN };
 const seeds = Array.from({ length: RUNS }, (_, k) => SEED0 + k * 7919);
 const cells: unknown[] = [];
 

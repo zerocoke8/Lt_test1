@@ -145,7 +145,9 @@ function roomAfter(w: World, floor: number): GoedamRoomDef | null {
 function lastCopyable(p: SimPlayer): GoedamParams['copy'] {
   for (let i = p.rewards.length - 1; i >= 0; i--) {
     const r = p.rewards[i];
-    if (getReward(r.rewardId).rarity !== 'epic') return { rewardId: r.rewardId, partyIndex: r.partyIndex };
+    const def = getReward(r.rewardId);
+    // 기획 17차: never a once-only card or a reward-screen card (they would not stack)
+    if ((def.rarity === 'common' || def.rarity === 'rare') && !def.unique && def.target !== 'self') return { rewardId: r.rewardId, partyIndex: r.partyIndex };
   }
   return null;
 }

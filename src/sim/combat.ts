@@ -11,6 +11,8 @@ import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
 import { benchMaxHp, effStats } from './stats';
 import { applyStatus, statusValue, storeStasisDamage } from './status';
+import { rwDealtMult, rwOnCharacterDeath, rwOnKill, rwReviveTime, rwTakenMult } from './rewards/hooks';
+import { receivedMult } from './rewards/base';
 import {
   aliveEnemiesOf,
   copy,
@@ -42,6 +44,8 @@ export interface DmgSrc {
   pure?: boolean;
   /** Casting character's party index (CastCtx carries it): 기획 15차 원정 relics work for their wearer only. */
   partyIndex?: number | null;
+  /** 기획 17차: a 저스트 교대 drag's hit (CastCtx.justMult; the damage event gets 'just'). */
+  justMult?: number;
 }
 
 /** Damage sources whose hits carry the skill name on the damage event (render shows it under the number). */
@@ -90,16 +94,21 @@ function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg:
     if (sp.isBot) dmg *= Math.max(0, w.tunables.botDamageMult);
     const rage = target.tier === 'boss' || target.tier === 'mid' ? relicScale(sp, src.partyIndex, 'rage_breaker') : 0;
     if (rage > 0) dmg *= 1 + relicParam('rage_breaker', target.enraged ? 'enragedPct' : 'pct') * rage;
+    dmg *= rwDealtMult(w, src, target); // 기획 17차 floor rewards
   }
   dmg *= 1 - effStats(w, target).def;
-  // 기획 10차: 괴담 traces change the damage my characters take (once per hit)
-  if (target.kind === 'character' && target.ownerPlayer != null) dmg *= damageTakenMult(w.state.players[target.ownerPlayer]);
+  // 기획 10차: 괴담 traces change the damage my characters take (once per hit); 기획 17차: reward multipliers and guards
+  if (target.kind === 'character' && target.ownerPlayer != null) {
+    const owner = w.state.players[target.ownerPlayer];
+    dmg *= damageTakenMult(owner) * rwTakenMult(w, target, owner);
+  }
   return { dmg, weak, groggy };
 }
 
 /** Apply raw (pre-mitigation) damage. Returns the mitigated hit (incl. shield-absorbed, incl. overkill). */
 export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: number, crit: boolean): number {
   if (target.eventTag === 'ward') return 0; // 기획 12차: the patient / sleepwalker never take damage
+  if (target.rt.untargetable) return 0; // 기획 17차: reward afterimages, turrets, mines
   if (!isAlive(target) || !(raw > 0)) return 0;
   if (target.team === src.team) return 0;
   if (target.invulnTime > 0) return 0;
@@ -127,6 +136,7 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     ...(src.name && SKILL_NAMED.has(src.source) ? { skillName: src.name } : null),
     ...(weak ? { weak: true as const } : null),
     ...(groggy ? { groggy: true as const, ...(src.isDrag ? { drag: true as const } : null) } : null),
+    ...(src.justMult != null ? { just: true as const } : null),
   });
   const dealt = absorbed + Math.min(dmg - absorbed, hpBefore);
   storeStasisDamage(target, dealt); // 기획 13차 정지: stored for the rebound
@@ -184,7 +194,7 @@ function fieldCharacterOf(w: World, player: number | null): SimEntity | null {
 /** fromId (기획 12차): the 흡혼-marked enemy a drain heal came from (cosmetic, on the event only). */
 export function heal(w: World, player: number | null, target: SimEntity, amount: number, fromId?: number): number {
   if (!isAlive(target) || !(amount > 0)) return 0;
-  const actual = Math.min(target.maxHp - target.hp, amount);
+  const actual = Math.min(target.maxHp - target.hp, amount * receivedMult(w, target)); // 기획 17차 #생존
   if (!(actual > 0)) return 0;
   target.hp += actual;
   emit(w, { type: 'heal', targetId: target.id, amount: actual, pos: copy(target.pos), ...(fromId != null ? { from: fromId } : null) });
@@ -192,8 +202,10 @@ export function heal(w: World, player: number | null, target: SimEntity, amount:
   return actual;
 }
 
-export function addShield(target: SimEntity, amount: number, duration: number): void {
+/** w (기획 17차): when given, the #생존 set raises the shield p's characters receive. */
+export function addShield(target: SimEntity, amount: number, duration: number, w?: World): void {
   if (!isAlive(target) || !(amount > 0)) return;
+  if (w) amount *= receivedMult(w, target);
   target.shield = Math.min(target.maxHp, target.shield + amount);
   target.rt.shieldTime = Math.max(target.rt.shieldTime, duration);
 }
@@ -228,6 +240,7 @@ export function killEntity(w: World, e: SimEntity, killer: DmgSrc | null, opts?:
       const mark = relicScale(kp, killer?.partyIndex, 'hunter_mark');
       if (mark > 0) reduceBenchSwapCd(kp, relicParam('hunter_mark', 'seconds') * mark);
     }
+    rwOnKill(w, e, kp ? kp.id : null); // 기획 17차
   }
   if (w.state.fieldEvent) fieldEventDeath(w, e, killer);
 }
@@ -246,8 +259,10 @@ function characterDied(w: World, e: SimEntity): void {
   m.entityId = null;
   const fk = relicScale(p, idx, 'phoenix_feather');
   const phoenix = fk > 0 ? 1 - Math.min(0.9, relicParam('phoenix_feather', 'revivePct') * fk) : 1;
-  m.reviveRemaining = Math.max(0, w.tunables.reviveTime) * phoenix;
-  if (p.activeIndex === idx) p.activeIndex = null;
+  m.reviveRemaining = rwReviveTime(p, idx, Math.max(0, w.tunables.reviveTime) * phoenix); // 기획 17차
+  const wasField = p.activeIndex === idx;
+  if (wasField) p.activeIndex = null;
+  rwOnCharacterDeath(w, p, idx, wasField); // 기획 17차 (빈자리의 대타: before the out check)
   if (!p.out && p.party.every(x => x.dead)) {
     p.out = true;
     emit(w, { type: 'playerOut', player: p.id });

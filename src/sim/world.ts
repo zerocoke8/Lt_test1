@@ -71,6 +71,13 @@ export interface EntityRt {
   eventAi?: FieldEventAi | null;
   /** 기획 13차: seconds a boss / mid boss stays immune to stasis after one ended (STASIS.immune). */
   stasisImmune?: number;
+  // 기획 17차 floor rewards (src/sim/rewards/fx.ts)
+  /** Monsters never target it and nothing damages it (reward afterimages, turret, mines). */
+  untargetable?: boolean;
+  /** A reward summon: its hits count as 'relic' damage (no groggy). */
+  rewardSource?: boolean;
+  /** Reward damage reductions (fx.guardAdd): fraction until sim time `until` (all of them together max −50 %). */
+  guards?: { frac: number; until: number }[];
 }
 export interface SimEntity extends Entity {
   rt: EntityRt;
@@ -85,6 +92,10 @@ export interface MemberRt {
   evac?: { left: number; rate: number; acc: number };
   /** 응급 후송: sim time it may trigger again. */
   evacReadyAt?: number;
+  /** 기획 17차: sim time this card's re-appear cooldown last reached 0 (준비 즉시 / 오래 쉰 자의 분노). */
+  readyAt?: number;
+  /** 기획 17차: the card was seen cooling since its last ready (catches cooldowns set to 0 directly, not counted down). */
+  cooling?: boolean;
 }
 export interface SimMember extends PartyMember {
   rt: MemberRt;
@@ -103,6 +114,8 @@ export interface BotBrain {
   fieldEventReactAt?: number | null;
   /** 기획 13차: the boss groggy (w.groggy.breakSerial, run-wide) this bot already reacted to. */
   groggySeen?: number;
+  /** 기획 17차 저스트: telegraph ids this bot already rolled its just chance for (newest last, ≤ 16). */
+  justRolled?: number[];
 }
 export interface PlayerRt {
   bot: BotBrain;
@@ -110,6 +123,56 @@ export interface PlayerRt {
   rejoinNextFloor?: boolean;
   /** 기획 12차 (메딕 대기실 간호): seconds accumulated toward the next bench-regen pulse. */
   benchRegenAcc?: number;
+  // 기획 17차
+  /** 저스트 교대: telegraph ids already credited (newest last, ≤ JUST_SWAP.credited), sim time of the next allowed just. */
+  justCredited?: number[];
+  justReadyAt?: number;
+  /** The open floor-reward screen (rolls, rerolls, picks). */
+  offerScreen?: OfferScreen;
+  /** Debug 'offerFixture': the next normal screen shows a legendary. */
+  offerFixture?: boolean;
+  /** Reward-owned runtime numbers (internal cooldowns as sim times, stacks): key = '<family>.<what>'. */
+  reward?: Record<string, number>;
+  /** Reward zones (cap 4), summons (afterimage cap 2, turret 1, straw doll) and mines of this player, oldest first. */
+  rewardZones?: number[];
+  rewardUnits?: { id: number; group: RewardUnitGroup }[];
+  mines?: RewardMine[];
+}
+
+/** 기획 17차: cap groups of reward summons (fx.spawnShooter / spawnDecoy). */
+export type RewardUnitGroup = 'afterimage' | 'turret' | 'decoy';
+
+/** 기획 17차 발밑 지뢰 (fx.placeMine): the mine entity and what it does when an enemy steps in. */
+export interface RewardMine {
+  id: number;
+  radius: number;
+  amount: number;
+  root: number;
+  ctx: CastCtx;
+  family: string;
+}
+
+/** 기획 17차: what offerMods decided for a screen (kept for its rerolls). */
+export interface OfferMods {
+  /** Rarity steps up for every card (상자 속 상자: 1). */
+  rarityBump: number;
+  count: number;
+  picks: number;
+  /** No screen at all (빚쟁이의 방문, 욕심쟁이 계약서): skipBy = the family that took it, skipText = the toast. */
+  skip: boolean;
+  skipBy?: string;
+  skipText?: string;
+}
+
+/** 기획 17차: one open reward screen of a player (rt; the cards themselves are state.rewardOffersByPlayer). */
+export interface OfferScreen {
+  relic: boolean;
+  mods: OfferMods;
+  /** 0 = the first roll, +1 per reroll (offer rng stream). */
+  rollNo: number;
+  /** Families shown on this screen so far (a reroll never shows them again). */
+  shown: string[];
+  picksTaken: number;
 }
 export interface SimPlayer extends PlayerState {
   party: SimMember[];
@@ -165,6 +228,12 @@ export interface CastCtx {
    * cut-in drops the rest and refunds the gauge only while none has (players.ts refundUnlandedUlts).
    */
   ultCast?: { landed: boolean; member?: number | null };
+  /** 기획 17차 저스트 교대: this drag's power multiplier (already in dmg/heal/shield mults; damage events get 'just'). */
+  justMult?: number;
+  /** 기획 17차 (멈춘 숨): every damage effect of this cast is a crit. */
+  forceCrit?: boolean;
+  /** 기획 17차: reward groggy multiplier of this cast (with the hooks' groggyMult, max ×2 per cast). */
+  groggyMult?: number;
 }
 
 export interface GroggyMark {
@@ -185,6 +254,8 @@ export interface GroggyRt {
   sinceGain: number;
   /** Breaks this run (never reset): bots key their once-per-break reaction on it, not on the per-floor count. */
   breakSerial: number;
+  /** 기획 17차: gauge share rewards filled directly since the last break (fx.addRewardGroggy, max 30 % per cycle). */
+  rewardGain?: number;
 }
 
 export interface SimZone extends Zone {
@@ -236,7 +307,20 @@ export interface PendingEcho {
   /** The other parts' telegraphs (multi-part drag skills: every spot is shown, not only the first). */
   extraTelegraphIds: number[];
 }
-export type Pending = PendingHit | PendingEcho;
+/**
+ * 기획 17차: a reward's delayed beat (fx.scheduleReward). tag 'dragEnd' = the core's "drag's last part landed"
+ * (hooks onDragEnd, data.idx); any other tag goes to the hooks' onDelay.
+ */
+export interface PendingReward {
+  kind: 'rewardDelay';
+  player: number;
+  tag: string;
+  remaining: number;
+  data: Record<string, number>;
+  pos?: Vec2;
+  ctx?: CastCtx;
+}
+export type Pending = PendingHit | PendingEcho | PendingReward;
 
 export interface PendingSpawn {
   remaining: number;
@@ -307,6 +391,8 @@ export interface World {
   groggy: GroggyRt;
   /** 기획 15차 원정: this stage game (absent in the classic tower). */
   expedition?: ExpeditionRt;
+  /** 기획 17차 debug 「저스트 연습」: players with the drill on, seconds to their next drill circle. */
+  justDrill?: { player: number; next: number }[];
 }
 
 // ─────────────────────────── Helpers ───────────────────────────

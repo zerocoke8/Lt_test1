@@ -59,6 +59,8 @@ function stats(): ContributionStats {
     groggyPoints: 0,
     groggyBreaks: 0,
     groggyDamage: 0,
+    justSwaps: 0,
+    justDodged: 0,
   };
 }
 
@@ -149,6 +151,7 @@ function player(id: number, name: string, isBot: boolean, chars: string[], activ
     stats: stats(),
     goedamTraces: [],
     goedamLog: [],
+    rerolls: 1,
   };
 }
 

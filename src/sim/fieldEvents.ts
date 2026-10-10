@@ -48,6 +48,7 @@ import {
   type SimPlayer,
   type World,
 } from './world';
+import { rwOnFieldEventSuccess } from './rewards/hooks';
 
 const STREAM = { plan: 1, start: 2, pos: 3, ai: 4, forced: 5 } as const;
 
@@ -856,6 +857,7 @@ function finish(w: World, success: boolean): void {
   if (!success) return;
   if (credit != null && s.players[credit]) s.players[credit].stats.fieldEvents++;
   applyReward(w, def.reward);
+  rwOnFieldEventSuccess(w); // 기획 17차 (괴담 사냥꾼)
 }
 
 /** The printer was destroyed: what it printed turns to paper (no kill credit) and queued prints never come. */

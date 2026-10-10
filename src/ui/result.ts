@@ -108,6 +108,8 @@ export function createResultScreen(
     };
     kvRow('분당 교체', `${t.swapsPerMinute.toFixed(1)}회`);
     kvRow('궁극기 대기 평균', me && me.stats.ultDelayCount > 0 ? `${t.avgUltDelay.toFixed(1)}초` : '사용 안 함');
+    // 기획 17차: 저스트 교대 count (+ attacks dodged when more than one at once)
+    kvRow('저스트 교대', justText(me?.stats.justSwaps ?? 0, me?.stats.justDodged ?? 0));
     // 기획 12차: 돌발 괴담 n/m 성공 + who resolved them
     const fe = (t.fieldEvents ?? []).filter(x => x.seconds > 0 || x.success);
     if (fe.length) {
@@ -172,4 +174,10 @@ export function createResultScreen(
       el.replaceChildren();
     },
   };
+}
+
+/** '3회' / '3회 · 공격 4번 피함' (기획 17차). PURE. */
+export function justText(swaps: number, dodged: number): string {
+  if (!(swaps > 0)) return '0회';
+  return dodged > swaps ? `${swaps}회 · 공격 ${dodged}번 피함` : `${swaps}회`;
 }

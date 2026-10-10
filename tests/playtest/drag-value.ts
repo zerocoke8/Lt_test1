@@ -148,6 +148,8 @@ function rewardRank(eff: RewardEffect): number {
       return 15;
     case 'swapCooldown':
       return 16;
+    case 'trigger':
+      return 30; // 기획 17차: trigger families (behaviour in the reward hooks)
   }
 }
 

@@ -32,8 +32,10 @@ export const EXPEDITION = {
    * 원정 전용 단계 배율 (monster HP · attack), stage s → index s − 1. 기획 16차 밸런스 (balance.md 16장): retuned on the
    * one-floor stages to the 11-1 clear targets (15차: 1.3 · 2.4 · 2.0 · 1.72 · 1.55 · 1.42 · 1.2 · 1.18 · 1.18 · 0.98 ·
    * 0.94 · 0.97). Boss stages read with bossHp: their HP is stageMult × bossHp, their attack stageMult alone.
+   * 기획 17차 밸런스 (balance.md 17-7): 저스트 교대 made stages 6 · 10 · 11 · 12 easier than the targets (+8 · +9 · +7 ·
+   * +12 %p) → 1.54 · 0.98 · 0.96 · 1.04 raised to 1.56 · 1.02 · 1.0 · 1.08.
    */
-  stageMult: [1.6, 2.4, 1.9, 1.72, 1.5, 1.54, 1.28, 1.25, 1.32, 0.98, 0.96, 1.04] as number[],
+  stageMult: [1.6, 2.4, 1.9, 1.72, 1.5, 1.56, 1.28, 1.25, 1.32, 1.02, 1.0, 1.08] as number[],
   /** 기획 16차: waves per stage (index s − 1); boss stages 0 (the boss alone). */
   waves: [7, 7, 0, 6, 6, 0, 6, 6, 0, 6, 6, 0] as number[],
   /** 기획 16차: the max gap (s) between wave warnings (FloorPlan.maxGap; the classic tower uses tunables.waveInterval). */

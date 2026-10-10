@@ -2,14 +2,16 @@
 
 import type { AreaShape, Command, CommandResult, DebugAction, Game, GameEvent, GameSetup, Vec2 } from '../types';
 import { PLAYER_COLORS, TICK_DT } from '../config';
-import { GOEDAM_ROOMS, getCharacter, getPet, isFieldEventId } from '../data';
+import { GOEDAM_ROOMS, getCharacter, getPet, getReward, isFieldEventId } from '../data';
+import { REWARD_IDS, defaultMember, grantReward } from './rewards/offers';
+import { tickJustDrill, toggleJustDrill } from './justDrill';
 import { BOT } from './constants';
 import { tickBots } from './bot';
 import { killEntity, tickProjectiles } from './combat';
 import { createCharacterEntity } from './entities';
 import { forceFieldEvent, newFieldEventRt, tickFieldEvents } from './fieldEvents';
 import { forceGroggy, tickGroggy } from './groggy';
-import { chooseReward, clearRewardOffers, enrage, floorClear, goedamCommand, planFloor, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
+import { chooseReward, clearRewardOffers, enrage, floorClear, goedamCommand, planFloor, rerollRewardCommand, setPlayerBot, startFloor, tickFloorState, tickSpawner } from './floor';
 import { skillMod } from './modifiers';
 import { previewPartsFor } from './preview';
 import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } from './players';
@@ -103,7 +105,8 @@ export function createWorld(setup: GameSetup): World {
         normalCooldownRemaining: 0,
         entityId: null,
         ult: emptyUltGauge(), // 기획 15차: one gauge per character
-        rt: { shieldTime: 0 },
+        fieldTime: 0, // 기획 17차 (지명권 default)
+        rt: { shieldTime: 0, readyAt: 0 },
       };
     });
     const gear = exRt ? seatGear(ps.isBot, ps.gear, exRt.stage, party.length) : ps.gear;
@@ -123,6 +126,7 @@ export function createWorld(setup: GameSetup): World {
       appearLock: 0,
       relics: [],
       rewards: [],
+      rerolls: 1, // 기획 17차 다시 뽑기: one at the run start
       stats: emptyContribution(),
       goedamTraces: [],
       goedamLog: [],
@@ -168,6 +172,7 @@ export function tick(w: World): void {
   s.floorTime += dt;
   s.timeRemaining = Math.max(0, s.plan.timeLimit - s.floorTime);
   tickPlayers(w, dt);
+  if (w.justDrill?.length) tickJustDrill(w, dt); // 기획 17차 debug 「저스트 연습」
   tickSpawner(w, dt);
   tickFieldEvents(w, dt);
   tickUnits(w, dt);
@@ -211,7 +216,10 @@ export function dispatch(w: World, cmd: Command): CommandResult {
       r = useUlt(w, cmd.player);
       break;
     case 'chooseReward':
-      r = chooseReward(w, cmd.player, cmd.offerIndex);
+      r = chooseReward(w, cmd.player, cmd.offerIndex, cmd.member);
+      break;
+    case 'rerollReward':
+      r = rerollRewardCommand(w, cmd.player); // 기획 17차
       break;
     case 'goedam':
       r = goedamCommand(w, cmd.player, cmd.option);
@@ -256,7 +264,7 @@ function quitWonStage(w: World): CommandResult {
 function debug(w: World, a: DebugAction): CommandResult {
   const s = w.state;
   if (s.phase === 'runOver' || s.phase === 'stageClear') return { ok: false, reason: '이미 끝남' };
-  const pi = (a.kind === 'chargeUlt' || a.kind === 'resetCooldowns') && a.player != null ? a.player : 0;
+  const pi = 'player' in a && a.player != null ? a.player : 0;
   const p0 = Number.isInteger(pi) ? s.players[pi] : undefined;
   switch (a.kind) {
     case 'chargeUlt':
@@ -312,6 +320,27 @@ function debug(w: World, a: DebugAction): CommandResult {
       // 기획 16차: lose now, as if every character went down (원정: the stage and its bag are lost)
       if (s.phase !== 'combat') return { ok: false, reason: '전투 중이 아님' };
       endRun(w, 'defeat', 'wipe');
+      return { ok: true };
+    case 'justDrill':
+      // 기획 17차 「저스트 연습」 (toggle)
+      if (!p0) return { ok: false, reason: '플레이어 없음' };
+      toggleJustDrill(w, p0.id);
+      return { ok: true };
+    case 'grantReward': {
+      // 기획 17차: any floor reward now (tests, screenshots, the debug picker)
+      if (!p0) return { ok: false, reason: '플레이어 없음' };
+      if (!REWARD_IDS.has(a.rewardId)) return { ok: false, reason: '알 수 없는 보상' };
+      const m = a.member;
+      if (m != null && !(Number.isInteger(m) && m >= 0 && m < p0.party.length)) return { ok: false, reason: '잘못된 대상' };
+      const def = getReward(a.rewardId);
+      const bound = def.target === 'member' || def.target === 'role';
+      grantReward(w, p0, a.rewardId, bound ? (m ?? defaultMember(p0, def.prefRoles)) : null);
+      return { ok: true };
+    }
+    case 'offerFixture':
+      // 기획 17차: the next normal reward screen shows a legendary
+      if (!p0) return { ok: false, reason: '플레이어 없음' };
+      p0.rt.offerFixture = true;
       return { ok: true };
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };

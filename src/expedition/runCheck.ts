@@ -8,14 +8,37 @@
 
 import type { ExpeditionCarry } from '../types';
 import type { ExpRunInfo } from '../net/protocol';
-import { GOEDAM_ROOMS, GOEDAM_TRACES, REWARDS } from '../data';
+import { GOEDAM_ROOMS, GOEDAM_TRACES, MAX_REROLLS, REWARDS } from '../data';
 import { gearSpecProblem, maxStartStage, type GearLoadout } from '../data/gear';
 import { EXPEDITION_STAGES, isBossStage, maxStageLoot } from '../data/stages';
 
 /** Run ids: random letters (the client makes 16, the server 16; anything 8–40 of these is accepted). */
 export const RUN_ID_RE = /^[A-Za-z0-9_-]{8,40}$/;
-/** Floor rewards a stage can add (its floor reward + a 괴담 room's). */
-export const REWARDS_PER_STAGE = 2;
+/**
+ * Floor rewards a stage can add: its floor reward + a 괴담 room's (기획 17차: 2 → 4 — 욕심쟁이 picks 2, 빚쟁이 grants an
+ * epic at once).
+ */
+export const REWARDS_PER_STAGE = 4;
+
+/**
+ * 기획 17차: the run counters a carry may hold (PlayerState.rewardState) and their integer ranges. A key the client
+ * sends that is not here, or out of its range, makes the run invalid.
+ */
+export const REWARD_STATE_LIMITS: Readonly<Record<string, readonly [number, number]>> = {
+  nails: [0, 30],
+  candlesKills: [0, 100000],
+  candlesBonus: [0, 10],
+  debt: [0, 2],
+  boxBump: [0, 1],
+  greedyPicks: [0, 2],
+  greedySkip: [0, 1],
+  understudyLeft: [0, 3],
+  punchInLeft: [0, 3],
+  offerRoll: [0, 10000],
+};
+
+/** 두 번 차는 게이지 (the only reward that lets a carried ult charge exceed 1). */
+const OVERCHARGE_FAMILY = 'overcharge';
 
 const REWARD_IDS = new Set(REWARDS.map(r => r.id));
 const ROOM_IDS = new Set(GOEDAM_ROOMS.map(r => r.id));
@@ -72,7 +95,10 @@ function bossClearProblem(info: ExpRunInfo, stage: number): string | null {
   return b.every(n => isInt(n, info.startStage, stage - 1) && isBossStage(n)) ? null : '보스 클리어';
 }
 
-/** Rewards / traces / rooms are real ids, traces ≤ their length, 3 ult charges in [0, 1], rewards ≤ cleared × 2. */
+/**
+ * Rewards / traces / rooms are real ids, traces ≤ their length, 3 ult charges in [0, 1] (기획 17차: [0, 2] with 두 번
+ * 차는 게이지), rewards ≤ cleared × REWARDS_PER_STAGE, rerolls 0..5, known reward counters in range, charges 0..2.
+ */
 function carryProblem(c: ExpeditionCarry | null, cleared: number): string | null {
   if (c == null) return null;
   if (typeof c !== 'object' || !Array.isArray(c.rewards) || !Array.isArray(c.goedamTraces) || !Array.isArray(c.ult)) return '버프 형식';
@@ -85,8 +111,27 @@ function carryProblem(c: ExpeditionCarry | null, cleared: number): string | null
     const max = TRACE_FLOORS.get(t.id)!;
     if (max == null ? t.floorsLeft !== null : !isInt(t.floorsLeft, 1, max)) return '흔적 단계';
   }
-  if (c.ult.length !== 3 || !c.ult.every(v => typeof v === 'number' && v >= 0 && v <= 1)) return '궁극기';
+  const ultMax = c.rewards.some(r => r.rewardId.startsWith(`${OVERCHARGE_FAMILY}_`)) ? 2 : 1;
+  if (c.ult.length !== 3 || !c.ult.every(v => typeof v === 'number' && v >= 0 && v <= ultMax)) return '궁극기';
   const seen = c.goedamSeen ?? [];
   if (!Array.isArray(seen) || !seen.every(id => typeof id === 'string' && ROOM_IDS.has(id))) return '괴담 방';
+  return rewardRunProblem(c);
+}
+
+/** 기획 17차: rerolls, reward counters and 이중 장전 charges of a carry (all optional). */
+function rewardRunProblem(c: ExpeditionCarry): string | null {
+  if (c.rerolls !== undefined && !isInt(c.rerolls, 0, MAX_REROLLS)) return '다시 뽑기';
+  const st = c.rewardState;
+  if (st !== undefined) {
+    if (!st || typeof st !== 'object' || Array.isArray(st)) return '보상 상태';
+    for (const [k, v] of Object.entries(st)) {
+      const lim = Object.prototype.hasOwnProperty.call(REWARD_STATE_LIMITS, k) ? REWARD_STATE_LIMITS[k] : undefined;
+      if (!lim || !isInt(v, lim[0], lim[1])) return '보상 상태';
+    }
+  }
+  const dc = c.dragCharges;
+  if (dc !== undefined) {
+    if (!Array.isArray(dc) || dc.length > 3 || !dc.every(v => v === null || isInt(v, 0, 2))) return '충전';
+  }
   return null;
 }

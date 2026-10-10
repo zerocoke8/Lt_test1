@@ -10,6 +10,9 @@ import { CONTROL_STATUSES, type Command, type DebugAction, type PlayerSetup } fr
 import { gearSpecProblem, type GearLoadout } from '../../src/data/gear';
 import { EXPEDITION } from '../../src/data/stages';
 import { rollStageLoot, stageResultFromState } from '../../src/sim/expedition';
+import { REWARDS } from '../../src/data';
+import { rwGaugeCap } from '../../src/sim/rewards/hooks';
+import { REWARD_ZONE_CAP, UNIT_CAPS } from '../../src/sim/rewards/fx';
 import { BOT1, BOT2, HUMAN, makeGame, type TestGame } from '../sim/helpers';
 
 function check(tg: TestGame, where: string): string[] {
@@ -39,7 +42,8 @@ function check(tg: TestGame, where: string): string[] {
     p.party.forEach((m, i) => {
       const g = m.ult;
       if (!g) return bad(`p${p.id} member ${i} has no gauge`);
-      if (!(g.charge >= 0 && g.charge <= 1)) bad(`p${p.id} member ${i} ult charge ${g.charge}`);
+      // 기획 17차: up to the reward gauge cap (두 번 차는 게이지: 2)
+      if (!(g.charge >= 0 && g.charge <= rwGaugeCap(p) + 1e-9)) bad(`p${p.id} member ${i} ult charge ${g.charge}`);
       if ((g.charge >= 1) !== (g.fullSince != null) && s.phase === 'combat' && !p.out) bad(`p${p.id} member ${i} fullSince ${g.fullSince} charge ${g.charge}`);
     });
   }
@@ -239,6 +243,73 @@ describe('invariants under random commands', () => {
       // 기획 13차: the renewed parties really put their control statuses on the field
       if (players) expect([...controls].sort()).toEqual(expect.arrayContaining(['root', 'taunt', 'tether'].filter(id => players.some(p => p.characters.includes(OWNER[id])))));
       if ((t as { goedamRoomsPerZone?: number }).goedamRoomsPerZone) expect(rooms).toBeGreaterThan(0);
+    });
+  }
+});
+
+// ─────────────────────────── 기획 17차 층 보상: every reward at once ───────────────────────────
+
+/** Reward caps per player: zones 4, afterimages 2, reward turret 1, mines ≤ 3; reward summons never targetable. */
+function checkRewards(tg: TestGame, where: string): string[] {
+  const s = tg.w.state;
+  const errs: string[] = [];
+  const bad = (m: string) => errs.push(`${where} t=${s.time.toFixed(2)} f${s.floor}: ${m}`);
+  for (const p of s.players) {
+    const zones = (p.rt.rewardZones ?? []).filter(id => s.zones.some(z => z.id === id));
+    if (zones.length > REWARD_ZONE_CAP) bad(`p${p.id} ${zones.length} reward zones`);
+    const units = s.entities.filter(e => !e.rt.gone && e.ownerPlayer === p.id && e.rt.rewardSource);
+    const count = (ids: string[]) => units.filter(e => ids.includes(e.defId)).length;
+    if (count(['rw_shade', 'rw_duet', 'rw_doppel']) > UNIT_CAPS.afterimage) bad(`p${p.id} too many afterimages`);
+    if (count(['rw_turret']) > UNIT_CAPS.turret) bad(`p${p.id} too many reward turrets`);
+    if (count(['rw_mine']) > 3) bad(`p${p.id} too many mines`);
+    if (!(p.rerolls >= 0 && p.rerolls <= 5 && Number.isInteger(p.rerolls))) bad(`p${p.id} rerolls ${p.rerolls}`);
+    for (const [k, v] of Object.entries(p.rewardState ?? {})) if (!Number.isInteger(v)) bad(`p${p.id} rewardState.${k} = ${v}`);
+    p.party.forEach((m, i) => {
+      if (m.dragCharges != null && !(m.dragCharges >= 0 && m.dragCharges <= 2)) bad(`p${p.id} member ${i} charges ${m.dragCharges}`);
+    });
+  }
+  for (const e of s.entities) if (!e.rt.gone && e.rt.untargetable && e.team !== 'ally') bad(`untargetable enemy ${e.id}`);
+  return errs;
+}
+
+describe('기획 17차 층 보상: every reward granted, random commands (rerolls, members, drills)', () => {
+  for (const seed of [17, 18]) {
+    it(`seed ${seed}: 6 sim minutes with every reward on every seat, no broken invariant or cap`, () => {
+      const tg = makeGame({ seed, players: seed === 17 ? [HUMAN, BOT1, BOT2] : RENEWAL_A, tunables: { maxFloor: 20, reviveTime: 8, monsterHpMult: 0.4, fieldEventChance: 0.6, botJustChance: 1 } }); // 기획 17차 밸런스: bots 3 % → always try here (the 저스트 paths need traffic)
+      const s = tg.w.state;
+      for (const p of s.players) {
+        for (const r of REWARDS) {
+          const member = r.target === 'member' || r.target === 'role' ? REWARDS.indexOf(r) % 3 : null;
+          tg.game.dispatch({ type: 'debug', action: { kind: 'grantReward', rewardId: r.id, member, player: p.id } });
+        }
+      }
+      const r = new Rng(seed * 104729);
+      const errs: string[] = [...check(tg, 'granted'), ...checkRewards(tg, 'granted')];
+      let justs = 0;
+      for (let i = 0; i < 6 * 60 * TICK_RATE && s.phase !== 'runOver'; i++) {
+        if (s.phase === 'combat') tick(tg.w);
+        errs.push(...check(tg, 'tick'), ...checkRewards(tg, 'tick'));
+        if (r.chance(0.06)) {
+          const extra: DebugAction[] = [{ kind: 'justDrill' }, { kind: 'offerFixture' }, { kind: 'forceGroggy' }, { kind: 'jumpFloor', floor: 15 }];
+          const cmd = randomCommand(r, s.players.length, extra);
+          tg.game.dispatch(cmd);
+          errs.push(...check(tg, `after ${JSON.stringify(cmd)}`), ...checkRewards(tg, 'cmd'));
+        }
+        if (s.phase === 'reward') {
+          if (r.chance(0.1)) tg.game.dispatch({ type: 'rerollReward', player: 0 });
+          if (r.chance(0.2)) tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: r.int(0, 3), member: r.pick([0, 1, 2, 5]) });
+          errs.push(...check(tg, 'reward'), ...checkRewards(tg, 'reward'));
+        }
+        if (s.phase === 'goedam' && r.chance(0.2)) {
+          const pr = s.goedam!.players[0];
+          const opts = pr.options.filter(o => !o.hidden);
+          tg.game.dispatch({ type: 'goedam', player: 0, option: pr.stage === 'choosing' ? r.pick(opts).id : 'continue' });
+        }
+        justs += tg.game.drainEvents().filter(e => e.type === 'justSwap').length;
+        if (errs.length > 20) break;
+      }
+      expect(errs.slice(0, 20)).toEqual([]);
+      expect(justs).toBeGreaterThan(0);
     });
   }
 });

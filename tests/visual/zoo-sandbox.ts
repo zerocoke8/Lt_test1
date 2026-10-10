@@ -61,7 +61,7 @@ function stats(): ContributionStats {
   return {
     damageDealt: 0, damageToBoss: 0, damageTaken: 0, healing: 0, kills: 0, swaps: 0, ultsUsed: 0, petsUsed: 0,
     damageBySource: { basic: 0, passive: 0, normal: 0, drag: 0, ult: 0, pet: 0, relic: 0, zone: 0, summon: 0 },
-    ultDelayTotal: 0, ultDelayCount: 0, fieldEvents: 0, groggyPoints: 0, groggyBreaks: 0, groggyDamage: 0,
+    ultDelayTotal: 0, ultDelayCount: 0, fieldEvents: 0, groggyPoints: 0, groggyBreaks: 0, groggyDamage: 0, justSwaps: 0, justDodged: 0,
   };
 }
 
@@ -88,7 +88,7 @@ function player(id: number, name: string, chars: string[], active: number, entit
       defId: c, hp: 500, maxHp: 500, shield: 0, statuses: [], dead: false, reviveRemaining: 0, swapCooldownRemaining: 0,
       swapCooldownTotal: 10, normalCooldownRemaining: 0, entityId: i === active ? entityId : null, ult: { charge: 0.5, fullSince: null },
     })),
-    activeIndex: active, pets: [], out: false, appearLock: 0, relics: [], rewards: [], stats: stats(), goedamTraces: [], goedamLog: [],
+    activeIndex: active, pets: [], out: false, appearLock: 0, relics: [], rewards: [], stats: stats(), goedamTraces: [], goedamLog: [], rerolls: 1,
   };
 }
 

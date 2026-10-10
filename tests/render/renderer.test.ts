@@ -94,6 +94,7 @@ function player(id: number, chars: string[], active: number | null, entityId: nu
     rewards: [],
     goedamTraces: [],
     goedamLog: [],
+    rerolls: 1,
     stats: {
       damageDealt: 0,
       damageToBoss: 0,
@@ -110,6 +111,8 @@ function player(id: number, chars: string[], active: number | null, entityId: nu
       groggyPoints: 0,
       groggyBreaks: 0,
       groggyDamage: 0,
+      justSwaps: 0,
+      justDodged: 0,
     },
   };
 }

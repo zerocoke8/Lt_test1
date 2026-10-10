@@ -54,6 +54,12 @@ export const SLIDERS: SliderSpec[] = [
   { group: '보스 그로기', key: 'bossGroggyDuration', label: '그로기 시간', min: 1, max: 10, step: 0.5, unit: '초' },
   { group: '보스 그로기', key: 'bossGroggyDamageMult', label: '그로기 받는 피해', min: 1, max: 3, step: 0.1, unit: '×' },
   { group: '보스 그로기', key: 'bossGroggyDragMult', label: '그로기 드래그 피해', min: 1, max: 4, step: 0.1, unit: '×' },
+  // 기획 17차 저스트 교대 (docs/just-swap.md): window 0 = off
+  { group: '저스트 교대', key: 'justSwapWindow', label: '저스트 창 (0=끔)', min: 0, max: 1, step: 0.05, unit: '초' },
+  { group: '저스트 교대', key: 'justSwapDragMult', label: '저스트 드래그 배율', min: 1, max: 3, step: 0.1, unit: '×' },
+  { group: '저스트 교대', key: 'justSwapCdCut', label: '저스트 쿨 할인', min: 0, max: 0.9, step: 0.05, unit: '×' },
+  { group: '저스트 교대', key: 'justSwapIcd', label: '저스트 내부 쿨', min: 0, max: 10, step: 0.5, unit: '초' },
+  { group: '저스트 교대', key: 'botJustChance', label: '봇 저스트 확률', min: 0, max: 1, step: 0.01, unit: '×' },
   { group: '진행', key: 'gameSpeed', label: '게임 속도', min: 0.25, max: 4, step: 0.25, unit: '×' },
 ];
 

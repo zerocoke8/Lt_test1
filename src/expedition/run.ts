@@ -137,6 +137,10 @@ function copyCarry(c: ExpeditionCarry): ExpeditionCarry {
     goedamTraces: c.goedamTraces.map(t => ({ id: t.id, floorsLeft: t.floorsLeft })),
     ult: [...c.ult],
     ...(c.goedamSeen ? { goedamSeen: [...c.goedamSeen] } : null),
+    // 기획 17차
+    ...(c.rerolls !== undefined ? { rerolls: c.rerolls } : null),
+    ...(c.rewardState ? { rewardState: { ...c.rewardState } } : null),
+    ...(c.dragCharges ? { dragCharges: [...c.dragCharges] } : null),
   };
 }
 

@@ -40,6 +40,21 @@
 //                                   damage dealt while it was down.
 //                                   기획 13차 밸런스: + drag share of the boss damage inside / outside the windows
 //                                   (dragShareDownPct / dragShareUpPct), time down (downTimePct), breaks by a POLICY seat.
+//   JUST=on|off                     기획 17차 저스트 교대: on (default, the game's tunables: window 0.5 s, bots try 30 %) | off
+//                                   (justSwapWindow 0: no 저스트 for anyone — the bots do not try either)
+//   JUST_RATE=1                     POLICY=dodge|dodgeonly: share of the 저스트 windows (an enemy telegraph about to land on
+//                                   the seat's field character, inside the 저스트 window) the seat swaps on; rolled per
+//                                   telegraph from hash(seed, telegraph id), so the run rng is untouched. With JUST=off the
+//                                   seat still swaps on the same windows (the dodge alone, without the reward).
+//   PICK=bot|first                  기획 17차: how the human seats pick floor rewards — bot (default, botPickIndex) | first card
+//   BANDS='[[80,17,3,0],[77,17,4,2]]'  기획 17차: floor-reward rarity odds (classic 1–10 / 11+) for this run
+//   DROP=just_cd,just_ult           기획 17차: families never offered in this run (what they add)
+//   POOL=basic                      기획 17차: offers hold only the 12 basic families (every seat), for the pool's own effect
+//   PAR=4                           run the seeds in n child processes (SHARD=i/n, RAW_OUT=file) and merge (same output)
+//   Output 'just' (기획 17차): per seat (seat 0 / the bots): windows per floor and per combat minute (window = 0.5 s rule,
+//   also with JUST=off), share with a ready card, justs and success share; team: just extra drag damage, cooldown saved.
+//   Output 'rewards' (기획 17차): picks per category / rarity / family (seat 0 and bots), legendary cards seen per run, set
+//   completions per run, reward ('relic') damage share. Both humans and the bot-style seat pick by botPickIndex.
 //   FE_SEAT=play                    the human seats (active/dodge) with events on: play (react like a bot: once-per-event swap,
 //                                   event pet rules, event drop score) | ignore (event-blind: the bots alone do the events)
 //
@@ -66,8 +81,14 @@ import { hitsArea } from '../../src/sim/geometry';
 import { canSwap, canUsePet } from '../../src/sim/players';
 import { fieldUltGauge, memberUltGauge } from '../../src/sim/ultMode';
 import { BOT } from '../../src/sim/constants';
-import { applyOffer, rollOffers } from '../../src/sim/rewards';
+import { applyOffer, botPickIndex, rollOffers } from '../../src/sim/rewards';
+import { findJustThreats, justParams } from '../../src/sim/justSwap';
+import { mixSeed } from '../../src/sim/rng';
+import { FAMILIES, RARITY_BY_BAND, getReward, isBasicFamily, rewardFamily } from '../../src/data';
+import { REWARD_CATEGORY } from './reward-cats';
+import { spawn } from 'node:child_process';
 import { activeEntity, clampToArena, countEnemies, dist, isAlive, type PendingSpawn, type SimEntity, type World } from '../../src/sim/world';
+import type { RewardFamilyDef } from '../../src/types';
 import type { BossDef, Effect, GameEvent, MonsterDef, PlayerSetup, SimPhase, SkillAction, Tunables, Vec2 } from '../../src/types';
 import { goedamPilot, goedamRunRec, goedamSummary, goedamTunables, parseGoedamPolicy, type GoedamRunRec, type RewardPick } from '../playtest/goedam-policy';
 
@@ -95,6 +116,12 @@ if (FE_FORCED != null && !isFieldEventId(FE_FORCED)) throw new Error(`FIELD_EVEN
 const FE_SEAT = env.FE_SEAT === 'ignore' ? 'ignore' : 'play';
 const feTunables = (): Partial<Tunables> => (FIELD_EVENTS === 'on' ? {} : { fieldEventChance: 0 });
 const GROGGY = env.GROGGY ?? 'on';
+/** 기획 17차 저스트 교대. */
+const JUST = env.JUST === 'off' ? 'off' : 'on';
+const JUST_RATE = Math.max(0, Math.min(1, Number(env.JUST_RATE ?? 1)));
+const justTunables = (): Partial<Tunables> => (JUST === 'off' ? { justSwapWindow: 0 } : {});
+const PAR = Math.max(1, Number(env.PAR ?? 1));
+const SHARD = env.SHARD ? env.SHARD.split('/').map(Number) : null;
 const groggyTunables = (): Partial<Tunables> => (GROGGY === 'off' ? { bossGroggyThreshold: 0 } : {});
 
 const PETS_DEFAULT = [
@@ -260,6 +287,11 @@ interface RunRec {
   seed: number;
   goedam: GoedamRunRec;
   seat: SeatRec;
+  /** 기획 17차 (per player 0..2). */
+  just: JustRec[];
+  justExtraDmg: number;
+  justCdSaved: number;
+  rw: { picks: string[][]; screens: number; cards: Record<string, number>; sets: number[]; relicDmg: number[]; dmg: number[] };
 }
 
 // ─────────────────────────── 기획 16차 템포 telemetry ───────────────────────────
@@ -392,16 +424,68 @@ function measured(w: World, pi: number, fn: () => void): void {
 /** A fight worth an ult swap-in (the bots' rule, src/sim/bot.ts ultCard). */
 const ultWorthy = (foes: SimEntity[]) => foes.some(e => e.tier === 'boss' || e.tier === 'mid') || foes.length >= BOT.ultSwapEnemies;
 
-/** Telegraphs about to land on `me` that a human could have seen for ≥ REACT s. Damage weight ≈ amount sum. */
-function threat(w: World, me: SimEntity, seen: Map<number, number>): number | null {
-  for (const t of w.state.telegraphs) {
-    if (t.team !== 'enemy') continue;
-    if (t.remaining > 0.25) continue;
-    const firstSeen = seen.get(t.id);
-    if (firstSeen == null || w.state.time - firstSeen < REACT) continue;
-    if (hitsArea(t.area, t.center, t.origin, me.pos, me.radius)) return t.id;
+/**
+ * 기획 17차: the 저스트 threats on p's field character `me` now (src/sim/justSwap.ts). With JUST=off the game has no
+ * window, so the same windows are found with the game's default 0.5 s rule (the dodge alone, without the reward).
+ */
+function justThreatsOf(w: World, p: World['state']['players'][number], me: SimEntity): ReturnType<typeof findJustThreats> {
+  if (w.tunables.justSwapWindow > 0) return findJustThreats(w, p as never, me);
+  const view = Object.create(w) as World;
+  (view as { tunables: Tunables }).tunables = { ...w.tunables, justSwapWindow: DEFAULT_TUNABLES.justSwapWindow || 0.5 };
+  return findJustThreats(view, p as never, me);
+}
+
+/** 기획 17차: does the seat take this window? hash(seed, telegraph id) < JUST_RATE (never the run rng). */
+const takesWindow = (seed: number, telegraphId: number) => JUST_RATE >= 1 || mixSeed(seed, telegraphId, 0x17) / 2 ** 32 < JUST_RATE;
+
+/** 기획 17차 per-player 저스트 numbers of one run. */
+interface JustRec {
+  windows: number;
+  /** windows with a swappable card at the moment they opened */
+  ready: number;
+  justs: number;
+  dodged: number;
+  combatSec: number;
+}
+const newJustRec = (): JustRec => ({ windows: 0, ready: 0, justs: 0, dodged: 0, combatSec: 0 });
+
+/** One tick: count each player's new 저스트 windows (one per first-seen representative telegraph). */
+function trackJustWindows(w: World, seen: Set<number>[], recs: JustRec[]): void {
+  const s = w.state;
+  if (s.phase !== 'combat') return;
+  s.players.forEach((p, pi) => {
+    if (p.out) return;
+    recs[pi].combatSec += 1 / TICK_RATE;
+    const me = activeEntity(w, p);
+    if (!isAlive(me)) return;
+    const th = justThreatsOf(w, p, me);
+    if (!th.length || seen[pi].has(th[0].telegraphId)) return;
+    for (const t of th) seen[pi].add(t.telegraphId);
+    recs[pi].windows++;
+    if ([0, 1, 2].some(i => canSwap(w, pi, i).ok)) recs[pi].ready++;
+  });
+}
+
+/** 기획 17차 POLICY=dodge|dodgeonly: every tick, swap out on a 저스트 window the seat takes (JUST_RATE). */
+function justDodgeThink(w: World, pi: number, st: Brain, rec: FloorRec): void {
+  const s = w.state;
+  const p = s.players[pi];
+  if (p.out || s.phase !== 'combat') return;
+  const me = activeEntity(w, p);
+  if (!isAlive(me)) return;
+  const ready = [0, 1, 2].filter(i => canSwap(w, pi, i).ok);
+  if (!ready.length) return;
+  const th = justThreatsOf(w, p, me);
+  if (!th.length || st.dodgedTele.has(th[0].telegraphId)) return;
+  for (const t of th) st.dodgedTele.add(t.telegraphId);
+  if (!takesWindow(s.seed, th[0].telegraphId)) return;
+  const hpOf = (i: number) => p.party[i].hp / p.party[i].maxHp;
+  const idx = [...ready].sort((a, b) => hpOf(b) - hpOf(a))[0];
+  if (dispatch(w, { type: 'swap', player: pi, partyIndex: idx, pos: seatDropPoint(w, p, idx) }).ok) {
+    st.lastSwap = s.time;
+    st.react = null;
+    rec.dodges++;
   }
-  return null;
 }
 
 function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<number, number>, rec: FloorRec): void {
@@ -428,22 +512,13 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
   const lowHp = !!me && me.hp < me.maxHp * 0.35;
   const due = policy !== 'dodgeonly' && s.time - st.lastSwap >= 4 && foes.length > 0 && !holding;
   let go = false;
-  let dodge = false;
   if (!me) {
     if (ready.length) {
       if (st.react == null) st.react = s.time + 0.6;
       go = s.time >= st.react;
     }
   } else {
-    go = lowHp || due || ultIn != null;
-    if ((policy === 'dodge' || policy === 'dodgeonly') && me.invulnTime <= 0 && ready.length) {
-      const tid = threat(w, me, seen);
-      if (tid != null && !st.dodgedTele.has(tid)) {
-        st.dodgedTele.add(tid);
-        go = true;
-        dodge = true;
-      }
-    }
+    go = lowHp || due || ultIn != null; // 기획 17차: the dodge seats' swaps are justDodgeThink (every tick)
   }
   const hpOf = (i: number) => p.party[i].hp / p.party[i].maxHp;
   const byHp = (a: number, b: number) => hpOf(b) - hpOf(a);
@@ -466,7 +541,6 @@ function humanThink(w: World, pi: number, st: Brain, policy: Policy, seen: Map<n
     if (dispatch(w, { type: 'swap', player: pi, partyIndex: idx, pos: seatDropPoint(w, p, idx) }).ok) {
       st.lastSwap = s.time;
       st.react = null;
-      if (dodge) rec.dodges++;
     }
   }
   for (let i = 0; i < p.pets.length; i++) {
@@ -515,15 +589,45 @@ function botSeatThink(w: World): void {
   ps.forEach((q, i) => (q.isBot = was[i]));
 }
 const BOTSEAT_BLOCKED = { v: false };
-/** Floor reward: the first offer (human), or a random one for the bot-style seat (like the sim's bots). */
-const rewardPick: RewardPick = POLICY === 'botseat' ? (offers, _pi, w) => w.rng.int(0, offers.length - 1) : () => 0;
+/** 기획 17차 reward screens seen by seat 0 (this run): screens, cards by rarity. */
+let SEEN = { screens: 0, cards: {} as Record<string, number> };
+/**
+ * Floor reward (기획 17차): every human seat picks like the bots (botPickIndex, the card's default member). PICK=first:
+ * the first card (slot 1 = a basic card at the screen's odds — the 16차 bench's 「첫 장」) for comparisons.
+ */
+const PICK = env.PICK === 'first' ? 'first' : 'bot';
+/** BANDS='[[80,17,3,0],[77,17,4,2]]': floor-reward rarity odds by band (early, late) for this run (balance trials). */
+if (env.BANDS) {
+  const b = JSON.parse(env.BANDS) as number[][];
+  (RARITY_BY_BAND as unknown as number[][]).forEach((row, i) => row.splice(0, row.length, ...b[i]));
+}
+/** DROP=just_cd,just_ult: these families are never offered (every seat) — what they add. */
+if (env.DROP) {
+  const all = FAMILIES as RewardFamilyDef[];
+  const drop = new Set(env.DROP.split(','));
+  const keep = all.filter(f => !drop.has(f.key));
+  all.splice(0, all.length, ...keep);
+}
+/** POOL=basic: only the 12 basic families are ever offered (every seat) — what the new families add on top. */
+if (env.POOL === 'basic') {
+  const all = FAMILIES as RewardFamilyDef[];
+  const keep = all.filter(f => isBasicFamily(f.key));
+  all.splice(0, all.length, ...keep);
+}
+const rewardPick: RewardPick = (offers, pi, w) => {
+  if (pi === 0) {
+    SEEN.screens++;
+    for (const o of offers) if (!o.isRelic) inc(SEEN.cards, o.rarity);
+  }
+  return PICK === 'first' ? 0 : Math.max(0, botPickIndex(w.state.players[pi], offers));
+};
 
 const inc = (o: Record<string, number>, k: string, v = 1) => {
   o[k] = (o[k] ?? 0) + v;
 };
 
 function runOnce(seed: number): RunRec {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...groggyTunables(), ...TUN, ...goedamTunables(GOEDAM) };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...groggyTunables(), ...justTunables(), ...TUN, ...goedamTunables(GOEDAM) };
   const comp = COMPS[COMP];
   if (!comp) throw new Error(`unknown COMP ${COMP}`);
   const humanCount = POLICY === 'bot' || POLICY === 'idle' || POLICY === 'botseat' ? Math.max(1, HUMANS) : HUMANS;
@@ -538,7 +642,7 @@ function runOnce(seed: number): RunRec {
   for (let f = 1; f < START; f++) {
     for (const p of s.players) {
       const offers = rollOffers(w, p, f % 5 === 0);
-      if (offers.length) applyOffer(w, p, p.isBot ? offers[w.rng.int(0, offers.length - 1)] : offers[0]);
+      if (offers.length) applyOffer(w, p, offers[Math.max(0, botPickIndex(p, offers))]);
     }
   }
   game.drainEvents();
@@ -550,7 +654,15 @@ function runOnce(seed: number): RunRec {
   const thinkers = POLICY === 'active' || POLICY === 'dodge' || POLICY === 'dodgeonly' ? humans : [];
   const brains = new Map<number, Brain>(thinkers.map(pi => [pi, { lastSwap: -99, ultAt: null, react: null, dodgedTele: new Set(), blocked: false }]));
   SEAT = newSeatRec();
+  SEEN = { screens: 0, cards: {} };
   BOTSEAT_BLOCKED.v = false;
+  const justRecs = s.players.map(newJustRec);
+  const justSeen = s.players.map(() => new Set<number>());
+  const sets = s.players.map(() => 0);
+  let justExtraDmg = 0;
+  let justCdSaved = 0;
+  let justMult = 1.5;
+  const dodgeSeats = POLICY === 'dodge' || POLICY === 'dodgeonly' ? thinkers : [];
   const seatIds = POLICY === 'botseat' ? [0] : thinkers;
   const seen = new Map<number, number>();
   const teleKey = new Map<number, string>();
@@ -652,6 +764,7 @@ function runOnce(seed: number): RunRec {
         for (const pi of thinkers) measured(w, pi, () => humanThink(w, pi, brains.get(pi)!, POLICY, seen, rec));
       }
     }
+    for (const pi of dodgeSeats) measured(w, pi, () => justDodgeThink(w, pi, brains.get(pi)!, rec));
     if (POLICY === 'botseat' && s.phase === 'combat') botSeatThink(w);
     if (s.phase === 'combat') for (const pi of seatIds) if (!s.players[pi].out && !activeEntity(w, s.players[pi])) SEAT.emptySec += 1 / TICK_RATE;
     if (FE_FORCED && s.phase === 'combat' && s.plan.kind === 'normal' && s.floor >= 2 && s.floor <= 19 && s.floor !== feForcedFloor && s.floorTime >= 8) {
@@ -691,9 +804,15 @@ function runOnce(seed: number): RunRec {
     let lastAttacker: number | null = null;
     let chainKey: string | null = null;
     const delayedCasts: string[] = [];
+    trackJustWindows(w, justSeen, justRecs);
     for (let i = 0; i < evs.length; i++) {
       const ev = evs[i];
       const mark = MARKS.get(i);
+      if (ev.type === 'justSwap') {
+        justCdSaved += ev.cdCut;
+        justMult = justParams(w, s.players[ev.player]).mult;
+      } else if (ev.type === 'tagSet') sets[ev.player]++;
+      else if (ev.type === 'damage' && ev.just) justExtraDmg += ev.amount * (1 - 1 / Math.max(1, justMult));
       if (ev.type !== 'damage' && ev.type !== 'death' && ev.type !== 'heal') chainKey = null;
       switch (ev.type) {
         case 'attack':
@@ -899,7 +1018,19 @@ function runOnce(seed: number): RunRec {
     SEAT.swaps += s.players[pi].stats.swaps;
     SEAT.ults += s.players[pi].stats.ultsUsed;
   }
-  return { floors, combatSec, endFloor, victory, seed, goedam: goedamRunRec(w, victory, endFloor), seat: SEAT };
+  s.players.forEach((p, pi) => {
+    justRecs[pi].justs = p.stats.justSwaps;
+    justRecs[pi].dodged = p.stats.justDodged;
+  });
+  const rw = {
+    picks: s.players.map(p => p.rewards.map(r => r.rewardId)),
+    screens: SEEN.screens,
+    cards: SEEN.cards,
+    sets,
+    relicDmg: s.players.map(p => p.stats.damageBySource.relic ?? 0),
+    dmg: s.players.map(p => p.stats.damageDealt),
+  };
+  return { floors, combatSec, endFloor, victory, seed, goedam: goedamRunRec(w, victory, endFloor), seat: SEAT, just: justRecs, justExtraDmg, justCdSaved, rw };
 }
 
 // ─────────────────────────── aggregate ───────────────────────────
@@ -919,8 +1050,42 @@ const top = (o: Record<string, number>, n: number, div = 1) =>
       .map(([k, v]) => [k, r1(v / div)]),
   );
 
-const runs: RunRec[] = [];
-for (let k = 0; k < RUNS; k++) runs.push(runOnce(SEED0 + k * 7919));
+/** PAR=n: the seeds in n child processes (SHARD=i/n, RAW_OUT=file), merged back in seed order. */
+async function runAll(): Promise<RunRec[]> {
+  if (SHARD) {
+    const out: RunRec[] = [];
+    for (let k = SHARD[0]; k < RUNS; k += SHARD[1]) out.push(runOnce(SEED0 + k * 7919));
+    return out;
+  }
+  if (PAR <= 1) {
+    const out: RunRec[] = [];
+    for (let k = 0; k < RUNS; k++) out.push(runOnce(SEED0 + k * 7919));
+    return out;
+  }
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'critic-'));
+  const files = Array.from({ length: PAR }, (_, i) => path.join(dir, `shard${i}.json`));
+  await Promise.all(
+    files.map(
+      (f, i) =>
+        new Promise<void>((res, rej) => {
+          const ch = spawn('npx', ['vite-node', 'tests/review/critic-20f.ts'], { env: { ...env, SHARD: `${i}/${PAR}`, RAW_OUT: f, PAR: '1' }, stdio: ['ignore', 'ignore', 'inherit'] });
+          ch.on('exit', code => (code === 0 ? res() : rej(new Error(`shard ${i} exit ${code}`))));
+        }),
+    ),
+  );
+  const parts = files.map(f => JSON.parse(fs.readFileSync(f, 'utf8')) as RunRec[]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  const out: RunRec[] = [];
+  for (let k = 0; k < RUNS; k++) out.push(parts[k % PAR][Math.floor(k / PAR)]);
+  return out;
+}
+const runs: RunRec[] = await runAll();
+if (SHARD) {
+  fs.writeFileSync(env.RAW_OUT!, JSON.stringify(runs));
+  (globalThis as unknown as { process: { exit(c: number): never } }).process.exit(0);
+}
 
 const perFloor: unknown[] = [];
 const gDmg: Record<string, number> = {};
@@ -1148,11 +1313,84 @@ function seatReport(rs: RunRec[]): unknown {
     p0SwapsByCardPerRun: byCard.map(x => r1(x / rs.length)),
   };
 }
+/** 기획 17차: 저스트 windows / justs per seat group (seat 0 = the POLICY seat; bots = seats with isBot). */
+function justReport(rs: RunRec[]): unknown {
+  const group = (pick: (pi: number) => boolean) => {
+    const recs = rs.flatMap(r => r.just.filter((_, pi) => pick(pi)));
+    const floors = rs.reduce((a, r) => a + r.floors.length * r.just.filter((_, pi) => pick(pi)).length, 0);
+    const sum = (k: keyof JustRec) => recs.reduce((a, j) => a + j[k], 0);
+    const min = sum('combatSec') / 60;
+    return {
+      windowsPerFloor: r2(sum('windows') / Math.max(1, floors)),
+      windowsPerMin: r2(sum('windows') / Math.max(1e-9, min)),
+      readyPct: r1((sum('ready') / Math.max(1, sum('windows'))) * 100),
+      justsPerRun: r2(sum('justs') / Math.max(1, recs.length)),
+      justsPerMin: r2(sum('justs') / Math.max(1e-9, min)),
+      landedPct: r1((sum('justs') / Math.max(1, sum('windows'))) * 100),
+      dodgedPerJust: r2(sum('dodged') / Math.max(1, sum('justs'))),
+    };
+  };
+  const bots = (pi: number) => pi >= Math.max(POLICY === 'bot' ? 0 : 1, HUMANS);
+  const justs = rs.reduce((a, r) => a + r.just.reduce((b, j) => b + j.justs, 0), 0);
+  return {
+    seat0: group(pi => pi === 0),
+    bots: group(bots),
+    team: {
+      extraDragDmgPerRun: r1(rs.reduce((a, r) => a + r.justExtraDmg, 0) / rs.length),
+      extraDragDmgPerJust: r1(rs.reduce((a, r) => a + r.justExtraDmg, 0) / Math.max(1, justs)),
+      cdSavedSecPerJust: r2(rs.reduce((a, r) => a + r.justCdSaved, 0) / Math.max(1, justs)),
+    },
+  };
+}
+
+/** 기획 17차: floor-reward picks (seat 0 vs bots) by category / rarity / family, legendary seen, sets, reward damage. */
+function rewardReport(rs: RunRec[]): unknown {
+  const bots = (pi: number) => pi >= Math.max(POLICY === 'bot' ? 0 : 1, HUMANS);
+  const group = (pick: (pi: number) => boolean) => {
+    const ids = rs.flatMap(r => r.rw.picks.filter((_, pi) => pick(pi)).flat());
+    const seats = rs.reduce((a, r) => a + r.rw.picks.filter((_, pi) => pick(pi)).length, 0);
+    const cat: Record<string, number> = {};
+    const rar: Record<string, number> = {};
+    const fam: Record<string, number> = {};
+    for (const id of ids) {
+      const f = rewardFamily(id);
+      inc(cat, REWARD_CATEGORY[f] ?? '?');
+      inc(rar, getReward(id).rarity);
+      inc(fam, f);
+    }
+    const pct = (o: Record<string, number>) => Object.fromEntries(Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, r1((v / Math.max(1, ids.length)) * 100)]));
+    const relic = rs.reduce((a, r) => a + r.rw.relicDmg.filter((_, pi) => pick(pi)).reduce((x, y) => x + y, 0), 0);
+    const dmg = rs.reduce((a, r) => a + r.rw.dmg.filter((_, pi) => pick(pi)).reduce((x, y) => x + y, 0), 0);
+    return {
+      picksPerSeatRun: r2(ids.length / Math.max(1, seats)),
+      categoryPct: pct(cat),
+      rarityPct: pct(rar),
+      setsPerSeatRun: r2(rs.reduce((a, r) => a + r.rw.sets.filter((_, pi) => pick(pi)).reduce((x, y) => x + y, 0), 0) / Math.max(1, seats)),
+      relicDmgPct: r1((relic / Math.max(1, dmg)) * 100),
+      familyPicksPer100Seats: Object.fromEntries(Object.entries(fam).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, r1((v / Math.max(1, seats)) * 100)])),
+    };
+  };
+  const cards: Record<string, number> = {};
+  for (const r of rs) for (const [k, v] of Object.entries(r.rw.cards)) inc(cards, k, v);
+  const nCards = Object.values(cards).reduce((a, b) => a + b, 0);
+  return {
+    seat0: group(pi => pi === 0),
+    bots: group(bots),
+    seat0Seen: {
+      screensPerRun: r2(rs.reduce((a, r) => a + r.rw.screens, 0) / rs.length),
+      legendPerRun: r2((cards.legendary ?? 0) / rs.length),
+      cardRarityPct: Object.fromEntries(Object.entries(cards).map(([k, v]) => [k, r1((v / Math.max(1, nCards)) * 100)])),
+    },
+  };
+}
+
 const out = {
-  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name, FIELD_EVENTS, FE_SEAT },
+  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name, FIELD_EVENTS, FE_SEAT, JUST, JUST_RATE, PICK, POOL: env.POOL ?? 'all', BANDS: env.BANDS ?? null, DROP: env.DROP ?? null },
   runs: {
     victories: vict.length,
     victoryPct: r1((vict.length / runs.length) * 100),
+    /** 기획 17차: one char per run in seed order ('1' = victory) — sub-samples and matched-seed comparisons. */
+    victoryBits: runs.map(r => (r.victory ? '1' : '0')).join(''),
     endFloorMed: pctl(runs.map(r => r.endFloor), 0.5),
     ends: Object.fromEntries(Object.entries(ends).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))),
     // combat seconds of a full (victorious) run; real wall time adds reward screens + floor intros
@@ -1165,6 +1403,8 @@ const out = {
   goedam: goedamSummary(GOEDAM, runs.map(r => r.goedam)),
   fieldEvents: fieldEventReport(runs),
   seat: seatReport(runs),
+  just: justReport(runs),
+  rewards: rewardReport(runs),
   tempo: tempoRow(runs.flatMap(r => r.floors).filter(f => f.kind === 'normal')),
   perFloor,
 };

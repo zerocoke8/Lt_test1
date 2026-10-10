@@ -6,6 +6,7 @@ import { MIN_MAX_HP_FRAC } from './constants';
 import { gearStatMods } from './expeditionGear';
 import { addMods, partyStatMods, relicParam, relicScale } from './modifiers';
 import { clamp, getEntity, type SimEntity, type SimPlayer, type World } from './world';
+import { rwStatMods } from './rewards/hooks';
 
 export function effStats(w: World, e: SimEntity): StatBlock {
   const b = e.rt.base;
@@ -21,6 +22,7 @@ export function effStats(w: World, e: SimEntity): StatBlock {
     if (helm > 0 && e.rt.sinceAppear < relicParam('vanguard_helm', 'duration')) {
       m.atkPct += relicParam('vanguard_helm', 'atkPct') * helm;
     }
+    rwStatMods(w, e, p, m); // 기획 17차 floor rewards (conditional stats)
   }
   for (const s of e.statuses) {
     switch (s.id) {

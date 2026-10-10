@@ -1,10 +1,11 @@
 // Cooldown formulas (rewards, relics, tunables).
 
 import { getCharacter, getPet } from '../data';
-import { MAX_COOLDOWN_REDUCTION, MIN_SWAP_COOLDOWN } from './constants';
+import { MAX_COOLDOWN_REDUCTION, MAX_PET_COOLDOWN_REDUCTION, MIN_PET_COOLDOWN, MIN_SWAP_COOLDOWN } from './constants';
 import { gearOptionValue, petCooldownReduction, relicParam, relicScale, skillMod, swapCooldownReduction } from './modifiers';
 import type { PlayerState, Tunables } from '../types';
 import type { SimPlayer, World } from './world';
+import { rwPetCdMult } from './rewards/hooks';
 
 /** max(4, def.swapCooldown − swapCooldown rewards) × swapCooldownMult. Set on a character when it leaves the field (기획 6차). */
 export function swapCooldownFor(w: World, p: SimPlayer, idx: number): number {
@@ -21,15 +22,21 @@ export function swapCooldownOf(tunables: Pick<Tunables, 'instantCooldowns' | 'sw
   return Math.max(MIN_SWAP_COOLDOWN, def.swapCooldown - swapCooldownReduction(p, idx)) * Math.max(0, tunables.swapCooldownMult);
 }
 
-/** def.cooldown × petCooldownMult × (1 − Σ petCooldown rewards) × (beast_collar ? 0.7 : 1). */
+/**
+ * def.cooldown × petCooldownMult × (1 − Σ petCooldown rewards, ≤ 50 %) × (beast_collar ? 0.7 : 1) × reward hooks; never
+ * below MIN_PET_COOLDOWN s (기획 17차: stacked 펫 훈련 + #펫 + 조련사 + collar reached 0 s — a debug multiplier that
+ * makes the base shorter keeps it).
+ */
 export function petCooldownFor(w: World, p: SimPlayer, petIndex: number): number {
   if (w.tunables.instantCooldowns) return 0;
   const def = getPet(p.pets[petIndex].defId);
-  const red = Math.max(0, 1 - petCooldownReduction(p));
+  const base = def.cooldown * Math.max(0, w.tunables.petCooldownMult);
+  const red = 1 - Math.min(MAX_PET_COOLDOWN_REDUCTION, petCooldownReduction(p));
   // 기획 15차 원정: an equipped collar works while its wearer is on the field
   const k = relicScale(p, p.activeIndex, 'beast_collar');
   const collar = k > 0 ? 1 - relicParam('beast_collar', 'cdPct') * k : 1;
-  return def.cooldown * Math.max(0, w.tunables.petCooldownMult) * red * collar;
+  const cd = base * red * collar * rwPetCdMult(p); // 기획 17차 floor rewards
+  return Math.max(Math.min(base, MIN_PET_COOLDOWN), cd);
 }
 
 /**

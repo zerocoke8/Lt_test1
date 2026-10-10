@@ -11,6 +11,7 @@ import { DASH_DEFAULT_DURATION, DIR_VEC, aimDir, areaExtent, chargeEnd, dashEnd,
 import { groggyOnAction, isGroggy } from './groggy';
 import { effStats } from './stats';
 import { applyStatus, cleanse, constrainTether, hasStatus, statusImmune } from './status';
+import { rwOnDelay, rwOnDragEnd, rwOnDragHit, rwOnHealOverflow, rwStatusDuration } from './rewards/hooks';
 import {
   arena,
   clampToArena,
@@ -25,6 +26,7 @@ import {
   queuedEnemies,
   type CastCtx,
   type PendingHit,
+  type PendingReward,
   type SimEntity,
   type SimZone,
   type World,
@@ -387,6 +389,20 @@ function brokenByGroggy(w: World, p: PendingHit): boolean {
   return isGroggy(w, { id: p.ctx.casterId });
 }
 
+/**
+ * 기획 17차 저스트 교대: an enemy part still winding up that will really land — not broken (stun / groggy), not frozen
+ * by a stasis, its caster not stunned or charmed (a charmed caster fights for us), a charge only with its caster alive.
+ * Casterless parts (debug 저스트 연습) count.
+ */
+export function isLiveEnemyWindup(w: World, p: PendingHit): boolean {
+  if (p.cancelled || p.started || p.ctx.team !== 'enemy') return false;
+  if (frozenCaster(w, p) || brokenByGroggy(w, p)) return false;
+  if (p.ctx.casterId == null) return true;
+  const c = getEntity(w, p.ctx.casterId);
+  if (!c) return !p.action.charge;
+  return !hasStatus(c, 'stun') && !hasStatus(c, 'charm');
+}
+
 /** Delayed actions, multi-hits and echo recasts. Telegraphs count down with them. */
 export function tickPending(w: World, dt: number): void {
   const frozenTele = new Set<number>();
@@ -414,6 +430,10 @@ export function tickPending(w: World, dt: number): void {
       keep.push(p);
       continue;
     }
+    if (p.kind === 'rewardDelay') {
+      fireRewardDelay(w, p); // 기획 17차
+      continue;
+    }
     removeTelegraph(w, p.telegraphId);
     p.telegraphId = null;
     if (p.kind === 'echo') {
@@ -429,6 +449,14 @@ export function tickPending(w: World, dt: number): void {
     return;
   }
   w.pending = keep.concat(w.pending);
+}
+
+/** 기획 17차: a reward's delayed beat came due ('dragEnd' = the drag's last part landed, else the hooks' onDelay). */
+function fireRewardDelay(w: World, pd: PendingReward): void {
+  const p = w.state.players[pd.player];
+  if (!p) return;
+  if (pd.tag === 'dragEnd' && pd.ctx && pd.pos) rwOnDragEnd(w, p, pd.data.idx ?? 0, pd.pos, pd.ctx);
+  else rwOnDelay(w, pd);
 }
 
 /** A hit still waiting: a following telegraph moves with its caster / target; a telegraphLead one appears in time. */
@@ -478,13 +506,21 @@ export function collectTargets(
     }
     return best && bd <= 1 ? [best] : [];
   }
+  return pool.filter(e => inActionArea(w, ctx, area, center, origin, e));
+}
+
+/**
+ * Would a (non-single) area action of ctx centered at `center` reach e? The hit test of collectTargets — 기획 17차 the
+ * 저스트 check uses the same one. Aimed shapes without a direction point where the caster faces.
+ */
+export function inActionArea(w: World, ctx: CastCtx, area: AreaShape, center: Vec2, origin: Vec2, e: SimEntity): boolean {
   let fallback: Vec2 | undefined;
   if (isAimed(area)) {
     const c = getEntity(w, ctx.casterId);
     const f = c ? c.facing : 0;
     fallback = { x: Math.cos(f), y: Math.sin(f) };
   }
-  return pool.filter(e => hitsArea(area, center, origin, e.pos, e.radius, fallback));
+  return hitsArea(area, center, origin, e.pos, e.radius, fallback);
 }
 
 /** Applies an action at center; returns how many units it reached (for 'skillStage'). */
@@ -540,20 +576,24 @@ function healPerHit(w: World, ctx: CastCtx, hp: NonNullable<SkillAction['healPer
 
 function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: Vec2): void {
   switch (eff.kind) {
-    case 'damage':
-      hitDamage(w, ctx, t, eff.amount, eff.crit === 'always');
+    case 'damage': {
+      // 기획 17차: forceCrit (멈춘 숨); a drag hit tells the reward hooks
+      const dealt = hitDamage(w, ctx, t, eff.amount, eff.crit === 'always' || !!ctx.forceCrit);
+      if (ctx.isDrag && dealt > 0 && ctx.player != null) rwOnDragHit(w, ctx, t, dealt);
       break;
+    }
     case 'heal': {
       // (가정, 기획 8차) monster heals (링거 환자, 수간호사) never reach a boss: bosses only lose HP, and characters
       // locked on a boss could not switch to the healers anyway (R6).
       if (ctx.team === 'enemy' && t.tier === 'boss' && t.id !== ctx.casterId) break;
       const want = eff.amount * t.maxHp * ctx.healMult;
       const got = heal(w, ctx.player, t, want);
-      if (eff.overflowShield) overflowShield(t, want - got, eff.overflowShield);
+      if (eff.overflowShield) overflowShield(w, t, want - got, eff.overflowShield);
+      if (ctx.team === 'ally' && ctx.player != null && want - got > 1e-9) rwOnHealOverflow(w, t, want - got, ctx); // 기획 17차
       break;
     }
     case 'shield':
-      addShield(t, eff.amount * t.maxHp * ctx.shieldMult, eff.duration);
+      addShield(t, eff.amount * t.maxHp * ctx.shieldMult, eff.duration, w);
       break;
     case 'status':
       applySkillStatus(w, ctx, eff, t, center);
@@ -576,11 +616,11 @@ function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: 
 }
 
 /** 기획 13차 클레릭: the heal that overflows max HP turns into a shield, up to cap × max HP from this source. */
-function overflowShield(t: SimEntity, over: number, o: { frac: number; cap: number; duration: number }): void {
+function overflowShield(w: World, t: SimEntity, over: number, o: { frac: number; cap: number; duration: number }): void {
   if (!(over > 0) || !isAlive(t)) return;
   const room = o.cap * t.maxHp - t.shield;
   const amount = Math.min(over * o.frac, room);
-  if (amount > 0) addShield(t, amount, o.duration);
+  if (amount > 0) addShield(t, amount, o.duration, w);
 }
 
 /** A status effect of a skill; a control status that newly lands emits 'statusApplied' (icons / sounds). */
@@ -588,11 +628,13 @@ function applySkillStatus(w: World, ctx: CastCtx, eff: Extract<Effect, { kind: '
   const value = eff.status === 'burn' ? eff.value * ctx.atk * ctx.dmgMult : eff.value;
   const control = CONTROL_STATUSES.has(eff.status);
   const fresh = control && !hasStatus(t, eff.status);
-  const ok = applyStatus(t, eff.status, eff.duration, value, ctx.player, ctx.source, { anchor: center, sourceEntityId: ctx.casterId });
+  // 기획 17차: reward hooks may lengthen a hostile status an ally cast puts on (주문 연장, #상태이상; never groggy points)
+  const duration = ctx.team === 'ally' && ctx.player != null && DEBUFFS.has(eff.status) ? rwStatusDuration(w, ctx, eff.status, eff.duration) : eff.duration;
+  const ok = applyStatus(t, eff.status, duration, value, ctx.player, ctx.source, { anchor: center, sourceEntityId: ctx.casterId });
   if (!ok || !fresh) return;
   if (eff.status === 'tether' || eff.status === 'root') constrainTether(t);
   const s = t.statuses.find(x => x.id === eff.status);
-  emit(w, { type: 'statusApplied', targetId: t.id, status: eff.status, duration: s?.total ?? eff.duration, player: ctx.player, sourceId: ctx.casterId });
+  emit(w, { type: 'statusApplied', targetId: t.id, status: eff.status, duration: s?.total ?? duration, player: ctx.player, sourceId: ctx.casterId });
 }
 
 function displace(w: World, t: SimEntity, center: Vec2, distance: number, away: boolean, dir?: Dir): void {
@@ -719,8 +761,10 @@ function inheritMults(w: World, ctx: CastCtx, summon: NonNullable<SkillAction['s
   const caster = getEntity(w, ctx.casterId ?? ctx.selfId);
   if (!caster) return null;
   const st = effStats(w, caster);
+  // 기획 17차 저스트 교대: the doll's attack (its burst) gets the just power, its HP does not
+  const just = ctx.justMult ?? 1;
   return {
     hp: (st.maxHp * summon.inherit.hp) / Math.max(1, def.stats.maxHp),
-    atk: def.stats.atk > 0 ? (st.atk * summon.inherit.atk) / def.stats.atk : 1,
+    atk: def.stats.atk > 0 ? (st.atk * summon.inherit.atk * just) / def.stats.atk : 1,
   };
 }

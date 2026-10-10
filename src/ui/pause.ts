@@ -1,6 +1,7 @@
 // 일시정지 메뉴: 계속 / 디버그 / 전체 화면 / 포기 (포기는 두 번 눌러 확인).
 // Multiplayer (R35): "메뉴" — the game keeps running underneath; 닫기 / 디버그 (방장만) / 전체 화면 / 나가기.
 // 기획 10차: next to the buttons, my 흔적 (name · effect · floors left) and owned relics (no other way to see them mid-run).
+// 기획 17차: 「내 빌드」 (tags + floor rewards) at the top of that list; the settings row gets 진동 · 저스트 도우미 · 저스트 슬로.
 
 import type { GameState, PlayerState } from '../types';
 import { getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, goedamTraceKind } from '../data';
@@ -10,7 +11,8 @@ import { stageTitle } from './expeditionFormat';
 import { toggleFullscreen } from './stage';
 import { createSoundPanel, type SoundPanel } from './soundPanel';
 import { CUTIN } from '../render/cutin';
-import { loadCutIn, saveCutIn } from './storage';
+import { FEEL, loadCutIn, loadFeel, saveCutIn, saveFeel, type FeelSettings } from './storage';
+import { buildSummary, renderBuild } from './buildPanel';
 
 export interface PauseCallbacks {
   onResume(): void;
@@ -54,11 +56,30 @@ export class PauseMenu {
     button('btn btn-secondary', '전체 화면', btns, () => void toggleFullscreen());
     // 기획 13차: "컷인 짧게" — my ult's cut-in becomes a 0.25 s banner (the ult's timing is the same either way)
     Object.assign(CUTIN, loadCutIn());
-    const cutBtn = button('btn btn-secondary btn-cutin', cutInLabel(), btns, () => {
+    // 기획 17차: slim settings toggles, two per row (this device only)
+    Object.assign(FEEL, loadFeel());
+    const opts = h('div', 'pause-opts', btns);
+    const cutBtn = button('btn btn-secondary btn-cutin', cutInLabel(), opts, () => {
       CUTIN.short = !CUTIN.short;
       saveCutIn(CUTIN);
       cutBtn.textContent = cutInLabel();
     });
+    const feelBtn = (key: keyof FeelSettings, label: string) => {
+      const b = button('btn btn-secondary btn-cutin btn-feel', '', opts, () => {
+        FEEL[key] = !FEEL[key];
+        saveFeel(FEEL);
+        sync();
+      });
+      b.dataset.feel = key;
+      const sync = () => {
+        b.textContent = `${label}: ${FEEL[key] ? '켬' : '끔'}`;
+        b.classList.toggle('is-off', !FEEL[key]);
+      };
+      sync();
+    };
+    feelBtn('vibrate', '진동');
+    feelBtn('justHelper', '저스트 도우미');
+    feelBtn('justSlow', '저스트 슬로');
     this.quitBtn = button('btn btn-danger', '포기', btns, () => {
       if (!this.armed) {
         this.armed = true;
@@ -109,12 +130,17 @@ export class PauseMenu {
     this.el.classList.remove('is-hidden');
   }
 
-  /** 흔적 then 유물 of my player; the panel is hidden when there is neither. */
+  /** 내 빌드, then 흔적 and 유물 of my player; the panel is hidden when there is nothing. */
   private renderLists(me: PlayerState | null): void {
     this.lists.replaceChildren();
     const traces = me?.goedamTraces ?? [];
     const relics = me?.relics ?? [];
-    this.lists.classList.toggle('is-hidden', traces.length === 0 && relics.length === 0);
+    const rewards = me?.rewards ?? [];
+    this.lists.classList.toggle('is-hidden', traces.length === 0 && relics.length === 0 && rewards.length === 0);
+    if (me && (rewards.length || relics.length)) {
+      const build = h('div', 'pl-build', this.lists);
+      renderBuild(build, buildSummary(rewards, relics, me.party.map(m => m.defId), me.rerolls ?? 0));
+    }
     if (traces.length) {
       h('div', 'pl-title', this.lists, `흔적 ${traces.length}`);
       for (const slot of traces) {
@@ -146,7 +172,7 @@ export class PauseMenu {
 }
 
 function cutInLabel(): string {
-  return CUTIN.short ? '궁극기 컷인: 짧게' : '궁극기 컷인: 기본';
+  return CUTIN.short ? '컷인: 짧게' : '컷인: 기본';
 }
 
 /** '7층 · 일반층' / 기획 16차 원정: '4단계 · 사무실' (+ ' · 보스 단계'). */

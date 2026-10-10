@@ -65,7 +65,7 @@ export function goedamForcedFloor(seed: number, room: string): number {
 // ─────────────────────────── choosing ───────────────────────────
 
 /** Rough worth of one reward / relic in "rare reward" units (greedy only). */
-const RARITY_VALUE: Record<Rarity, number> = { common: 0.6, rare: 1, epic: 1.6 };
+const RARITY_VALUE: Record<Rarity, number> = { common: 0.6, rare: 1, epic: 1.6, legendary: 2.2 };
 const RELIC_VALUE = 2;
 /** Worth of 100 % of a stat for one floor (a +15 % atk reward kept ~10 floors ≈ 1 unit). */
 const PER_FLOOR = { atkPct: 0.6, hpPct: 0.5, atkSpeedPct: 0.6, critChance: 0.3, damageTaken: -0.6, ultCharge: 0.1 };
@@ -75,9 +75,10 @@ const ULT_VALUE = 0.6;
 /** 기획 15차: room ult gains / costs hit the focus character's own gauge (the field one, else the first living). */
 const focusCharge = (p: PlayerState): number => p.party[ultFocusIndex(p) ?? 0]?.ult.charge ?? 0;
 
-function rewardValue(weights: Record<Rarity, number>): number {
-  const tot = weights.common + weights.rare + weights.epic || 1;
-  return (weights.common * RARITY_VALUE.common + weights.rare * RARITY_VALUE.rare + weights.epic * RARITY_VALUE.epic) / tot;
+function rewardValue(weights: Partial<Record<Rarity, number>>): number {
+  const rs: Rarity[] = ['common', 'rare', 'epic', 'legendary'];
+  const tot = rs.reduce((a, r) => a + (weights[r] ?? 0), 0) || 1;
+  return rs.reduce((a, r) => a + (weights[r] ?? 0) * RARITY_VALUE[r], 0) / tot;
 }
 
 function traceValue(id: string, floor: number): number {

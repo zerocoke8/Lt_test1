@@ -354,10 +354,14 @@ describe('기획 12차: parties without the new characters keep their runs (RNG 
   // as the rule (identical to the round-14 code with ultPerCharacter on); a regression guard from here on.
   // 기획 16차 템포: recaptured for the classic tempo change (wave-on-clear, ring spawns, width 24, zone waves, LATE 1.36),
   // and once more for the round's review fixes (mid boss weight 2, members ≥ 2.5 from the party, wave 0 below the banner).
+  // 기획 17차: recaptured once for the round's rules (bots pick floor rewards by score off the run rng, offers roll on
+  // their own stream, bots try 저스트 교대 — botJustChance 0.03 after the balance pass; the 81 new reward families and
+  // the balance pass's rarity odds are in the pool). 기획 17차 review fixes: recaptured once more (offer caps by tag,
+  // bot score 전설 2.6, 펫 쿨 cap, 연쇄 화상 needs a burn, 욕심 without the skipped screen, 'ready since' stamps).
   const GOLDEN: Record<number, { tick: number; floor: number; draw: number; kills: number; pl: string; ents: number }> = {
-    11: { tick: 4500, floor: 5, draw: 2443088685, kills: 9, pl: '831.62,499.03,369.59;670.01,363.52,520.00;478.85,495.00,825.00', ents: 3279476997 },
-    22: { tick: 4500, floor: 5, draw: 2194900208, kills: 9, pl: '900.00,94.37,450.00;640.03,480.00,520.00;900.00,675.00,730.84', ents: 4176789084 },
-    33: { tick: 4500, floor: 5, draw: 3834642441, kills: 6, pl: '900.00,598.41,450.00;990.00,528.00,572.00;720.00,497.82,896.20', ents: 1455658138 },
+    11: { tick: 4500, floor: 5, draw: 3714336325, kills: 5, pl: '936.72,162.44,332.58;1215.00,169.39,609.48;600.00,255.97,750.00', ents: 3495442778 },
+    22: { tick: 4500, floor: 5, draw: 2698853484, kills: 12, pl: '900.00,501.17,325.71;900.00,452.48,113.88;483.00,146.84,686.98', ents: 3742094462 },
+    33: { tick: 4500, floor: 5, draw: 3154018174, kills: 4, pl: '990.00,600.00,450.00;900.00,288.30,400.68;600.00,450.00,739.62', ents: 3197484863 },
   };
 
   const hash = (s: string) => {

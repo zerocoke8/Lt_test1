@@ -20,7 +20,7 @@ import type {
   WavePlan,
 } from '../types';
 import { ARENA_BOSS, ARENA_NORMAL, LATE_STAT_GROWTH, ZONES } from '../config';
-import { FIELD_EVENTS, GOEDAM_ROOMS, RELICS, getFieldEvent, goedamRoomWeight } from '../data';
+import { FIELD_EVENTS, GOEDAM_ROOMS, MAX_REROLLS, RELICS, getFieldEvent, goedamRoomWeight } from '../data';
 import {
   BASE_SLOTS,
   BOSS_RELIC_CHANCE,
@@ -44,6 +44,8 @@ import { fieldEventWindow, type FieldEventPlan } from './fieldEvents';
 import { benchMaxHp } from './stats';
 import { mixSeed, Rng } from './rng';
 import { emit, onRunEnd, type World } from './world';
+import { botPickIndex, botPickMember } from './rewards/botPick';
+import { rwGaugeCap } from './rewards/hooks';
 
 /** Run-time bookkeeping of an expedition game (World.expedition). The public part is state.expedition. */
 export interface ExpeditionRt {
@@ -147,9 +149,15 @@ export function initExpedition(w: World, setup: ExpeditionSetup, humans: boolean
     p.rewards = c.rewards.map(r => ({ rewardId: r.rewardId, partyIndex: r.partyIndex }));
     p.goedamTraces = c.goedamTraces.filter(t => t.floorsLeft == null || t.floorsLeft > 0).map(t => ({ id: t.id, floorsLeft: t.floorsLeft }));
     for (const id of c.goedamSeen ?? []) seen.add(id);
+    // 기획 17차: rerolls (an older run without them starts with 1), reward counters, 이중 장전 charges
+    p.rerolls = Math.max(0, Math.min(MAX_REROLLS, Math.floor(c.rerolls ?? 1)));
+    if (c.rewardState && Object.keys(c.rewardState).length) p.rewardState = { ...c.rewardState };
+    const cap = rwGaugeCap(p);
     p.party.forEach((m, idx) => {
-      const v = Math.max(0, Math.min(1, c.ult[idx] ?? 0));
-      m.ult.charge = v >= 1 - 1e-9 ? 1 : v;
+      const dc = c.dragCharges?.[idx];
+      if (dc != null) m.dragCharges = dc;
+      const v = Math.max(0, Math.min(cap, c.ult[idx] ?? 0));
+      m.ult.charge = v >= 1 - 1e-9 && v <= 1 + 1e-9 ? 1 : v;
       m.ult.fullSince = m.ult.charge >= 1 ? 0 : null;
       // carried +max-HP rewards / traces raise the cap; the stage still starts at full HP
       m.maxHp = benchMaxHp(p, idx);
@@ -233,11 +241,10 @@ export function wonResultFromState(s: GameState, pi: number): { loot: GearSpec[]
   const done = stageResultFromState(s, pi);
   if (done) return done;
   const carry = extractCarry(s, pi);
+  // 기획 17차: the pick the seat's bot would make (botPickIndex, default member) — the server's timeout does the same
   const offers = (s.rewardOffersByPlayer[pi] ?? []).filter(o => !o.isRelic);
-  if (offers.length > 0) {
-    const o = offers[((s.seed >>> 0) + pi) % offers.length];
-    carry.rewards.push({ rewardId: o.rewardId, partyIndex: o.partyIndex });
-  }
+  const i = botPickIndex(s.players[pi], offers);
+  if (i >= 0) carry.rewards.push({ rewardId: offers[i].rewardId, partyIndex: botPickMember(offers[i]) });
   return { loot: (ex.loot[pi] ?? []).map(g => ({ ...g })), carry, bossClear: ex.boss };
 }
 
@@ -248,11 +255,16 @@ export function extractCarry(s: GameState, pi: number): ExpeditionCarry {
   const p = s.players[pi];
   const seen = new Set(s.expedition?.goedamSeen ?? []);
   for (const g of p.goedamLog) seen.add(g.roomId);
+  const charges = p.party.map(m => m.dragCharges ?? null);
   return {
     rewards: p.rewards.map(r => ({ rewardId: r.rewardId, partyIndex: r.partyIndex })),
     goedamTraces: p.goedamTraces.filter(t => t.floorsLeft == null || t.floorsLeft > 0).map(t => ({ id: t.id, floorsLeft: t.floorsLeft })),
     ult: p.party.map(m => m.ult.charge),
     goedamSeen: [...seen],
+    // 기획 17차
+    rerolls: p.rerolls ?? 1,
+    ...(p.rewardState && Object.keys(p.rewardState).length ? { rewardState: { ...p.rewardState } } : null),
+    ...(charges.some(c => c != null) ? { dragCharges: charges } : null),
   };
 }
 

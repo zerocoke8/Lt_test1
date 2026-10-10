@@ -1,8 +1,8 @@
 // Floors (R15–R21): plan, start, spawner, clear/timeout/enrage/retreat, reward phase.
 
-import type { BossDef, CommandResult, FloorPlan, RewardOffer, Tunables, Vec2, WavePlan } from '../types';
+import type { BossDef, CommandResult, FloorPlan, Tunables, Vec2, WavePlan } from '../types';
 import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, BOSS_POS, floorStatMult, ZONES, zoneOf } from '../config';
-import { FIELD_EVENT_LAST_WAVE_HOLD, getBoss, getMonster } from '../data';
+import { FIELD_EVENT_LAST_WAVE_HOLD, MAX_REROLLS, getBoss, getMonster } from '../data';
 import { BOT, FIRST_WAVE_Y_TOP, MID_RING, SPAWN_POINTS, SPAWN_RING, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_NEXT } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
@@ -10,7 +10,9 @@ import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvent
 import { clearGroggy, resetGroggy } from './groggy';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { refundUnlandedUlts, revive, syncMembers } from './players';
-import { applyOffer, rollOffers } from './rewards';
+import { openRewardScreen, pickOffer, rerollReward as rerollOffers } from './rewards/offers';
+import { botPickIndex } from './rewards/botPick';
+import { rwOnFloorClear, rwOnFloorStart } from './rewards/hooks';
 import { enterStageEnd, expeditionCombatClear, planExpeditionFloor } from './expedition';
 import type { Rng } from './rng';
 import {
@@ -177,6 +179,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   resetGroggy(w); // 기획 13차: a fresh gauge on a gauge boss's floor, none elsewhere
   s.monstersAlive = countEnemies(w);
   emit(w, { type: 'floorStart', floor: s.floor, kind: s.plan.kind });
+  rwOnFloorStart(w); // 기획 17차 floor rewards (자라는 손톱, #성장, per-floor counters)
 }
 
 // ─────────────────────────── Spawner ───────────────────────────
@@ -515,10 +518,14 @@ export function floorClear(w: World): void {
   // 기획 10차: timed 괴담 traces run out before the heal, so it reaches the max HP they gave back.
   expireGoedamTraces(w);
 
+  // 기획 17차 다시 뽑기: every boss clear gives each player one more (max 5; 원정 boss stages too, carried)
+  if (s.plan.kind === 'boss') for (const p of s.players) p.rerolls = Math.min(MAX_REROLLS, p.rerolls + 1);
+
   // R19: alive members (field + bench) heal floorHealFrac × maxHp; dead keep their revive timer.
   const frac = w.tunables.floorHealFrac;
   for (const p of s.players) {
     if (p.out) continue;
+    if (rwOnFloorClear(w, p).noHeal) continue; // 기획 17차 (피 묻은 계약서)
     for (const m of p.party) {
       if (m.dead) continue;
       const e = getEntity(w, m.entityId);
@@ -555,26 +562,41 @@ export function floorClear(w: World): void {
   }
   syncMembers(w);
 
-  // R20/R33: reward phase (time frozen). Bots pick at random right away; out players get nothing; every human gets
-  // their own offers and the next floor starts once all of them chose.
+  // R20/R33: reward phase (time frozen). Out players get nothing; every human gets their own screen and the next floor
+  // starts once all of them chose. 기획 17차: bots pick by score (botPickIndex) right away; a skipped screen (빚) is none.
   s.phase = 'reward';
   const relicFloor = s.plan.kind === 'boss';
-  const byPlayer: (RewardOffer[] | null)[] = s.players.map(() => null);
+  s.rewardOffersByPlayer = s.players.map(() => null);
   for (const p of s.players) {
     if (p.out) continue;
-    const offers = rollOffers(w, p, relicFloor);
-    if (offers.length === 0) continue;
-    if (p.isBot) applyOffer(w, p, offers[w.rng.int(0, offers.length - 1)]);
-    else byPlayer[p.id] = offers;
+    const offers = openRewardScreen(w, p, relicFloor);
+    if (!offers) continue;
+    s.rewardOffersByPlayer[p.id] = offers;
+    if (p.isBot) botPickAll(w, p.id);
   }
-  s.rewardOffersByPlayer = byPlayer;
   syncRewardCompat(w);
   finishRewardIfDone(w);
+}
+
+/** 기획 17차: a bot (or a seat handed to its bot) takes its picks by score, default members. */
+function botPickAll(w: World, pi: number): void {
+  const s = w.state;
+  const p = s.players[pi];
+  for (let guard = 0; guard < 8; guard++) {
+    const offers = s.rewardOffersByPlayer[pi];
+    const i = botPickIndex(p, offers);
+    if (!offers || i < 0) return;
+    pickOffer(w, p, i);
+  }
 }
 
 /** No pending offers for anyone (floor start, run end). */
 export function clearRewardOffers(w: World): void {
   const s = w.state;
+  for (const p of s.players) {
+    delete p.rewardPicksLeft; // 기획 17차
+    p.rt.offerScreen = undefined;
+  }
   s.rewardOffersByPlayer = s.players.map(() => null);
   s.rewardOffers = null;
   w.humanOffers = null;
@@ -613,19 +635,24 @@ export function goedamCommand(w: World, pi: number, option: string): CommandResu
   return r;
 }
 
-export function chooseReward(w: World, pi: number, offerIndex: number): CommandResult {
+/** Command 'chooseReward': card offerIndex (member: 기획 17차 지명권); with picks left (욕심쟁이) the screen stays. */
+export function chooseReward(w: World, pi: number, offerIndex: number, member?: number): CommandResult {
   const s = w.state;
   if (s.phase !== 'reward') return { ok: false, reason: '보상 단계가 아님' };
   if (!Number.isInteger(pi) || pi < 0 || pi >= s.players.length) return { ok: false, reason: '잘못된 대상' };
-  const offers = s.rewardOffersByPlayer[pi];
-  if (!offers) return { ok: false, reason: '고를 보상이 없음' };
-  const offer = Number.isInteger(offerIndex) ? offers[offerIndex] : undefined;
-  if (!offer) return { ok: false, reason: '잘못된 선택' };
-  applyOffer(w, s.players[pi], offer);
-  s.rewardOffersByPlayer[pi] = null;
+  const r = pickOffer(w, s.players[pi], offerIndex, member);
+  if (!r.ok) return r;
   syncRewardCompat(w);
   finishRewardIfDone(w);
-  return { ok: true };
+  return r;
+}
+
+/** Command 'rerollReward' (기획 17차 다시 뽑기): new cards for pi's screen, one reroll spent. */
+export function rerollRewardCommand(w: World, pi: number): CommandResult {
+  if (!Number.isInteger(pi) || pi < 0 || pi >= w.state.players.length) return { ok: false, reason: '잘못된 대상' };
+  const r = rerollOffers(w, pi);
+  if (r.ok) syncRewardCompat(w);
+  return r;
 }
 
 /**
@@ -655,8 +682,7 @@ export function setPlayerBot(w: World, pi: number, isBot: boolean): void {
   if (isBot && s.phase === 'reward') {
     const offers = s.rewardOffersByPlayer[pi];
     if (offers && offers.length > 0) {
-      applyOffer(w, p, offers[w.rng.int(0, offers.length - 1)]);
-      s.rewardOffersByPlayer[pi] = null;
+      botPickAll(w, pi); // 기획 17차: by score, not at random
       syncRewardCompat(w);
       finishRewardIfDone(w);
     }

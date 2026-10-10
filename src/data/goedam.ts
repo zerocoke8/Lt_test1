@@ -48,8 +48,8 @@ export const GOEDAM_TRACES: GoedamTraceDef[] = [
 
 // ─────────────────────────── 방 12종 (4장) ───────────────────────────
 
-const W_LOBBY: Record<Rarity, number> = { common: 70, rare: 25, epic: 5 };
-const EPIC: Record<Rarity, number> = { common: 0, rare: 0, epic: 100 };
+const W_LOBBY: Record<Rarity, number> = { common: 70, rare: 25, epic: 5, legendary: 0 };
+const EPIC: Record<Rarity, number> = { common: 0, rare: 0, epic: 100, legendary: 0 }; // 기획 17차: rooms never give a legendary
 /** 저주받은 유물 for a player who already owns every relic: a reward with these odds instead. */
 export const GOEDAM_RELIC_FALLBACK = EPIC;
 const trace = (traceId: string): GoedamEffect => ({ kind: 'trace', traceId });
@@ -595,9 +595,9 @@ function traceParts(t: GoedamTraceDef): Part[] {
   return out;
 }
 
-function rarityOdds(weights: Record<Rarity, number>): string {
-  const rs: Rarity[] = ['common', 'rare', 'epic'];
-  return rs.filter(r => weights[r] > 0).map(r => `${RARITY_LABEL[r]} ${weights[r]}`).join(' · ') + '%';
+function rarityOdds(weights: Partial<Record<Rarity, number>>): string {
+  const rs: Rarity[] = ['common', 'rare', 'epic', 'legendary'];
+  return rs.filter(r => (weights[r] ?? 0) > 0).map(r => `${RARITY_LABEL[r]} ${weights[r]}`).join(' · ') + '%';
 }
 
 function charName(defId: string | null | undefined): string {
@@ -634,7 +634,7 @@ function effectParts(e: GoedamEffect, params: GoedamParams, party: readonly { de
     case 'resetCooldowns':
       return [{ text: e.petsOnly ? '펫 쿨 0' : '모든 쿨 0', good: true }];
     case 'reward': {
-      const only = (['common', 'rare', 'epic'] as Rarity[]).filter(r => e.weights[r] > 0);
+      const only = (['common', 'rare', 'epic', 'legendary'] as Rarity[]).filter(r => (e.weights[r] ?? 0) > 0);
       if (only.length === 1) return [{ text: `${RARITY_LABEL[only[0]]} 보상 1개`, good: true }];
       return [{ text: '보상 1개', good: true, detail: rarityOdds(e.weights) }];
     }

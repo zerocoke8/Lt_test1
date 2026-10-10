@@ -30,6 +30,7 @@ import { ARENA_MARGIN } from '../sim/constants';
 import { canSwapState, canUltState, canUsePetState } from '../sim/players';
 import { previewPartsFor } from '../sim/preview';
 import { canGoedamState } from '../sim/goedam';
+import { rerollProblem } from '../sim/rewards/offers';
 import { STALL_RECONNECT_MS, type Connection } from './connection';
 import type { ServerMsg } from './protocol';
 import { SNAPSHOT_HZ } from './protocol';
@@ -171,6 +172,11 @@ export class RemoteGame implements Game {
     return this.conn.latencyMs;
   }
 
+  /** 기획 17차: how old the newest snapshot is (ms; null before the first) — the 저스트 cue runs this much early. */
+  get snapshotAgeMs(): number | null {
+    return this.lastSnapAt > 0 ? Math.max(0, performance.now() - this.lastSnapAt) : null;
+  }
+
   /** Reward auto-pick deadline on the local clock (Date.now() ms), null outside the reward phase. */
   get rewardDeadline(): number | null {
     return this.deadlineServer == null ? null : this.deadlineServer - this.conn.serverOffsetMs;
@@ -237,6 +243,13 @@ export class RemoteGame implements Game {
         wire = { ...cmd, player: me };
         break;
       }
+      case 'rerollReward': {
+        // 기획 17차 다시 뽑기: the new cards come with the next snapshot (no optimistic change)
+        const why = rerollProblem(s, me);
+        r = why ? fail(why) : this.hasPending('rerollReward') ? fail('다시 뽑는 중') : ok;
+        wire = { ...cmd, player: me };
+        break;
+      }
       case 'goedam':
         r = this.canGoedam(me, cmd.option);
         wire = { ...cmd, player: me };
@@ -256,7 +269,8 @@ export class RemoteGame implements Game {
     if (!this.conn.send({ t: 'cmd', seq, cmd: wire, atTick: Math.max(0, this.snapTick) })) return fail('서버와 연결이 끊겼어요');
     this.pending.set(seq, { cmd: wire, at: performance.now() });
     if (cmd.type === 'goedam') this.goedamSent = { stage: s.goedam!.players[me].stage, at: performance.now() };
-    if (cmd.type === 'chooseReward') {
+    // 기획 17차 욕심쟁이 (pick 2): only the last pick hides the cards before the snapshot
+    if (cmd.type === 'chooseReward' && (s.players[me]?.rewardPicksLeft ?? 1) <= 1) {
       this.localChoice = { floor: s.floor, until: performance.now() + 2500, confirmed: false };
       this.applyLocalChoice(s);
     }

@@ -3,6 +3,10 @@
 import { LOGICAL_H, LOGICAL_W, type AreaShape, type DamageSource, type Entity, type GameEvent, type GameState, type SkillAction, type Team, type Telegraph } from '../types';
 import { PLAYER_COLORS } from '../config';
 import { CHARACTERS, getCharacter, getMonster, getPet } from '../data';
+import { drawRewardFx, rewardFxEvent } from './rewardFx';
+import { JUST_GOLD, JustFx, type JustFxHost } from './justFx';
+import { RewardPills, type PillAvoid } from './rewardPills';
+import { JUST_STOP_SEC } from './juice';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, areaColor, boldFont, lighten, mix, petColor, type UnitLook, unitLook } from './look';
 import { Pool } from './pool';
@@ -46,6 +50,9 @@ interface Floater {
   key: string;
   /** 기획 13차: small white tag right of the number ('×2' = a drag hit on a groggy boss), '' = none. */
   tag: string;
+  /** The hit spot before the jitter: cross-target merges compare these (the same on every renderer). */
+  ox: number;
+  oy: number;
 }
 
 type FloaterKind = 0 | 1 | 2 | 3 | 4 | 5;
@@ -260,6 +267,8 @@ const SKILL_NUM_SIZE: Partial<Record<DamageSource, number>> = { normal: 20, drag
 /** 기획 13차: hits on a groggy boss — amber, 1.15× (crit look unchanged); drag hits get a small white '×2'. */
 const GROGGY_NUM_COLOR = '#ffc94d';
 const GROGGY_NUM_SIZE = 1.15;
+/** 기획 17차: hits of a 저스트 drag — gold, 1.1×. */
+const JUST_NUM_SIZE = 1.1;
 
 /** 기획 13차: a delayed kick (hit-stop / shake / screen flash) of my renewed skill's beat, fired when its picture starts. */
 interface Kick {
@@ -270,9 +279,9 @@ interface Kick {
   color: string;
 }
 
-export class Vfx implements FxHost, StageHost {
+export class Vfx implements FxHost, StageHost, JustFxHost {
   readonly floaters = new Pool<Floater>(
-    () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0, label: '', stroke: '#0a0a0a', alpha: 1, key: '', tag: '' }),
+    () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0, label: '', stroke: '#0a0a0a', alpha: 1, key: '', tag: '', ox: 0, oy: 0 }),
     110,
   );
   /** Per-skill flavour effects (slashes, arrows, meteors, clocks …). */
@@ -295,6 +304,12 @@ export class Vfx implements FxHost, StageHost {
     () => ({ x: 0, y: 0, z: 0, age: 0, dur: 1, text: '', color: '#fff', size: 14, follow: -1, stroke: '#120508', alpha: 1, sy: 0, sx: 0, w: 0, pill: '' }),
     20,
   );
+  /** 기획 17차: the state of the last update / event (reward visuals draw from it). */
+  private rewardState: GameState | null = null;
+  /** 기획 17차 저스트 교대: stamps, afterimages, my flash / multiplayer desaturate (render/justFx.ts). */
+  readonly just = new JustFx();
+  /** 기획 17차: floor-reward proc pills over my characters (render/rewardPills.ts). */
+  readonly pills = new RewardPills();
   /** skillCast keys seen since the last update (twin-cast dedupe). */
   private readonly castKeys = new Set<string>();
   /** Per source+skill: how many skillCast events this frame (= which data action each one is). */
@@ -421,6 +436,8 @@ export class Vfx implements FxHost, StageHost {
     this.kicks.length = 0;
     this.hops.clear();
     this.hides.clear();
+    this.just.reset();
+    this.pills.reset();
   }
 
   // ─────────────────────────── event intake ───────────────────────────
@@ -428,6 +445,10 @@ export class Vfx implements FxHost, StageHost {
   handle(ev: GameEvent, c: VfxContext): void {
     this.memosRef = c.memos;
     this.localPlayer = c.localPlayer;
+    this.rewardState = c.state;
+    rewardFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 17차 reward visuals
+    if (ev.type === 'justSwap' || ev.type === 'interrupt') this.just.handle(ev, c.state, c.localPlayer, c.memos, this);
+    else if (ev.type === 'rewardProc') this.pills.handle(ev, c.state, c.localPlayer, id => this.just.stampOn(id));
     switch (ev.type) {
       case 'damage':
         this.status.onDamage(ev.targetId, ev.amount, skillOwner(ev.skillName), this.status.isStopped(ev.targetId));
@@ -702,8 +723,9 @@ export class Vfx implements FxHost, StageHost {
     if (ev.amount >= 0.5) {
       const src = ev.source;
       // 기획 13차: a groggy boss's numbers are amber and a bit bigger; a drag hit says '×2'
-      const gc = ev.groggy ? GROGGY_NUM_COLOR : null;
-      const gk = ev.groggy ? GROGGY_NUM_SIZE : 1;
+      // 기획 17차: a 저스트 drag's hits are gold (and a bit bigger)
+      const gc = ev.just ? JUST_GOLD : ev.groggy ? GROGGY_NUM_COLOR : null;
+      const gk = (ev.groggy ? GROGGY_NUM_SIZE : 1) * (ev.just ? JUST_NUM_SIZE : 1);
       const tag = ev.groggy && ev.drag ? '×2' : '';
       if (ev.targetTeam === 'ally') {
         this.addNumber(ev.targetId, ev.crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, COLORS.dmgAlly, m, '', ev.crit ? 22 : 16, '', 1, 'ally');
@@ -1607,6 +1629,8 @@ export class Vfx implements FxHost, StageHost {
     f.alpha = alpha;
     f.key = key;
     f.stroke = kind === 1 ? '#4a2500' : kind === 4 ? mix(color, '#000000', 0.8) : '#0a0a0a';
+    f.ox = x;
+    f.oy = y;
     if (boss && m) {
       // numbers on the boss pop on its flanks, beside (not over) the big eye and low enough that they rise and fade
       // before the line under the top HUD (they used to pile up on that line), spread a little in height
@@ -1645,7 +1669,7 @@ export class Vfx implements FxHost, StageHost {
       const f = ps.items[i];
       if (f.key !== key || f.age >= win || f.age >= f.dur) continue;
       if (basic ? f.kind !== 0 && f.kind !== 1 : f.kind !== kind) continue;
-      if (Math.hypot(f.x - x, f.y - y) <= CLUSTER_R) return f;
+      if (Math.hypot(f.ox - x, f.oy - y) <= CLUSTER_R) return f;
     }
     return null;
   }
@@ -1840,6 +1864,7 @@ export class Vfx implements FxHost, StageHost {
 
   update(dt: number, c: VfxContext): void {
     this.localPlayer = c.localPlayer;
+    this.rewardState = c.state;
     this.castKeys.clear();
     this.castSeq.clear();
     this.pendingSwing.clear();
@@ -1858,6 +1883,8 @@ export class Vfx implements FxHost, StageHost {
       this.onDamage(ev, c, TMP_SW);
     }
     this.sfx.update(dt, this, c.memos);
+    this.just.update(dt, c.state, this); // 기획 17차
+    this.pills.update(dt, c.state);
     this.updateLandings(dt, c);
     this.updateStageTimers(dt);
     this.marks.update(dt, c.state.telegraphs ?? NO_TELES, c.state.zones ?? NO_ZONES);
@@ -1961,6 +1988,8 @@ export class Vfx implements FxHost, StageHost {
 
   /** Ground-level effects (under units): spawn warnings, area flashes, rings. */
   drawGround(ctx: CanvasRenderingContext2D, cam: Camera, time: number): void {
+    // 기획 17차: the content tracks' reward visuals (src/render/rewardFx/), under everything else on the ground
+    if (this.rewardState) drawRewardFx(ctx, { cam, localPlayer: this.localPlayer, host: this, state: this.rewardState }, time);
     // spawn warnings
     const ws = this.warns;
     for (let i = 0; i < ws.count; i++) {
@@ -2162,6 +2191,7 @@ export class Vfx implements FxHost, StageHost {
       }
       ctx.restore();
     }
+    this.just.drawAfterimages(ctx, cam, time); // 기획 17차: the 저스트 afterimage waits for its attack
   }
 
   /** Airborne effects over units: particles + skill flavour (slashes, arrows, meteors …). */
@@ -2207,6 +2237,21 @@ export class Vfx implements FxHost, StageHost {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    // 기획 17차: my 저스트 in multiplayer — the world loses its colour for a moment (my new character keeps it)
+    if (this.rewardState) this.just.drawDesaturate(ctx, cam, this.rewardState);
+  }
+
+  /** 기획 17차 리뷰: the callout boxes after drawOverlay's layout pass (the reward pills keep off them). */
+  private calloutBoxes(): PillAvoid[] {
+    if (!this.pills.pills.length) return [];
+    const out: PillAvoid[] = [];
+    const ls = this.labels;
+    for (let i = 0; i < ls.count; i++) {
+      const l = ls.items[i];
+      if (l.w <= 0) continue;
+      out.push({ x: l.sx, top: l.sy - l.size * PILL_TOP, bottom: l.sy + l.size * PILL_BOTTOM, w: l.w + 8 });
+    }
+    return out;
   }
 
   /** Floating numbers + world labels (topmost world layer). */
@@ -2316,6 +2361,10 @@ export class Vfx implements FxHost, StageHost {
       ctx.fillText(l.text, l.sx, l.sy);
     }
     ctx.globalAlpha = 1;
+    // 기획 17차: reward proc pills over my characters (kept off the callouts), then the 「저스트!」 stamps on top
+    this.pills.draw(ctx, cam, this.memosRef, this.calloutBoxes());
+    this.just.drawStamps(ctx, cam);
+    ctx.globalAlpha = 1;
   }
 
   /**
@@ -2368,6 +2417,13 @@ export class Vfx implements FxHost, StageHost {
     // 기획 13차: vignettes, the blade's screen slash, ult finale flashes, the cut-in band / corner banners
     if (cam) this.screen.drawTop(ctx, cam, time);
     ctx.globalAlpha = 1;
+    this.just.drawScreen(ctx); // 기획 17차: my 저스트 flash / gold edge
+    ctx.globalAlpha = 1;
+  }
+
+  /** 기획 17차: my 저스트 — a 60 ms hit-stop outside the per-second budget (JustFxHost). */
+  hitStopJust(): void {
+    this.juice.hitStop(JUST_STOP_SEC, { cap: JUST_STOP_SEC, ignoreBudget: true });
   }
 
 }

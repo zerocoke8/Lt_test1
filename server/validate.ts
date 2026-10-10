@@ -5,7 +5,7 @@ import type { ClientMsg, ExpRunInfo, PresetChoice } from '../src/net/protocol';
 import { GOEDAM_OPTION_RE } from '../src/net/protocol';
 import type { Command, DebugAction, ExpeditionCarry, Vec2 } from '../src/types';
 import type { GearLoadout, GearSpec } from '../src/data/gear';
-import { CHARACTERS, PETS, isFieldEventId } from '../src/data';
+import { CHARACTERS, PETS, REWARDS, isFieldEventId } from '../src/data';
 import { EXPEDITION_STAGES } from '../src/data/stages';
 import { RUN_ID_RE } from '../src/expedition/runCheck';
 
@@ -20,6 +20,7 @@ const goedamId = (v: unknown): v is string => typeof v === 'string' && GOEDAM_OP
 
 let charIds: Set<string> | null = null;
 let petIds: Set<string> | null = null;
+let rewardIds: Set<string> | null = null;
 
 export function parsePreset(v: unknown): PresetChoice | null {
   if (!isObj(v)) return null;
@@ -65,6 +66,16 @@ function parseDebug(v: unknown): DebugAction | null {
       // 기획 12차: a known 돌발 괴담 id, or none (any that fits)
       if (v.id === undefined) return { kind: 'fieldEventNext' };
       return isFieldEventId(v.id) ? { kind: 'fieldEventNext', id: v.id } : null;
+    // 기획 17차 (the server fills `player` with the sender)
+    case 'justDrill':
+    case 'offerFixture':
+      return { kind: v.kind };
+    case 'grantReward': {
+      rewardIds ??= new Set(REWARDS.map(r => r.id));
+      if (typeof v.rewardId !== 'string' || !rewardIds.has(v.rewardId)) return null;
+      if (v.member === undefined || v.member === null) return { kind: 'grantReward', rewardId: v.rewardId };
+      return isInt(v.member, 0, 2) ? { kind: 'grantReward', rewardId: v.rewardId, member: v.member } : null;
+    }
   }
   return null;
 }
@@ -84,7 +95,12 @@ export function parseCommand(v: unknown): Command | null {
     case 'ult':
       return { type: 'ult', player: 0 };
     case 'chooseReward':
-      return isInt(v.offerIndex, 0, 9) ? { type: 'chooseReward', player: 0, offerIndex: v.offerIndex } : null;
+      // 기획 17차 지명권: member (optional) = the party index a member / role card goes to
+      if (!isInt(v.offerIndex, 0, 9)) return null;
+      if (v.member === undefined) return { type: 'chooseReward', player: 0, offerIndex: v.offerIndex };
+      return isInt(v.member, 0, 2) ? { type: 'chooseReward', player: 0, offerIndex: v.offerIndex, member: v.member } : null;
+    case 'rerollReward':
+      return { type: 'rerollReward', player: 0 }; // 기획 17차 다시 뽑기
     case 'goedam':
       // 기획 10차: an option id or 'continue'; the room decides whether it is valid for this slot
       return goedamId(v.option) ? { type: 'goedam', player: 0, option: v.option } : null;
@@ -106,7 +122,7 @@ export function parseCommand(v: unknown): Command | null {
 }
 
 /** 기획 16차: size bounds of a run sent with expQueue (beyond them the message is junk). */
-export const RUN_LIMITS = { bag: 64, rewards: 48, traces: 16, seen: 64 } as const;
+export const RUN_LIMITS = { bag: 64, rewards: 64, traces: 16, seen: 64, rewardState: 16 } as const;
 
 const arr = (v: unknown, max: number): unknown[] | null => (Array.isArray(v) && v.length <= max ? v : null);
 const pick = (v: unknown, keys: readonly string[]): Obj => {
@@ -123,11 +139,18 @@ function parseCarry(v: unknown): ExpeditionCarry | null | undefined {
   const ult = arr(v.ult, 3);
   const seen = v.goedamSeen === undefined ? [] : arr(v.goedamSeen, RUN_LIMITS.seen);
   if (!rewards || !traces || !ult || !seen) return undefined;
+  // 기획 17차: rerolls, reward counters, 이중 장전 charges (optional; values are checked by runJoinProblem)
+  const charges = v.dragCharges === undefined ? undefined : arr(v.dragCharges, 3);
+  const state = v.rewardState === undefined ? undefined : isObj(v.rewardState) && Object.keys(v.rewardState).length <= RUN_LIMITS.rewardState ? { ...v.rewardState } : null;
+  if (charges === null || state === null) return undefined;
   return {
     rewards: rewards.map(r => pick(r, ['rewardId', 'partyIndex'])) as unknown as ExpeditionCarry['rewards'],
     goedamTraces: traces.map(t => pick(t, ['id', 'floorsLeft'])) as unknown as ExpeditionCarry['goedamTraces'],
     ult: ult as number[],
     goedamSeen: seen as string[],
+    ...(v.rerolls !== undefined ? { rerolls: v.rerolls as number } : null),
+    ...(state ? { rewardState: state as Record<string, number> } : null),
+    ...(charges ? { dragCharges: charges as (number | null)[] } : null),
   };
 }
 

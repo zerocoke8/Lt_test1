@@ -57,6 +57,7 @@ const STATUS_SHORT: Record<StatusId, (value: number, duration: number) => string
   stasis: (_v, d) => `정지 ${num(d)}초`,
   charm: (_v, d) => `조종 ${num(d)}초`,
   splashUp: v => `공격 범위 +${num(v)}`,
+  grudge: (_v, d) => `원한 ${num(d)}초`, // 기획 17차
 };
 
 function effectLabel(e: Effect, hits: number, spots: number): string {

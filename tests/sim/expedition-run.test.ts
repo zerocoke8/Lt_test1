@@ -158,7 +158,8 @@ describe('runJoinProblem (10-3)', () => {
       ['boss clear twice', bad({ bossClears: [3, 3] })],
       ['unknown reward', bad({ carry: { ...carry, rewards: [{ rewardId: 'nope', partyIndex: null }] } })],
       ['reward party index', bad({ carry: { ...carry, rewards: [{ rewardId: 'atk_common', partyIndex: 7 }] } })],
-      ['too many rewards', bad({ carry: { ...carry, rewards: Array.from({ length: 5 }, () => ({ rewardId: 'atk_common', partyIndex: null })) } })],
+      // 기획 17차: up to 4 per cleared stage (욕심쟁이 pick 2, 빚쟁이's epic, a room's) — 2 cleared → 9 is too many
+      ['too many rewards', bad({ carry: { ...carry, rewards: Array.from({ length: 9 }, () => ({ rewardId: 'atk_common', partyIndex: null })) } })],
       ['unknown trace', bad({ carry: { ...carry, goedamTraces: [{ id: 'nope', floorsLeft: 1 }] } })],
       ['trace too long', bad({ carry: { ...carry, goedamTraces: [{ id: 'silence', floorsLeft: 9 }] } })],
       ['timed trace forever', bad({ carry: { ...carry, goedamTraces: [{ id: 'silence', floorsLeft: null }] } })],

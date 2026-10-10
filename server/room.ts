@@ -3,12 +3,15 @@
 
 import type { WebSocket } from 'ws';
 import type { PresetChoice, RoomInfo, RoomSummary, ServerMsg } from '../src/net/protocol';
-import { MAX_COMMAND_AGE_MS, MAX_ROOM_PLAYERS } from '../src/net/protocol';
-import type { Command, CommandResult, Game, GameEvent, GameSetup, PlayerSetup } from '../src/types';
+import { MAX_COMMAND_AGE_MS, MAX_ROOM_PLAYERS, REROLL_MIN_LEFT_SEC } from '../src/net/protocol';
+import type { Command, CommandResult, DebugAction, Game, GameEvent, GameSetup, PlayerSetup } from '../src/types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../src/config';
-import { createGame, goedamTimeoutCommands } from '../src/sim';
+import { botPickIndex, createGame, goedamTimeoutCommands } from '../src/sim';
 import { wireJson } from './snapshot';
 import { randomSeed } from './util';
+
+/** Debug actions that act on the sender's own seat (the server fills `player`). */
+const PER_PLAYER_DEBUG: ReadonlySet<DebugAction['kind']> = new Set<DebugAction['kind']>(['chargeUlt', 'resetCooldowns', 'justDrill', 'grantReward', 'offerFixture']);
 
 export interface ServerOptions {
   port: number;
@@ -19,6 +22,8 @@ export interface ServerOptions {
   snapshotHz: number;
   /** R33: real seconds before unchosen rewards are picked at random. */
   rewardTimeoutSec: number;
+  /** 기획 17차: 다시 뽑기 is refused this close to the reward auto-pick (s; default REROLL_MIN_LEFT_SEC; tests with tiny timeouts use 0). */
+  rerollMinLeftSec?: number;
   /** 기획 10차: real seconds for a 괴담 room (fresh when it opens) before it is finished for whoever is still in it. */
   goedamTimeoutSec: number;
   /** Snapshots keep flowing this long after runOver, then 'gameEnded'. */
@@ -370,6 +375,10 @@ export class Room {
         if (atTick != null && this.commandAgeMs(atTick) > this.host.opts.maxCommandAgeMs) return fail('연결이 늦어 취소됐어요');
         c = { ...cmd, player: pi };
         break;
+      case 'rerollReward': // 기획 17차: not in the last 3 s before the auto-pick (the client greys the button too)
+        if (this.rerollTooLate()) return fail('시간이 얼마 안 남아 다시 뽑을 수 없어요');
+        c = { ...cmd, player: pi };
+        break;
       case 'ult':
       case 'chooseReward':
       case 'goedam':
@@ -378,7 +387,7 @@ export class Room {
       case 'debug':
         if (!isHost) return fail('방장만 할 수 있어요');
         if (!this.debugAllowed()) return fail(SHARED_DEBUG_REFUSED);
-        c = cmd.action.kind === 'chargeUlt' || cmd.action.kind === 'resetCooldowns' ? { type: 'debug', action: { kind: cmd.action.kind, player: pi } } : cmd;
+        c = PER_PLAYER_DEBUG.has(cmd.action.kind) ? { type: 'debug', action: { ...cmd.action, player: pi } as DebugAction } : cmd;
         break;
       case 'tunables':
         if (!isHost) return fail('방장만 할 수 있어요');
@@ -442,6 +451,12 @@ export class Room {
     this.mode?.check(this, g, now);
   }
 
+  /** 기획 17차: the reward auto-pick is less than rerollMinLeftSec away (a lagging or modified client's late reroll). */
+  private rerollTooLate(): boolean {
+    const min = (this.host.opts.rerollMinLeftSec ?? REROLL_MIN_LEFT_SEC) * 1000;
+    return this.rewardDeadline != null && min > 0 && this.rewardDeadline - Date.now() < min;
+  }
+
   private checkReward(g: Game, now: number): void {
     const s = g.state;
     if (s.phase === 'reward') {
@@ -449,9 +464,13 @@ export class Room {
         this.rewardFloor = s.floor;
         this.rewardDeadline = now + this.host.opts.rewardTimeoutSec * 1000;
       } else if (now >= this.rewardDeadline) {
-        // R33: whoever has not chosen gets a random pick
-        s.rewardOffersByPlayer.forEach((offers, i) => {
-          if (offers && offers.length) g.dispatch({ type: 'chooseReward', player: i, offerIndex: Math.floor(Math.random() * offers.length) });
+        // R33 → 기획 17차: whoever has not chosen gets the bot's card (botPickIndex, default member), every pick left
+        s.rewardOffersByPlayer.forEach((_, i) => {
+          for (let k = 0; k < 4; k++) {
+            const offers = g.state.rewardOffersByPlayer[i];
+            const pick = botPickIndex(g.state.players[i], offers);
+            if (!offers || pick < 0 || !g.dispatch({ type: 'chooseReward', player: i, offerIndex: pick }).ok) break;
+          }
         });
         this.collect();
         if (g.state.phase !== 'reward') this.rewardDeadline = null;

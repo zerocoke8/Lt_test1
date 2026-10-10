@@ -65,6 +65,9 @@ export const DRAG_BEAT_DUCK: readonly [number, number] = [-4, 0.15];
 /** My ult's effect-bus duck: hold + release (s); boss windups / impacts in it play 3 dB louder (4-4). */
 export const ULT_DUCK_SEC = 1.2 + 0.4;
 
+/** 기획 17차: my 저스트 ducks the other effects this much for this long (docs/just-swap.md 연출). */
+export const JUST_DUCK: readonly [number, number] = [-5, 0.25];
+
 /** What each event sounds like ('none' = deliberately silent). The handler below must cover every key. */
 export const EVENT_SOUNDS: Record<GameEvent['type'], string> = {
   damage: 'hit.basic / hit.skill / hit.crit / hit.weak / hit.boss / hurt.char / hurt.shield (drag·ult hits: none)',
@@ -110,6 +113,10 @@ export const EVENT_SOUNDS: Record<GameEvent['type'], string> = {
   // 기획 15차 원정: the screens (src/ui/expedition*) play 'exp.*' themselves; the events stay silent here
   stageClear: 'none',
   gearProc: 'none',
+  // 기획 17차: my 저스트 is loud (+ a short −5 dB duck), anyone else's small; the attack whiffs when its telegraph lands
+  justSwap: 'just.swap / just.swap.far (+ just.whiff when the dodged attack lands)',
+  rewardProc: 'reward.proc (mine, quiet; the 빚 toast has no sound)',
+  tagSet: 'reward.set',
 };
 
 // ─────────────────────────── static lookups ───────────────────────────
@@ -229,6 +236,8 @@ export class Director {
   private fieldSince = 0;
   private rewardShown = false;
   private stasisTill = 0;
+  /** 기획 17차: telegraphs of my 저스트 — their landing whiffs on the empty spot (just.whiff). */
+  private readonly whiffs = new Set<number>();
 
   reset(): void {
     this.snap = null;
@@ -247,6 +256,7 @@ export class Director {
     this.fieldSince = 0;
     this.rewardShown = false;
     this.stasisTill = 0;
+    this.whiffs.clear();
   }
 
   /** Loops were cut (pause / scene change): the watchers restart what should be playing. */
@@ -452,6 +462,18 @@ export class Director {
       case 'stageClear':
       case 'gearProc':
         return; // 기획 15차 원정: the expedition screens play their own cues
+      case 'justSwap':
+        if (e.player !== c.lp) return c.play('just.swap.far', { pan: c.pan(e.drop) });
+        c.play('just.swap', { pan: c.pan(e.drop) * 0.5 });
+        c.duck('sfx', JUST_DUCK[0], 0, JUST_DUCK[1], 0.02, 0.15);
+        if (e.telegraphIds[0] != null) this.whiffs.add(e.telegraphIds[0]);
+        return;
+      case 'rewardProc':
+        if (e.player === c.lp && e.entityId != null) c.play('reward.proc', { pan: c.pan(e.pos) });
+        return;
+      case 'tagSet':
+        if (e.player === c.lp) c.play('reward.set');
+        return;
       default: {
         const never: never = e;
         return never;
@@ -672,11 +694,13 @@ export class Director {
       for (const [id, info] of prev.telegraphs) {
         if (info.team !== 'enemy' || now.has(id) || interrupted.has(id)) continue;
         const ti = this.tele.get(id);
+        if (this.whiffs.delete(id)) c.play('just.whiff');
         if (ti?.kind) c.play(`boss.impact.${ti.kind}`, { db: this.inUltDuck(c) ? 3 : 0 });
         else c.play(`mon.impact.${ti?.shape ?? 'circle'}`, { db: ti?.tier === 'mid' ? 2 : 0 });
       }
     }
     for (const id of [...this.tele.keys()]) if (!s.telegraphs.some(t => t.id === id)) this.tele.delete(id);
+    for (const id of [...this.whiffs]) if (!s.telegraphs.some(t => t.id === id)) this.whiffs.delete(id);
     this.watchStatuses(c, prev);
     this.watchMine(c, prev);
     this.watchClock(c, prev);

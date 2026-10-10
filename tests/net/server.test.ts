@@ -337,7 +337,9 @@ describe('game', () => {
     expect(snap.rewardDeadline! - snap.serverTime).toBeGreaterThan(300);
     expect(snap.state.rewardOffersByPlayer.map(o => o?.length)).toEqual([3, 3, 3]);
     expect(snap.state.rewardOffers).toEqual(snap.state.rewardOffersByPlayer[0]);
-    b.send({ t: 'cmd', seq: 5, cmd: { type: 'chooseReward', player: 0, offerIndex: 1 } });
+    // 기획 17차: 빚쟁이의 방문 grants a second (epic) reward at once — B takes a new-family card that adds exactly one
+    const bPick = Math.max(1, (snap.state.rewardOffersByPlayer[1] ?? []).findIndex((o, i) => i >= 1 && o.family !== 'debt'));
+    b.send({ t: 'cmd', seq: 5, cmd: { type: 'chooseReward', player: 0, offerIndex: bPick } });
     expect((await b.next('cmdResult', m => m.seq === 5)).ok).toBe(true);
     const after = await a.snap(m => m.state.phase === 'reward' && m.state.rewardOffersByPlayer[1] === null);
     expect(after.state.phase).toBe('reward');

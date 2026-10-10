@@ -25,6 +25,8 @@ export function emptyContribution(): ContributionStats {
     groggyPoints: 0,
     groggyBreaks: 0,
     groggyDamage: 0,
+    justSwaps: 0, // 기획 17차
+    justDodged: 0,
   };
 }
 
@@ -43,6 +45,7 @@ export function computeTelemetry(w: World, player = 0): Telemetry {
     floorTimes: w.floorTimes.map(f => ({ ...f })),
     goedam: p ? p.goedamLog.map(e => ({ ...e, outcome: { ...e.outcome, traces: [...e.outcome.traces] } })) : [],
     fieldEvents: w.fieldEvents.history.map(h => ({ ...h })),
+    justSwapsPerMinute: minutes > 0 ? (st.justSwaps ?? 0) / minutes : 0, // 기획 17차
   };
 }
 
@@ -82,6 +85,12 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   // 기획 15차 궁극기 개별 게이지 (bench ratio 0 = bench gauges never fill)
   ultFieldChargeTime: [1, 600],
   ultBenchRatio: [0, 1],
+  // 기획 17차 저스트 교대 (window 0 = off)
+  justSwapWindow: [0, 1],
+  justSwapDragMult: [1, 3],
+  justSwapCdCut: [0, 0.9],
+  justSwapIcd: [0, 10],
+  botJustChance: [0, 1],
 };
 
 /**

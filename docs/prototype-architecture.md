@@ -614,3 +614,36 @@ src/sim (서버·혼자 하기 공통, 결정적)
 - 테스트: `tests/sim/expedition.test.ts`(12개 1층 계획, 일반/보스 흐름, 이긴 뒤 나가기, 전리품 수, 방·돌발 괴담 확률, 흔적은 단계당 한 칸), 새 `expedition-run.test.ts`(한 번만 적용·취소·실패·수령·완주·`runJoinProblem` 표), `expedition-stash.test.ts`(v1 → v2, 잠금, 수령 거절), `tests/net/expedition.test.ts`(이어 가는 참가, `bad_run`·`run_busy`, 끊긴 뒤·`expStatus` 결과, 오류 = 취소, 2명 중 한 명이 이긴 뒤 나감 = 클리어, `bootId`), `tests/ui/expedition-store.test.ts`·`expedition-logic.test.ts`(정리 판단 표, 두 창 중복 수령 막기, 로비 화면 모델), e2e `expedition.spec.ts`·`multi-expedition.spec.ts`(3개)·`artifact.spec.ts`.
 - 클래식 골든(`default-off-golden`)은 원정 코어가 바꾸지 않음 — 원정은 `if (w.expedition)` 길만.
 
+
+## 17차: 저스트 교대 + 층 보상 확장 (2026-10-10)
+
+규칙은 [`just-swap.md`](just-swap.md) · [`floor-rewards.md`](floor-rewards.md), 결정은 `game-design.md` 30장, 숫자는 `balance.md` 17장.
+
+### 층 보상: 데이터 → 훅 버스 → 효과
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/data/rewards/index.ts` | 모으는 곳: `FAMILIES = [기본 12, 시스템 2, 교대(트랙 A) 26, 전투(트랙 B) 26, 규칙(트랙 C) 27]` = 93계열 → 평평한 `REWARDS`(id `${계열}_${등급}`, 옛 id 그대로라 `runCheck`의 `REWARD_IDS`도 그대로), 등급 표 `RARITY_*`(전설 「전설」 `#ff8c42`), `RARITY_BY_BAND` |
+| `src/data/rewards/{base,system,swap,combat,rules}.ts` | 계열 하나 = `RewardFamilyDef {key, name, tags, params(등급별 숫자), describe(v, {char, role}), target 'party'·'member'·'role'·'self', prefRoles?, requires?, unique?, botWeight, flag? 'curse'·'coop'·'economy', cost?, legacyEffect?}`. 「직업 특기」는 계열 1개(`role`, 직업별 줄 `ROLE_LINES`·`ROLE_NUM`) |
+| `src/data/rewards/tags.ts` | 시너지 태그 13개(이름·색·글리프), `TAG_SET_BONUS`(문구)·`TAG_BONUS`(숫자), `RELIC_TAGS`(클래식 유물 8개), `ROLE_TAGS` |
+| `src/sim/rewards/hooks.ts` · `types.ts` | **훅 버스**: 그룹 순서 BASE → SWAP → COMBAT → RULES(`hookGroup`). 곱하는 값은 곱하고 더하는 값은 더함, `gaugeCap`은 큰 쪽, `canSwap`은 하나라도 'allow'면. 보상·유물이 없는 플레이어는 바로 건너뜀(기본 판이 빠름). 순수 훅(`canSwap`·`ultMult`·`chargeMult`·`gaugeCap`·`justMods`·`reviveTime`…)은 PlayerState만 읽어 멀티 클라이언트에서도 같은 답 |
+| sim 호출 자리 | `players.ts`(교대: onLeave → cooldownOnLeave → 저스트 할인, onAppear → 드래그 → onLand → onJustSwap; 궁·펫·부활·`canSwapState`), `combat.ts`(dealtMult·takenMult와 받는 피해 감소 합 최대 50%, onKill, 쓰러짐, 넘친 회복), `skills.ts`(onDragHit, statusDuration), `status.ts`(만료), `groggy.ts`(그로기 배율 시전당 최대 ×2, onGroggyBreak), `stats.ts`(statMods), `ultMode.ts`(충전·상한 2), `fieldEvents.ts`, `floor.ts`(층 시작·클리어, 보상 화면), `game.ts`(명령) |
+| `src/sim/rewards/fx.ts` · `query.ts` | 효과 도구: `rewardCtx`(그로기 없음, 「유물」 피해), `blast`·`lineHit`·`fireBolt`·`zoneAt`(플레이어당 장판 4)·`spawnShooter`(잔상 2·포탑 1)·`spawnDecoy`·`placeMine`·`hpCost`(1 아래로 안 감)·`guardAdd`·`addRewardGroggy`(쓰러짐당 30%)·`forceSwap`·`scheduleReward`(지연 박자)·`proc`(→ `rewardProc` 이벤트). 읽기: `rewardCount`·`rewardParam`·`roleLevel`·`tagCounts`·`tagActive` |
+| `src/sim/rewards/{base,swap,combat,rules}.ts` | 계열마다 작은 훅 객체 하나 + 태그 모음 보너스. 실행 중에만 쓰는 값은 `p.rt.reward`(전송 안 함), 런에 남는 정수 카운터는 `p.rewardState`(화이트리스트 `REWARD_STATE_LIMITS`) |
+| `src/sim/rewards/offers.ts` · `botPick.ts` | 보상 화면: **`offerRng(seed, 층/단계, 플레이어, 몇 번째 뽑기)`로 따로 난수** — 다시 뽑기·카드 뽑기가 판 난수 `w.rng`를 건드리지 않음. 등급 구간·전설 1장·1장 기본·교체 태그 보장·저주/협동 1장·태그 끌림·자격(`familyEligible`)·`offerMods`(상자·욕심·빚). `rerollReward`·`rerollProblem`, `applyOffer(member?)`, `defaultMember`. `botPickIndex`(순수: 등급 × 무게 × 태그) — 봇, 서버 시간 초과, 클라이언트 시간 줄, 원정 이긴 단계 결과가 같이 씀 |
+| `src/render/rewardFx/` · `src/render/rewardPills.ts` | 보상 연출 등록소 `registerRewardFx({onEvent, draw})`(트랙 파일 3개), 머리 위 태그 아이콘 알약 |
+| `src/ui/reward.ts` · `buildPanel.ts` | 보상 화면(등급 알약·태그 칩·「누구에게?」·다시 뽑기·4장/2장 고르기·모음 도장·시간 줄), 순수 `buildSummary`(보상 화면·일시정지·원정 로비가 같이 씀) |
+
+### 저스트 교대
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/sim/justSwap.ts` | `findJustThreats`(교대 명령을 처리하는 틱에: 적 편, 보이는 예고, 첫 타 전, 해로운 효과, 0 < 남은 시간 ≤ 창, 한 명 노림이면 그 캐릭터 / 범위면 `inActionArea` — 실제 피격과 같은 계산, 시전자가 기절·정지·그로기·매혹이면 제외, 인정은 예고마다 한 번), `justWindow`·`justParams`(상한 0.9초 · ×2.0 · 70%), 보상(드래그 ctx `justMult` → 피해 이벤트 `just: true`, 쿨 ×(1 − 할인) 최소 2.4초), `justCue`(순수, HUD의 위험/지금!) |
+| `src/sim/bot.ts` · `justDrill.ts` | 봇 `justThink`(위협마다 `botJustChance` 한 번, 0이면 난수 안 뽑음), 디버그 「저스트 연습」 |
+| `src/render/justFx.ts` · `juice.ts` · `src/ui/justHud.ts` · `cardFx.ts` · `app.ts` | 도장(내 것 크게 / 남의 것 70% 그 사람 색), 잔상 → 조각, 플래시, 멀티 색 빠짐 0.35초, 혼자 하기 슬로 `justTimeScale`(app이 `game.step(dt × scale)` — 혼자 하기만, 멀티는 시계 그대로), HUD 신호(멀티는 스냅샷 나이 + 핑/2만큼 일찍) |
+
+- 새 상태 칸: `PlayerState.rerolls`·`rewardState?`·`rewardPicksLeft?`, `PartyMember.fieldTime?`·`dragCharges?`, `RewardOffer.family/tags/target/member/role?/flag?/cost?/rarityBumped?`, 통계 `justSwaps`·`justDodged`. 이벤트 `justSwap`·`rewardProc`·`tagSet`, `damage.just`. 명령 `chooseReward.member?`, `rerollReward`. 디버그 `justDrill`·`grantReward`·`offerFixture`. 튜닝 `justSwapWindow` 0.5 · `justSwapDragMult` 1.5 · `justSwapCdCut` 0.4 · `justSwapIcd` 0 · `botJustChance` 0.03.
+- 저장: 원정 carry에 `rerolls?`·`rewardState?`·`dragCharges?`(없으면 다시 뽑기 1개 — 16차 런 그대로 읽힘), `runCheck` 단계당 보상 4장·다시 뽑기 0~5·카운터 범위·궁 0~2(두 번 차는 게이지가 있을 때만).
+- 테스트: `tests/sim/justSwap.test.ts`, `rewards-core`·`rewards-fx`·`rewards-hooks`·`rewards-swap`·`rewards-combat`·`rewards-rules.test.ts`, `tests/net/rewards17.test.ts`, `tests/ui/reward-screen`·`build-panel`·`just-hud`, `tests/render/just-fx`, 퍼징(모든 보상을 모든 자리에 + 상한), 전송 KEYS. e2e `rewards.spec.ts`·`just-swap.spec.ts`·`multi-just.spec.ts`(폰 3대: 각자 고름·다시 뽑기·지명권·협동·저스트 도장·어긋남 없음), `expedition.spec.ts`(로비 버프 목록 · 16차 저장 런 읽기), `artifact.spec.ts`(서버 없이 보상 + 저스트).
+- 골든(`default-off-golden` 두 판, `healers.test` 난수 동일성 3개)은 「기획 17차」 주석으로 한 번 다시 기록.
+- 벤치: `tests/review/critic-20f.ts`(`JUST`·`JUST_RATE`·`POLICY=dodge`·`PICK`·`POOL`·`BANDS`·`PAR`), 새 `reward-bench.ts`(보상 하나의 가치)·`reward-cats.ts`(계열 → 분류), `expedition-bench.ts`(봇 점수로 고름, `JUST=off`).

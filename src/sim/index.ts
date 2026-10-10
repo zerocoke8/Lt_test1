@@ -6,3 +6,6 @@ export { Rng } from './rng';
 export { canGoedamState, goedamSchedule, goedamTimeoutCommands } from './goedam';
 // 기획 15차 원정 (기획 16차): pure helpers over the public GameState (solo controller / server: a stage's result)
 export { extractCarry, planExpeditionFloor, rollStageLoot, stageResultFromState, wonResultFromState } from './expedition';
+// 기획 17차: the floor-reward bot pick (server timeout, client timer text) and the reroll check
+export { botPickIndex, botPickMember } from './rewards/botPick';
+export { rerollProblem } from './rewards/offers';

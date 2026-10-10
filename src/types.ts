@@ -9,7 +9,8 @@ export type Vec2 = { x: number; y: number };
 /** 기획 12차: 'healer' split off 'support' (탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터, 3 each). */
 export type Role = 'tank' | 'melee' | 'ranged' | 'healer' | 'support';
 export type Team = 'ally' | 'enemy';
-export type Rarity = 'common' | 'rare' | 'epic';
+/** 기획 17차: 'legendary' (전설) — floor rewards only (gear keeps 3 rarities: GearRarity). */
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export type SkillSlot = 'basic' | 'passive' | 'normal' | 'drag' | 'ult';
 /** What a point of damage/heal is attributed to, for contribution + tuning logs. */
 export type DamageSource = SkillSlot | 'pet' | 'relic' | 'zone' | 'summon';
@@ -72,9 +73,11 @@ export type StatusId =
   /** 조종: attacks the nearest other enemy; its hits count for the player who charmed it. Bosses / mid / summons immune. */
   | 'charm'
   /** Ally buff: basic-attack splash radius +value (a character without splash gets one). */
-  | 'splashUp';
+  | 'splashUp'
+  /** 기획 17차 원한의 쪽지 (floor reward): a mark; what it does lives in the reward hooks (statusExpire). */
+  | 'grudge';
 
-export const DEBUFFS: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'slow', 'burn', 'atkDown', 'vulnerable', 'drain', 'taunt', 'tether', 'root', 'stasis', 'charm']);
+export const DEBUFFS: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'slow', 'burn', 'atkDown', 'vulnerable', 'drain', 'taunt', 'tether', 'root', 'stasis', 'charm', 'grudge']);
 
 /** 기획 13차: the control statuses that come with a 'statusApplied' event (head icons / sounds). */
 export const CONTROL_STATUSES: ReadonlySet<StatusId> = new Set<StatusId>(['taunt', 'tether', 'root', 'stasis', 'charm']);
@@ -385,7 +388,70 @@ export type RewardEffect =
   /** Shield on appear: fraction of maxHp for 4s. */
   | { kind: 'appearShield'; value: number }
   /** Pet cooldown pct reduction. */
-  | { kind: 'petCooldown'; value: number };
+  | { kind: 'petCooldown'; value: number }
+  /** 기획 17차: everything else — the family's sim hooks (src/sim/rewards/*) read RewardDef.params. */
+  | { kind: 'trigger' };
+
+// ─── 기획 17차 층 보상 확장 (docs/floor-rewards.md) ───
+
+/** Synergy tags (labels 등장 퇴장 교대 저스트 궁극기 펫 상태이상 보스 생존 공격 저주 협동 성장); 3 of one = its set bonus. */
+export type SynergyTag = 'appear' | 'leave' | 'swap' | 'just' | 'ult' | 'pet' | 'status' | 'boss' | 'survive' | 'attack' | 'curse' | 'coop' | 'growth';
+
+/** Who a reward works for: the party, one chosen member (지명권), every member of one role, or the player (economy). */
+export type RewardTarget = 'party' | 'member' | 'role' | 'self';
+
+/** Party condition for a family to be offered. 'otherSeat' = at least one other non-out seat (bots count). */
+export type RewardRequires =
+  | 'tank'
+  | 'melee'
+  | 'ranged'
+  | 'healer'
+  | 'support'
+  | 'tankAndDealer'
+  | 'healerAndDealer'
+  | 'tankOrMelee'
+  | 'dupRole'
+  | 'allRolesDiffer'
+  | 'otherSeat'
+  /** 기획 17차: the party can burn (a character whose skills burn, 그을린 발자국 / 불붙은 손 owned, or a burning weapon). */
+  | 'burnSource';
+
+/** Text context of a reward description: the bound character's name and (role family) the role. */
+export interface RewardTextCtx {
+  char?: string;
+  role?: Role;
+  /** The reward-screen card (short: a long text drops what the build sheet still shows). */
+  card?: boolean;
+}
+
+/**
+ * 기획 17차: one reward family = one entry of src/data/rewards/*. Ids are `${key}_${rarity}` for every rarity in params.
+ * The 12 basic families keep their 16차 ids and numbers (legacyEffect); every other family is { kind: 'trigger' } and
+ * its behaviour lives in the sim hooks of its track (src/sim/rewards/{base,swap,combat,rules}.ts).
+ */
+export interface RewardFamilyDef {
+  key: string;
+  /** May contain {char} (member target) — replaced by the bound character's name. */
+  name: string;
+  tags: SynergyTag[];
+  /** Numbers per rarity (only the rarities the family has). */
+  params: Partial<Record<Rarity, Record<string, number>>>;
+  /** Player-facing description (Korean, short) from one rarity's params. */
+  describe(v: Record<string, number>, ctx: RewardTextCtx): string;
+  target: RewardTarget;
+  /** Default member order for 'member' cards (지명권): first role present wins, then most field time. */
+  prefRoles?: Role[];
+  requires?: RewardRequires;
+  /** Never offered again once owned (every legendary is unique). */
+  unique?: boolean;
+  /** Bot pick weight (basic 1.2, auto 1.0, positional 0.6, curse 0.5, economy 0 = never). */
+  botWeight: number;
+  flag?: 'curse' | 'coop' | 'economy';
+  /** Red 대가 line on the card. */
+  cost?(v: Record<string, number>): string;
+  /** The 12 basic families: their 16차 effect (stat / skill / swapCooldown / appearShield / petCooldown). */
+  legacyEffect?(v: Record<string, number>): RewardEffect;
+}
 
 export interface RewardDef {
   id: string;
@@ -395,6 +461,19 @@ export interface RewardDef {
   rarity: Rarity;
   scope: RewardScope;
   effect: RewardEffect;
+  // 기획 17차
+  family: string;
+  tags: SynergyTag[];
+  /** This rarity's numbers. */
+  params: Record<string, number>;
+  target: RewardTarget;
+  prefRoles?: Role[];
+  requires?: RewardRequires;
+  unique?: boolean;
+  botWeight: number;
+  flag?: 'curse' | 'coop' | 'economy';
+  /** Resolved 대가 text (cards show it in red). */
+  cost?: string;
 }
 
 // ─────────────────────────── 괴담 방 (기획 10차, docs/goedam-rooms.md) ───────────────────────────
@@ -420,8 +499,8 @@ export type GoedamEffect =
   | { kind: 'ultAdd'; value: number }
   /** 모든 쿨 0 (swap + normal skill of every member, every pet) or 펫 쿨 0. */
   | { kind: 'resetCooldowns'; petsOnly?: boolean }
-  /** One normal reward drawn with these rarity weights (percent). */
-  | { kind: 'reward'; weights: Record<Rarity, number> }
+  /** One normal reward drawn with these rarity weights (percent; a missing rarity = 0 — 기획 17차: rooms never give 전설). */
+  | { kind: 'reward'; weights: Partial<Record<Rarity, number>> }
   /** This exact reward (party scope). */
   | { kind: 'rewardFixed'; rewardId: string }
   /** Another copy of GoedamParams.copy (the most recent common/rare reward). */
@@ -496,7 +575,8 @@ export interface RelicDef {
   id: string;
   name: string;
   description: string;
-  rarity: Rarity;
+  /** 기획 17차: relics keep 3 rarities (gear drops them). */
+  rarity: Exclude<Rarity, 'legendary'>;
   /** Free-form numeric params read by the sim's relic hooks (keyed by relic id). */
   params: Record<string, number>;
 }
@@ -705,9 +785,16 @@ export interface PartyMember {
   entityId: number | null;
   /** 기획 15차: this character's own ult gauge (the per-character gauge is the rule; src/sim/ultMode.ts). */
   ult: UltGauge;
+  /** 기획 17차: seconds this character stood on the field this game (default 지명권 target). */
+  fieldTime?: number;
+  /** 기획 17차 이중 장전: charges left on this card (only with that reward). */
+  dragCharges?: number;
 }
 
-/** An ult gauge: charge 0..1 (1 = usable), fullSince = sim time it became full (null below full). */
+/**
+ * An ult gauge: charge 0..1 (1 = usable), fullSince = sim time it became full (null below full). 기획 17차: with the
+ * 두 번 차는 게이지 reward the charge goes up to the gauge cap (2).
+ */
 export interface UltGauge {
   charge: number;
   fullSince: number | null;
@@ -738,6 +825,9 @@ export interface ContributionStats {
   groggyPoints: number;
   groggyBreaks: number;
   groggyDamage: number;
+  /** 기획 17차 저스트 교대: just swaps, and enemy attacks dodged by them (×2 when one swap dodged two). */
+  justSwaps: number;
+  justDodged: number;
 }
 
 export interface AppliedReward {
@@ -771,6 +861,15 @@ export interface PlayerState {
   goedamLog: GoedamLogEntry[];
   /** 기획 15차 원정: equipped gear per party index (read-only during the game). Absent in the classic tower. */
   gear?: GearLoadout[];
+  /** 기획 17차 다시 뽑기: rerolls left (run start 1, +1 per boss clear, max 5). */
+  rerolls: number;
+  /**
+   * 기획 17차: run-long reward counters (integers; carried in the 원정 run): nails, candlesKills, candlesBonus, debt,
+   * boxBump, greedyPicks, understudyLeft, punchInLeft, offerRoll. Absent = none yet.
+   */
+  rewardState?: Record<string, number>;
+  /** 기획 17차 욕심쟁이 계약서: picks left on the open reward screen (absent / 1 = one pick). */
+  rewardPicksLeft?: number;
 }
 
 export interface GoedamTraceSlot {
@@ -874,13 +973,27 @@ export interface Projectile {
 
 export interface RewardOffer {
   rewardId: string;
-  /** For character-scoped rewards. */
+  /** For character-scoped rewards (member / role cards: the default member). */
   partyIndex: number | null;
   /** Resolved display text (placeholders filled). */
   name: string;
   description: string;
   rarity: Rarity;
   isRelic: boolean;
+  // 기획 17차 (absent on relic offers and old snapshots)
+  /** Family key ('atk', 'bolt', 'role' …). */
+  family?: string;
+  tags?: SynergyTag[];
+  target?: RewardTarget;
+  /** 지명권: the preselected member (member / role cards), null for party / self cards. */
+  member?: number | null;
+  /** Role card: the role it was rolled for (a different member picks that member's role). */
+  role?: Role;
+  flag?: 'curse' | 'coop' | 'economy';
+  /** Red 대가 line. */
+  cost?: string;
+  /** 상자 속 상자: this card's rarity went up one step. */
+  rarityBumped?: true;
 }
 
 /**
@@ -967,9 +1080,13 @@ export interface ExpeditionState {
 export interface ExpeditionCarry {
   rewards: AppliedReward[];
   goedamTraces: GoedamTraceSlot[];
-  /** Ult charge 0..1 per party index. */
+  /** Ult charge 0..1 per party index (기획 17차: up to 2 with 두 번 차는 게이지). */
   ult: number[];
   goedamSeen?: string[];
+  /** 기획 17차: rerolls left (absent on older runs = 1), reward counters, 이중 장전 charges per party index. */
+  rerolls?: number;
+  rewardState?: Record<string, number>;
+  dragCharges?: (number | null)[];
 }
 
 export interface ExpeditionSetup {
@@ -1002,13 +1119,22 @@ export type DebugAction =
   /** 기획 15차 원정: clear the stage now (기획 16차: kill all → the clear; normal → floor reward, boss → 'stageClear'). */
   | { kind: 'expeditionClearStage' }
   /** 기획 16차: the party wipes now (combat only; tests / the debug panel — 원정 = the stage is lost). */
-  | { kind: 'wipeParty' };
+  | { kind: 'wipeParty' }
+  /** 기획 17차 「저스트 연습」 (toggle): every 3 s a weak telegraphed circle under the player's field character. */
+  | { kind: 'justDrill'; player?: number }
+  /** 기획 17차: give a floor reward now (any id; member = party index for member / role cards). */
+  | { kind: 'grantReward'; rewardId: string; member?: number | null; player?: number }
+  /** 기획 17차: the player's next normal reward screen has a legendary card (if one is left). */
+  | { kind: 'offerFixture'; player?: number };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
   | { type: 'pet'; player: number; petIndex: number; pos: Vec2 }
   | { type: 'ult'; player: number }
-  | { type: 'chooseReward'; player: number; offerIndex: number }
+  /** member (기획 17차 지명권): the party index a member / role card goes to (absent = the card's default). */
+  | { type: 'chooseReward'; player: number; offerIndex: number; member?: number }
+  /** 기획 17차 다시 뽑기: new cards for this screen (one reroll spent). */
+  | { type: 'rerollReward'; player: number }
   /** 기획 10차: pick a 괴담 room option by id, or 'continue' after reading the result card. */
   | { type: 'goedam'; player: number; option: string }
   | { type: 'quit' }
@@ -1040,6 +1166,8 @@ export type GameEvent =
       groggy?: true;
       /** 기획 13차: the hit came from a drag cast (only set together with groggy). */
       drag?: true;
+      /** 기획 17차: a hit of a just-swap drag (render: gold number). */
+      just?: true;
     }
   /** from (기획 12차): the 흡혼-marked enemy this heal was drained from (render draws a red wisp from it). */
   | { type: 'heal'; targetId: number; amount: number; pos: Vec2; from?: number }
@@ -1145,7 +1273,33 @@ export type GameEvent =
   /** 기획 15차 원정: the stage's combat is won (기획 16차: emitted at the clear) — the loot is in state.expedition.loot. */
   | { type: 'stageClear'; stage: number }
   /** 기획 15차 원정: a gear special effect / equipped relic fired (render / sound cue). */
-  | { type: 'gearProc'; player: number; partyIndex: number; id: string; pos: Vec2 };
+  | { type: 'gearProc'; player: number; partyIndex: number; id: string; pos: Vec2 }
+  /**
+   * 기획 17차 저스트 교대 (docs/just-swap.md): outIndex left at pos just before an enemy attack landed there; inIndex
+   * (entity inEntityId) appeared at drop with a stronger drag. sourceId / skillId / boss = the attack that would have
+   * landed first; dodged = attacks dodged (×N stamp); telegraphIds = their telegraphs (the afterimage shatters when the
+   * first one lands); landIn = seconds it had left; cdCut = re-appear seconds taken off the leaving card.
+   */
+  | {
+      type: 'justSwap';
+      player: number;
+      outIndex: number;
+      inIndex: number;
+      inEntityId: number;
+      pos: Vec2;
+      drop: Vec2;
+      sourceId: number | null;
+      skillId: string;
+      boss: boolean;
+      dodged: number;
+      telegraphIds: number[];
+      landIn: number;
+      cdCut: number;
+    }
+  /** 기획 17차: a floor reward fired (head pill). rewardId = its family key; text = short proc text ('즉시!', '앞면'). */
+  | { type: 'rewardProc'; player: number; partyIndex: number | null; entityId: number | null; rewardId: string; pos: Vec2; text?: string }
+  /** 기획 17차: a pick made a synergy tag reach 3 (set bonus on). */
+  | { type: 'tagSet'; player: number; tag: SynergyTag };
 
 // ─────────────────────────── Tunables (debug sliders) ───────────────────────────
 
@@ -1191,6 +1345,15 @@ export interface Tunables {
    */
   ultFieldChargeTime: number;
   ultBenchRatio: number;
+  /**
+   * 기획 17차 저스트 교대 (docs/just-swap.md): window s before the hit (0 = off), drag power ×, leaving re-appear
+   * cooldown cut (0..0.9), per-player internal cooldown s, bot just chance per threat.
+   */
+  justSwapWindow: number;
+  justSwapDragMult: number;
+  justSwapCdCut: number;
+  justSwapIcd: number;
+  botJustChance: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────
@@ -1249,6 +1412,8 @@ export interface Telemetry {
   goedam?: GoedamLogEntry[];
   /** 기획 12차: every 돌발 괴담 of the run (absent on old snapshots). credit = player index or null. */
   fieldEvents?: { floor: number; id: FieldEventId; success: boolean; seconds: number; credit: number | null }[];
+  /** 기획 17차: this player's just swaps per minute. */
+  justSwapsPerMinute?: number;
 }
 
 /** One piece of a drag/pet skill footprint, relative to the drop point (for previews and bot aiming). */

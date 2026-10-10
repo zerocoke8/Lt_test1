@@ -361,7 +361,10 @@ describe('floor transition (R19–R21)', () => {
     };
     clearEvents(tg);
     expect(tg.game.dispatch({ type: 'debug', action: { kind: 'skipFloor' } }).ok).toBe(true);
-    expect(tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 }).ok).toBe(true);
+    // 기획 17차: a card that changes no HP / cooldown / gauge (the offers roll on the player's own stream)
+    const pick = tg.w.state.rewardOffers!.findIndex(o => o.family !== 'hp' && o.family !== 'incense');
+    expect(pick).toBeGreaterThanOrEqual(0);
+    expect(tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: pick }).ok).toBe(true);
     const evs = drain(tg);
     expect(tg.w.state.floor).toBe(2);
     expect(p.activeIndex).toBe(1);
@@ -468,7 +471,8 @@ describe('R23 bots obey the same validation', () => {
         }
         // 기획 15차: an ult needs the caster's own gauge full (at most one tick of charge short before the tick)
         if (ev.type === 'ultCast') {
-          const idx = s.players[ev.player].activeIndex;
+          // 기획 17차: by the caster's def (the bot may swap right after its ult in the same think)
+          const idx = s.players[ev.player].party.findIndex(m => m.defId === ev.defId);
           const had = idx != null ? before[ev.player].ults[idx] : -1;
           if (had < 1 - 1 / (30 * TICK_RATE) - 1e-9) violations.push(`ult without full gauge p${ev.player} idx${idx} (${had})`);
         }

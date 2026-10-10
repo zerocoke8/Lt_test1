@@ -50,6 +50,7 @@ export const STATUS_LABEL: Record<StatusId, string> = {
   stasis: '정지',
   charm: '조종',
   splashUp: '공격 범위 증가',
+  grudge: '원한', // 기획 17차 (원한의 쪽지)
 };
 
 /** One-character pip glyph. */
@@ -71,6 +72,7 @@ export const STATUS_GLYPH: Record<StatusId, string> = {
   stasis: '정',
   charm: '조',
   splashUp: '범',
+  grudge: '원',
 };
 
 export const SOURCE_LABEL: Record<DamageSource, string> = {
