@@ -7,6 +7,8 @@
 //            이중 장전 충전 칸, 두 번 차는 게이지 (궁극기 버튼 안쪽 두 번째 고리)
 //  기획 19차 보스 레이드: 보스 박스 레벨 자리 「N층」 + 박스 오른쪽 「보스 N/20」, 층 시작 배너 「N층 · 보스 이름」 + 괴담 한 줄,
 //            보스 HP 바 위 흰 보호막 띠 (보스가 자기에게 건 보호막)
+//  기획 20차 보스 형태: 움직이는 보스 머리 위 이름표, 층 시작 배너 · 보스 박스의 형태 한 줄 (배회형 …), 표식 붙은 카드 「교체!」,
+//            「뒤!」 / 「막힘」, 패턴 팁은 레이드에서 런마다 한 번 (ui/bossFormHud.ts)
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
 import {
@@ -36,6 +38,8 @@ import { GroggyHud, groggyDown } from './groggyHud';
 import { CardFx } from './cardFx';
 import { FieldEventHud } from './fieldEventHud';
 import { JustHud } from './justHud';
+import { BossFormHud, MARK_CARD_TEXT, bossFormLabel, bossFormLine, bossFormOfId, isMarked } from './bossFormHud';
+import { BOSS_FORM_TIP } from '../data/bosses/forms';
 import { justParams } from '../sim/justSwap';
 import { rwGaugeCap } from '../sim/rewards/hooks';
 import { sfx } from '../audio';
@@ -250,6 +254,8 @@ export class Hud {
   /** 기획 19차 보스 레이드: 「보스 N/20」 beside the boss box. */
   private readonly raidPill: HTMLElement;
   private readonly raidPillN: HTMLElement;
+  /** 기획 20차: the boss's form under the 「보스 N/20」 block ('배회형'). */
+  private readonly formChip: HTMLElement;
   private readonly bossPips: Pip[];
   /** 기획 8차 boss phases: one diamond per phase (filled up to the current one) + threshold ticks on the HP bar. */
   private readonly bossPhase: HTMLElement;
@@ -317,6 +323,8 @@ export class Hud {
   private readonly groggy: GroggyHud;
   /** 기획 17차: 저스트 cue, learner chevrons, reward chips (ui/justHud.ts). */
   private readonly just: JustHud;
+  /** 기획 20차: the name tag of a moving boss, guard pops, per-run pattern tips (ui/bossFormHud.ts). */
+  private readonly bossForm: BossFormHud;
 
   constructor(layer: HTMLElement, game: Game, cb: HudCallbacks, opts: HudOptions = {}) {
     this.game = game;
@@ -332,6 +340,8 @@ export class Hud {
     // 기획 8차 리뷰: the enrage vignette is a compositor-animated overlay (under every HUD widget) instead of a
     // full-screen canvas gradient redrawn each frame (that cost ~15 fps on a phone-sized software raster)
     this.enrageVignette = h('div', 'enrage-vignette is-hidden', this.root);
+    // 기획 20차: under every HUD widget, so the tag of a boss near the top never covers the boss box
+    this.bossForm = new BossFormHud({ root: this.root, locate: this.locate, dragging: () => this.draggingKey !== '', bannerMs: RAID_BANNER_MS });
 
     // ── top-left: the other two players (people or bots) ──
     const tl = h('div', 'hud-tl', this.root);
@@ -373,6 +383,7 @@ export class Hud {
     this.raidPill = h('div', 'boss-raid is-hidden', this.bossBox);
     h('span', 'boss-raid-k', this.raidPill, '보스');
     this.raidPillN = h('span', 'boss-raid-n', this.raidPill);
+    this.formChip = h('div', 'boss-form is-hidden', this.bossBox);
     this.bossPips = makePips(this.bossBox, 16, 'boss-pips');
     // over the (mostly empty) status-pip row: right under the HP bar but clear of the boss's big eye below the box
     this.bossCast = h('div', 'boss-cast is-hidden', this.bossBox);
@@ -441,6 +452,7 @@ export class Hud {
       h('span', 'cc-ult-g', ultRing, '궁');
       const charges = h('div', 'cc-charges is-hidden', frame);
       h('span', 'cc-just-chev', el, '지금!');
+      h('span', 'cc-mark', el, MARK_CARD_TEXT); // 기획 20차 (rule N6): shown while this card's field character is marked
       // hover help on the card itself (the diamond lets pointers through to the card, so a title there never shows)
       el.title = `${def.name} · 왼쪽 아래 마름모 = 일반스킬 ${def.normal.name} 쿨 (자동) · 길게 누르면 스킬 정보`;
       el.addEventListener('pointerdown', ev => this.onCardPointerDown(i, ev, el));
@@ -791,7 +803,7 @@ export class Hud {
     this.banner(big, sub, 'clear');
   }
 
-  private banner(big: string, sub: string, kind: string, lore = '', trace = '', ms = 0): void {
+  private banner(big: string, sub: string, kind: string, lore = '', trace = '', ms = 0, form = ''): void {
     this.bannerBox.replaceChildren();
     // 기획 8차 리뷰: mid-fight boss banners (phase change, enrage) must not cover the fight at the boss's feet, where
     // the new phase's first pattern lands right away → a smaller, shorter strip low over the arena's front edge
@@ -801,6 +813,7 @@ export class Hud {
     h('div', 'banner-big', b, big);
     if (lore) h('div', 'banner-lore', b, lore);
     if (sub) h('div', 'banner-sub', b, sub);
+    if (form) h('div', 'banner-form', b, form); // 기획 20차: '배회형 · 맵을 걸어 다녀요 …'
     if (trace) h('div', 'banner-trace', b, trace);
     setTimeout(() => b.remove(), ms > 0 ? ms : low ? 1500 : 2300);
   }
@@ -812,6 +825,7 @@ export class Hud {
       if (this.groggy.onEvent(s, e)) continue; // 기획 13차: a phase crossed while the boss is down waits for it to stand up
       if (this.cardFx.onEvent(e, this.localPlayer)) continue;
       this.just.onEvent(s, e); // 기획 17차
+      this.bossForm.onEvent(s, e); // 기획 20차
       switch (e.type) {
         case 'floorStart':
           if (s.expedition) {
@@ -822,7 +836,10 @@ export class Hud {
             // 기획 19차: '7층 · 문서 파쇄기' + one short 괴담 sentence (review: the whole line could not be read in 2 s — it
             // is on the pause screen); a little longer than the classic banner (two things to read)
             const t = raidBanner(s.floor, { name: bossName(s.plan.bossId), ...bossLore(s.plan.bossId) }, this.game.tunables.maxFloor);
-            this.banner(t.big, t.sub, 'boss banner-raid', t.lore, traceBannerLine(s.players[this.localPlayer]), RAID_BANNER_MS);
+            // 기획 20차: + the boss's form in one line (how this boss moves)
+            // 기획 20차 점검: the goal line (「보스 N/20 · HP를 0으로 …」) only on floor 1 — the banner lies over the place
+            // most moving bosses appear, and 「보스 N/20」 is in the top row all the time
+            this.banner(t.big, s.floor === 1 ? t.sub : '', 'boss banner-raid', t.lore, traceBannerLine(s.players[this.localPlayer]), RAID_BANNER_MS, bossFormLine(s.plan.bossId));
           } else if (e.kind === 'boss') {
             const name = bossName(s.plan.bossId);
             this.banner(`${e.floor}층 · 보스`, `${name} — HP를 0으로 만들면 퇴각해요`, 'boss', '', traceBannerLine(s.players[this.localPlayer]));
@@ -878,8 +895,11 @@ export class Hud {
             replayClass(this.bossCast, 'is-new');
             this.castUntil = performance.now() + secs * 1000;
             // 기획 8차 리뷰: patterns with a "how to" tip (문짝 쓸기 → 교체로 피하기) say it once per device
+            // 기획 20차: in a raid once per RUN (every boss is met once a run, and its patterns are new each time)
             const hint = bossSkillHint(s.plan.bossId, e.skillId);
-            if (hint && !tipSeen(`hint:${e.skillId}`)) {
+            // 기획 20차 점검: … in its own slot under the boss box, on the first two casts (ui/bossFormHud.ts)
+            if (hint && s.mode === 'bossRaid') this.bossForm.patternTip(e.skillId, e.name, hint, e.delay ?? 0, s.time);
+            else if (hint && !tipSeen(`hint:${e.skillId}`)) {
               markTipSeen(`hint:${e.skillId}`);
               this.toast(`ⓘ ${hint}`, 'warn');
             }
@@ -971,6 +991,7 @@ export class Hud {
     this.updateSheet(s, me);
     this.updateTraces(me);
     this.just.updateChips(s, me); // 기획 17차
+    this.bossForm.update(s); // 기획 20차
     this.just.flush();
     if (this.tipUntil > 0 && (now > this.tipUntil || s.phase !== 'combat')) {
       this.tipUntil = 0;
@@ -1043,7 +1064,13 @@ export class Hud {
       if (raid) {
         setText(this.raidPillN, `${s.floor}/${this.game.tunables.maxFloor}`);
         setAttr(this.raidPill, 'title', raidProgress(s.floor, this.game.tunables.maxFloor));
+        // 기획 20차: the form under it ('배회형'; the whole line on hover)
+        const form = bossFormOfId(s.plan.bossId);
+        setText(this.formChip, bossFormLabel(s.plan.bossId));
+        setAttr(this.formChip, 'data-form', form);
+        setAttr(this.formChip, 'title', `${bossFormLabel(s.plan.bossId)} · ${BOSS_FORM_TIP[form]}`);
       }
+      show(this.formChip, raid);
       this.updatePhases(s.plan.bossId, boss);
       show(this.bossEnrage, s.bossEnraged);
       setClass(this.bossBox, 'is-enraged', s.bossEnraged);
@@ -1142,6 +1169,8 @@ export class Hud {
       // 기획 13차: the boss is down — every ready card says '지금!' (the finishing swap)
       setClass(c.el, 'is-now', ready && groggyDown(s));
       this.just.applyCard(c.el, active && !m.dead, ready, cue);
+      // 기획 20차 (rule N6): a mark on my field character — its card says 「교체!」 (swapping it out clears the mark)
+      setClass(c.el, 'is-marked', combat && active && !m.dead && isMarked(s, m.entityId));
       this.updateCharges(c, m);
       // re-appear cooldown = drag-skill cooldown (기획서 4장): the seconds are the big number on the portrait only
       setText(c.state, me.out ? '사망' : active ? '활성화' : m.dead ? '쓰러짐' : cooling ? '쿨타임' : ready ? '교체가능' : '교체불가');

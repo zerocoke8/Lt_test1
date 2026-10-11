@@ -37,6 +37,8 @@ export function statusImmune(target: SimEntity, id: StatusId): boolean {
   if (target.eventTag) return true;
   switch (id) {
     case 'taunt':
+      // 기획 20차 (rule N1): a roaming boss can be taunted (not for a while after a taunt ended); every other boss never
+      return (isBossy(target) && !tauntable(target)) || target.rt.stationary;
     case 'tether':
       return isBossy(target) || target.rt.stationary;
     case 'root':
@@ -48,6 +50,12 @@ export function statusImmune(target: SimEntity, id: StatusId): boolean {
     default:
       return false;
   }
+}
+
+/** 기획 20차: only a roaming boss, and not within BOSS_FORM.tauntImmune s of its last taunt (bossForm.ts isTauntable). */
+function tauntable(target: SimEntity): boolean {
+  const f = target.rt.form;
+  return !!f && f.form === 'roaming' && f.tauntImmune <= 0;
 }
 
 /** Merge a status into a list: one instance per id, the stronger value and the longer timer win. Returns the instance. */

@@ -2,9 +2,11 @@
 // (moved from monsters.ts; + lore + zone). The four new bosses of this zone go below it, in this file only:
 //   tank_dweller 물탱크의 주인 (td_) · thunder_antenna 천둥 안테나 (ta_)
 //   answering_pencil 대답하는 연필 (ap_) · inverted_moon 거꾸로 뜬 달 (im_)
-// New summon-only units of this zone: (none — 외발 우산 / 그림자 아이 / 붉은 마스크 are existing monsters) → ROOFTOP_UNITS (resolved by getMonster, never in a wave pool).
+// New summon-only units of this zone: (none — 외발 우산 is an existing monster) → ROOFTOP_UNITS (resolved by getMonster, never in a wave pool).
+// 기획 20차 보스 형태: the four new bosses move (docs/bosses.md 1장 · 4-4) — see the block above ROOFTOP_BOSSES.
 //
-// Template for a new boss (numbers: docs/bosses.md; helpers: ./helpers.ts — seq / sweep / band / row / rowR / at):
+// Template for a FIXED boss (numbers: docs/bosses.md; helpers: ./helpers.ts — seq / sweep / band / row / rowR / at;
+// a moving boss adds form / spawn / move / stage and uses arenaAt / ahead / chargeAt / safeRing instead — the four below):
 //   {
 //     id: '<boss_id>', name: '<이름>', tier: 'boss', color: '<palette base>', radius: 3, stationary: true, look: '<boss_id>',
 //     stats: { maxHp: 0, atk: 0, def: 0.2, atkSpeed: 0.5, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
@@ -25,29 +27,31 @@
 // Tune one boss: npx vite-node tests/review/boss-raid-bench.ts BOSS=<id> RUNS=60
 
 import type { BossDef, MonsterDef, SkillAction } from '../../types';
-import { ENRAGE, row, seq, sweep } from './helpers';
+import { ENRAGE, arenaAt, chargeAt, safeRing, seq, sweep } from './helpers';
+
+// 기획 20차 보스 형태 (docs/bosses.md 4-4): the four new bosses of this zone, one signature each —
+//   물탱크의 주인  roaming · crawls after the nearest · 잠수: sinks and comes up BEHIND its target, then bursts
+//   천둥 안테나    roaming · backs away from whoever is near · 접지: only the ring around the antenna itself is safe
+//   대답하는 연필  arena · the whole floor is the paper · 대답: only the glowing word (예 ↔ 아니오) is safe; strokes stay
+//   거꾸로 뜬 달   arena · the moon's reflection drifts round its path and never stops · 월식 gather ↔ 그믐 spread
+// The classic boss above them (abyss_watcher) has no 기획 20차 field and is byte-for-byte as before.
 
 // Every number of the four new bosses is in this file: the BossDef literals below plus the few named constants here
 // (the parts a pattern repeats). Retune here only — docs/bosses.md 2장 is generated from this data
 // (npx vite-node tests/review/boss-table.ts write); the art and the sounds read no pattern number.
 
-// ── 물탱크의 주인: water rows across the whole floor (범람 top-down, 거꾸로 범람 bottom-up) ──
-const FLOOD = {
-  /** World y of each row's middle, top to bottom (4 rows × width 3 = the 12-high arena). */
-  rows: [1.5, 4.5, 7.5, 10.5],
-  /** Row size: the arena's full width, 3 high. */
-  length: 24,
-  width: 3,
-  /** Damage of one row (× attack). */
-  damage: 2,
-  /** When each row lands (s after the cast), in the order the rows are hit: 범람 / 거꾸로 범람. */
-  delays: [1.4, 1.85, 2.3, 2.75],
-  delaysUp: [1.2, 1.6, 2, 2.4],
+// ── 물탱크의 주인: the hair ring that drags everyone in it to the body (머리카락, and the first beat of 끌어안기) ──
+const HAIR = {
+  /** The ring around the body: inside `inner` the hair does not reach. */
+  inner: 3,
+  outer: 9,
+  /** Cells everyone in the ring is dragged toward the body. */
+  pull: 4.5,
 };
-/** One water row at world y, landing after `delay`. */
-const floodRow = (y: number, delay: number): SkillAction => ({
-  center: 'self', offset: row(y), area: { shape: 'rect', dir: 'right', length: FLOOD.length, width: FLOOD.width }, affects: 'enemies', delay,
-  effects: [{ kind: 'damage', amount: FLOOD.damage }],
+/** The hair ring landing after `delay`; `damage` (× attack) only when the pattern says so. */
+const hairPull = (delay: number, damage = 0): SkillAction => ({
+  center: 'self', area: { shape: 'ring', inner: HAIR.inner, outer: HAIR.outer }, affects: 'enemies', delay,
+  effects: [...(damage > 0 ? [{ kind: 'damage' as const, amount: damage }] : []), { kind: 'pull', distance: HAIR.pull }],
 });
 
 // ── 천둥 안테나: a bolt on one character — it follows, and its warning only shows for the last BOLT_LEAD s (rule M2: ≥ 0.9) ──
@@ -57,22 +61,60 @@ const bolt = (delay: number, amount: number): SkillAction => ({
   effects: [{ kind: 'damage', amount }],
 });
 
-// ── 대답하는 연필: the ㅁ around the target — four strokes, each centred `half` away from the target ──
+// ── 대답하는 연필: the two words on the paper (also the floor art's anchors) and the ㅁ around the target ──
+/** 「예」 and 「아니오」: where each word is written and how far around it is safe during 대답. */
+const ANSWERS = [
+  { id: 'yes', x: 5, y: 6, r: 3.2, label: '예' },
+  { id: 'no', x: 19, y: 6, r: 3.2, label: '아니오' },
+];
+const ANSWER = { delay: 2.6, damage: 2.4 };
+/** 대답: the whole paper is blacked out except the circle around word `i`. */
+const answerAt = (i: number): SkillAction => ({
+  ...arenaAt(ANSWERS[i].x, ANSWERS[i].y), area: safeRing(ANSWERS[i].r), affects: 'enemies', delay: ANSWER.delay,
+  effects: [{ kind: 'damage', amount: ANSWER.damage }],
+});
 const BOX = {
   /** Distance from the target to each stroke's middle (the safe inside is 2 × half − width wide). */
   half: 3,
   /** Stroke size. */
   length: 7,
   width: 1.2,
-  /** Damage of one stroke (× attack). */
+  /** Damage of one stroke (× attack): ㅁ 긋기 / 틀린 답. */
   damage: 1.8,
-  /** When each stroke lands (s after the cast): top, bottom, left, right. */
+  damageFast: 1.6,
+  /** When each stroke lands (s after the cast): top, bottom, left, right — ㅁ 긋기 / 틀린 답. */
   delays: [1.2, 1.5, 1.8, 2.1],
+  delaysFast: [1, 1.2, 1.4, 1.6],
 };
 /** One stroke of the ㅁ: sx / sy = which side of the target (−1 / 0 / +1), dir = the way it is drawn. */
-const boxStroke = (sx: number, sy: number, dir: 'right' | 'down', delay: number): SkillAction => ({
+const boxStroke = (sx: number, sy: number, dir: 'right' | 'down', delay: number, damage: number): SkillAction => ({
   center: 'target', offset: { x: sx * BOX.half, y: sy * BOX.half }, area: { shape: 'rect', dir, length: BOX.length, width: BOX.width, anchor: 'center' }, affects: 'enemies', delay,
-  effects: [{ kind: 'damage', amount: BOX.damage }],
+  effects: [{ kind: 'damage', amount: damage }],
+});
+/** The four strokes of the ㅁ, landing at `delays` (top, bottom, left, right). */
+const box = (delays: number[], damage: number): SkillAction[] => [
+  boxStroke(0, -1, 'right', delays[0], damage), boxStroke(0, 1, 'right', delays[1], damage),
+  boxStroke(-1, 0, 'down', delays[2], damage), boxStroke(1, 0, 'down', delays[3], damage),
+];
+
+// ── 거꾸로 뜬 달: 월식 (only the circle around the called one is safe) and its opposite 그믐 (a dark circle that follows them) ──
+const MOON = {
+  /** 월식: safe within this many cells of the called character. */
+  light: 2.6,
+  /** 그믐: the dark circle around the called character. */
+  dark: 3.6,
+  /** 뒤집힌 월식: the 그믐 that follows shows only for this long before it lands (right after the 월식 went off). */
+  turnLead: 1.3,
+};
+/** 월식: everything outside the moonlight around the called character (where it stood at the cast) is hit. */
+const eclipse = (delay: number, amount: number): SkillAction => ({
+  center: 'target', area: safeRing(MOON.light), affects: 'enemies', delay, effects: [{ kind: 'damage', amount }],
+});
+/** 그믐: the dark circle follows the called character until it lands (`lead` = shown only for the last N s). */
+const darkMoon = (delay: number, amount: number, lead?: number): SkillAction => ({
+  center: 'target', area: { shape: 'circle', radius: MOON.dark }, affects: 'enemies', follow: true, delay,
+  ...(lead != null ? { telegraphLead: lead } : null),
+  effects: [{ kind: 'damage', amount }],
 });
 
 export const ROOFTOP_BOSSES: BossDef[] = [
@@ -136,27 +178,34 @@ export const ROOFTOP_BOSSES: BossDef[] = [
     zone: 'rooftop',
   },
   {
-    // 기획 19차 (앞): 물탱크의 주인 — 녹슨 옥상 물탱크, 뚜껑 틈의 머리카락과 손. 물결 줄을 차례로 피하는 보스.
-    id: 'tank_dweller', name: '물탱크의 주인', tier: 'boss', color: '#8ecae6', radius: 3, stationary: true, look: 'tank_dweller',
-    stats: { maxHp: 7600, atk: 30, def: 0.2, atkSpeed: 0.5, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
-    basic: { kind: 'projectile', speed: 11 },
+    // 기획 20차: 물탱크의 주인 — 배회형. 탱크에서 기어 나온 긴 머리의 물귀신: 느리게 기어 오다가 웅덩이로 꺼져 등 뒤에서 솟음.
+    id: 'tank_dweller', name: '물탱크의 주인', tier: 'boss', color: '#8ecae6', radius: 1.6, look: 'tank_dweller',
+    // 등장: 오른쪽 아래 구석 (기획 20차 통합: 움직이는 보스가 또 맨 위 가운데에 몰려서 옮김)
+    form: 'roaming', spawn: { x: 19.5, y: 8.5 }, move: { mode: 'pursue' }, signature: 'td_dive',
+    stats: { maxHp: 7600, atk: 30, def: 0.2, atkSpeed: 0.5, range: 1.2, moveSpeed: 1.3, critChance: 0, critMult: 1.5 },
+    basic: { kind: 'melee' },
     skills: [
       {
-        // 가로 물결 4줄이 위 → 아래로 (지나간 줄이 안전)
-        id: 'td_flood', name: '범람', cooldown: 13, initialDelay: 4,
-        hint: '물결이 위에서 아래로 — 지나간 줄로 교체해서 피하세요',
-        ...seq(FLOOD.rows.map((y, i) => floodRow(y, FLOOD.delays[i]))),
+        // 웅덩이로 꺼졌다가 대상 등 뒤에서 솟음 (시전 순간 순간이동) → 몸 둘레 폭발 + 솟은 자리에 남는 웅덩이
+        id: 'td_dive', name: '잠수', cooldown: 12, initialDelay: 5,
+        hint: '등 뒤에서 솟아요 — 멀리 꺼내세요',
+        ...seq([
+          { center: 'self', blink: { offset: 0.3, behind: true }, area: { shape: 'circle', radius: 3 }, affects: 'enemies', delay: 1.4, effects: [{ kind: 'damage', amount: 2.6 }] },
+          {
+            // 기획 20차 점검: 반지름 2.4 → 2.0 — 2.4는 근접이 때리는 자리(몸 1.6 + 0.45 + 사거리 0.6)를 전부 덮어 피할 길이 없었음
+            center: 'self', area: { shape: 'circle', radius: 2 }, affects: 'enemies', delay: 1.5,
+            effects: [{ kind: 'damage', amount: 0.25 }, { kind: 'status', status: 'slow', duration: 1, value: 0.3 }], zone: { duration: 5, tickInterval: 0.5 },
+          },
+        ]),
       },
       {
-        // 남는 소용돌이: 0.5초마다 약한 피해 + 가운데로 0.5칸 끌기 (규칙 M3)
-        id: 'td_drain', name: '배수구', cooldown: 12, initialDelay: 8,
-        action: {
-          center: 'target', area: { shape: 'circle', radius: 3 }, affects: 'enemies', delay: 1,
-          effects: [{ kind: 'damage', amount: 0.3 }, { kind: 'pull', distance: 0.5 }], zone: { duration: 4, tickInterval: 0.5 },
-        },
+        // 몸 둘레 고리 안의 모두를 보스 쪽으로 끌어옴 (바로 곁 3칸 안과 9칸 밖은 안 닿음)
+        id: 'td_hair', name: '머리카락', cooldown: 11, initialDelay: 9,
+        hint: '끌려가기 직전에 교체하세요',
+        action: hairPull(1.3, 1.2),
       },
       {
-        id: 'td_umbrellas', name: '우산 손님', cooldown: 14, initialDelay: 6,
+        id: 'td_umbrellas', name: '우산 손님', cooldown: 14, initialDelay: 7,
         action: { center: 'target', area: { shape: 'circle', radius: 3 }, affects: 'enemies', effects: [], summon: { unitId: 'slime', count: 4, countMax: 6, duration: 0 } },
       },
     ],
@@ -165,9 +214,10 @@ export const ROOFTOP_BOSSES: BossDef[] = [
         hpBelow: 0.5, name: '역류', atkSpeedMult: 1.15, cooldownMult: 0.85,
         skills: [
           {
-            // 같은 4줄이 아래 → 위로
-            id: 'td_flood_up', name: '거꾸로 범람', cooldown: 13, initialDelay: 1.5,
-            ...seq([...FLOOD.rows].reverse().map((y, i) => floodRow(y, FLOOD.delaysUp[i]))),
+            // 끌어온 다음 몸 둘레를 터뜨림
+            id: 'td_hug', name: '끌어안기', cooldown: 12, initialDelay: 1.5,
+            hint: '끌린 뒤 바로 빼세요 — 곧 터져요',
+            ...seq([hairPull(1.2), { center: 'self', area: { shape: 'circle', radius: 3.2 }, affects: 'enemies', delay: 1.9, effects: [{ kind: 'damage', amount: 2.6 }] }]),
           },
         ],
       },
@@ -178,28 +228,28 @@ export const ROOFTOP_BOSSES: BossDef[] = [
     zone: 'rooftop',
   },
   {
-    // 기획 19차 (앞): 천둥 안테나 — 비뚤어진 TV 안테나와 낡은 브라운관. 소환 없이 짧은 예고(0.9초)의 낙뢰로 압박.
-    id: 'thunder_antenna', name: '천둥 안테나', tier: 'boss', color: '#343a40', radius: 3, stationary: true, look: 'thunder_antenna',
-    stats: { maxHp: 7000, atk: 32, def: 0.2, atkSpeed: 0.6, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
+    // 기획 20차: 천둥 안테나 — 배회형. 안테나 다리로 걷는 낡은 브라운관: 가까이 오면 물러나고(4~7칸 유지), 뇌우 때는 제 곁만 안전.
+    id: 'thunder_antenna', name: '천둥 안테나', tier: 'boss', color: '#343a40', radius: 1.4, look: 'thunder_antenna',
+    form: 'roaming', spawn: { x: 5, y: 3 }, move: { mode: 'keepAway', keep: { min: 4, max: 7 } }, signature: 'ta_ground',
+    stats: { maxHp: 7000, atk: 32, def: 0.2, atkSpeed: 0.6, range: 40, moveSpeed: 1.4, critChance: 0, critMult: 1.5 },
     basic: { kind: 'projectile', speed: 11 },
     skills: [
-      { id: 'ta_bolt', name: '낙뢰', cooldown: 7, initialDelay: 3, action: bolt(1.5, 3.2) },
+      { id: 'ta_bolt', name: '낙뢰', cooldown: 8, initialDelay: 3, hint: '번쩍 보이면 바로 교체', action: bolt(1.5, 3.2) },
       {
-        id: 'ta_static', name: '정전기', cooldown: 11, initialDelay: 6,
-        action: {
-          center: 'target', area: { shape: 'ring', inner: 2, outer: 6 }, affects: 'enemies', delay: 1.4,
-          effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'slow', duration: 1.5, value: 0.3 }],
-        },
+        // 옥상 전체 뇌우 — 보스 몸 둘레 3.4칸 안만 안전 (준비하는 동안 보스는 안 물러남)
+        id: 'ta_ground', name: '접지', cooldown: 14, initialDelay: 7,
+        hint: '보스에 딱 붙여 꺼내세요',
+        action: { center: 'self', area: safeRing(3.4), affects: 'enemies', delay: 2.2, effects: [{ kind: 'damage', amount: 2.6 }] },
       },
       {
-        id: 'ta_crackle', name: '지직', cooldown: 10, initialDelay: 9,
+        id: 'ta_crackle', name: '지직', cooldown: 10, initialDelay: 10,
         action: { center: 'target', area: { shape: 'cross', length: 5, width: 1.3, diagonal: true }, affects: 'enemies', delay: 1.2, effects: [{ kind: 'damage', amount: 2.4 }] },
       },
     ],
     phases: [
       {
         hpBelow: 0.5, name: '채널 고정', atkSpeedMult: 1.2, cooldownMult: 0.85,
-        skills: [{ id: 'ta_double_bolt', name: '두 번 낙뢰', cooldown: 11, initialDelay: 1.5, ...seq([bolt(1.3, 2.6), bolt(1.9, 2.6)]) }],
+        skills: [{ id: 'ta_double_bolt', name: '두 번 낙뢰', cooldown: 11, initialDelay: 1.5, hint: '첫 번개를 피해도 한 번 더 와요', ...seq([bolt(1.3, 2.6), bolt(1.9, 2.6)]) }],
       },
     ],
     groggy: { threshold: 1 },
@@ -208,28 +258,34 @@ export const ROOFTOP_BOSSES: BossDef[] = [
     zone: 'rooftop',
   },
   {
-    // 기획 19차 (중): 대답하는 연필 — 분신사바. 모눈 종이 위의 큰 연필이 글자 획으로 공격. 소환 없음.
-    id: 'answering_pencil', name: '대답하는 연필', tier: 'boss', color: '#ffd166', radius: 3, stationary: true, look: 'answering_pencil',
-    stats: { maxHp: 8200, atk: 30, def: 0.2, atkSpeed: 0.55, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
-    basic: { kind: 'projectile', speed: 11 },
+    // 기획 20차: 대답하는 연필 — 전장형. 맵 전체가 분신사바 종이, 두 손이 잡은 연필(핵)이 그 위를 천천히 미끄러짐. 큰 이동은 「긋기」로만.
+    id: 'answering_pencil', name: '대답하는 연필', tier: 'boss', color: '#ffd166', radius: 1.4, look: 'answering_pencil',
+    form: 'arena', spawn: { x: 12, y: 4 }, move: { mode: 'pursue' }, signature: 'ap_answer',
+    stage: { floor: 'paper', marks: ANSWERS },
+    stats: { maxHp: 8200, atk: 30, def: 0.2, atkSpeed: 0.55, range: 1, moveSpeed: 0.8, critChance: 0, critMult: 1.5 },
+    basic: { kind: 'melee' },
     skills: [
       {
+        // 대상 쪽으로 13칸을 그으며 돌진 — 그은 선이 10초 남음 (1칸마다 작은 원)
+        id: 'ap_stroke', name: '긋기', cooldown: 8, initialDelay: 4,
+        hint: '그은 선은 남아요 — 교체로 넘어가기',
+        action: chargeAt({
+          distance: 13, width: 1.4, delay: 1.2, effects: [{ kind: 'damage', amount: 2.2 }],
+          trail: { radius: 0.6, spacing: 1, duration: 10, tickInterval: 0.5, look: 'graphite', effects: [{ kind: 'damage', amount: 0.3 }, { kind: 'status', status: 'slow', duration: 1, value: 0.25 }] },
+        }),
+      },
+      {
         // 대상 둘레에 네모 획 넷: 가로 위 · 아래, 세로 왼 · 오른 (안쪽 4.8 × 4.8이 안전)
-        id: 'ap_box', name: 'ㅁ 긋기', cooldown: 12, initialDelay: 4,
-        hint: '네모 안쪽은 안전 — 밖에 있으면 안으로 교체',
-        ...seq([boxStroke(0, -1, 'right', BOX.delays[0]), boxStroke(0, 1, 'right', BOX.delays[1]), boxStroke(-1, 0, 'down', BOX.delays[2]), boxStroke(1, 0, 'down', BOX.delays[3])]),
+        id: 'ap_box', name: 'ㅁ 긋기', cooldown: 12, initialDelay: 7,
+        hint: '네모 안쪽이 안전해요',
+        ...seq(box(BOX.delays, BOX.damage)),
       },
       {
-        // 속박: 걸어서는 못 피함 → 교체로
-        id: 'ap_pin', name: '틀린 답', cooldown: 11, initialDelay: 7,
-        action: {
-          center: 'target', area: { shape: 'single' }, affects: 'enemies', delay: 0.9,
-          effects: [{ kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'root', duration: 2.5, value: 0 }],
-        },
-      },
-      {
-        id: 'ap_stroke', name: 'ㅣ 긋기', cooldown: 8, initialDelay: 9,
-        action: { center: 'target', area: { shape: 'line', length: 16, width: 1.6 }, affects: 'enemies', delay: 1.3, effects: [{ kind: 'damage', amount: 2.4 }] },
+        // 종이 전체가 까맣게 — 빛나는 글자 둘레만 안전. 「예」와 「아니오」가 번갈아 (규칙 N7)
+        id: 'ap_answer', name: '대답', cooldown: 13, initialDelay: 10,
+        hint: '빛나는 글자 위로 꺼내세요',
+        action: answerAt(0),
+        cycle: [{ action: answerAt(1) }],
       },
     ],
     phases: [
@@ -237,11 +293,12 @@ export const ROOFTOP_BOSSES: BossDef[] = [
         hpBelow: 0.5, name: '대답', atkSpeedMult: 1.15, cooldownMult: 0.85,
         skills: [
           {
-            // 양옆 두 획 → 대상 둘레 동그라미
-            id: 'ap_name', name: '이름 쓰기', cooldown: 12, initialDelay: 1.5,
+            // 빠른 네모 → 네모 가운데를 찍음 (이번엔 안쪽이 위험)
+            id: 'ap_wrong', name: '틀린 답', cooldown: 12, initialDelay: 1.5,
+            hint: '이번엔 네모 밖으로 교체',
             ...seq([
-              ...sweep({ center: 'target', area: { shape: 'line', length: 16, width: 1.4 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2 }] }, [{ x: -3, y: 0 }, { x: 3, y: 0 }], 1, 0.25),
-              { center: 'target', area: { shape: 'ring', inner: 1.4, outer: 3.6 }, affects: 'enemies', delay: 1.8, effects: [{ kind: 'damage', amount: 2.4 }] },
+              ...box(BOX.delaysFast, BOX.damageFast),
+              { center: 'target', area: { shape: 'circle', radius: 2 }, affects: 'enemies', delay: 2.6, effects: [{ kind: 'damage', amount: 2.8 }] },
             ]),
           },
         ],
@@ -254,16 +311,24 @@ export const ROOFTOP_BOSSES: BossDef[] = [
     zone: 'rooftop',
   },
   {
-    // 기획 19차 (뒤): 거꾸로 뜬 달 — 붉은 하늘의 뒤집힌 달. 달빛이 닿는 자리(불린 사람 곁)만 안전한 월식.
-    id: 'inverted_moon', name: '거꾸로 뜬 달', tier: 'boss', color: '#f1faee', radius: 3, stationary: true, look: 'inverted_moon',
-    stats: { maxHp: 7400, atk: 30, def: 0.2, atkSpeed: 0.55, range: 40, moveSpeed: 0, critChance: 0, critMult: 1.5 },
+    // 기획 20차: 거꾸로 뜬 달 — 전장형. 바닥에 비친 달(핵, 납작해서 캐릭터를 안 가림)이 제 길로 떠다님, 패턴 중에도 안 멈춤.
+    id: 'inverted_moon', name: '거꾸로 뜬 달', tier: 'boss', color: '#f1faee', radius: 1.8, look: 'inverted_moon',
+    form: 'arena', spawn: { x: 6, y: 3.5 }, stage: { floor: 'moon' }, signature: 'im_eclipse',
+    move: { mode: 'path', waypoints: [{ x: 6, y: 3.5 }, { x: 18, y: 3.5 }, { x: 18, y: 8.5 }, { x: 6, y: 8.5 }], castMove: true },
+    stats: { maxHp: 7400, atk: 30, def: 0.2, atkSpeed: 0.55, range: 40, moveSpeed: 0.9, critChance: 0, critMult: 1.5 },
     basic: { kind: 'projectile', speed: 11 },
     skills: [
       {
-        // 대상 둘레 2.6칸 안만 안전 — 바깥 고리가 아레나 전체를 덮음
+        // 모여라: 불린 사람 둘레 2.6칸 안만 안전 — 바깥 고리가 아레나 전체를 덮음
         id: 'im_eclipse', name: '월식', cooldown: 14, initialDelay: 5,
-        hint: '달빛 안만 안전해요 — 불린 사람 곁으로 교체',
-        action: { center: 'target', area: { shape: 'ring', inner: 2.6, outer: 30 }, affects: 'enemies', delay: 2.2, effects: [{ kind: 'damage', amount: 2.6 }] },
+        hint: '달빛 안만 안전 — 불린 사람 곁으로',
+        action: eclipse(2.2, 2.6),
+      },
+      {
+        // 흩어져라: 불린 사람을 따라가는 어두운 원 — 곁에 있으면 같이 맞음
+        id: 'im_dark', name: '그믐', cooldown: 12, initialDelay: 9,
+        hint: '흩어지세요 — 불린 캐릭터는 빼기',
+        action: darkMoon(2.2, 2.4),
       },
       {
         // 대상 네 귀퉁이를 차례로 (가운데는 안전)
@@ -273,22 +338,16 @@ export const ROOFTOP_BOSSES: BossDef[] = [
           [{ x: -2.4, y: -2.4 }, { x: 2.4, y: -2.4 }, { x: 2.4, y: 2.4 }, { x: -2.4, y: 2.4 }], 1.1, 0.15,
         )),
       },
-      {
-        // 대상 자리에 그림자 아이 떼 + 보스 앞에 붉은 마스크 하나 (규칙 M4: 조각의 offset이 소환 자리)
-        id: 'im_shadows', name: '달그림자', cooldown: 15, initialDelay: 8,
-        ...seq([
-          { center: 'target', area: { shape: 'circle', radius: 3 }, affects: 'enemies', effects: [], summon: { unitId: 'goblin', count: 3, countMax: 4, duration: 0 } },
-          { center: 'self', offset: { x: 0, y: 3 }, area: { shape: 'circle', radius: 1 }, affects: 'enemies', effects: [], summon: { unitId: 'red_mask', count: 1, duration: 0 } },
-        ]),
-      },
     ],
     phases: [
       {
         hpBelow: 0.5, name: '붉은 달', cooldownMult: 0.85,
         skills: [
           {
-            id: 'im_moonbeam', name: '달빛 기둥', cooldown: 11, initialDelay: 1.5,
-            action: { center: 'target', area: { shape: 'fan', radius: 14, angle: 50 }, affects: 'enemies', delay: 1.5, effects: [{ kind: 'damage', amount: 2.6 }] },
+            // 월식 → 바로 그믐 (모였다가 흩어짐): 그믐의 예고는 월식이 터진 직후에야 보임
+            id: 'im_turn', name: '뒤집힌 월식', cooldown: 14, initialDelay: 1.5,
+            hint: '모였다가 바로 흩어지세요',
+            ...seq([eclipse(2, 2.2), darkMoon(3.4, 2.2, MOON.turnLead)]),
           },
         ],
       },

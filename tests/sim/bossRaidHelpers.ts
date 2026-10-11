@@ -1,19 +1,25 @@
 // 기획 19차 보스 레이드: helpers of the boss tests (tests/sim/boss-*.test.ts, tests/sim/bosses-<zone>.test.ts).
 //   raidGame(bossId, opts)   a raid game with that boss on every floor (BossRaidSetup.onlyBoss)
 //   bossOf(tg)               the boss entity
-//   expectBossContract(id)   what every NEW boss must hold: data shape, every base skill cast within 45 s, the phase
-//                            event at its threshold then the phase skill, kill → floor clear, same seed → same digest
+//   expectBossContract(id)   what every NEW boss must hold: data shape BY FORM (기획 20차: fixed / roaming / relocating /
+//                            arena), every base skill cast within 45 s without the boss ever standing idle for long,
+//                            the phase event at its threshold then the phase skill, kill → floor clear, same seed →
+//                            same digest
 //   expectBossContract(id, { bossTelegraphMult: 2, bossAreaMult: 0.5 })   the same fights under the debug knobs
 //                            (docs/boss-raid.md 4-2): the patterns must not depend on the numbers as written
 import { expect } from 'vitest';
 import { BOSS_IDS, BOSS_RAID, ZONE_BOSSES, getBoss, getMonster } from '../../src/data';
-import { ENRAGE } from '../../src/data/bosses';
+import { BOSS_FORM, ENRAGE } from '../../src/data/bosses';
+import { bossFormOf } from '../../src/sim/bossForm';
 import { applyDamage } from '../../src/sim/combat';
 import { tick } from '../../src/sim/game';
 import { checkPhases } from '../../src/sim/phases';
 import type { SimEntity } from '../../src/sim/world';
-import type { BossDef, GameEvent, MonsterSkill, PlayerSetup, SkillAction, Tunables } from '../../src/types';
+import type { BossDef, GameEvent, MonsterSkill, PlayerSetup, SkillAction, Tunables, Vec2 } from '../../src/types';
 import { BOT1, BOT2, HUMAN, advance, clearEvents, drain, makeGame, type TestGame } from './helpers';
+import { inBossBox } from './bossProbe';
+
+export { inBossBox };
 
 export interface RaidOpts {
   seed?: number;
@@ -49,9 +55,9 @@ export function bossOf(tg: TestGame): SimEntity {
   return e;
 }
 
-/** Every part of a skill. */
+/** Every part of a skill (기획 20차: the parts of its `cycle` variants too). */
 export function partsOf(sk: MonsterSkill): SkillAction[] {
-  return [sk.action, ...(sk.extra ?? [])];
+  return [sk.action, ...(sk.extra ?? []), ...(sk.cycle ?? []).flatMap(v => [v.action, ...(v.extra ?? [])])];
 }
 
 /** Base skills + phase skills of a boss. */
@@ -101,20 +107,77 @@ export function raidDigest(bossId: string, seed: number, seconds = 25, tunables?
 
 const KOREAN = /[가-힣]/;
 
+/** 기획 20차: the part of the data shape that depends on the boss's form (docs/bosses.md 1-1). */
+function expectFormShape(def: BossDef): void {
+  const id = def.id;
+  const form = bossFormOf(def);
+  expect(def.form, `${id} names its form`).toBeDefined();
+  if (form === 'fixed') {
+    // a set piece at the top centre, exactly as in 기획 19차
+    expect(def.radius).toBe(3);
+    expect(def.stationary).toBe(true);
+    expect(def.stats.range).toBe(40);
+    expect(def.stats.moveSpeed).toBe(0);
+    expect(def.basic).toEqual({ kind: 'projectile', speed: 11 });
+    expect(def.spawn ?? def.move ?? def.spots, `${id}: a fixed boss has no spawn / move / spots`).toBeUndefined();
+    return;
+  }
+  if (form === 'roaming') {
+    expect(def.radius).toBeGreaterThanOrEqual(1.2);
+    expect(def.radius).toBeLessThanOrEqual(1.8);
+    expect(def.stationary ?? false, `${id}: a roaming boss walks`).toBe(false);
+    expect(def.stats.moveSpeed).toBeGreaterThanOrEqual(1);
+    expect(def.stats.moveSpeed).toBeLessThanOrEqual(2.8);
+    expect(def.spawn && inBossBox(def.spawn), `${id}: spawn inside the box`).toBe(true);
+    expect(def.move, `${id}: a move rule`).toBeDefined();
+    expect(def.move!.mode, `${id}: 'path' is for arena bosses`).not.toBe('path');
+  } else if (form === 'relocating') {
+    expect(def.radius).toBeGreaterThanOrEqual(1.4);
+    expect(def.radius).toBeLessThanOrEqual(1.8);
+    expect(def.stationary, `${id}: a relocating boss never walks`).toBe(true);
+    expect(def.stats.moveSpeed).toBe(0);
+    expect(def.stats.range).toBe(40);
+    expect(def.spots?.length ?? 0, `${id}: 3–5 seats`).toBeGreaterThanOrEqual(3);
+    expect(def.spots!.length).toBeLessThanOrEqual(5);
+    for (const s of def.spots!) expect(inBossBox(s), `${id}: seat (${s.x}, ${s.y}) inside the box`).toBe(true);
+    const moves = allSkills(def).filter(sk => partsOf(sk).some(a => a.relocate));
+    expect(moves.length, `${id}: exactly one skill relocates`).toBe(1);
+  } else {
+    expect(def.radius).toBeGreaterThanOrEqual(1);
+    expect(def.radius).toBeLessThanOrEqual(1.8);
+    expect(def.stationary ?? false).toBe(false);
+    expect(['path', 'pursue'], `${id}: an arena core rounds a path or creeps after someone`).toContain(def.move?.mode);
+    expect(def.stage?.floor, `${id}: an arena boss names its floor art`).toBeTruthy();
+    expect(inBossBox(def.spawn ?? def.move?.waypoints?.[0] ?? BOSS_FORM.roamSpawn), `${id}: spawn inside the box`).toBe(true);
+  }
+  // shared by the moving forms
+  for (const p of def.move?.waypoints ?? []) expect(inBossBox(p), `${id}: waypoint (${p.x}, ${p.y}) inside the box`).toBe(true);
+  if (def.move?.mode === 'patrol' || def.move?.mode === 'path') expect(def.move.waypoints?.length ?? 0, `${id}: a route of at least 2 points`).toBeGreaterThanOrEqual(2);
+  if (def.move?.keep) expect(def.move.keep.min).toBeLessThan(def.move.keep.max);
+  if (def.basic.kind === 'melee') expect(def.stats.range, `${id}: melee reach`).toBeLessThanOrEqual(1.5);
+  if (def.guard) {
+    expect(def.guard.frontArc + def.guard.backArc).toBeLessThanOrEqual(360);
+    expect(def.guard.frontMult).toBeLessThan(1);
+    expect(def.guard.backMult).toBeGreaterThan(1);
+  }
+  // a footprint appears under the body: smaller than it, so nobody is hit the moment it is laid (rule N4)
+  if (def.trail) {
+    expect(def.trail.radius, `${id}: footprints smaller than the body`).toBeLessThan(def.radius);
+    expect(def.trail.max).toBeGreaterThanOrEqual(1);
+    expect(def.trail.every).toBeGreaterThan(0);
+  }
+}
+
 /** Data shape every NEW boss holds (docs/bosses.md 1장). The classic four are checked by tests/sim/boss-roster.test.ts. */
 function expectShape(def: BossDef): void {
   const id = def.id;
   expect(BOSS_IDS, `${id} is a new boss`).not.toContain(id);
   expect(def.tier).toBe('boss');
-  expect(def.radius).toBe(3);
-  expect(def.stationary).toBe(true);
   expect(def.look, 'look = the boss id').toBe(id);
+  expectFormShape(def);
   expect(def.stats.def).toBe(0.2);
-  expect(def.stats.range).toBe(40);
-  expect(def.stats.moveSpeed).toBe(0);
   expect(def.stats.maxHp).toBeGreaterThanOrEqual(6000);
   expect(def.stats.maxHp).toBeLessThanOrEqual(10200);
-  expect(def.basic).toEqual({ kind: 'projectile', speed: 11 });
   expect(KOREAN.test(def.name), 'Korean name').toBe(true);
   expect(def.lore.length, 'a one-line 괴담').toBeGreaterThan(8);
   expect(ZONE_BOSSES[def.zone], `${id} is in its zone's table`).toContain(id);
@@ -130,6 +193,8 @@ function expectShape(def: BossDef): void {
   expect(ph.skills, 'one added skill').toHaveLength(1);
   const prefix = def.skills[0].id.split('_')[0];
   expect(prefix, 'two-letter skill prefix').toHaveLength(2);
+  // 기획 20차: the signature pattern (pattern sheet, first tip) is one of the boss's own skills
+  expect(allSkills(def).map(sk => sk.id), `${id}: signature is one of its skills`).toContain(def.signature);
   for (const sk of allSkills(def)) {
     expect(sk.id.startsWith(`${prefix}_`), `${sk.id} has the boss prefix`).toBe(true);
     expect(KOREAN.test(sk.name), `${sk.id} has a Korean name`).toBe(true);
@@ -140,10 +205,39 @@ function expectShape(def: BossDef): void {
       expect(a.hits ?? 1, `${sk.id}: no multi-hit part on a boss`).toBe(1);
       if (a.delay != null) expect(a.delay, `${sk.id}: a warning of at least 0.8 s`).toBeGreaterThanOrEqual(0.8);
       if (a.telegraphLead != null) expect(a.telegraphLead, `${sk.id}: a short warning is still ≥ 0.9 s (M2)`).toBeGreaterThanOrEqual(0.9);
-      // every hit on the party is warned
+      // every hit on the party is warned (a charge's trail lies on the path that was warned — rule N4)
       if (a.affects === 'enemies' && a.effects.length > 0) expect(a.delay ?? 0, `${sk.id}: a hit has a warning`).toBeGreaterThan(0);
+      if (a.trail) expect(a.charge, `${sk.id}: a trail only on a charge part`).toBeDefined();
+      if (a.relocate) expect(bossFormOf(def), `${sk.id}: only a relocating boss relocates`).toBe('relocating');
+      if (a.bound) expect(a.center, `${sk.id}: a mark is tied to the target`).toBe('target');
     }
   }
+}
+
+/** The longest stretch (s) a boss may do nothing at all (no step, no swing, no cast) in the contract's 45 s fight. */
+const MAX_IDLE = 8;
+
+/**
+ * 기획 20차 no-stall: run `seconds` of a fight tick by tick and return the longest time the boss neither moved, swung
+ * nor cast. A seated or fixed boss is busy whenever it attacks or casts.
+ */
+function longestIdle(tg: TestGame, seconds: number): number {
+  const boss = bossOf(tg);
+  let idle = 0;
+  let worst = 0;
+  let px = boss.pos.x;
+  let py = boss.pos.y;
+  for (let t = 0; t < seconds * 30 && tg.w.state.phase === 'combat'; t++) {
+    tick(tg.w);
+    const busy = Math.hypot(boss.pos.x - px, boss.pos.y - py) > 1e-4 || boss.anim === 'attack' || boss.anim === 'cast' || boss.rt.lockTime > 0;
+    idle = busy ? 0 : idle + 1 / 30;
+    worst = Math.max(worst, idle);
+    px = boss.pos.x;
+    py = boss.pos.y;
+    if (bossFormOf(boss.rt.monDef) !== 'fixed' && boss.rt.form?.form !== 'relocating') expect(inBossBox(boss.pos, 1e-3), `${boss.defId} left its box at (${px}, ${py})`).toBe(true);
+  }
+  tg.events.push(...tg.game.drainEvents());
+  return worst;
 }
 
 /**
@@ -159,7 +253,8 @@ export function expectBossContract(id: string, tunables: Partial<Tunables> = {})
   const a = raidGame(id, { hpMult: 50, tunables: calm });
   expect(a.w.state.plan.bossId).toBe(id);
   expect(a.w.state.plan.kind).toBe('boss');
-  advance(a, 45);
+  const idle = longestIdle(a, 45);
+  expect(idle, `${id}: the boss never stands idle for ${MAX_IDLE} s`).toBeLessThan(MAX_IDLE);
   const cast = castIds(a);
   for (const sk of def.skills) expect(cast.has(sk.id), `${sk.id} cast within 45 s`).toBe(true);
   expect(a.w.state.phase, 'still fighting').toBe('combat');
@@ -191,4 +286,5 @@ export function expectBossContract(id: string, tunables: Partial<Tunables> = {})
   expect(raidDigest(id, 7, 25, tunables)).toBe(raidDigest(id, 7, 25, tunables));
 }
 
+export { MELEE_PARTY, MIXED_PARTY, PROBE_LIMITS, probeFight, type ProbeOpts, type ProbeResult } from './bossProbe';
 export { BOSS_RAID };

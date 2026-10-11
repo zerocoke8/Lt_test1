@@ -77,6 +77,8 @@ export function findJustThreats(w: World, p: SimPlayer, leaving: SimEntity): Jus
   for (const pd of w.pending) {
     if (pd.kind !== 'hit' || pd.telegraphId == null || credited.includes(pd.telegraphId)) continue;
     if (pd.action.affects !== 'enemies' || !hostile(pd) || !isLiveEnemyWindup(w, pd)) continue;
+    // 기획 20차 (rule N3): a `once` step never hits a unit an earlier step of the same cast already hit
+    if (pd.action.once && pd.ctx.onceHit?.has(leaving.id)) continue;
     const tele = w.state.telegraphs.find(t => t.id === pd.telegraphId);
     if (!tele) continue;
     const landIn = pd.remaining;

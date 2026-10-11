@@ -38,8 +38,16 @@ describe('boss data', () => {
       expect(b.lore.length, `${b.id} lore fits the banner`).toBeLessThanOrEqual(80);
       expect(b.groggy?.threshold ?? 0, `${b.id} groggy`).toBeGreaterThan(0);
       expect(b.enrage, `${b.id} enrage`).toEqual(ENRAGE);
-      expect(b.stationary).toBe(true);
-      expect(b.radius).toBe(3);
+      // 기획 20차: a fixed boss (every classic one, and a boss without `form`) is the top-centre set piece; a moving
+      // one is a smaller body inside the arena (the shape by form: bossRaidHelpers.expectBossContract)
+      if ((b.form ?? 'fixed') === 'fixed') {
+        expect(b.stationary, b.id).toBe(true);
+        expect(b.radius, b.id).toBe(3);
+      } else {
+        expect(b.radius, b.id).toBeGreaterThanOrEqual(1);
+        expect(b.radius, b.id).toBeLessThanOrEqual(1.8);
+      }
+      if (BOSS_IDS.includes(b.id)) expect(b.form, `${b.id}: a classic boss has no form field`).toBeUndefined();
       expect(b.skills.length, `${b.id} skills`).toBeGreaterThanOrEqual(2);
       expect((b.phases ?? []).length, `${b.id} phases`).toBeGreaterThanOrEqual(1);
       for (const ph of b.phases ?? []) expect(KOREAN.test(ph.name ?? ''), `${b.id} phase name`).toBe(true);

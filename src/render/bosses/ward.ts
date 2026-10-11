@@ -1,26 +1,33 @@
-// 기획 19차 보스 레이드 — 폐병동 boss looks (docs/bosses.md 4장). This zone's track owns this file.
-//   morgue_drawers 번호 없는 서랍       가로형: a steel wall of drawers, the wide unnumbered one ajar (two eyes, frost, a toe tag)
-//   xray_machine   투시 촬영기          매달린형: a ceiling arm with a C bracket around one black lens (the crosshair is its pupil), a film viewer
-//   defibrillator  멈추지 않는 제세동기  탑형: a yellow box with a green ECG face, two paddles on cables for arms
-//   empty_beds     빈 병상 행렬         가로형: five iron beds, sheets hanging like curtains; the middle sheet sits up, stains for a face
-// No summon-only units in this zone (링거 환자 / 간호 인형 are existing monsters). Warning motifs: eb_lineup pull,
-// eb_disinfect linger, md_wake / xr_dolls spawn (a motif only shows on a part with a delay — the summons are instant
-// today, so those two rows wait for a warning).
+// 기획 19차 보스 레이드 — 폐병동 boss looks (docs/bosses.md 5장). This zone's track owns this file.
+// 기획 20차 보스 형태: one boss stays a set piece at the top, three became bodies that live inside the arena.
+//   morgue_drawers 번호 없는 서랍       고정형 (set piece): a steel wall of drawers, the wide unnumbered one ajar (two eyes, frost,
+//                                      a toe tag) + a floor of six numbered cells (stage)
+//   xray_machine   투시 촬영기          자리 이동형 (body): a C bracket around one black lens (the crosshair is its pupil), hanging
+//                                      from a trolley; it turns to where its station looks + the rail's shadow (stage)
+//   defibrillator  멈추지 않는 제세동기  배회형 (body): a yellow cart with a green ECG face, two paddles held out in front
+//   empty_beds     빈 병상 행렬         배회형 (body): one long iron bed, its sheet crumpled into a person sitting up
+// Summon-only unit: bed_decoy 빈 침대 (a small bare bed — never mistaken for the boss). Warning motifs: md_wake /
+// eb_procession spawn (a motif only shows on a part with a delay — the summons are instant today, so the rows wait).
 //
-// Art rules: read only BossDrawOpts + o.time + hash01 (no Math.random / Date); faces and eyes at screen y 100–230 (the HUD
-// boss box covers x 424–856, y < 100); ≤ 360 canvas calls a frame, ≤ 2 fillText, no gradients, no shadowBlur, nothing
-// allocated per frame; safe for o.phase 1–3; mix / lighten / darken only with stepped amounts (they cache by amount).
-// Poses: idle = sin(o.time) · wind-up = o.charge · attack = o.flash · knocked down = o.groggy · phase 2+ = o.phase >= 2.
-// Checks: npx vitest run tests/render/boss-looks.test.ts (every registered look, 15 poses × 30 frames).
-// See it: npx vite, then /tests/visual/render-sandbox.html?scene=zoo&boss=<id>&pose=idle|windup|groggy|enraged&phase=2
-//         (bench=boss:<id> → window.__sandbox.bench ms/frame); all 20 on one picture: node tests/visual/boss-sheet.mjs
+// Set-piece rules (서랍): read only BossDrawOpts + o.time + hash01 (no Math.random / Date); faces and eyes at screen y
+// 100–230 (the HUD boss box covers x 424–856, y < 100); ≤ 360 canvas calls a frame, ≤ 2 fillText, no gradients, no
+// shadowBlur, nothing allocated per frame; safe for o.phase 1–3; mix / lighten / darken only with stepped amounts.
+// Body rules (the other three, src/render/bosses/types.ts BossBodyFn): drawn facing right in a box standing on
+// (f.fx, f.fy) — the shared frame (body.ts) mirrors, bobs, swells, tilts and tints; ≤ 220 canvas calls, NO fillText (it
+// would mirror: texts go in `props`, which is screen-aligned), nothing smaller than 6 px. Poses: f.pose idle / walk /
+// windup / attack / groggy with f.p 0..1; f.stride = the walk cycle; f.facing = where it looks (radians).
+// Checks: npx vitest run tests/render (boss-looks: every look, 15 poses × 30 frames; boss-body: 5 poses × 2 sides).
+// See it: /?mode=bossRaid&boss=<id>, or node tests/visual/boss-phone-sheet.mjs only=<id>; all 20: node tests/visual/boss-sheet.mjs
 
 import { Camera, PX_PER_UNIT } from '../camera';
+import { getBoss } from '../../data';
+import { asSetPiece } from './body';
 import { TAU, anchor, bigEye, blink, cracks, dripRow, enrageHaze, glowEllipse, hash01, lighten, limb, lookDir, mix, pathRoundRect, plaque, spikes, strobe, swayAngle, wash } from './kit';
-import type { BossDrawOpts, BossLook, CreatureDrawFn, TeleMotif } from './types';
+import type { BossBody, BossBodyFrame, BossDrawOpts, BossLook, BossStageLook, CreatureDrawFn, TeleMotif } from './types';
 
 const INK = '#14101a';
 const RED = '#ff3b3b';
+const NO_DASH: number[] = [];
 
 // The colour helpers read hex only: mixing a colour that was already mixed (darken(tinted(…)), or the phase tint and
 // then the enrage tint) falls back to grey — a yellow box went dusty pink with a grey base once enraged in phase 2.
@@ -52,16 +59,17 @@ const MD_LEFT = (4 * MD_W + 3 * MD_GAP) / 2;
 /** [column, row, columns wide]: four on top; below, one each side of the wide unnumbered drawer (the last entry). */
 const MD_CELLS: readonly (readonly [number, number, number])[] = [[0, 0, 1], [1, 0, 1], [2, 0, 1], [3, 0, 1], [0, 1, 1], [3, 1, 1], [1, 1, 2]];
 const MD_BLANK = 6;
+/** Dashes of the floor joints between the six cells (stage). */
+const MD_JOINT = [16, 12];
 
 const mdX = (cx: number, i: number): number => cx - MD_LEFT + MD_CELLS[i][0] * (MD_W + MD_GAP);
 const mdY = (cy: number, i: number): number => cy - 40 + MD_CELLS[i][1] * (MD_H + MD_GAP);
 const mdW = (i: number): number => MD_CELLS[i][2] * (MD_W + MD_GAP) - MD_GAP;
 const mdH = (i: number): number => (i === MD_BLANK ? 46 : MD_H);
 
-/** 1 for the drawers that open in the attack: the wall side (왼쪽 서랍; both walls from phase 2). */
-function mdLead(i: number, o: BossDrawOpts): number {
-  const col = MD_CELLS[i][0];
-  return i !== MD_BLANK && (col === 0 || (col === 3 && o.phase >= 2)) ? 1 : 0;
+/** 1 for the drawers that open in the attack: every numbered one (기획 20차 번호 순서) — the unnumbered one never does. */
+function mdLead(i: number, _o: BossDrawOpts): number {
+  return i !== MD_BLANK ? 1 : 0;
 }
 
 /** How far drawer i has slid out toward the arena (px). The unnumbered one never shuts. */
@@ -239,238 +247,211 @@ function drawMorgueProps(ctx: CanvasRenderingContext2D, cam: Camera, x: number, 
   plaque(ctx, cx + 50 + a * 40, cy + 148, 88, 26, '이름 없음', '#f4e9c8', '#1b1b1b', alpha * o.groggy, a);
 }
 
-// ─────────────────────────── 투시 촬영기 ───────────────────────────
+/**
+ * 기획 20차 floor of the morgue (docs/bosses.md 5-2): the six cells of 번호 순서 as cold joints in the floor, a drawer
+ * front on the side walls for every row, and a number plate in every cell — one tally for the row that opens first, two
+ * for the next; the bottom row, where the unnumbered cell is, has frosted blank plates (all of them from phase 2, when
+ * 거꾸로 순서 makes the top-left cell the safe one). Baked once per phase; the warnings themselves show the order.
+ */
+const MORGUE_STAGE: BossStageLook = {
+  tone: 'dark',
+  bake(g, B) {
+    const cw = B.wPx / 2;
+    const ch = B.hPx / 3;
+    g.lineCap = 'butt';
+    g.strokeStyle = 'rgba(205,228,238,0.26)';
+    g.lineWidth = 3;
+    g.setLineDash(MD_JOINT);
+    g.beginPath();
+    g.moveTo(cw, 0);
+    g.lineTo(cw, B.hPx);
+    for (let r = 1; r < 3; r++) {
+      g.moveTo(0, r * ch);
+      g.lineTo(B.wPx, r * ch);
+    }
+    g.stroke();
+    g.setLineDash(NO_DASH);
+    for (let side = 0; side < 2; side++) {
+      for (let r = 0; r < 3; r++) {
+        const x = side === 0 ? 0 : B.wPx - 14;
+        const y = r * ch + 9;
+        g.fillStyle = 'rgba(56,61,70,0.85)';
+        g.fillRect(x, y, 14, ch - 18);
+        g.fillStyle = 'rgba(237,242,244,0.8)';
+        g.fillRect(x + 4, y + (ch - 18) / 2 - 13, 6, 26);
+      }
+    }
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 2; c++) {
+        const px = c * cw + cw / 2;
+        const py = r * ch + ch / 2;
+        const frosted = B.phase >= 2 || r === 2;
+        g.fillStyle = frosted ? 'rgba(150,222,240,0.34)' : 'rgba(237,242,244,0.3)';
+        g.fillRect(px - 34, py - 13, 68, 26);
+        g.strokeStyle = 'rgba(12,14,20,0.55)';
+        g.lineWidth = 2.5;
+        g.strokeRect(px - 34, py - 13, 68, 26);
+        if (frosted) continue;
+        g.beginPath();
+        for (let k = 0; k <= r; k++) {
+          const sx = px + (k - r / 2) * 12;
+          g.moveTo(sx, py - 7);
+          g.lineTo(sx, py + 7);
+        }
+        g.lineWidth = 4;
+        g.stroke();
+      }
+    }
+  },
+};
+
+// ─────────────────────────── 투시 촬영기 (기획 20차: 자리 이동형 — 레일에 매달린 C자 팔) ───────────────────────────
 
 const XR_BASE = '#f8f9fa';
 /** The jointed arm: the shell 25 % darker. */
 const XR_ARM = '#babbbc';
 const XR_GREEN = '#38b000';
-const XR_FILM = '#caf0f8';
-const XR_BONE = '#1b4b5a';
-const XR_ARC = 96;
-/** 기획 19차 review: the head hangs this far left of the middle (px) — the party stands under the middle and hid the lens. */
-const XR_SIDE = -170;
+const XR_RED = '#ff2d2d';
+const XR_DARK = '#3a4149';
+const XR_STEEL = '#59636d';
 
-function drawXrayMachine(ctx: CanvasRenderingContext2D, cam: Camera, x: number, y: number, radius: number, o: BossDrawOpts): void {
-  if (o.retreat >= 1) return;
-  const { cx, cy, alpha } = anchor(cam, x, y, o);
-  const R = radius * PX_PER_UNIT;
-  const t = o.time;
-  const g = o.groggy;
+/**
+ * The hanging head, authored facing right: a trolley on a stub of ceiling rail, a jointed arm, the C bracket open the
+ * way the machine looks (f.facing: a station looks down / left / up / right) around one black lens whose crosshair is
+ * its pupil. Wind-up: the two emitter tips and the lens charge white. Groggy: the arm sags, the lens cracks.
+ */
+function xrBody(ctx: CanvasRenderingContext2D, f: BossBodyFrame, o: BossDrawOpts): void {
+  const A = 1 - o.retreat;
+  const { fx, fy, w, h, pose, p } = f;
+  const t = f.time;
+  const g = pose === 'groggy' ? p : 0;
+  const lit = pose === 'windup' ? p : pose === 'attack' ? 1 - 0.6 * p : 0;
   const shell = tint(XR_BASE, o);
-  const mark = o.phase >= 2 || o.enraged ? '#ff2d2d' : XR_GREEN;
-  const bx = cx + XR_SIDE;
-  const { lx, ly } = lookDir(cam, bx, cy + 44, o);
-  // the head swings toward its target; knocked down, the arm sags
-  const hx = bx + lx * 40 * (1 - g) - 26 * g;
-  const hy = cy + 44 + (ly * 12 + Math.sin(t * 1.3) * 2) * (1 - g) + 30 * g;
-  const aim = Math.atan2(ly, lx);
+  const mark = o.phase >= 2 || o.enraged ? XR_RED : XR_GREEN;
+  // the canvas is mirrored to its side: the way it looks, seen in this box
+  const aim = Math.atan2(Math.sin(f.facing), Math.cos(f.facing) * f.s);
   const th = aim + (Math.PI * 0.72 - aim) * g;
-  enrageHaze(ctx, hx, hy, R * 0.85, 100, o, alpha, '#eaffea');
-  // ceiling rail, carriage, the jointed arm
-  ctx.fillStyle = '#3a4149';
-  ctx.fillRect(cx - R * 1.75, cy - 50, R * 3.5, 9);
-  ctx.fillStyle = '#59636d';
-  ctx.fillRect(bx * 0.6 + cx * 0.4 - 30 + lx * 14, cy - 46, 60, 18);
-  limb(ctx, bx * 0.6 + cx * 0.4 + lx * 14, cy - 30, hx - Math.cos(th) * XR_ARC, hy - Math.sin(th) * XR_ARC, 14 - 30 * g, 13, tint(XR_ARM, o));
-  // the C arm, open toward the target
+  const top = fy - h;
+  const hx = fx + Math.sin(t * 1.3) * 3 * (1 - g) - 8 * g;
+  const hy = fy - h * 0.47 + Math.sin(t * 1.7) * 2 * (1 - g) + h * 0.1 * g;
+  const rc = w * 0.27;
+  // a stub of the ceiling rail and the trolley that hangs on it (hazard stripes)
+  ctx.fillStyle = XR_DARK;
+  ctx.fillRect(fx - w * 0.46, top, w * 0.92, 7);
+  ctx.fillStyle = XR_STEEL;
+  ctx.fillRect(fx - w * 0.17, top + 4, w * 0.34, 15);
+  ctx.fillStyle = '#ffd60a';
+  for (let k = 0; k < 3; k++) ctx.fillRect(fx - w * 0.13 + k * w * 0.1, top + 7, w * 0.055, 9);
+  limb(ctx, fx, top + 17, hx, hy, 10 - 28 * g, 11, tint(XR_ARM, o));
+  // the C bracket, open toward where it looks
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.arc(hx, hy, XR_ARC, th + 0.85, th + TAU - 0.85);
+  ctx.arc(hx, hy, rc, th + 0.9, th + TAU - 0.9);
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 26;
+  ctx.lineWidth = 22;
   ctx.stroke();
   ctx.strokeStyle = shell;
-  ctx.lineWidth = 19;
+  ctx.lineWidth = 16;
   ctx.stroke();
   ctx.lineCap = 'butt';
-  // the neck that holds the head inside it
-  ctx.beginPath();
-  ctx.moveTo(hx, hy);
-  ctx.lineTo(hx - Math.cos(th) * XR_ARC, hy - Math.sin(th) * XR_ARC);
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 20;
-  ctx.stroke();
-  ctx.strokeStyle = '#59636d';
-  ctx.lineWidth = 14;
-  ctx.stroke();
   // its two emitter tips light up with the charge
-  const lit = Math.max(o.charge, o.flash);
   ctx.beginPath();
   for (let s = -1; s <= 1; s += 2) {
-    const px = hx + Math.cos(th + s * 0.85) * XR_ARC;
-    const py = hy + Math.sin(th + s * 0.85) * XR_ARC;
-    ctx.moveTo(px + 11, py);
-    ctx.arc(px, py, 11, 0, TAU);
+    const px = hx + Math.cos(th + s * 0.9) * rc;
+    const py = hy + Math.sin(th + s * 0.9) * rc;
+    ctx.moveTo(px + 9, py);
+    ctx.arc(px, py, 9, 0, TAU);
   }
   ctx.fillStyle = INK;
   ctx.fill();
-  ctx.globalAlpha = alpha * (0.35 + 0.65 * lit) * (1 - g);
+  ctx.globalAlpha = A * (0.35 + 0.65 * lit) * (1 - g);
   ctx.fillStyle = mark;
   ctx.fill();
-  ctx.globalAlpha = alpha;
+  ctx.globalAlpha = A;
   // the head and its black lens plate
   ctx.beginPath();
-  ctx.arc(hx, hy, 60, 0, TAU);
+  ctx.arc(hx, hy, w * 0.165, 0, TAU);
   ctx.fillStyle = shell;
   ctx.fill();
-  wash(ctx, alpha, o);
   ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
   ctx.stroke();
-  const px = hx + lx * 6 * (1 - g);
-  const py = hy + ly * 5 * (1 - g);
+  const lx = hx + Math.cos(th) * 5 * (1 - g);
+  const ly = hy + Math.sin(th) * 4 * (1 - g);
+  const lr = w * 0.12;
   ctx.beginPath();
-  ctx.arc(px, py, 48, 0, TAU);
+  ctx.arc(lx, ly, lr, 0, TAU);
   ctx.fillStyle = '#0b0f14';
   ctx.fill();
-  ctx.strokeStyle = '#59636d';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(px, py, 38, -2.5, -1.5);
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx.stroke();
-  // the crosshair is its pupil: it wanders, then locks and tightens with the charge
-  if (g < 1) {
-    const loose = 1 - o.charge;
-    const qx = px + lx * 12 + Math.sin(t * 2.3) * 4 * loose;
-    const qy = py + ly * 9 + Math.cos(t * 1.7) * 3 * loose;
-    const qr = 26 - 8 * o.charge;
-    ctx.globalAlpha = alpha * (1 - g);
-    ctx.beginPath();
-    ctx.arc(qx, qy, qr, 0, TAU);
-    for (let k = 0; k < 4; k++) {
-      const c = k === 0 ? 1 : k === 2 ? -1 : 0;
-      const s = k === 1 ? 1 : k === 3 ? -1 : 0;
-      ctx.moveTo(qx + c * (qr - 7), qy + s * (qr - 7));
-      ctx.lineTo(qx + c * (qr + 8), qy + s * (qr + 8));
-    }
-    ctx.strokeStyle = mark;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(qx, qy, 5 + 4 * o.charge, 0, TAU);
-    ctx.fillStyle = mark;
-    ctx.fill();
-    if (lit > 0) glowEllipse(ctx, px, py, 50 * lit, 50 * lit, '#ffffff', alpha * 0.75 * lit);
-    ctx.globalAlpha = alpha;
-  }
-  if (g > 0) cracks(ctx, px, py, 45, 5, 3, '#cfd8dc', alpha * g);
-  ctx.globalAlpha = alpha;
-  xrViewer(ctx, cx + R * 1.2, cy + 4, t, g, o.flash, mark, alpha);
-  // the radiation sign moved to the far right (the head took its left place)
-  xrSign(ctx, cx + R * 2.05, cy + 46, t, lit * (1 - g), alpha);
-  ctx.globalAlpha = 1;
-}
-
-/** The film viewer beside the machine: a rib cage with one bone too many; a skull on the flash; noise, then dark, when down. */
-function xrViewer(ctx: CanvasRenderingContext2D, vx: number, vy: number, t: number, g: number, flash: number, mark: string, alpha: number): void {
-  ctx.strokeStyle = '#3a4149';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(vx + 20, vy - 46);
-  ctx.lineTo(vx + 20, vy);
-  ctx.moveTo(vx + 80, vy - 46);
-  ctx.lineTo(vx + 80, vy);
-  ctx.stroke();
-  ctx.fillStyle = '#20262c';
-  ctx.fillRect(vx - 6, vy - 6, 112, 100);
-  const glow = g > 0 ? strobe(t, 14, 7, 0.6 * (1 - g)) * 0.6 : 0.74 + 0.26 * strobe(t, 9, 3, 0.85);
-  if (glow <= 0) return;
-  ctx.globalAlpha = alpha * glow;
-  ctx.fillStyle = XR_FILM;
-  ctx.fillRect(vx, vy, 100, 88);
-  const mx = vx + 50;
-  if (g > 0) {
-    // losing the picture: bars of noise
-    const f = Math.floor(t * 14);
-    ctx.fillStyle = '#20262c';
-    for (let k = 0; k < 5; k++) ctx.fillRect(vx + hash01(k, f) * 70, vy + hash01(k + 9, f) * 80, 30, 5);
-  } else if (flash > 0.3) {
-    ctx.fillStyle = XR_BONE;
-    ctx.beginPath();
-    ctx.arc(mx, vy + 36, 25, 0, TAU);
-    ctx.rect(mx - 14, vy + 52, 28, 20);
-    ctx.fill();
-    ctx.fillStyle = XR_FILM;
-    ctx.beginPath();
-    ctx.ellipse(mx - 10, vy + 36, 7, 9, 0, 0, TAU);
-    ctx.ellipse(mx + 10, vy + 36, 7, 9, 0, 0, TAU);
-    ctx.rect(mx - 2, vy + 48, 4, 7);
-    ctx.fill();
-  } else {
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = XR_BONE;
-    ctx.lineWidth = 4.5;
-    ctx.beginPath();
-    ctx.moveTo(mx, vy + 8);
-    ctx.lineTo(mx, vy + 80);
-    for (let k = 0; k < 4; k++) {
-      const ry = vy + 16 + k * 15;
-      ctx.moveTo(mx, ry);
-      ctx.quadraticCurveTo(mx - 36, ry - 6, mx - 31, ry + 13);
-      ctx.moveTo(mx, ry);
-      ctx.quadraticCurveTo(mx + 36, ry - 6, mx + 31, ry + 13);
-    }
-    ctx.stroke();
-    // 뼈가 하나 더: it shows only now and then
-    if (strobe(t, 5, 11, 0.55) > 0) {
-      ctx.strokeStyle = mark;
-      ctx.beginPath();
-      ctx.moveTo(mx + 6, vy + 78);
-      ctx.lineTo(mx + 30, vy + 58);
-      ctx.lineTo(mx + 40, vy + 26);
-      ctx.stroke();
-    }
-    ctx.lineCap = 'butt';
-  }
-  ctx.globalAlpha = alpha;
-}
-
-/** A radiation sign on the other side; its lamp burns while the machine charges. */
-function xrSign(ctx: CanvasRenderingContext2D, sx: number, sy: number, t: number, lit: number, alpha: number): void {
-  ctx.strokeStyle = '#3a4149';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(sx, sy - 88);
-  ctx.lineTo(sx, sy - 26);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(sx, sy, 28, 0, TAU);
-  ctx.fillStyle = '#ffd60a';
-  ctx.fill();
-  ctx.strokeStyle = INK;
+  ctx.strokeStyle = XR_STEEL;
   ctx.lineWidth = 3;
   ctx.stroke();
-  ctx.beginPath();
-  for (let k = 0; k < 3; k++) {
-    const a = -Math.PI / 2 + (k * TAU) / 3;
-    ctx.moveTo(sx, sy);
-    ctx.arc(sx, sy, 21, a - 0.52, a + 0.52);
-    ctx.closePath();
-  }
-  ctx.fillStyle = INK;
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(sx, sy, 7, 0, TAU);
-  ctx.fillStyle = '#ffd60a';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(sx, sy, 4, 0, TAU);
-  ctx.fillStyle = INK;
-  ctx.fill();
-  if (lit > 0) {
-    ctx.globalAlpha = alpha * lit * (0.6 + 0.4 * strobe(t, 10, 2));
+  if (g < 1) {
+    // the crosshair is its pupil: it wanders, then locks and tightens with the charge
+    const loose = pose === 'windup' || pose === 'attack' ? 0 : 1;
+    const qx = lx + Math.cos(th) * 4 + Math.sin(t * 2.3) * 3 * loose;
+    const qy = ly + Math.sin(th) * 3 + Math.cos(t * 1.7) * 2 * loose;
+    const qr = lr * (0.62 - 0.2 * lit);
+    ctx.globalAlpha = A * (1 - g);
     ctx.beginPath();
-    ctx.arc(sx, sy - 40, 9, 0, TAU);
-    ctx.fillStyle = RED;
+    ctx.arc(qx, qy, qr, 0, TAU);
+    ctx.moveTo(qx + qr - 4, qy);
+    ctx.lineTo(qx + qr + 5, qy);
+    ctx.moveTo(qx - qr + 4, qy);
+    ctx.lineTo(qx - qr - 5, qy);
+    ctx.moveTo(qx, qy + qr - 4);
+    ctx.lineTo(qx, qy + qr + 5);
+    ctx.moveTo(qx, qy - qr + 4);
+    ctx.lineTo(qx, qy - qr - 5);
+    ctx.strokeStyle = mark;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(qx, qy, 3.5 + 2.5 * lit, 0, TAU);
+    ctx.fillStyle = mark;
     ctx.fill();
-    ctx.globalAlpha = alpha;
+    if (lit > 0) glowEllipse(ctx, lx, ly, lr * 1.15 * lit, lr * 1.15 * lit, '#ffffff', A * 0.75 * lit);
+    ctx.globalAlpha = A;
   }
+  if (g > 0) cracks(ctx, lx, ly, lr * 0.95, 5, 3, '#cfd8dc', A * g);
+  ctx.globalAlpha = A;
 }
 
-// ─────────────────────────── 멈추지 않는 제세동기 ───────────────────────────
+const XR_BODY: BossBody = { w: 3.2, h: 2.5, draw: xrBody, headY: f => f.fy - f.h * 0.86 };
+
+const XR_SLEEPERS = [10, 9];
+
+/**
+ * The floor under the machine: the shadow of its ceiling rail joining the four stations (BossDef.spots, in order) and a
+ * faint lit pad under each — the shared stage adds the dotted seat rings and the ticks of where each station looks.
+ */
+const XRAY_STAGE: BossStageLook = {
+  tone: 'dark',
+  bake(g, B) {
+    const spots = getBoss('xray_machine').spots ?? [];
+    if (spots.length < 2) return;
+    g.lineJoin = 'round';
+    g.beginPath();
+    spots.forEach((s, i) => (i === 0 ? g.moveTo(s.x * B.cellX, s.y * B.cellY) : g.lineTo(s.x * B.cellX, s.y * B.cellY)));
+    g.closePath();
+    g.strokeStyle = 'rgba(6,8,12,0.42)';
+    g.lineWidth = 18;
+    g.stroke();
+    g.setLineDash(XR_SLEEPERS);
+    g.strokeStyle = 'rgba(190,200,210,0.3)';
+    g.lineWidth = 5;
+    g.stroke();
+    g.setLineDash(NO_DASH);
+    g.fillStyle = B.phase >= 2 ? 'rgba(255,45,45,0.09)' : 'rgba(56,176,0,0.09)';
+    for (const s of spots) {
+      g.beginPath();
+      g.ellipse(s.x * B.cellX, s.y * B.cellY, 2.5 * B.cellX, 2.5 * B.cellY, 0, 0, TAU);
+      g.fill();
+    }
+  },
+};
+
+// ─────────────────────────── 멈추지 않는 제세동기 (기획 20차: 배회형 — 쫓아오는 노란 수레) ───────────────────────────
 
 const DF_BASE = '#ffd60a';
 /** The skirt along the bottom of the box: the yellow 25 % darker. */
@@ -478,9 +459,8 @@ const DF_SKIRT = '#bfa108';
 const DF_GREEN = '#06d6a0';
 const DF_SCREEN = '#06281f';
 const DF_DARK = '#2b2f36';
-const DF_JOULES = ['200', '240', '280', '320', '360'];
-const DF_FONT = '900 15px sans-serif';
-const DF_POINTS = 22;
+const DF_STEEL = '#8a929c';
+const DF_POINTS = 12;
 
 /** One heartbeat over u 0..1 (−1 = the top of the spike). */
 function ecgBeat(u: number): number {
@@ -492,157 +472,21 @@ function ecgBeat(u: number): number {
   return 0.5 - ((u - 0.54) / 0.04) * 0.5;
 }
 
-function drawDefibrillator(ctx: CanvasRenderingContext2D, cam: Camera, x: number, y: number, radius: number, o: BossDrawOpts): void {
-  if (o.retreat >= 1) return;
-  const { cx, cy, alpha } = anchor(cam, x, y, o);
-  const R = radius * PX_PER_UNIT;
-  const t = o.time;
-  const g = o.groggy;
-  const body = tint(DF_BASE, o);
-  const red = o.phase >= 2 || o.enraged;
-  const trace = red ? '#ff4d4d' : DF_GREEN;
-  enrageHaze(ctx, cx, cy + 40, R * 1.25, 110, o, alpha, '#d9f6ff');
-  // the paddles: arms on cables (drawn first, behind the box)
-  const reach = 186 - 34 * o.charge + 12 * g;
-  const yl = dfPaddleY(cy, -1, o);
-  const yr = dfPaddleY(cy, 1, o);
-  dfPaddle(ctx, cx, cy, -1, reach, yl, g);
-  dfPaddle(ctx, cx, cy, 1, reach, yr, g);
-  ctx.globalAlpha = alpha;
-  // the box
-  pathRoundRect(ctx, cx - 100, cy - 44, 200, 142, 18);
-  ctx.fillStyle = body;
-  ctx.fill();
-  wash(ctx, alpha, o);
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.fillStyle = tint(DF_SKIRT, o);
-  ctx.fillRect(cx - 96, cy + 78, 192, 14);
-  // the screen: two eyes over the heartbeat (a flat line when knocked down)
-  pathRoundRect(ctx, cx - 82, cy - 28, 116, 68, 8);
-  ctx.fillStyle = DF_SCREEN;
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  const speed = (red ? 1.5 : 1) * (1 + o.charge);
-  const amp = 17 * (1 - g) * (1 + 0.3 * o.charge);
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  for (let k = 0; k < DF_POINTS; k++) {
-    const u = (((k / (DF_POINTS - 1)) * 1.5 - t * 0.9 * speed) % 1 + 1) % 1;
-    const px = cx - 76 + k * (104 / (DF_POINTS - 1));
-    const py = cy + 22 + ecgBeat(u) * amp;
-    if (k === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.strokeStyle = trace;
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  const { lx, ly } = lookDir(cam, cx - 24, cy - 8, o);
-  const open = blink(t, 4) * (1 - g);
-  ctx.fillStyle = trace;
-  ctx.beginPath();
-  for (let s = -1; s <= 1; s += 2) {
-    const ex = cx - 24 + s * 26 + lx * 4;
-    const ey = cy - 9 + ly * 3;
-    ctx.moveTo(ex + 9, ey);
-    ctx.ellipse(ex, ey, 9, Math.max(1.5, 9 * open), 0, 0, TAU);
-  }
-  ctx.fill();
-  if (red && g < 0.5) {
-    // angry brows
-    ctx.beginPath();
-    ctx.moveTo(cx - 64, cy - 24);
-    ctx.lineTo(cx - 38, cy - 17);
-    ctx.moveTo(cx + 16, cy - 24);
-    ctx.lineTo(cx - 10, cy - 17);
-    ctx.strokeStyle = DF_SCREEN;
-    ctx.lineWidth = 6;
-    ctx.stroke();
-  }
-  // the joule read-out climbs with the charge; the dial turns
-  ctx.fillStyle = DF_SCREEN;
-  ctx.fillRect(cx + 44, cy - 28, 46, 22);
-  if (g <= 0) {
-    ctx.fillStyle = trace;
-    ctx.font = DF_FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(DF_JOULES[Math.min(4, Math.floor(o.charge * 5))], cx + 67, cy - 16);
-  }
-  const da = -2.4 + o.charge * 3.4 + Math.sin(t * 0.7) * 0.15 + g * 1.2;
-  ctx.beginPath();
-  ctx.arc(cx + 67, cy + 22, 17, 0, TAU);
-  ctx.fillStyle = DF_DARK;
-  ctx.fill();
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cx + 67, cy + 22);
-  ctx.lineTo(cx + 67 + Math.cos(da) * 13, cy + 22 + Math.sin(da) * 13);
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-  // the shock button (lit while charging), a spare one, the bolt label
-  ctx.beginPath();
-  ctx.arc(cx + 78, cy + 62, 11, 0, TAU);
-  ctx.fillStyle = o.charge > 0 && strobe(t, 12, 4) > 0 ? '#ff9a9a' : '#e63946';
-  ctx.fill();
-  ctx.strokeStyle = INK;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx + 50, cy + 62, 8, 0, TAU);
-  ctx.fillStyle = DF_GREEN;
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(cx - 80, cy + 46, 60, 28);
-  ctx.strokeRect(cx - 80, cy + 46, 60, 28);
-  ctx.beginPath();
-  ctx.moveTo(cx - 46, cy + 49);
-  ctx.lineTo(cx - 58, cy + 62);
-  ctx.lineTo(cx - 51, cy + 62);
-  ctx.lineTo(cx - 55, cy + 72);
-  ctx.lineTo(cx - 42, cy + 58);
-  ctx.lineTo(cx - 49, cy + 58);
-  ctx.closePath();
-  ctx.fillStyle = '#e63946';
-  ctx.fill();
-  // charging: a thread of electricity sags between the paddles; the hit: both plates flash
-  if (o.charge > 0.05 && g <= 0) dfSpark(ctx, cx - reach + 30, yl + 10, cx + reach - 30, yr + 10, t, alpha * o.charge);
-  if (o.flash > 0) {
-    glowEllipse(ctx, cx - reach, yl + 10, 56, 18, '#ffffff', alpha * 0.8 * o.flash);
-    glowEllipse(ctx, cx + reach, yr + 10, 56, 18, '#ffffff', alpha * 0.8 * o.flash);
-  }
-  ctx.globalAlpha = 1;
-}
-
-/** Screen y of a paddle: it breathes, lifts with the charge, slams on the hit, lies on the floor when knocked down. */
-function dfPaddleY(cy: number, side: number, o: BossDrawOpts): number {
-  return cy + 60 + Math.sin(o.time * 1.4 + side) * 5 * (1 - o.groggy) - 30 * o.charge + 40 * o.flash + 52 * o.groggy;
-}
-
-function dfPaddle(ctx: CanvasRenderingContext2D, cx: number, cy: number, side: number, reach: number, py: number, g: number): void {
-  const px = cx + side * reach;
-  limb(ctx, cx + side * 98, cy + 26, px, py - 20, side * (28 + 26 * g), 7, DF_DARK);
-  ctx.fillStyle = DF_DARK;
-  ctx.fillRect(px - 20, py - 22, 40, 19);
-  ctx.fillStyle = '#e9ecef';
-  ctx.fillRect(px - 34, py - 4, 68, 14);
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 3;
-  ctx.strokeRect(px - 34, py - 4, 68, 14);
-}
-
-function dfSpark(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, t: number, alpha: number): void {
+/** A jagged thread of electricity from (x0, y0) to (x1, y1), bowing `sag` px to its side. Sets globalAlpha. */
+function dfSpark(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, sag: number, t: number, alpha: number): void {
   const f = Math.floor(t * 24);
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const d = Math.hypot(dx, dy) || 1;
+  const nx = -dy / d;
+  const ny = dx / d;
   ctx.lineJoin = 'miter';
   ctx.beginPath();
   ctx.moveTo(x0, y0);
-  for (let k = 1; k < 10; k++) {
-    const u = k / 10;
-    ctx.lineTo(x0 + (x1 - x0) * u, y0 + (y1 - y0) * u + Math.sin(Math.PI * u) * 34 + (hash01(k, f) - 0.5) * 20);
+  for (let k = 1; k < 7; k++) {
+    const u = k / 7;
+    const off = Math.sin(Math.PI * u) * sag + (hash01(k, f) - 0.5) * 14;
+    ctx.lineTo(x0 + dx * u + nx * off, y0 + dy * u + ny * off);
   }
   ctx.lineTo(x1, y1);
   ctx.globalAlpha = alpha;
@@ -655,66 +499,221 @@ function dfSpark(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: numb
   ctx.lineJoin = 'round';
 }
 
-/** Knocked down: 「LOW BATTERY」 blinks over the flat line, and the monitor whines. */
-function drawDefibProps(ctx: CanvasRenderingContext2D, cam: Camera, x: number, y: number, _radius: number, o: BossDrawOpts): void {
-  const { cx, cy, alpha } = anchor(cam, x, y, o);
-  const a = alpha * o.groggy;
-  plaque(ctx, cx - 22, cy + 6 + 14 * o.groggy, 112, 22, 'LOW BATTERY', '#e63946', '#ffffff', a * (0.4 + 0.6 * strobe(o.time, 3, 5)), 0.1 * o.groggy);
-  plaque(ctx, cx + 132, cy - 4, 54, 26, '삐—', DF_SCREEN, DF_GREEN, a, -0.08);
+/** One paddle held out in front: a dark grip and the bright plate (the plate faces ahead). */
+function dfPaddle(ctx: CanvasRenderingContext2D, sx: number, sy: number, px: number, py: number, slack: number): void {
+  limb(ctx, sx, sy, px - 8, py, slack, 5, DF_DARK);
+  ctx.fillStyle = DF_DARK;
+  ctx.fillRect(px - 16, py - 7, 16, 14);
+  ctx.fillStyle = '#e9ecef';
+  ctx.fillRect(px, py - 16, 8, 32);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(px, py - 16, 8, 32);
 }
 
-// ─────────────────────────── 빈 병상 행렬 ───────────────────────────
+/** A cart wheel with one spoke that turns as it rolls. */
+function wheel(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, turn: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = INK;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x - Math.cos(turn) * (r - 2), y - Math.sin(turn) * (r - 2));
+  ctx.lineTo(x + Math.cos(turn) * (r - 2), y + Math.sin(turn) * (r - 2));
+  ctx.strokeStyle = '#cfd6dc';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}
+
+/**
+ * The cart, authored facing right: two wheels, a shelf with a push handle at the back, the yellow box with a green ECG
+ * face, and two paddles held out in front on cables. Walk: the wheels turn and the box rattles. Wind-up: the paddles
+ * rise apart with a thread of electricity between them. Attack: they thrust forward. Groggy: a flat line, the battery
+ * lid open, the paddles on the floor.
+ */
+function dfBody(ctx: CanvasRenderingContext2D, f: BossBodyFrame, o: BossDrawOpts): void {
+  const A = 1 - o.retreat;
+  const { fx, fy, w, h, pose, p } = f;
+  const t = f.time;
+  const g = pose === 'groggy' ? p : 0;
+  const wind = pose === 'windup' ? p : 0;
+  const hit = pose === 'attack' ? Math.sin(p * Math.PI) : 0;
+  const red = o.phase >= 2 || o.enraged;
+  const trace = red ? '#ff4d4d' : DF_GREEN;
+  const rattle = pose === 'walk' ? Math.sin(f.stride * TAU * 2) * 2 : 0;
+  const turn = f.stride * TAU * 2;
+  const shelf = fy - h * 0.26;
+  const top = fy - h * 0.9 + rattle;
+  const bl = fx - w * 0.32;
+  const bw = w * 0.56;
+  const bh = shelf - 3 - top;
+  // cart: legs, shelf, push handle, wheels
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(fx - w * 0.27, fy - 12);
+  ctx.lineTo(fx - w * 0.27, shelf);
+  ctx.moveTo(fx + w * 0.18, fy - 12);
+  ctx.lineTo(fx + w * 0.18, shelf);
+  ctx.moveTo(fx - w * 0.37, shelf);
+  ctx.lineTo(fx + w * 0.29, shelf);
+  ctx.moveTo(fx - w * 0.34, shelf);
+  ctx.lineTo(fx - w * 0.45, fy - h * 0.76);
+  ctx.lineTo(fx - w * 0.5, fy - h * 0.76);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  ctx.strokeStyle = DF_STEEL;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  wheel(ctx, fx - w * 0.27, fy - 11, 11, turn);
+  wheel(ctx, fx + w * 0.18, fy - 11, 11, turn + 1.3);
+  // the box
+  pathRoundRect(ctx, bl, top, bw, bh, 10);
+  ctx.fillStyle = tint(DF_BASE, o);
+  ctx.fill();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  ctx.fillStyle = tint(DF_SKIRT, o);
+  ctx.fillRect(bl + 3, top + bh - 12, bw - 6, 9);
+  // battery lid on top: shut, or flung open with the dark slot showing
+  ctx.fillStyle = DF_DARK;
+  if (g > 0) {
+    ctx.fillRect(bl + bw * 0.3, top - 1, bw * 0.34, 6);
+    ctx.beginPath();
+    ctx.moveTo(bl + bw * 0.3, top);
+    ctx.lineTo(bl + bw * 0.3 + Math.cos(-0.3 - 1.1 * g) * bw * 0.34, top + Math.sin(-0.3 - 1.1 * g) * bw * 0.34);
+    ctx.strokeStyle = DF_DARK;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+  } else ctx.fillRect(bl + bw * 0.3, top - 6, bw * 0.34, 7);
+  // the screen: two eyes over the heartbeat (a flat line when knocked down)
+  const sx = bl + bw * 0.09;
+  const sy = top + bh * 0.1;
+  const sw = bw * 0.62;
+  const sh = bh * 0.52;
+  pathRoundRect(ctx, sx, sy, sw, sh, 6);
+  ctx.fillStyle = DF_SCREEN;
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  const speed = (red ? 1.5 : 1) * (1 + wind);
+  const amp = sh * 0.3 * (1 - g) * (1 + 0.3 * wind);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let k = 0; k < DF_POINTS; k++) {
+    const u = (((k / (DF_POINTS - 1)) * 1.2 - t * 0.9 * speed) % 1 + 1) % 1;
+    const px = sx + 4 + k * ((sw - 8) / (DF_POINTS - 1));
+    const py = sy + sh * 0.74 + ecgBeat(u) * amp;
+    if (k === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.strokeStyle = trace;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  const open = blink(t, 4) * (1 - g);
+  const look = 3 * (1 - g);
+  ctx.fillStyle = trace;
+  ctx.beginPath();
+  for (let s = 0; s < 2; s++) {
+    const ex = sx + sw * (0.34 + 0.34 * s) + look;
+    const ey = sy + sh * 0.3;
+    ctx.moveTo(ex + 6, ey);
+    ctx.ellipse(ex, ey, 6, Math.max(1.5, 6.5 * open), 0, 0, TAU);
+  }
+  ctx.fill();
+  if (red && g < 0.5) {
+    // angry brows
+    ctx.beginPath();
+    ctx.moveTo(sx + sw * 0.2 + look, sy + sh * 0.06);
+    ctx.lineTo(sx + sw * 0.46 + look, sy + sh * 0.18);
+    ctx.moveTo(sx + sw * 0.84 + look, sy + sh * 0.06);
+    ctx.lineTo(sx + sw * 0.58 + look, sy + sh * 0.18);
+    ctx.strokeStyle = DF_SCREEN;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+  // the shock button (blinking while it charges) and the dial that climbs with the charge
+  const kx = bl + bw * 0.85;
+  ctx.beginPath();
+  ctx.arc(kx, top + bh * 0.24, 7.5, 0, TAU);
+  ctx.fillStyle = wind > 0 && strobe(t, 12, 4) > 0 ? '#ff9a9a' : '#e63946';
+  ctx.fill();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  const da = -2.4 + wind * 3.4 + Math.sin(t * 0.7) * 0.15 + g * 1.2;
+  ctx.beginPath();
+  ctx.arc(kx, top + bh * 0.54, 8.5, 0, TAU);
+  ctx.fillStyle = DF_DARK;
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(kx, top + bh * 0.54);
+  ctx.lineTo(kx + Math.cos(da) * 7, top + bh * 0.54 + Math.sin(da) * 7);
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  // the bolt label
+  const ly = top + bh * 0.68;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(sx, ly, sw * 0.6, bh * 0.17);
+  ctx.beginPath();
+  ctx.moveTo(sx + sw * 0.34, ly + 1);
+  ctx.lineTo(sx + sw * 0.2, ly + bh * 0.1);
+  ctx.lineTo(sx + sw * 0.29, ly + bh * 0.1);
+  ctx.lineTo(sx + sw * 0.24, ly + bh * 0.17 - 1);
+  ctx.lineTo(sx + sw * 0.4, ly + bh * 0.07);
+  ctx.lineTo(sx + sw * 0.31, ly + bh * 0.07);
+  ctx.closePath();
+  ctx.fillStyle = '#e63946';
+  ctx.fill();
+  // the paddles, held out in front (they hang to the floor when it is down)
+  const bob = Math.sin(t * 1.4) * 3 * (1 - g);
+  const reach = fx + w * 0.4 - 7 * wind + w * 0.1 * hit;
+  const y1 = top + bh * 0.2 + bob - h * 0.2 * wind;
+  const y2 = top + bh * 0.7 - bob + h * 0.1 * wind;
+  const p1x = reach + (fx + w * 0.36 - reach) * g;
+  const p1y = y1 + (fy - 20 - y1) * g;
+  const p2x = reach + 6 + (fx + w * 0.46 - reach - 6) * g;
+  const p2y = y2 + (fy - 17 - y2) * g;
+  dfPaddle(ctx, bl + bw, top + bh * 0.3, p1x, p1y, -8 - 14 * g);
+  dfPaddle(ctx, bl + bw, top + bh * 0.6, p2x, p2y, 8 + 14 * g);
+  if (wind > 0.05) dfSpark(ctx, p1x + 4, p1y + 16, p2x + 4, p2y - 16, 10, t, A * wind);
+  if (hit > 0) {
+    glowEllipse(ctx, p1x + 6, p1y, 14, 24, '#ffffff', A * 0.8 * hit);
+    glowEllipse(ctx, p2x + 6, p2y, 14, 24, '#ffffff', A * 0.8 * hit);
+  }
+  ctx.globalAlpha = A;
+}
+
+const DF_BODY: BossBody = { w: 2.9, h: 2.6, draw: dfBody, headY: f => f.fy - f.h * 0.94 };
+
+/** Knocked down: 「LOW BATTERY」 blinks over the open lid, and the monitor whines (screen-aligned: text never mirrors). */
+function drawDefibProps(ctx: CanvasRenderingContext2D, cam: Camera, x: number, y: number, _radius: number, o: BossDrawOpts): void {
+  const cx = cam.sx(x);
+  const cy = cam.sy(Math.max(y, 0)) - DF_BODY.h * PX_PER_UNIT;
+  const a = (1 - o.retreat) * o.groggy;
+  plaque(ctx, cx, cy - 16 + 6 * o.groggy, 112, 22, 'LOW BATTERY', '#e63946', '#ffffff', a * (0.4 + 0.6 * strobe(o.time, 3, 5)), 0.08 * o.groggy);
+  plaque(ctx, cx + 86, cy + 26, 54, 26, '삐—', DF_SCREEN, DF_GREEN, a, -0.08);
+}
+
+// ─────────────────────────── 빈 병상 행렬 (기획 20차: 배회형 — 달리는 침대 한 대) ───────────────────────────
 
 const EB_BASE = '#dee2e6';
 const EB_STAIN = '#9b2226';
 const EB_HOLE = '#2a0508';
 const EB_STEEL = '#8a929c';
-const EB_STEP = 116;
-const EB_FOOT = 94;
+const EB_MATTRESS = '#b9c0c8';
 
-/** The frame of one bed: a tall head rail behind, legs down to two wheels. spin = −1 / +1: that wheel shows a turning spoke. */
-function ebFrame(ctx: CanvasRenderingContext2D, bx: number, cy: number, hw: number, t: number, spin: number): void {
-  const foot = cy + EB_FOOT;
-  const top = cy - 30;
-  ctx.beginPath();
-  ctx.moveTo(bx - hw, foot);
-  ctx.lineTo(bx - hw, top + 10);
-  ctx.quadraticCurveTo(bx, top - 12, bx + hw, top + 10);
-  ctx.lineTo(bx + hw, foot);
-  ctx.moveTo(bx - hw * 0.35, top);
-  ctx.lineTo(bx - hw * 0.35, cy + 6);
-  ctx.moveTo(bx + hw * 0.35, top);
-  ctx.lineTo(bx + hw * 0.35, cy + 6);
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 8;
-  ctx.stroke();
-  ctx.strokeStyle = EB_STEEL;
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(bx - hw + 7, foot);
-  ctx.arc(bx - hw, foot, 7, 0, TAU);
-  ctx.moveTo(bx + hw + 7, foot);
-  ctx.arc(bx + hw, foot, 7, 0, TAU);
-  ctx.fillStyle = INK;
-  ctx.fill();
-  if (spin !== 0) {
-    // toppled: the wheel left in the air keeps spinning
-    const a = t * 9;
-    ctx.beginPath();
-    ctx.moveTo(bx + spin * hw - Math.cos(a) * 6, foot - Math.sin(a) * 6);
-    ctx.lineTo(bx + spin * hw + Math.cos(a) * 6, foot + Math.sin(a) * 6);
-    ctx.strokeStyle = '#cfd6dc';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-}
-
-/** The hem of a sheet from (right, y) back to (left, y): n tips like fingers, swaying; `reach` = how far they hang. */
-function ebHem(ctx: CanvasRenderingContext2D, left: number, right: number, y: number, n: number, reach: number, t: number, seed: number): void {
+/**
+ * The hem of a sheet from (right, y) back to (left, y): n tips like fingers, swaying; `reach` = how far they hang,
+ * `back` = px the tips trail behind (the wind of a rush).
+ */
+function ebHem(ctx: CanvasRenderingContext2D, left: number, right: number, y: number, n: number, reach: number, back: number, t: number, seed: number): void {
   const step = (right - left) / n;
   for (let j = n - 1; j >= 0; j--) {
-    ctx.lineTo(left + (j + 0.5) * step + Math.sin(t * 1.6 + seed * 1.3 + j * 0.7) * 3, y + reach * (0.55 + 0.45 * hash01(seed, j, 41)));
+    ctx.lineTo(left + (j + 0.5) * step - back + Math.sin(t * 1.6 + seed * 1.3 + j * 0.7) * 3, y + reach * (0.55 + 0.45 * hash01(seed, j, 41)));
     ctx.lineTo(left + j * step, y);
   }
 }
@@ -725,151 +724,179 @@ function ebSoak(ctx: CanvasRenderingContext2D, left: number, right: number, hem:
   ctx.clip();
   ctx.globalAlpha = alpha * 0.5;
   ctx.fillStyle = EB_STAIN;
-  ctx.fillRect(left, hem - 28, right - left, 90);
-  ctx.fillRect(left, hem - 14, right - left, 76);
+  ctx.fillRect(left, hem - 22, right - left, 70);
+  ctx.fillRect(left, hem - 10, right - left, 58);
   ctx.restore();
 }
 
-/** An empty bed: the sheet hangs flat over its foot end, three stains for a face. */
-function ebSideBed(ctx: CanvasRenderingContext2D, bx: number, cy: number, i: number, sheet: string, o: BossDrawOpts, alpha: number): void {
-  const hw = 44;
-  const t = o.time;
-  ebFrame(ctx, bx, cy, hw, t, o.groggy > 0 ? (i < 2 ? 1 : -1) : 0);
-  // sucked back on the wind-up, slapping down on the hit, sliding off when toppled
-  const hem = cy + 66 - 30 * o.charge + 14 * o.flash + 12 * o.groggy;
-  const reach = 14 + Math.sin(t * 1.2 + i) * 4 + 24 * o.flash - 6 * o.charge + 10 * o.groggy;
+/** The iron frame of a bed seen from its side: the tall head rail at the back (left), the low foot rail in front, legs, wheels. */
+function ebFrame(ctx: CanvasRenderingContext2D, fx: number, fy: number, half: number, deck: number, headTop: number, footTop: number, turn: number, wr: number): void {
+  const post = half * 0.16;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.moveTo(bx - hw - 5, cy + 2);
-  ctx.quadraticCurveTo(bx, cy - 6, bx + hw + 5, cy + 2);
-  ctx.lineTo(bx + hw + 7, hem);
-  ebHem(ctx, bx - hw - 7, bx + hw + 7, hem, 5, reach, t, i);
-  ctx.closePath();
-  ctx.fillStyle = sheet;
-  ctx.fill();
-  wash(ctx, alpha, o);
+  // head rail: two posts joined by a bow
+  ctx.moveTo(fx - half, fy - wr);
+  ctx.lineTo(fx - half, headTop + post * 0.6);
+  ctx.quadraticCurveTo(fx - half + post * 0.5, headTop - post * 0.5, fx - half + post, headTop + post * 0.6);
+  ctx.lineTo(fx - half + post, deck);
+  // foot rail
+  ctx.moveTo(fx + half, fy - wr);
+  ctx.lineTo(fx + half, footTop + post * 0.6);
+  ctx.quadraticCurveTo(fx + half - post * 0.5, footTop - post * 0.5, fx + half - post, footTop + post * 0.6);
+  ctx.lineTo(fx + half - post, deck);
+  // the deck under the mattress
+  ctx.moveTo(fx - half, deck);
+  ctx.lineTo(fx + half, deck);
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = Math.max(4, half * 0.085);
   ctx.stroke();
-  if (o.phase >= 2) ebSoak(ctx, bx - hw - 9, bx + hw + 9, hem, alpha);
-  // stains: two eyes and a mouth (from phase 2 they have run into the lower half of the sheet)
-  const sy = cy + 24 - 10 * o.charge;
-  ctx.beginPath();
-  ctx.moveTo(bx - 5, sy);
-  ctx.ellipse(bx - 12, sy, 7, 5, 0.3, 0, TAU);
-  ctx.moveTo(bx + 19, sy);
-  ctx.ellipse(bx + 12, sy, 7, 5, -0.3, 0, TAU);
-  ctx.moveTo(bx + 9, sy + 16);
-  ctx.ellipse(bx, sy + 16, 9, 4 + 5 * o.charge, 0, 0, TAU);
-  ctx.globalAlpha = alpha * 0.8;
-  ctx.fillStyle = EB_STAIN;
-  ctx.fill();
-  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = EB_STEEL;
+  ctx.lineWidth = Math.max(2, half * 0.04);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  wheel(ctx, fx - half, fy - wr, wr, turn);
+  wheel(ctx, fx + half, fy - wr, wr, turn + 1.3);
 }
 
-/** The middle bed (the prop): its sheet sits up in the shape of a person, the stains are a face that follows the target. */
-function ebFigureBed(ctx: CanvasRenderingContext2D, cam: Camera, bx: number, cy: number, sheet: string, o: BossDrawOpts, alpha: number): void {
-  const hw = 58;
-  const t = o.time;
-  const g = o.groggy;
-  ebFrame(ctx, bx, cy, hw, t, 0);
-  const y0 = cy + 12 * g - 6 * o.charge + Math.sin(t * 1.1) * 1.5;
-  const hem = cy + 80 - 24 * o.charge + 12 * o.flash + 8 * g;
-  const reach = 15 + Math.sin(t * 1.2) * 4 + 24 * o.flash - 6 * o.charge + 8 * g;
+/**
+ * One long iron bed, authored facing right (it runs foot end first): the sheet is crumpled into a person sitting up at
+ * the back, stains for a face. Walk: the wheels creak round. Wind-up: the sheet streams back, the mouth opens.
+ * Attack: the figure lunges. Groggy: the bed tips back on its rear wheels, the front ones spinning in the air.
+ */
+function ebBody(ctx: CanvasRenderingContext2D, f: BossBodyFrame, o: BossDrawOpts): void {
+  const A = 1 - o.retreat;
+  const { fx, fy, w, h, pose, p } = f;
+  const t = f.time;
+  const g = pose === 'groggy' ? p : 0;
+  const wind = pose === 'windup' ? p : 0;
+  const hit = pose === 'attack' ? Math.sin(p * Math.PI) : 0;
+  const half = w * 0.44;
+  const wr = 8;
+  const deck = fy - h * 0.4;
+  const mat = fy - h * 0.52;
+  const sheet = tint(EB_BASE, o);
+  const turn = pose === 'groggy' ? t * 9 : f.stride * TAU * 2;
+  ctx.save();
+  if (g > 0) {
+    // tipped back over its rear wheel
+    ctx.translate(fx - half, fy - wr);
+    ctx.rotate(-0.5 * g);
+    ctx.translate(-(fx - half), -(fy - wr));
+  }
+  ebFrame(ctx, fx, fy, half, deck, fy - h * 0.92, fy - h * 0.68, turn, wr);
+  // mattress
+  ctx.fillStyle = EB_MATTRESS;
+  ctx.fillRect(fx - half + 4, mat, half * 2 - 8, deck - mat);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(fx - half + 4, mat, half * 2 - 8, deck - mat);
+  // the sheet: a figure sitting up at the back, its legs a ridge toward the foot end, the hem hanging in tips
+  const lean = w * 0.05 * wind + w * 0.09 * hit - w * 0.03 * g;
+  const hx = fx - w * 0.2 + lean;
+  const ht = fy - h * 0.99 + h * 0.16 * g - h * 0.05 * wind + Math.sin(t * 1.1) * 1.5;
+  const hr = w * 0.13;
+  // the hem stops above the legs: the wheels and the iron frame must show under it (it is a bed, not a ghost)
+  const hem = fy - h * 0.36 - h * 0.06 * wind;
+  const reach = h * 0.1 + Math.sin(t * 1.2) * 2 + h * 0.1 * hit - h * 0.03 * wind + h * 0.05 * g;
+  const left = fx - half - 5;
+  const right = fx + half + 4;
   ctx.beginPath();
-  ctx.moveTo(bx - 68, hem);
-  ctx.lineTo(bx - 66, y0 + 64);
-  ctx.quadraticCurveTo(bx - 62, y0 + 46, bx - 30, y0 + 46);
-  ctx.bezierCurveTo(bx - 46, y0 - 26, bx + 46, y0 - 26, bx + 30, y0 + 46);
-  ctx.quadraticCurveTo(bx + 62, y0 + 46, bx + 66, y0 + 64);
-  ctx.lineTo(bx + 68, hem);
-  ebHem(ctx, bx - 68, bx + 68, hem, 6, reach, t, 9);
+  ctx.moveTo(left, hem);
+  ctx.lineTo(left + 2, mat - 2);
+  ctx.quadraticCurveTo(hx - hr * 1.5, mat - h * 0.1, hx - hr, ht + hr * 1.1);
+  ctx.bezierCurveTo(hx - hr, ht - hr * 0.35, hx + hr, ht - hr * 0.35, hx + hr, ht + hr * 1.1);
+  ctx.bezierCurveTo(hx + hr * 1.2, mat - h * 0.02, fx + w * 0.04, mat - h * 0.2, fx + w * 0.14, mat - h * 0.17);
+  ctx.quadraticCurveTo(fx + w * 0.32, mat - h * 0.12, right - 2, mat - 3);
+  ctx.lineTo(right, hem);
+  ebHem(ctx, left, right, hem, 7, reach, w * 0.09 * wind + w * 0.04 * hit, t, 9);
   ctx.closePath();
   ctx.fillStyle = sheet;
   ctx.fill();
-  wash(ctx, alpha, o);
   ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
   ctx.stroke();
-  if (o.phase >= 2) ebSoak(ctx, bx - 72, bx + 72, hem, alpha);
-  ctx.globalAlpha = alpha;
-  // the face: stain eyes with dark holes, a mouth that opens on the wind-up, tears running down
-  const { lx, ly } = lookDir(cam, bx, y0 + 14, o);
+  if (o.phase >= 2) ebSoak(ctx, left - 12, right + 6, hem, A);
+  ctx.globalAlpha = A;
+  // the face looks ahead: stain eyes with dark holes, a mouth that opens on the wind-up, tears running down
   const open = blink(t, 5) * (1 - g);
-  const ey = y0 + 14;
+  const ex = hx + hr * 0.2;
+  const ey = ht + hr * 0.75;
+  const eo = hr * 0.5;
   ctx.fillStyle = EB_STAIN;
   ctx.beginPath();
-  ctx.ellipse(bx - 14, ey, 10, Math.max(2, 8 * open), 0.2, 0, TAU);
-  ctx.moveTo(bx + 24, ey);
-  ctx.ellipse(bx + 14, ey, 10, Math.max(2, 8 * open), -0.2, 0, TAU);
-  ctx.moveTo(bx + 12, y0 + 36);
-  ctx.ellipse(bx, y0 + 36, 12 + 2 * o.charge, 5 + 9 * o.charge, 0, 0, TAU);
+  ctx.ellipse(ex - eo * 0.55, ey, 5.5, Math.max(2, 6 * open), 0.2, 0, TAU);
+  ctx.moveTo(ex + eo + 5.5, ey);
+  ctx.ellipse(ex + eo, ey, 5.5, Math.max(2, 6 * open), -0.2, 0, TAU);
+  ctx.moveTo(ex + eo * 0.3 + 7, ey + hr * 0.8);
+  ctx.ellipse(ex + eo * 0.3, ey + hr * 0.8, 7 + 2 * wind, 3.5 + 6 * Math.max(wind, hit), 0, 0, TAU);
   ctx.fill();
-  ctx.fillStyle = EB_HOLE;
-  ctx.beginPath();
   if (open > 0.3) {
-    ctx.ellipse(bx - 14 + lx * 4, ey + ly * 3, 4.5, 4.5 * open, 0, 0, TAU);
-    ctx.moveTo(bx + 18.5 + lx * 4, ey + ly * 3);
-    ctx.ellipse(bx + 14 + lx * 4, ey + ly * 3, 4.5, 4.5 * open, 0, 0, TAU);
+    ctx.fillStyle = EB_HOLE;
+    ctx.beginPath();
+    ctx.arc(ex - eo * 0.55 + 1.5, ey, 3, 0, TAU);
+    ctx.moveTo(ex + eo + 4.5, ey);
+    ctx.arc(ex + eo + 1.5, ey, 3, 0, TAU);
+    ctx.fill();
   }
-  ctx.moveTo(bx + 8 + o.charge * 2, y0 + 36);
-  ctx.ellipse(bx, y0 + 36, 8 + 2 * o.charge, 2 + 7 * o.charge, 0, 0, TAU);
-  ctx.fill();
-  if (g < 1) dripRow(ctx, bx - 26, ey + 6, 52, 3, 30, t * 0.5, EB_STAIN, alpha * 0.9 * (1 - g));
-  ctx.globalAlpha = alpha;
+  if (g < 1) dripRow(ctx, ex - eo, ey + 5, eo * 2.2, 2, h * 0.2, t * 0.5, EB_STAIN, A * 0.9 * (1 - g));
+  ctx.restore();
+  ctx.globalAlpha = A;
 }
 
-function drawEmptyBeds(ctx: CanvasRenderingContext2D, cam: Camera, x: number, y: number, radius: number, o: BossDrawOpts): void {
-  if (o.retreat >= 1) return;
-  const { cx, cy, alpha } = anchor(cam, x, y, o);
-  const R = radius * PX_PER_UNIT;
-  const t = o.time;
-  const g = o.groggy;
-  const sheet = tint(EB_BASE, o);
-  enrageHaze(ctx, cx, cy + 36, R * 1.95, 104, o, alpha, '#ffffff');
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  // the outer beds first, the middle one on top
-  for (let n = 0; n < 5; n++) {
-    const i = n < 2 ? n : n < 4 ? n + 1 : 2;
-    const mid = i === 2;
-    // wheels creak; the whole bed jumps on the wind-up
-    const bx = cx + (i - 2) * EB_STEP + Math.sin(t * 0.9 + i * 1.7) * 2;
-    const by = cy - o.charge * (5 + 4 * Math.sin(t * 31 + i * 2.3)) * (1 - g);
-    const dir = mid ? 0.22 : i < 2 ? -1 : 1;
-    if (g > 0) {
-      // knocked down: every bed falls over its outer wheel (the middle one only slumps)
-      const px = bx + (mid ? 0 : dir * 44);
-      ctx.save();
-      ctx.translate(px, cy + EB_FOOT);
-      ctx.rotate(dir * 1.1 * g);
-      ctx.translate(-px, -(cy + EB_FOOT));
-    }
-    ctx.globalAlpha = alpha;
-    if (mid) ebFigureBed(ctx, cam, bx, by, sheet, o, alpha);
-    else ebSideBed(ctx, bx, by, i, sheet, o, alpha);
-    if (g > 0) ctx.restore();
+const EB_BODY: BossBody = { w: 3.2, h: 2, draw: ebBody, headY: f => f.fy - f.h * 1.02 };
+
+/**
+ * 빈 침대 (a summon of 행렬): a small bare bed — striped mattress, no sheet, nobody on it — so it never reads as the
+ * boss. s = the way it faces; act = its swing / rush (it lurches forward).
+ */
+const bedDecoy: CreatureDrawFn = (ctx, fill, flash, fx, fy, w, h, s, time, phase, act) => {
+  const half = w * 0.5;
+  const bh = h * 0.42;
+  const wr = Math.max(3, w * 0.07);
+  const x = fx + s * act * w * 0.1;
+  const y = fy - Math.abs(Math.sin(time * 7 + phase)) * 2 * (1 - act);
+  const deck = y - wr * 2 - bh * 0.18;
+  const mat = deck - bh * 0.3;
+  ctx.save();
+  ctx.translate(x, 0);
+  ctx.scale(s, 1);
+  ebFrame(ctx, 0, y, half * 0.92, deck, y - bh * 1.15, y - bh * 0.8, time * (3 + 9 * act) + phase, wr);
+  ctx.fillStyle = flash ? '#ffffff' : fill;
+  ctx.fillRect(-half * 0.86, mat, half * 1.72, deck - mat);
+  // ticking stripes of a bare mattress
+  ctx.beginPath();
+  for (let k = 1; k < 5; k++) {
+    ctx.moveTo(-half * 0.86 + (k * half * 1.72) / 5, mat + 1);
+    ctx.lineTo(-half * 0.86 + (k * half * 1.72) / 5, deck - 1);
   }
-  ctx.lineCap = 'butt';
-  ctx.globalAlpha = 1;
-}
+  ctx.strokeStyle = '#5c6670';
+  ctx.lineWidth = Math.max(1.5, w * 0.025);
+  ctx.stroke();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = Math.max(1.5, w * 0.02);
+  ctx.strokeRect(-half * 0.86, mat, half * 1.72, deck - mat);
+  ctx.restore();
+};
 
 // ─────────────────────────── registry ───────────────────────────
 
-/** Boss id → look. */
+/** Boss id → look. 기획 20차: the three moving bosses are bodies (drawn in the arena); the 서랍 keeps its set piece. */
 export const WARD_LOOKS: Record<string, BossLook> = {
-  morgue_drawers: { draw: drawMorgueDrawers, color: MD_BASE, headY: (by, _R, g) => by + 8 + 14 * g, props: drawMorgueProps },
-  xray_machine: { draw: drawXrayMachine, color: XR_BASE, headY: (by, _R, g) => by - 8 + 40 * g },
-  defibrillator: { draw: drawDefibrillator, color: DF_BASE, headY: (by, _R, g) => by - 30 + 14 * g, props: drawDefibProps },
-  empty_beds: { draw: drawEmptyBeds, color: EB_BASE, headY: (by, _R, g) => by - 18 + 24 * g },
+  morgue_drawers: { draw: drawMorgueDrawers, color: MD_BASE, headY: (by, _R, g) => by + 8 + 14 * g, props: drawMorgueProps, stage: MORGUE_STAGE },
+  xray_machine: { draw: asSetPiece(XR_BODY), color: XR_BASE, body: XR_BODY, stage: XRAY_STAGE },
+  defibrillator: { draw: asSetPiece(DF_BODY), color: DF_BASE, body: DF_BODY, props: drawDefibProps },
+  empty_beds: { draw: asSetPiece(EB_BODY), color: EB_BASE, body: EB_BODY },
 };
 
 /** Skill id → the small extra on its warning (pull / push / linger / spawn; docs/bosses.md 3장). */
 export const WARD_TELE_MOTIF: Record<string, TeleMotif> = {
-  eb_lineup: 'pull',
-  eb_disinfect: 'linger',
   md_wake: 'spawn',
-  xr_dolls: 'spawn',
+  eb_procession: 'spawn',
 };
 
-/** MonsterDef.look → the body of this zone's summon-only units (none: this zone summons existing monsters). */
-export const WARD_MINION_LOOKS: Record<string, CreatureDrawFn> = {};
+/** MonsterDef.look → the body of this zone's summon-only units (빈 침대: 빈 병상 행렬의 행렬). */
+export const WARD_MINION_LOOKS: Record<string, CreatureDrawFn> = { bed_decoy: bedDecoy };
+
+/** 기획 20차: Zone.look → fill / edge of this zone's trail zones (none: no ward boss leaves a trail). */
+export const WARD_ZONE_LOOKS: Record<string, { fill: string; edge?: string }> = {};

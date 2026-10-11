@@ -9,6 +9,7 @@
 import { LOGICAL_H, LOGICAL_W, type FloorTheme } from '../types';
 import { Camera, GROUND_TOP, PX_PER_UNIT, PX_PER_UNIT_Y } from './camera';
 import { hash01 } from './shapes';
+import { isMovingBoss } from './bosses/body';
 
 interface Palette {
   voidTop: string;
@@ -74,6 +75,8 @@ export class Backdrop {
   private arenaW = 24;
   private arenaH = 12;
   private boss = false;
+  /** 기획 20차: the floor's boss is a body inside the arena (no emblem under it; its own stage art may follow). */
+  private movingBoss = false;
   private zone: FloorTheme = 'lobby';
   private pal: Palette = PALETTES.lobby;
   private bandBottom = 0;
@@ -98,6 +101,7 @@ export class Backdrop {
     this.arenaW = arenaW;
     this.arenaH = arenaH;
     this.boss = boss;
+    this.movingBoss = !!bossId && isMovingBoss(bossId);
     this.scale = scale;
     this.zone = zone;
     this.rift = rift;
@@ -137,7 +141,7 @@ export class Backdrop {
         floorRooftop(B);
         break;
     }
-    if (this.boss) bossEmblem(B);
+    if (this.boss && !this.movingBoss) bossEmblem(B); // 기획 20차: the emblem marks a set-piece boss's floor only
     shadeFloor(B);
     frontEdge(B, this.zone);
   }

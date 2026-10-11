@@ -3,6 +3,7 @@
 import { LOGICAL_H, LOGICAL_W, type AreaShape, type DamageSource, type Entity, type GameEvent, type GameState, type SkillAction, type Team, type Telegraph } from '../types';
 import { PLAYER_COLORS } from '../config';
 import { CHARACTERS, getCharacter, getMonster, getPet } from '../data';
+import { GUARD_HIT_COLOR, GUARD_HIT_TEXT } from '../data/bosses/forms';
 import { drawRewardFx, rewardFxEvent } from './rewardFx';
 import { JUST_GOLD, JustFx, type JustFxHost } from './justFx';
 import { RewardPills, type PillAvoid } from './rewardPills';
@@ -10,7 +11,7 @@ import { JUST_STOP_SEC } from './juice';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z, VIEW_WIDTH_UNITS } from './camera';
 import { COLORS, FONT_STACK, OTHER_PLAYER_FX, ROLE_GLYPH, areaColor, boldFont, lighten, mix, petColor, type UnitLook, unitLook } from './look';
 import { Pool } from './pool';
-import { DIR_VEC, aimSamples, areaSize, hitsArea } from '../sim/geometry';
+import { aimSamples, areaDir, areaSize, hitsArea } from '../sim/geometry';
 import { TAU, areaRadius, fanFrame, pathArea, pathRoundRect } from './shapes';
 import { type UnitMemo, bodyHeight, bodyTop, bodyWidth, drawBody } from './units';
 import { DASH_LAND } from './dashtime';
@@ -269,6 +270,8 @@ const GROGGY_NUM_COLOR = '#ffc94d';
 const GROGGY_NUM_SIZE = 1.15;
 /** 기획 17차: hits of a 저스트 drag — gold, 1.1×. */
 const JUST_NUM_SIZE = 1.1;
+/** 기획 20차 점검: my hit on a guard boss's weak back is a little bigger. */
+const GUARD_NUM_SIZE = 1.15;
 
 /** 기획 13차: a delayed kick (hit-stop / shake / screen flash) of my renewed skill's beat, fired when its picture starts. */
 interface Kick {
@@ -724,9 +727,13 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
       const src = ev.source;
       // 기획 13차: a groggy boss's numbers are amber and a bit bigger; a drag hit says '×2'
       // 기획 17차: a 저스트 drag's hits are gold (and a bit bigger)
-      const gc = ev.just ? JUST_GOLD : ev.groggy ? GROGGY_NUM_COLOR : null;
-      const gk = (ev.groggy ? GROGGY_NUM_SIZE : 1) * (ev.just ? JUST_NUM_SIZE : 1);
-      const tag = ev.groggy && ev.drag ? '×2' : '';
+      // 기획 20차 점검 (rule N5): MY hit on a guard boss says which side it met — gold 「뒤!」 / steel 「막힘」 on the number
+      // itself (it used to be a label on the boss for everyone's hits: always on, and nobody knew whose it was)
+      const side = ev.guard && ev.by === c.localPlayer ? ev.guard : null;
+      const gc = side ? GUARD_HIT_COLOR[side] : ev.just ? JUST_GOLD : ev.groggy ? GROGGY_NUM_COLOR : null;
+      const gk = (ev.groggy ? GROGGY_NUM_SIZE : 1) * (ev.just ? JUST_NUM_SIZE : 1) * (side === 'back' ? GUARD_NUM_SIZE : 1);
+      const tag = side ? GUARD_HIT_TEXT[side] : ev.groggy && ev.drag ? '×2' : '';
+      const gkey = side ? `:${side}` : ''; // never merged into another player's number
       if (ev.targetTeam === 'ally') {
         this.addNumber(ev.targetId, ev.crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, COLORS.dmgAlly, m, '', ev.crit ? 22 : 16, '', 1, 'ally');
       } else if (ev.skillName && src && SKILL_NUM_COLOR[src]) {
@@ -734,13 +741,13 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
         // number (it was 12 px — unreadable on a phone): the callout over the caster already names the skill.
         const mine = (this.myNames.get(ev.skillName) ?? -1) >= this.clock;
         const base = (SKILL_NUM_SIZE[src] ?? 20) * (ev.crit ? 1.2 : 1) * gk;
-        this.addNumber(ev.targetId, 4, ev.amount, ev.pos.x, ev.pos.y, gc ?? SKILL_NUM_COLOR[src]!, m, '', mine ? base : base * 0.74, '', mine ? 1 : 0.7, `${src}:${ev.skillName}`, ev.crit ? '!' : '', tag);
+        this.addNumber(ev.targetId, 4, ev.amount, ev.pos.x, ev.pos.y, gc ?? SKILL_NUM_COLOR[src]!, m, '', mine ? base : base * 0.74, '', mine ? 1 : 0.7, `${src}:${ev.skillName}${gkey}`, ev.crit ? '!' : '', tag);
       } else if (src && src !== 'basic' && src !== 'summon' && src !== 'pet') {
         // burns, auras, leftover zones: small and warm, never mistaken for a hit
         this.addNumber(ev.targetId, 5, ev.amount, ev.pos.x, ev.pos.y, gc ?? '#ffb36b', m, '', 13 * gk, '', 0.9, 'dot');
       } else {
         const crit = ev.crit;
-        this.addNumber(ev.targetId, crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, gc ?? (crit ? COLORS.dmgCrit : COLORS.dmgEnemy), m, '', (crit ? 24 : 15) * gk, '', 1, 'basic', crit ? '!' : '', tag);
+        this.addNumber(ev.targetId, crit ? 1 : 0, ev.amount, ev.pos.x, ev.pos.y, gc ?? (crit ? COLORS.dmgCrit : COLORS.dmgEnemy), m, '', (crit ? 24 : 15) * gk, '', 1, `basic${gkey}`, crit ? '!' : '', tag);
       }
     } else if (ev.absorbed >= 0.5) {
       this.addNumber(ev.targetId, 3, ev.absorbed, ev.pos.x, ev.pos.y, COLORS.absorbed, m, '', 13, '', 1, 'abs');
@@ -1751,7 +1758,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   /** Particles scattered over a shaped footprint; fixed-direction shapes also push them along their direction. */
   private burstArea(cx: number, cy: number, area: AreaShape, n: number, color: string): void {
     const samples = aimSamples(area);
-    const dir = area.shape === 'rect' || area.shape === 'cone' ? DIR_VEC[area.dir] : null;
+    const dir = area.shape === 'rect' || area.shape === 'cone' ? areaDir(area) : null; // 기획 20차: dir, or rot
     const spread = area.shape === 'rect' ? area.width / 2 : area.shape === 'cross' ? area.width / 2 : 0.7;
     for (let i = 0; i < n; i++) {
       const s0 = samples[i % samples.length];
@@ -2319,11 +2326,13 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
         const tx = x + ctx.measureText(f.text).width / 2 + 2;
         const align: CanvasTextAlign = ctx.textAlign;
         ctx.textAlign = 'left';
-        ctx.font = boldFont(13);
-        ctx.lineWidth = 3;
+        // a word tag (기획 20차 점검: 「뒤!」 / 「막힘」) is bigger and in the number's colour; '×2' stays small and white
+        const word = f.tag !== '×2';
+        ctx.font = boldFont(word ? 17 : 13);
+        ctx.lineWidth = word ? 4 : 3;
         ctx.strokeStyle = '#0a0a0a';
         ctx.strokeText(f.tag, tx, y - f.size * 0.35);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = word ? f.color : '#ffffff';
         ctx.fillText(f.tag, tx, y - f.size * 0.35);
         ctx.textAlign = align;
       }

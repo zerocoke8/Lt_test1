@@ -3,11 +3,13 @@
 
 import { CONTROL_STATUSES, DEBUFFS, type Affects, type AreaShape, type Dir, type Effect, type MonsterDef, type SkillAction, type Team, type Telegraph, type Vec2 } from '../types';
 import { getMonster } from '../data';
+import { BOSS_FORM } from '../data/bosses/forms';
+import { dropTrailZone, spotFacing } from './bossForm';
 import { ARENA_MARGIN, SUMMON_SPREAD } from './constants';
 import { benchHeal, benchStatus, effectPlayers, reduceRevive } from './bench';
 import { addShield, heal, hitDamage, reduceBenchSwapCd } from './combat';
 import { clampUnit, createUnit } from './entities';
-import { DASH_DEFAULT_DURATION, DIR_VEC, aimDir, areaExtent, chargeEnd, dashEnd, hitsArea, scaleArea, scaleDash } from './geometry';
+import { DASH_DEFAULT_DURATION, DIR_VEC, aimDir, areaExtent, chargeEnd, chargeEndIn, dashEnd, faceArea, faceVec, hitsArea, scaleArea, scaleDash } from './geometry';
 import { groggyOnAction, isGroggy } from './groggy';
 import { effStats } from './stats';
 import { applyStatus, cleanse, constrainTether, hasStatus, statusImmune } from './status';
@@ -44,6 +46,7 @@ export function castSkill(w: World, ctx: CastCtx, actions: readonly SkillAction[
 }
 
 export function resolveCenter(w: World, ctx: CastCtx, which: SkillAction['center']): Vec2 {
+  if (which === 'arena') return { x: 0, y: 0 }; // 기획 20차 (rule N2): the part's offset is the arena coordinate
   if (which === 'point' && ctx.point) return copy(ctx.point);
   if (which === 'woundedAlly') {
     // 기획 12차 (메딕 응급 주사): the ally picked at cast time (ctx.ts), else the caster itself
@@ -68,11 +71,36 @@ function originOf(w: World, ctx: CastCtx): Vec2 {
   return c ? copy(c.pos) : copy(ctx.origin);
 }
 
-export function addTelegraph(w: World, team: Team, center: Vec2, origin: Vec2, area: AreaShape, delay: number, self = false): Telegraph {
+export function addTelegraph(w: World, team: Team, center: Vec2, origin: Vec2, area: AreaShape, delay: number, self = false, extra?: TeleExtra): Telegraph {
   const t: Telegraph = { id: newId(w), team, center: copy(center), origin: copy(origin), area, remaining: delay, total: delay };
   if (self) t.self = true; // 기획 19차 (rule M1)
+  // 기획 20차: what the part is (charge / arrive / sweep) and who a bound part is tied to — absent on every old part
+  if (extra?.motif) t.motif = extra.motif;
+  if (extra?.mark != null) t.mark = extra.mark;
   w.state.telegraphs.push(t);
   return t;
+}
+
+/** 기획 20차: the optional Telegraph fields of a part's warning. */
+interface TeleExtra {
+  motif?: Telegraph['motif'];
+  mark?: number;
+}
+
+function teleExtra(p: PendingHit): TeleExtra | undefined {
+  const mark = p.action.bound ? p.ctx.bound?.ent.id : undefined;
+  return p.motif || mark != null ? { motif: p.motif, mark } : undefined;
+}
+
+/** Where the caster faces (radians; 0 without one) — rule N2's `rel: 'facing'`. */
+function casterFacing(w: World, ctx: CastCtx): number {
+  return getEntity(w, ctx.casterId)?.facing ?? 0;
+}
+
+/** A part's area for this cast: scaled by the cast's radius multiplier, a rel 'facing' rect / cone turned to the caster. */
+function partArea(w: World, ctx: CastCtx, action: SkillAction): AreaShape {
+  const a = action.fixedArea ? action.area : scaleArea(action.area, ctx.radiusMult); // 기획 20차 점검: grid cells keep their size
+  return action.rel === 'facing' ? faceArea(a, casterFacing(w, ctx)) : a;
 }
 
 /**
@@ -101,8 +129,10 @@ function removeTelegraph(w: World, id: number | null): void {
 export function actionCenter(w: World, ctx: CastCtx, action: SkillAction): Vec2 {
   const c = resolveCenter(w, ctx, action.center);
   if (action.offset) {
-    c.x += action.offset.x;
-    c.y += action.offset.y;
+    // 기획 20차 (rule N2): a rel 'facing' offset is "ahead / to the right of the caster"
+    const o = action.rel === 'facing' ? faceVec(action.offset, casterFacing(w, ctx)) : action.offset;
+    c.x += o.x;
+    c.y += o.y;
   }
   return c;
 }
@@ -178,30 +208,73 @@ export function actionDelay(ctx: CastCtx, action: SkillAction): number {
   return (action.delay ?? 0) * (ctx.delayMult ?? 1);
 }
 
+/**
+ * 기획 20차 점검 (rule N6): a mark is for a character. A boss that holds a pet or a summon when it casts a `bound` part
+ * marks the character nearest to it instead (lower id on a tie) — a turret cannot be swapped out, so the mark would
+ * never have been anyone's to answer. No character on the field → the target stays.
+ */
+function markCharacter(w: World, ctx: CastCtx): void {
+  const t = getEntity(w, ctx.targetId);
+  const c = getEntity(w, ctx.casterId);
+  if (!t || !c || t.kind === 'character') return;
+  let best: SimEntity | null = null;
+  let bd = Infinity;
+  for (const o of w.state.entities) {
+    if (o.team === ctx.team || o.kind !== 'character' || o.rt.gone || o.hp <= 0) continue;
+    const d = dist(c.pos, o.pos);
+    if (d < bd - 1e-9) {
+      bd = d;
+      best = o;
+    }
+  }
+  if (!best) return;
+  ctx.targetId = best.id;
+  ctx.targetPos = copy(best.pos);
+}
+
 /** Starts one action; returns its pending hit when it is delayed (telegraphed), else null. index = its place in the skill. */
 export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: CastOpts, index = 0): PendingHit | null {
+  if (action.bound && !ctx.bound) markCharacter(w, ctx);
   if (action.blink) doBlink(w, ctx, action.blink);
   let center = actionCenter(w, ctx, action);
+  // 기획 20차 (rule N1 · N2): a boss with a form — its seats, its box, the way it faces
+  const form = getEntity(w, ctx.casterId)?.rt.form;
+  let relocateTo: number | undefined;
+  if (action.relocate && form?.def.spots?.length) {
+    // 자리 이동: the next seat in order is fixed now (the warning shows it); the boss appears there when the part lands
+    relocateTo = (form.spot + 1) % form.def.spots.length;
+    center = { x: form.def.spots[relocateTo].x, y: form.def.spots[relocateTo].y };
+  }
   // 기획 19차 review: a boss's one-target part keeps the boss's spot as its origin (the renderer draws the aim line
   // from it); every other unaimed part starts where it lands, as before
   const origin = isAimed(action.area) || isBossSingle(w, ctx, action) ? originOf(w, ctx) : center;
-  let area = scaleArea(action.area, ctx.radiusMult);
+  let area = partArea(w, ctx, action);
   let chargeTo: Vec2 | undefined;
   if (action.charge) {
     // 기획 8차 charge: the path is fixed now (the telegraph shows exactly it); the rush happens when the hit lands.
     const caster = getEntity(w, ctx.casterId);
     const mg = caster ? Math.max(ARENA_MARGIN, Math.min(caster.radius, 1)) : ARENA_MARGIN;
     const fb = caster ? { x: Math.cos(caster.facing), y: Math.sin(caster.facing) } : undefined;
-    let reach = action.charge.distance * ctx.radiusMult;
+    // 기획 20차: a form boss's rush is as long as its data says (the area knob widens the path only) and ends in its box
+    let reach = action.charge.distance * (form ? 1 : ctx.radiusMult);
     // 기획 13차 stopAtCenter (블레이드 되돌아 베기): the rush ends on the center, never past it
     if (action.charge.stopAtCenter) reach = Math.min(reach, dist(origin, center));
-    chargeTo = chargeEnd(origin, center, reach, arena(w), mg, fb);
+    chargeTo = form ? chargeEndIn(origin, center, reach, BOSS_FORM.box, fb) : chargeEnd(origin, center, reach, arena(w), mg, fb);
     const len = Math.hypot(chargeTo.x - origin.x, chargeTo.y - origin.y);
     if (len > 1e-6) center = copy(chargeTo);
     else if (fb) center = { x: origin.x + fb.x * 0.01, y: origin.y + fb.y * 0.01 };
     // the hit band runs along the path actually travelled (plus the body at the end)
     if (area.shape === 'line') area = { shape: 'line', length: len + (caster?.radius ?? 0), width: area.width };
+    // 기획 20차: it turns to the path at once and holds that facing through the wind-up
+    if (form && caster && len > 1e-6) caster.facing = Math.atan2(chargeTo.y - origin.y, chargeTo.x - origin.x);
   }
+  // 기획 20차 (rule N3): one hit set for the `once` parts of this cast; (rule N6) the unit its `bound` parts are tied to
+  if (action.once) ctx.onceHit ??= new Set();
+  if (action.bound && !ctx.bound) {
+    const bt = getEntity(w, ctx.targetId);
+    if (bt) ctx.bound = { ent: bt, cleared: false };
+  }
+  const motif: Telegraph['motif'] = relocateTo != null ? 'arrive' : action.charge && form ? 'charge' : action.once && area.shape === 'rect' ? 'sweep' : undefined;
   if (action.dash && !action.dash.atFire && !opts?.noDash) doDash(w, ctx, center, action.dash);
   const delay = actionDelay(ctx, action);
   // 기획 13차 telegraphLead: shown only for the last N s (0 = never); absent = the whole delay. 기획 19차: × delayMult too
@@ -238,9 +311,11 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
     hitNo: 0,
     ...(chargeTo ? { chargeTo } : null),
     ...(opts?.noDash ? { noDash: true } : null),
+    ...(relocateTo != null ? { relocateTo } : null),
+    ...(motif ? { motif } : null),
   };
   if (delay > 0) {
-    if (lead == null || lead >= delay - 1e-9) p.telegraphId = addTelegraph(w, ctx.team, center, origin, area, delay, isBossSelfCast(w, ctx, action)).id;
+    if (lead == null || lead >= delay - 1e-9) p.telegraphId = addTelegraph(w, ctx.team, center, origin, area, delay, isBossSelfCast(w, ctx, action), teleExtra(p)).id;
     else if (lead > 0) p.telegraphLead = lead;
     w.pending.push(p);
     return p;
@@ -267,6 +342,59 @@ function doCharge(w: World, p: PendingHit): boolean {
   const dy = p.chargeTo.y - p.origin.y;
   if (Math.hypot(dx, dy) > 1e-6) caster.facing = Math.atan2(dy, dx);
   emit(w, { type: 'dash', entityId: caster.id, from, to: copy(caster.pos), duration: p.action.charge?.duration ?? CHARGE_DEFAULT_DURATION });
+  // 기획 20차: a form boss recovers (no move, no turn) after the rush; a charge trail is laid along the path it ran
+  const recover = caster.rt.form ? (p.action.charge?.recover ?? 0) : 0;
+  if (recover > 0) caster.rt.lockTime = Math.max(caster.rt.lockTime, recover);
+  if (p.action.trail) layChargeTrail(w, caster, p);
+  return true;
+}
+
+/** 기획 20차 (rule N4 ②): circles every `spacing` cells along the path a charge ran (the warning already showed it). */
+function layChargeTrail(w: World, caster: SimEntity, p: PendingHit): void {
+  const tr = p.action.trail!;
+  const to = p.chargeTo!;
+  const len = dist(p.origin, to);
+  const gap = Math.max(0.1, tr.spacing);
+  const ux = len > 1e-6 ? (to.x - p.origin.x) / len : 0;
+  const uy = len > 1e-6 ? (to.y - p.origin.y) / len : 0;
+  const n = Math.floor(len / gap + 1e-9);
+  const hit = new Map<number, number>(); // one field: its circles reach a unit once per tick between them
+  for (let k = 0; k <= n; k++) dropTrailZone(w, caster, { x: p.origin.x + ux * k * gap, y: p.origin.y + uy * k * gap }, tr.radius * p.ctx.radiusMult, tr, hit);
+}
+
+/**
+ * 기획 20차 (rule N2, 자리 이동): the part lands — its caster appears on the seat picked at cast, faces the way the seat
+ * says and stands in its appear pose for BOSS_FORM.arrive s. A caster that is gone never lands it.
+ */
+function doRelocate(w: World, p: PendingHit): boolean {
+  const c = getEntity(w, p.ctx.casterId);
+  const f = c?.rt.form;
+  const spot = f?.def.spots?.[p.relocateTo!];
+  if (!c || !f || !spot) return false;
+  const from = copy(c.pos);
+  c.pos.x = spot.x;
+  c.pos.y = spot.y;
+  c.facing = spotFacing(f.def, p.relocateTo!);
+  f.spot = p.relocateTo!;
+  c.rt.lockTime = Math.max(c.rt.lockTime, BOSS_FORM.arrive);
+  c.anim = 'appear';
+  c.animTime = BOSS_FORM.arrive;
+  emit(w, { type: 'blink', entityId: c.id, from, to: copy(c.pos) });
+  return true;
+}
+
+/**
+ * 기획 20차 (rule N6, 표식): the unit a bound part is tied to left the field (or died) — the part is dropped with its
+ * warning, nobody is hit. One 'markClear' per cast, only when the unit left alive (a swap).
+ */
+function boundGone(w: World, p: PendingHit): boolean {
+  const b = p.ctx.bound;
+  if (!b || (!b.ent.rt.gone && b.ent.hp > 0)) return false;
+  removeTelegraph(w, p.telegraphId);
+  if (!b.cleared) {
+    b.cleared = true;
+    if (b.ent.hp > 0) emit(w, { type: 'markClear', targetId: b.ent.id, pos: copy(p.center) });
+  }
   return true;
 }
 
@@ -276,12 +404,18 @@ function fireHit(w: World, p: PendingHit): void {
     p.hitsLeft = 0;
     return;
   }
+  if (!p.started && p.relocateTo != null && !doRelocate(w, p)) {
+    p.hitsLeft = 0;
+    return;
+  }
   if (!p.started) {
     p.started = true;
     if (p.ctx.ultCast) p.ctx.ultCast.landed = true;
     if (a.follow) {
       refollow(w, p);
       refreshAtk(w, p);
+    } else if (a.bound) {
+      refollow(w, p); // 기획 20차: a mark goes off where its unit stands now
     }
     // 기획 13차 atFire: the caster moves now, from where it stands (거너 반동, 섀도우 질주)
     if (a.dash?.atFire && !p.noDash) doDash(w, p.ctx, null, a.dash);
@@ -320,6 +454,7 @@ function fireHit(w: World, p: PendingHit): void {
 function refollow(w: World, p: PendingHit): void {
   const a = p.action;
   if (a.center === 'target' && !getEntity(w, p.ctx.targetId)) {
+    if (a.bound) return; // 기획 20차 (rule N6): a mark never jumps to another unit
     const caster = getEntity(w, p.ctx.casterId);
     const nt = caster ? getEntity(w, caster.targetId) : null;
     if (!nt || nt.team === p.ctx.team) return;
@@ -331,6 +466,8 @@ function refollow(w: World, p: PendingHit): void {
   }
   p.center = actionCenter(w, p.ctx, a);
   if (isAimed(p.area)) p.origin = originOf(w, p.ctx);
+  // 기획 20차 (rule N2): a rel 'facing' part turns with its caster (after a relocate: the new seat's facing)
+  if (a.rel === 'facing') p.area = partArea(w, p.ctx, a);
 }
 
 /** 기획 13차 follow: a character's staged hit uses its attack when it lands (버서커 마무리 gets the 광란 bonus). */
@@ -446,6 +583,7 @@ export function tickPending(w: World, dt: number): void {
       removeTelegraph(w, p.telegraphId);
       continue;
     }
+    if (p.kind === 'hit' && !p.started && p.action.bound && boundGone(w, p)) continue; // 기획 20차 (rule N6)
     if (p.kind === 'hit' && frozenCaster(w, p)) {
       keep.push(p); // 기획 13차 정지: postponed
       continue;
@@ -488,16 +626,17 @@ function fireRewardDelay(w: World, pd: PendingReward): void {
 /** A hit still waiting: a following telegraph moves with its caster / target; a telegraphLead one appears in time. */
 function waitingHit(w: World, p: PendingHit): void {
   if (p.started) return;
-  if (p.action.follow) {
+  if (p.action.follow || p.action.bound) {
     refollow(w, p);
     const t = p.telegraphId != null ? w.state.telegraphs.find(x => x.id === p.telegraphId) : undefined;
     if (t) {
       t.center = copy(p.center);
       t.origin = copy(p.origin);
+      if (p.action.rel === 'facing') t.area = p.area; // 기획 20차
     }
   }
   if (p.telegraphLead != null && p.telegraphId == null && p.remaining <= p.telegraphLead + 1e-9) {
-    p.telegraphId = addTelegraph(w, p.ctx.team, p.center, p.origin, p.area, p.remaining, isBossSelfCast(w, p.ctx, p.action)).id;
+    p.telegraphId = addTelegraph(w, p.ctx.team, p.center, p.origin, p.area, p.remaining, isBossSelfCast(w, p.ctx, p.action), teleExtra(p)).id;
     p.telegraphLead = undefined;
   }
 }
@@ -554,6 +693,19 @@ export function applyEffects(w: World, ctx: CastCtx, action: SkillAction, center
   if (ctx.player != null) playerEffects(w, ctx, action);
   let targets = collectTargets(w, ctx, action.affects, center, origin, area);
   if (action.maxTargets != null) targets = nearestTargets(targets, center, action, action.maxTargets);
+  if (ctx.trail) {
+    // 기획 20차 (rule N4): the circles of one trail reach a unit once per interval between them
+    const { hit, gap } = ctx.trail;
+    const now = w.state.time;
+    targets = targets.filter(t => now - (hit.get(t.id) ?? -Infinity) >= gap - 1e-6);
+    for (const t of targets) hit.set(t.id, now);
+  }
+  if (action.once && ctx.onceHit) {
+    // 기획 20차 (rule N3): the `once` parts of one cast reach a unit once between them
+    const seen = ctx.onceHit;
+    targets = targets.filter(t => !seen.has(t.id));
+    for (const t of targets) seen.add(t.id);
+  }
   // 기획 13차: reaching the boss fills its groggy gauge (before the effects: a stun on the boss becomes points)
   if (ctx.groggyMark && w.state.bossGroggy) groggyOnAction(w, ctx, action, targets);
   for (const t of targets) {
@@ -673,7 +825,7 @@ function shrugsOff(w: World, ctx: CastCtx, t: SimEntity): boolean {
 }
 
 function displace(w: World, t: SimEntity, center: Vec2, distance: number, away: boolean, dir?: Dir): void {
-  if (t.rt.stationary || distance <= 0) return;
+  if (t.rt.stationary || t.rt.heavy || distance <= 0) return; // 기획 20차: a heavy boss is never pushed or pulled
   if (away && dir) {
     // fixed-direction knockback (e.g. 거너 산탄: always pushed left)
     const u = DIR_VEC[dir];
@@ -729,7 +881,8 @@ function createZone(w: World, ctx: CastCtx, action: SkillAction, center: Vec2, a
     remaining: zone.duration,
     total: zone.duration,
     kind: zoneKind(action),
-    rt: { ctx, action, nextTick: zone.tickInterval, tickInterval: Math.max(0.05, zone.tickInterval), actionIndex, tickNo: 1 },
+    // 기획 20차: the ticks know they come from a zone (rule N5: no front / back multiplier); the cast itself does not
+    rt: { ctx: { ...ctx, fromZone: true }, action, nextTick: zone.tickInterval, tickInterval: Math.max(0.05, zone.tickInterval), actionIndex, tickNo: 1 },
   };
   w.state.zones.push(z);
   return applyEffects(w, ctx, action, z.center, z.center, zArea);

@@ -5,6 +5,12 @@
 // in step; the host's debug 「보스 고르기」 swaps the floor-1 boss on all three screens (a member cannot); 「다음 보스로」 +
 // three reward picks lead everyone to the same floor-2 boss. A member who leaves keeps the floor
 // they reached; a wipe shows the raid result on the others and each device stores its own record. The room stays a raid room.
+// 기획 20차 (보스 형태): before that pick, the host picks a ROAMING boss (혼자 도는 세탁기) — on all three screens the body is at
+// the same place facing the same way tick for tick while it walks, each screen shows its name tag and the form chip;
+// the relocating 퇴근 못 한 모니터 then stands on the same seat on every screen.
+// Integration (기획 20차): an ARENA-type boss too (거꾸로 뜬 달 — it drifts on its path and casts on the move): the same
+// place, facing and the very same warnings (pattern) tick for tick on all three screens; and the 모니터 is followed
+// through its first 「창 전환」 — the same arrive warning, then the same new desk and one 가짜 창 on every screen.
 // Second test (integration): three phones clear all 20 floors by the host's debug 「다음 보스로」, everyone picking a card
 // on every reward screen (relics after 5 · 10 · 15) — 20 different bosses, the same on every screen, then the clear
 // screen and a clear record on all three devices.
@@ -136,6 +142,94 @@ const seen = (page: Page) =>
 const record = (page: Page) => page.evaluate(k => JSON.parse(localStorage.getItem(k) ?? 'null') as { bestFloor: number; clears: number; runs: number } | null, RECORD_KEY);
 const bossName = async (page: Page) => (await page.locator('.boss-name').textContent()) ?? '';
 
+/**
+ * 기획 20차: how far from the host's path another screen may draw the moving boss (cells; radians of facing), looking at
+ * the host's samples this many sim ticks around the same tick (the screens blend snapshots with their own small delay).
+ */
+const SYNC_CELLS = 0.4;
+const SYNC_TURN = 0.45;
+const SYNC_TICKS = 9;
+
+/** Distance from (x, y) to the segment (ax, ay)–(bx, by). */
+function segDist(x: number, y: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const k = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
+  return Math.hypot(x - ax - dx * k, y - ay - dy * k);
+}
+
+/** One sample of a screen: the boss's place and facing, and the enemy warnings on the floor (id · shape · kind · mark). */
+type BossSample = [number, number, number, string];
+
+/**
+ * In the page: for `ms`, remember the boss's place and facing and the enemy warnings per sim tick
+ * (window.__bossRec[tick] = [x, y, facing, warnings]).
+ */
+const recordBoss = (ms: number) =>
+  new Promise<void>(resolve => {
+    const rec: Record<number, [number, number, number, string]> = ((window as unknown as { __bossRec: Record<number, [number, number, number, string]> }).__bossRec = {});
+    const until = performance.now() + ms;
+    const tick = () => {
+      const s = window.__proto!.game?.state;
+      const b = s && s.bossId != null ? s.entities.find(e => e.id === s.bossId) : undefined;
+      if (s && b) {
+        const warn = s.telegraphs
+          .filter(t => t.team === 'enemy')
+          .map(t => `${t.id}:${t.area.shape}:${t.motif ?? '-'}:${t.mark ?? '-'}:${t.total.toFixed(2)}`)
+          .sort()
+          .join(' ');
+        rec[s.tick] = [b.pos.x, b.pos.y, b.facing, warn];
+      }
+      if (performance.now() < until) requestAnimationFrame(tick);
+      else resolve();
+    };
+    requestAnimationFrame(tick);
+  });
+
+/** Record all three screens for `ms` and return their tracks and the sim ticks every screen saw. */
+async function watchBoss(all: Player[], ms: number): Promise<{ tracks: Record<number, BossSample>[]; common: string[] }> {
+  await Promise.all(all.map(p => p.page.evaluate(recordBoss, ms)));
+  const tracks = await Promise.all(all.map(p => p.page.evaluate(() => (window as unknown as { __bossRec: Record<number, BossSample> }).__bossRec)));
+  const common = Object.keys(tracks[0]).filter(t => tracks.every(tr => t in tr));
+  expect(common.length, 'ticks seen on all three screens').toBeGreaterThanOrEqual(8);
+  return { tracks, common };
+}
+
+/**
+ * At every common tick B and C draw the boss ON THE PATH the host saw around that tick (within a fraction of a cell —
+ * also through a rush), facing the way it faced there.
+ */
+function expectSamePath(tracks: Record<number, BossSample>[], common: string[]): void {
+  const pathA = common.map(t => ({ tick: Number(t), at: tracks[0][Number(t)] }));
+  for (const t of common) {
+    const near = pathA.filter(p => Math.abs(p.tick - Number(t)) <= SYNC_TICKS);
+    for (const [who, tr] of [['B', tracks[1]], ['C', tracks[2]]] as const) {
+      const [x, y, f] = tr[Number(t)];
+      let off = Infinity;
+      for (let i = 0; i < near.length; i++) {
+        const p0 = near[i].at;
+        const p1 = near[Math.min(i + 1, near.length - 1)].at;
+        off = Math.min(off, segDist(x, y, p0[0], p0[1], p1[0], p1[1]));
+      }
+      expect(off, `tick ${t} on ${who}: place`).toBeLessThan(SYNC_CELLS);
+      expect(Math.max(...near.map(p => Math.cos(f - p.at[2]))), `tick ${t} on ${who}: facing`).toBeGreaterThan(Math.cos(SYNC_TURN));
+    }
+  }
+}
+
+/** At every common tick the three screens show the very same enemy warnings (ids, shapes, kinds, marks, lengths). */
+function expectSameWarnings(tracks: Record<number, BossSample>[], common: string[]): number {
+  let withWarning = 0;
+  for (const t of common) {
+    const [a, b, c] = tracks.map(tr => tr[Number(t)][3]);
+    expect(b, `tick ${t}: warnings on B`).toBe(a);
+    expect(c, `tick ${t}: warnings on C`).toBe(a);
+    if (a) withWarning++;
+  }
+  return withWarning;
+}
+
 test('보스 레이드 방: 라벨(매칭 · 목록 · 방) → 시작 → 세 화면 같은 1층 보스 → 다음 보스로 → 같은 2층 보스 → 결과 · 기록', async ({ browser }, testInfo) => {
   test.setTimeout(240_000);
   const A = await openPlayer(browser, 'A', '?mode=bossRaid');
@@ -230,7 +324,52 @@ test('보스 레이드 방: 라벨(매칭 · 목록 · 방) → 시작 → 세 �
     const picker = A.page.locator('.debug-panel .dbg-raid-boss');
     await expect(picker.locator('option')).toHaveCount(20);
     await expect(picker).toHaveValue(first[0].bossId!);
-    await picker.selectOption({ label: '퇴근 못 한 모니터' });
+    // ── 기획 20차: a roaming boss first — the same body, place and facing on every screen while it walks ──
+    await expect(picker.locator('option[value="washer_drum"]')).toHaveText('혼자 도는 세탁기 · 배회형');
+    await picker.selectOption('washer_drum');
+    await tap(A, '.dbg-raid-go');
+    for (const p of all) {
+      await p.page.waitForFunction(() => window.__proto!.game!.state.plan.bossId === 'washer_drum', undefined, { timeout: 10_000 });
+      await expect(p.page.locator('.boss-form')).toHaveText('배회형');
+      await expect(p.page.locator('.boss-tag')).toBeVisible();
+      await expect(p.page.locator('.boss-tag-n')).toHaveText('혼자 도는 세탁기');
+    }
+    const { tracks, common } = await watchBoss(all, 3000);
+    // each screen draws positions blended between the last snapshots (src/net/remoteGame.ts), a little behind the
+    // server and not by the same delay on every phone: at a tick, B and C show the boss ON THE PATH the host saw around
+    // that tick (within a fraction of a cell — also through a rush), facing the way it faced there
+    expectSamePath(tracks, common);
+    // it is a body inside the arena (not the set piece above it) and it moved while we watched
+    const xs = common.map(t => tracks[0][Number(t)][0]);
+    const ys = common.map(t => tracks[0][Number(t)][1]);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(3 - 0.01);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(10 + 0.01);
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(2 - 0.01);
+    expect(Math.max(...xs)).toBeLessThanOrEqual(22 + 0.01);
+    expect(Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)), 'the roaming boss walked').toBeGreaterThan(0.5);
+    expectSameWarnings(tracks, common);
+    await B.page.screenshot({ path: testInfo.outputPath('raid-roaming-b.png') });
+
+    // ── integration (기획 20차): an arena-type boss — 거꾸로 뜬 달 drifts on its path and casts without stopping: the
+    //    same place, facing and warnings on every screen, from its first pattern on ──
+    await expect(picker.locator('option[value="inverted_moon"]')).toHaveText('거꾸로 뜬 달 · 전장형');
+    await picker.selectOption('inverted_moon');
+    await tap(A, '.dbg-raid-go');
+    for (const p of all) {
+      await p.page.waitForFunction(() => window.__proto!.game!.state.plan.bossId === 'inverted_moon', undefined, { timeout: 10_000 });
+      await expect(p.page.locator('.boss-form')).toHaveText('전장형');
+      await expect(p.page.locator('.boss-tag-n')).toHaveText('거꾸로 뜬 달');
+    }
+    // its first pattern is warned about 3 s in: watch from a little before it
+    await A.page.waitForFunction(() => window.__proto!.game!.state.time > 2.4, undefined, { timeout: 10_000 });
+    const moon = await watchBoss(all, 4500);
+    expectSamePath(moon.tracks, moon.common);
+    expect(expectSameWarnings(moon.tracks, moon.common), 'ticks with a warning on the floor, the same on all three').toBeGreaterThanOrEqual(5);
+    const moonXs = moon.common.map(t => moon.tracks[0][Number(t)][0]);
+    expect(Math.max(...moonXs) - Math.min(...moonXs), 'the moon drifted along its path').toBeGreaterThan(1);
+    await C.page.screenshot({ path: testInfo.outputPath('raid-arena-c.png') });
+
+    await picker.selectOption('dead_monitor');
     await tap(A, '.dbg-raid-go');
     const boss1 = '퇴근 못 한 모니터';
     expect(boss1).not.toBe(seedBoss1);
@@ -240,6 +379,61 @@ test('보스 레이드 방: 라벨(매칭 · 목록 · 방) → 시작 → 세 �
       await expect(p.page.locator('.boss-lv')).toHaveText('1층');
       await expect(p.page.locator('.boss-raid-n')).toHaveText('1/20');
     }
+    // 기획 20차: the relocating boss stands on the same seat, facing the same way, on every screen
+    for (const p of all) await expect(p.page.locator('.boss-form')).toHaveText('자리 이동형');
+    const seats = await Promise.all(
+      all.map(p =>
+        p.page.evaluate(() => {
+          const s = window.__proto!.game!.state;
+          const b = s.entities.find(e => e.id === s.bossId)!;
+          return [b.pos.x, b.pos.y, b.facing];
+        }),
+      ),
+    );
+    for (const seat of seats.slice(1)) {
+      expect(Math.hypot(seat[0] - seats[0][0], seat[1] - seats[0][1])).toBeLessThan(0.01); // it stands: no blending
+      expect(Math.cos(seat[2] - seats[0][2])).toBeGreaterThan(0.99);
+    }
+    expect(seats[0][1]).toBeGreaterThanOrEqual(3 - 0.01);
+    // integration: its first 「창 전환」 (about 6 s in) — every screen shows the arrive warning on the same desk, then the
+    // boss on that desk facing the same way, and the one 가짜 창 it left behind
+    const arriveAt = await Promise.all(
+      all.map(p =>
+        p.page
+          .waitForFunction(
+            () => {
+              const t = window.__proto!.game!.state.telegraphs.find(x => x.team === 'enemy' && x.motif === 'arrive');
+              return t ? [t.id, t.center.x, t.center.y] : null;
+            },
+            undefined,
+            { timeout: 20_000 },
+          )
+          .then(h => h.jsonValue() as Promise<number[]>),
+      ),
+    );
+    for (const a of arriveAt.slice(1)) expect(a).toEqual(arriveAt[0]);
+    expect(Math.hypot(arriveAt[0][1] - seats[0][0], arriveAt[0][2] - seats[0][1]), 'the warning is on another desk').toBeGreaterThan(3);
+    const moved = await Promise.all(
+      all.map(p =>
+        p.page
+          .waitForFunction(
+            ([x, y]) => {
+              const s = window.__proto!.game!.state;
+              const b = s.entities.find(e => e.id === s.bossId);
+              if (!b || Math.hypot(b.pos.x - x, b.pos.y - y) > 0.01) return null;
+              return [b.pos.x, b.pos.y, b.facing, s.entities.filter(e => e.defId === 'fake_monitor').length];
+            },
+            [arriveAt[0][1], arriveAt[0][2]],
+            { timeout: 10_000 },
+          )
+          .then(h => h.jsonValue() as Promise<number[]>),
+      ),
+    );
+    for (const m of moved.slice(1)) {
+      expect(Math.hypot(m[0] - moved[0][0], m[1] - moved[0][1])).toBeLessThan(0.01);
+      expect(Math.cos(m[2] - moved[0][2])).toBeGreaterThan(0.99);
+    }
+    for (const m of moved) expect(m[3], 'one 가짜 창 on the old desk').toBe(1);
     const picked = await Promise.all(all.map(p => seen(p.page)));
     for (const s of picked) expect(s).toMatchObject({ mode: 'bossRaid', floor: 1, kind: 'boss', phase: 'combat', bossId: 'dead_monitor', bossMaxHp: picked[0].bossMaxHp });
     // a member cannot: the command is refused and nothing changes

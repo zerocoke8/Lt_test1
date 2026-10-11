@@ -20,7 +20,10 @@ import type { GearLoadout, GearSpec } from '../data/gear';
  *     FloorPlan.nextBossId · bossAtkMult, Telegraph.self (a raid room is a classic room with a mode tag: listed, joinable
  *     by code); the debug action 'raidBoss' (host only), the four boss tunables (bossTelegraphMult · bossAreaMult ·
  *     bossRaidHpMult · bossRaidAtkMult) and Telemetry.floorTimes[].boss on raid rows. */
-export const PROTOCOL_VERSION = 6;
+/*     7 = 기획 20차 보스 형태: BossDef form / spawn / move / spots / stage / guard / trail (the boss data both sides run),
+ *     Telegraph.motif · mark, Zone.look, the damage event's `guard`, the 'markClear' event and the tunable bossMoveMult
+ *     (all optional on the wire — JSON omits them). */
+export const PROTOCOL_VERSION = 7;
 export const MAX_ROOM_PLAYERS = 3;
 /** Snapshot broadcast rate (Hz). The server sim still ticks at 30 Hz. */
 export const SNAPSHOT_HZ = 15;

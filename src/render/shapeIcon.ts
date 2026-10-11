@@ -2,7 +2,7 @@
 // in the same squashed quarter view as the field, fitted into a small canvas, with the drop point and direction.
 
 import type { PreviewPart, Vec2 } from '../types';
-import { DIR_VEC, crossAxes, rectFrame } from '../sim/geometry';
+import { DIR_VEC, areaDir, crossAxes, rectFrame } from '../sim/geometry';
 import { Camera, GROUND_SQUASH } from './camera';
 import { boldFont } from './look';
 import { ALLY_TINT, previewDrawParts } from './preview';
@@ -44,7 +44,7 @@ function partBounds(p: PreviewPart, at: Vec2, out: number[]): void {
       break;
     }
     case 'cone': {
-      const u = DIR_VEC[a.dir];
+      const u = areaDir(a); // 기획 20차: dir, or rot when present
       const a0 = Math.atan2(u.y, u.x);
       const h = (a.angle * Math.PI) / 360;
       push(cx, cy);
@@ -212,7 +212,7 @@ export function drawShapeIcon(canvas: HTMLCanvasElement, parts: PreviewPart[], o
       const i0 = Math.min(0.3, f.len * 0.1);
       arrow(f.sx + f.ux * i0, f.sy + f.uy * i0, f.sx + f.ux * (f.len - i0 * 0.3), f.sy + f.uy * (f.len - i0 * 0.3), a.anchor === 'center' ? 2 : 1, aw);
     } else if (a.shape === 'cone') {
-      const u = DIR_VEC[a.dir];
+      const u = areaDir(a);
       arrow(d.center.x + u.x * a.radius * 0.15, d.center.y + u.y * a.radius * 0.15, d.center.x + u.x * a.radius * 0.95, d.center.y + u.y * a.radius * 0.95, 1, aw);
     }
   }

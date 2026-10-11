@@ -4,6 +4,8 @@
 
 import type {
   AreaShape,
+  BossDef,
+  BossForm,
   CharacterDef,
   DamageSource,
   Entity,
@@ -79,6 +81,56 @@ export interface EntityRt {
   rewardSource?: boolean;
   /** Reward damage reductions (fx.guardAdd): fraction until sim time `until` (all of them together max −50 %). */
   guards?: { frac: number; until: number }[];
+  // 기획 20차 보스 형태 (src/sim/bossForm.ts) — never set on the classic four, monsters or characters of other modes
+  /** A boss whose data has a non-fixed `form`: its walk / seat / taunt / footprint state. */
+  form?: BossFormRt;
+  /** Heavy body (roaming / arena boss): overlapping units are pushed away from it, nothing moves it. */
+  heavy?: boolean;
+  /** Rule N7: casts so far per skill id (which `cycle` variant comes next). */
+  cycleNo?: Record<string, number>;
+  /** Rule N8 (raid characters): the zone-avoidance state (src/sim/zoneAvoid.ts). */
+  avoid?: AvoidRt;
+}
+
+/** 기획 20차 (rule N1): run-time state of a boss with a non-fixed form. */
+export interface BossFormRt {
+  form: Exclude<BossForm, 'fixed'>;
+  def: BossDef;
+  /** Relocating: the seat it is on (index into def.spots). */
+  spot: number;
+  /** Patrol / path: the waypoint it walks to, and the rest left on the one it reached. */
+  wp: number;
+  dwell: number;
+  /** Seconds until its move target is picked again (BossMoveDef.retarget), and how many times it was re-picked. */
+  retargetIn: number;
+  retargets?: number;
+  /** Seconds it cannot be taunted (after a taunt ended), and whether it was taunted last tick. */
+  tauntImmune: number;
+  taunted: boolean;
+  /** The box stopped its last step toward the target (it reaches BOSS_FORM.pinReach farther). */
+  pinned: boolean;
+  /** Cells walked since the last footprint, and the footprint zones still down (oldest first). */
+  walked: number;
+  footprints: number[];
+  /** The footprints' shared "reached at" map (CastCtx.trail.hit). */
+  trailHit?: Map<number, number>;
+}
+
+/** 기획 20차 (rule N8): a raid character's zone-avoidance memory. */
+export interface AvoidRt {
+  /** The side it steps around zones on (−1 / +1; 0 = none picked). */
+  side: number;
+  /** Seconds the straight way has been clear (the side is dropped after a moment). */
+  clear: number;
+  /** Seconds without getting any closer to its target (blocked, or side-stepping along a wall of zones). */
+  stuck: number;
+  /** The closest it has been to its target on this approach (centre distance; Infinity = a fresh approach). */
+  best: number;
+  /** Seconds left of "gave up — fights where it stands". */
+  commit: number;
+  /** Where its target stood when `best` was last compared, and which target (what the target walked is not its progress). */
+  seen: Vec2 | null;
+  seenId: number;
 }
 export interface SimEntity extends Entity {
   rt: EntityRt;
@@ -240,6 +292,18 @@ export interface CastCtx {
    * cast only — ctx.ts). Absent = 1.
    */
   delayMult?: number;
+  // 기획 20차 — one object per cast, shared by every copy of the ctx (like groggyMark)
+  /** Rule N3: units the `once` parts of this cast already hit. */
+  onceHit?: Set<number>;
+  /** Rule N6: the unit the `bound` parts of this cast are tied to; cleared = its 'markClear' was already emitted. */
+  bound?: { ent: SimEntity; cleared: boolean };
+  /** A zone's tick (not the cast itself): rule N5's front / back multipliers do not apply. */
+  fromZone?: boolean;
+  /**
+   * Rule N4: the circles of one trail (a boss's footprints, one charge's path) are ONE field — a unit standing on
+   * several of them is reached once per `gap` s (hit = unit id → sim time it was last reached; shared by the circles).
+   */
+  trail?: { hit: Map<number, number>; gap: number };
 }
 
 export interface GroggyMark {
@@ -303,6 +367,10 @@ export interface PendingHit {
   telegraphLead?: number;
   /** 기획 13차 blinkChain: hops per enemy id so far. */
   blinkHits?: Record<number, number>;
+  /** 기획 20차 (rule N2): the seat a relocate part moves its caster to when it lands (index into BossDef.spots). */
+  relocateTo?: number;
+  /** 기획 20차: Telegraph.motif of this part's warning (also when the warning only shows later — telegraphLead). */
+  motif?: 'charge' | 'arrive' | 'sweep';
 }
 export interface PendingEcho {
   kind: 'echo';

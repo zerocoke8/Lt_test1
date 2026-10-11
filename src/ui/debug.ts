@@ -1,10 +1,11 @@
 // 디버그 패널 (R24): collapsible side panel that never pauses the game.
 // Sliders for every numeric Tunable, toggles, speed buttons and every DebugAction. Mutates game.tunables live.
 
-import type { CommandResult, DebugAction, FloorTheme, Game, Tunables } from '../types';
+import type { BossForm, CommandResult, DebugAction, FloorTheme, Game, Tunables } from '../types';
 import { DEFAULT_TUNABLES, ZONES } from '../config';
 import { FIELD_EVENTS, GOEDAM_ROOMS, RAID_ZONES, RARITY_LABEL, REWARDS, ZONE_BOSSES, getBoss } from '../data';
 import { hasBossData, isRaidBossOn } from '../sim';
+import { BOSS_FORM_LABEL } from '../data/bosses/forms';
 import { button, h } from './dom';
 import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tunables';
 import type { ToastKind } from './toast';
@@ -33,12 +34,22 @@ export interface RaidBossGroup {
   zone: FloorTheme;
   /** Zone name ('사무실층'). */
   label: string;
-  options: { id: string; label: string; off: boolean }[];
+  /** label = what the list shows: '문서 파쇄기 · 배회형' (+ 「(꺼짐)」); name = the boss's name alone (기획 20차). */
+  options: { id: string; name: string; form: BossForm; label: string; off: boolean }[];
+}
+
+/** 기획 20차: between a boss's name and its form in the 「보스 고르기」 list. */
+export const RAID_FORM_SEP = ' · ';
+
+/** 「보스 고르기」 row text: '혼자 도는 세탁기 · 배회형', with 「(꺼짐)」 last for a boss that is out of the raid. */
+export function raidBossLabel(name: string, form: BossForm, off: boolean): string {
+  return `${name}${RAID_FORM_SEP}${BOSS_FORM_LABEL[form]}${off ? RAID_OFF_SUFFIX : ''}`;
 }
 
 /**
  * 기획 19차 debug 「보스 고르기」 (docs/boss-raid.md 7-1): every boss with data, one group per zone in the raid's table
  * order. A boss that is off stays in the list (testing) with 「(꺼짐)」 after its name. PURE (reads the data only).
+ * 기획 20차: every row also says the boss's form (고정형 · 배회형 · 자리 이동형 · 전장형).
  */
 export function raidBossGroups(): RaidBossGroup[] {
   return RAID_ZONES.map(zone => ({
@@ -46,7 +57,9 @@ export function raidBossGroups(): RaidBossGroup[] {
     label: ZONES.find(z => z.theme === zone)?.name ?? zone,
     options: ZONE_BOSSES[zone].filter(hasBossData).map(id => {
       const off = !isRaidBossOn(id);
-      return { id, label: `${getBoss(id).name}${off ? RAID_OFF_SUFFIX : ''}`, off };
+      const def = getBoss(id);
+      const form = def.form ?? 'fixed';
+      return { id, name: def.name, form, label: raidBossLabel(def.name, form, off), off };
     }),
   }));
 }
@@ -197,10 +210,15 @@ export class DebugPanel {
     for (const g of raidBossGroups()) {
       const og = h('optgroup', '', this.raidPick);
       og.label = g.label;
-      for (const o of g.options) h('option', '', og, o.label).value = o.id;
+      for (const o of g.options) {
+        const opt = h('option', '', og, o.label);
+        opt.value = o.id;
+        opt.dataset.name = o.name;
+        opt.dataset.form = o.form;
+      }
     }
     button('dbg-btn dbg-go dbg-raid-go', '이 보스로', raidRow, () => {
-      const name = this.raidPick.selectedOptions[0]?.textContent ?? this.raidPick.value;
+      const name = this.raidPick.selectedOptions[0]?.dataset.name ?? this.raidPick.value;
       this.run({ kind: 'raidBoss', boss: this.raidPick.value }, `보스 고르기 (${name})`);
     });
 

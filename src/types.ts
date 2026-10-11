@@ -115,9 +115,17 @@ export type AreaShape =
    * Fixed-direction rectangle (기획 3차: 방향형 드래그스킬은 방향 고정, 위치로 조준).
    * anchor 'start' (default): begins at center and extends `length` toward dir. 'center': centered on center.
    */
-  | { shape: 'rect'; length: number; width: number; dir: Dir; anchor?: 'start' | 'center' }
-  /** Fan from center toward dir, total opening `angle` degrees. */
-  | { shape: 'cone'; radius: number; angle: number; dir: Dir }
+  | {
+      shape: 'rect';
+      length: number;
+      width: number;
+      dir: Dir;
+      anchor?: 'start' | 'center';
+      /** 기획 20차 (rule N3): degrees clockwise from +x on screen; replaces `dir` when present (sim/geometry.ts areaDir). */
+      rot?: number;
+    }
+  /** Fan from center toward dir, total opening `angle` degrees. rot (기획 20차): as on 'rect'. */
+  | { shape: 'cone'; radius: number; angle: number; dir: Dir; rot?: number }
   /** Donut around center: inner < distance ≤ outer. */
   | { shape: 'ring'; inner: number; outer: number }
   /** Two bars through center: '+' (or 'X' when diagonal), each arm `length` from center, bar thickness `width`. */
@@ -175,7 +183,37 @@ export interface SkillAction {
    * woundedAlly = 기획 12차 (normal skills): the ally with the lowest hp/maxHp within castRange (ties → nearer).
    *   기획 13차 (drag skills): within allyRange of the drop point, every player's characters + the 돌발 괴담 patient.
    */
-  center: 'point' | 'self' | 'target' | 'woundedAlly';
+  center: 'point' | 'self' | 'target' | 'woundedAlly' | 'arena';
+  /**
+   * 기획 20차 (rule N2): with center 'arena' the offset is an absolute arena coordinate. rel 'facing': the offset and a
+   * rect / cone direction are written as if the caster faced +x (ahead = +x, its left = −y) and are turned to its facing
+   * when the part resolves (a relocating boss faces the way its spot says).
+   */
+  rel?: 'facing';
+  /** 기획 20차 (rule N3): the `once` parts of one cast hit a unit at most once between them (beam / scan-line steps). */
+  once?: true;
+  /**
+   * 기획 20차 (rule N6, 표식): the part is tied to the unit targeted at cast — it follows that unit only, and is dropped
+   * (telegraph gone, 'markClear') the moment the unit leaves the field. Never re-targeted.
+   */
+  bound?: true;
+  /**
+   * 기획 20차 점검 (rule N9, 보스 레이드만): a character standing outside this part's warning does not walk into it while
+   * it is shown — the cells of a find-the-safe-spot pattern. (A ring that covers the arena — helpers.ts safeRing — is
+   * held the same way without the flag.) fixedArea: the 보스 범위 크기 배율 knob never resizes it (cells on a grid).
+   */
+  keepOut?: true;
+  fixedArea?: true;
+  /**
+   * 기획 20차 (rule N2, 자리 이동): the caster's next spot (BossDef.spots, in order) is this part's centre; when the part
+   * lands the caster appears there, takes the spot's facing, and the effects hit around it.
+   */
+  relocate?: { to: 'next' };
+  /**
+   * 기획 20차 (rule N4, on a charge part): circles left along the path the caster rushed, `spacing` apart, for
+   * `duration` s, re-applying `effects` every tickInterval. look = Zone.look (render).
+   */
+  trail?: { radius: number; spacing: number; duration: number; tickInterval: number; effects: Effect[]; look?: string };
   /**
    * 기획 13차 스킬 리뉴얼: stage name (render / sound key `skillId:stage`). Sent on 'skillCast' and 'skillStage'.
    * Several actions may share one stage (e.g. a hit on enemies + a shield on self at the same beat).
@@ -246,7 +284,13 @@ export interface SkillAction {
    * stopAtCenter (기획 13차, 블레이드 되돌아 베기): the rush ends at the center instead of running past it.
    * An echo_seal recast (noDash) hits along the path without moving the caster.
    */
-  charge?: { distance: number; duration?: number; stopAtCenter?: boolean };
+  charge?: {
+    distance: number;
+    duration?: number;
+    stopAtCenter?: boolean;
+    /** 기획 20차 (form bosses): seconds the caster cannot move or turn after it lands. */
+    recover?: number;
+  };
   /**
    * 기획 8차 (monsters): the caster teleports next to its current target before the action resolves. Emits 'blink'.
    * behind (기획 13차, 섀도우 월영참): on the far side of the target.
@@ -338,6 +382,13 @@ export interface MonsterSkill {
   extra?: SkillAction[];
   /** 기획 8차 리뷰: a one-time tip shown (once per device) the first time a boss casts it — how to deal with it. */
   hint?: string;
+  /** 기획 20차 (rule N1): a form boss keeps walking / turning while it winds this skill up. */
+  castMove?: true;
+  /**
+   * 기획 20차 (rule N7, 번갈아 쓰기): the first cast uses action / extra, the next cycle[0], then cycle[1] … and around
+   * again (a per-skill cast counter, no rng).
+   */
+  cycle?: Pick<MonsterSkill, 'action' | 'extra'>[];
 }
 
 export interface MonsterDef {
@@ -358,6 +409,58 @@ export interface MonsterDef {
   look?: string;
   /** 기획 12차: never moves, targets or attacks (종이 인형 decoy). */
   inert?: boolean;
+}
+
+/** 기획 20차 보스 형태 (docs/bosses.md 1장). Absent on a BossDef = 'fixed' exactly as in 기획 19차. */
+export type BossForm = 'fixed' | 'roaming' | 'relocating' | 'arena';
+
+/** 기획 20차 (rule N1): how a roaming / arena boss walks. */
+export interface BossMoveDef {
+  /**
+   * pursue = walk to the target and stop in range · keepAway = hold keep.min..max from it · patrol = round the waypoints
+   * (a taunt pulls it off the route) · path = the same, never pulled (arena bosses).
+   */
+  mode: 'pursue' | 'keepAway' | 'patrol' | 'path';
+  /** Who it goes for (default 'nearest': held until it dies or leaves). */
+  target?: 'nearest' | 'farthest';
+  /** Seconds between two picks of the target (not while casting); absent = never re-picked. */
+  retarget?: number;
+  /** Lines its x up with the target first, then moves along y only. */
+  axis?: true;
+  /**
+   * 기획 20차 점검 (with axis + retarget): every second re-pick it lines up y first, then moves along x — the machine is
+   * seen travelling down and up as well, not only along one row.
+   */
+  axisAlternate?: true;
+  /** Degrees per second (default BOSS_FORM.turnRate). */
+  turnRate?: number;
+  keep?: { min: number; max: number };
+  waypoints?: Vec2[];
+  /** Seconds it rests on each waypoint. */
+  dwell?: number;
+  /** Keeps walking / turning while it winds a skill up (the moon never stops). */
+  castMove?: true;
+}
+
+/** 기획 20차: one seat of a relocating boss and the way it faces there. */
+export interface BossSpot {
+  x: number;
+  y: number;
+  facing: Dir;
+}
+
+/** 기획 20차 (rule N4): footprints a walking boss leaves under its body. */
+export interface BossTrailDef {
+  /** A zone every this many cells walked. */
+  every: number;
+  /** At most this many at once (the oldest goes first). */
+  max: number;
+  /** Must be smaller than the body radius (nobody is hit the moment it appears). */
+  radius: number;
+  duration: number;
+  tickInterval: number;
+  effects: Effect[];
+  look?: string;
 }
 
 export interface BossDef extends MonsterDef {
@@ -387,6 +490,29 @@ export interface BossDef extends MonsterDef {
    * The classic tower (floors 5 · 10 · 15 · 20) ignores it.
    */
   raid?: boolean;
+  // ── 기획 20차 보스 형태 (all optional; none on the classic four → they play exactly as before) ──
+  /** Absent = 'fixed' (top centre, BOSS_POS). */
+  form?: BossForm;
+  /** Where a roaming / arena boss appears (default BOSS_FORM.roamSpawn; a path boss: its first waypoint). */
+  spawn?: Vec2;
+  move?: BossMoveDef;
+  /** Relocating boss: 3–5 seats; it starts on spots[0] and moves to the next with a `relocate` part. */
+  spots?: BossSpot[];
+  /** Render-only anchors of the floor art (stage.ts): a floor look id and named marks (safe letters …). */
+  stage?: { floor: string; marks?: { id: string; x: number; y: number; r: number; label?: string }[] };
+  /**
+   * Rule N5: damage from a unit standing within frontArc° of where the boss faces × frontMult (× 1 while groggy),
+   * within backArc° of its back × backMult.
+   */
+  guard?: { frontArc: number; frontMult: number; backArc: number; backMult: number };
+  trail?: BossTrailDef;
+  /** The boss's signature skill id (pattern sheet, first tip). */
+  signature?: string;
+  /**
+   * 기획 20차 점검 (가짜 찾기): the boss leaves fakes of itself (`unit` = the summon's id). While one stands, the HUD tag
+   * and the ▼ stay off for `hide` s after the boss jumped — the player has to read which one is real.
+   */
+  decoy?: { unit: string; hide: number };
 }
 
 /** Summoned ally units (pets, skills) use MonsterDef shape with tier 'summon'. */
@@ -968,6 +1094,13 @@ export interface Telegraph {
    * danger (저스트 cue and bots skip it). Only set for a tier-'boss' caster's delayed affects:'self' part.
    */
   self?: true;
+  /**
+   * 기획 20차: what kind of part it warns of (render only) — a rush along the line, a boss arriving on a spot, one step
+   * of a moving line (`once` strips). Set by the sim for form bosses / the new part fields only.
+   */
+  motif?: 'charge' | 'arrive' | 'sweep';
+  /** 기획 20차 (rule N6): the entity a bound part is tied to (badge over it, 「교체!」 on its card). */
+  mark?: number;
 }
 
 export interface Zone {
@@ -983,6 +1116,8 @@ export interface Zone {
   total: number;
   /** For render tint. */
   kind: 'damage' | 'heal' | 'buff' | 'debuff';
+  /** 기획 20차 (rule N4): a trail zone's look key (render: BOSS_ZONE_LOOKS; one path per look). */
+  look?: string;
 }
 
 export interface Projectile {
@@ -1197,6 +1332,10 @@ export type GameEvent =
       drag?: true;
       /** 기획 17차: a hit of a just-swap drag (render: gold number). */
       just?: true;
+      /** 기획 20차 (rule N5): the hit met the boss's front shield / its weak back. */
+      guard?: 'front' | 'back';
+      /** 기획 20차 점검: whose hit it was (only set together with guard) — the number is tinted for that player alone. */
+      by?: number;
     }
   /** from (기획 12차): the 흡혼-marked enemy this heal was drained from (render draws a red wisp from it). */
   | { type: 'heal'; targetId: number; amount: number; pos: Vec2; from?: number }
@@ -1328,7 +1467,9 @@ export type GameEvent =
   /** 기획 17차: a floor reward fired (head pill). rewardId = its family key; text = short proc text ('즉시!', '앞면'). */
   | { type: 'rewardProc'; player: number; partyIndex: number | null; entityId: number | null; rewardId: string; pos: Vec2; text?: string }
   /** 기획 17차: a pick made a synergy tag reach 3 (set bonus on). */
-  | { type: 'tagSet'; player: number; tag: SynergyTag };
+  | { type: 'tagSet'; player: number; tag: SynergyTag }
+  /** 기획 20차 (rule N6): a bound mark was cleared — its unit left the field before it went off. */
+  | { type: 'markClear'; targetId: number; pos: Vec2 };
 
 // ─────────────────────────── Tunables (debug sliders) ───────────────────────────
 
@@ -1393,6 +1534,8 @@ export interface Tunables {
   bossAreaMult: number;
   bossRaidHpMult: number;
   bossRaidAtkMult: number;
+  /** 기획 20차 「보스 이동 속도 배율」: walking speed of a boss with a `form` × this (not charges / blinks). Default 1. */
+  bossMoveMult: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────

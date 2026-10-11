@@ -7,6 +7,7 @@ import type { AreaShape, Dir, Telegraph } from '../../types';
 import { BOSSES } from '../../data';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y } from '../camera';
 import { TAU, areaReach, pathArea } from '../shapes';
+import { areaDir } from '../../sim/geometry';
 import type { TeleMotif } from './types';
 
 const DIR_VEC: Record<Dir, { x: number; y: number }> = { right: { x: 1, y: 0 }, left: { x: -1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
@@ -38,7 +39,7 @@ function middle(t: Telegraph, out: { x: number; y: number }): void {
   out.x = t.center.x;
   out.y = t.center.y;
   if (a.shape === 'rect' && a.anchor !== 'center') {
-    const u = DIR_VEC[a.dir];
+    const u = areaDir(a); // 기획 20차: dir, or rot when present
     out.x += (u.x * a.length) / 2;
     out.y += (u.y * a.length) / 2;
   }
@@ -92,7 +93,7 @@ function directed(ctx: CanvasRenderingContext2D, cam: Camera, t: Telegraph, dir:
   const u = DIR_VEC[dir];
   middle(t, MID);
   // spread across the footprint, at right angles to the push
-  const span = a.shape === 'rect' ? (DIR_VEC[a.dir].x * u.x + DIR_VEC[a.dir].y * u.y === 0 ? a.length : a.width) : areaReach(a) * 2;
+  const span = a.shape === 'rect' ? (Math.abs(areaDir(a).x * u.x + areaDir(a).y * u.y) < 0.5 ? a.length : a.width) : areaReach(a) * 2;
   const n = Math.max(1, Math.min(6, Math.round(span / 4)));
   const shift = ((time * 1.4) % 1) * 0.5 - 0.25;
   ctx.beginPath();

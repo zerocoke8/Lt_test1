@@ -247,6 +247,7 @@ const SAMPLES: { [K in GameEvent['type']]: Extract<GameEvent, { type: K }> } = {
   justSwap: { type: 'justSwap', player: 0, outIndex: 0, inIndex: 1, inEntityId: 100, pos: P, drop: P, sourceId: 1, skillId: 'x', boss: false, dodged: 1, telegraphIds: [7], landIn: 0.3, cdCut: 4 },
   rewardProc: { type: 'rewardProc', player: 0, partyIndex: 0, entityId: 100, rewardId: 'bolt', pos: P },
   tagSet: { type: 'tagSet', player: 0, tag: 'swap' },
+  markClear: { type: 'markClear', targetId: 100, pos: P }, // 기획 20차
   appear: { type: 'appear', player: 0, partyIndex: 0, entityId: 100, pos: P },
   dash: { type: 'dash', entityId: 100, from: P, to: P, duration: 0.2 },
   blink: { type: 'blink', entityId: 1, from: P, to: P },

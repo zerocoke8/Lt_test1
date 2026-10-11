@@ -422,10 +422,11 @@ test('full run: preset → combat → drag/pet/ult → reward → boss (enrage, 
   await expect(page.locator('.gd-card')).toBeVisible();
   await expect(page.locator('.gd-card-title')).toHaveText('문이 열린다. 누군가 같이 내린다');
   await expect(page.locator('.gd-card .gd-trace')).toContainText('동승자');
-  const cont = (await page.locator('.gd-continue').boundingBox())!;
+  // the card pops in from scale 0.97 (gdCardIn): measure the button once it has settled, not mid-animation
   const scale = (await page.locator('.stage').boundingBox())!.width / 1280;
+  await expect.poll(async () => (await page.locator('.gd-continue').boundingBox())!.width / scale, { timeout: 3000 }).toBeGreaterThanOrEqual(239.5);
+  const cont = (await page.locator('.gd-continue').boundingBox())!;
   expect(cont.height / scale).toBeGreaterThanOrEqual(79.5);
-  expect(cont.width / scale).toBeGreaterThanOrEqual(239.5);
   await sleep(1300);
   expect(await goedamLayoutProblems(page)).toEqual([]);
   await shot('goedam-result');

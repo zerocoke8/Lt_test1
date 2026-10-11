@@ -1,11 +1,11 @@
 // Damage, healing, shields, deaths, basic attacks and projectiles.
 
-import type { DamageSource, StatusId, Team, Vec2 } from '../types';
+import type { BossDef, DamageSource, StatusId, Team, Vec2 } from '../types';
 import { PROJECTILE_MAX_LIFE } from './constants';
 import { unitCtx } from './ctx';
 import { WEAK_MULT } from '../data';
 import { fieldEventDeath } from './fieldEvents';
-import { groggyHitMult } from './groggy';
+import { groggyHitMult, isGroggy } from './groggy';
 import { damageTakenMult, relicParam, relicScale } from './modifiers';
 import { onMonsterDeath } from './ondeath';
 import { checkPhases } from './phases';
@@ -46,6 +46,8 @@ export interface DmgSrc {
   partyIndex?: number | null;
   /** 기획 17차: a 저스트 교대 drag's hit (CastCtx.justMult; the damage event gets 'just'). */
   justMult?: number;
+  /** 기획 20차: a zone's tick (CastCtx.fromZone) — no front / back multiplier (rule N5). */
+  fromZone?: boolean;
 }
 
 /** Damage sources whose hits carry the skill name on the damage event (render shows it under the number). */
@@ -80,8 +82,30 @@ function weakHit(w: World, src: DmgSrc): boolean {
   return slot === 'pet' || slot === 'drag';
 }
 
+/**
+ * 기획 20차 (rule N5, 앞 방패 · 뒤 약점): the multiplier of a hit on a boss with `guard`, by where the hitting unit stands
+ * — within frontArc° of where the boss faces × frontMult (× 1 while it is groggy), within backArc° of its back ×
+ * backMult, the sides × 1. Only a living ally unit's own hit counts: pets, zones, burns and other casterless damage × 1.
+ */
+function guardHit(w: World, src: DmgSrc, target: SimEntity): { mult: number; side?: 'front' | 'back' } {
+  const g = (target.rt.monDef as BossDef | null)?.guard;
+  if (!g || src.casterId == null || src.fromZone) return NO_GUARD;
+  const c = getEntity(w, src.casterId);
+  if (!c || c.team === target.team) return NO_GUARD;
+  const dx = c.pos.x - target.pos.x;
+  const dy = c.pos.y - target.pos.y;
+  if (Math.hypot(dx, dy) < 1e-6) return NO_GUARD;
+  let off = Math.abs(Math.atan2(dy, dx) - target.facing) % (Math.PI * 2);
+  if (off > Math.PI) off = Math.PI * 2 - off;
+  const deg = (off * 180) / Math.PI;
+  if (deg <= g.frontArc / 2 + 1e-9) return isGroggy(w, target) ? NO_GUARD : { mult: g.frontMult, side: 'front' };
+  if (deg >= 180 - g.backArc / 2 - 1e-9) return { mult: g.backMult, side: 'back' };
+  return NO_GUARD;
+}
+const NO_GUARD: { mult: number; side?: 'front' | 'back' } = { mult: 1 };
+
 /** Every multiplier of a hit (vulnerable, 약점, groggy, bot, relic, defense, 괴담 trace) applied to raw. */
-function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg: number; weak: boolean; groggy: boolean } {
+function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg: number; weak: boolean; groggy: boolean; guard?: 'front' | 'back' } {
   let dmg = raw * (1 + statusValue(target, 'vulnerable'));
   const weak = target.eventTag === 'target' && weakHit(w, src);
   if (weak) dmg *= WEAK_MULT;
@@ -89,6 +113,9 @@ function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg:
   const groggyMult = target.tier === 'boss' && !src.groggyMark?.broke ? groggyHitMult(w, target, src.isDrag) : 1;
   const groggy = groggyMult !== 1;
   dmg *= groggyMult;
+  // 기획 20차 (rule N5): only a boss whose data has `guard` (none of the classic four)
+  const guard = target.tier === 'boss' ? guardHit(w, src, target) : NO_GUARD;
+  if (guard.mult !== 1) dmg *= guard.mult;
   const sp = src.player != null ? w.state.players[src.player] : undefined;
   if (sp) {
     if (sp.isBot) dmg *= Math.max(0, w.tunables.botDamageMult);
@@ -102,7 +129,7 @@ function hitMults(w: World, src: DmgSrc, target: SimEntity, raw: number): { dmg:
     const owner = w.state.players[target.ownerPlayer];
     dmg *= damageTakenMult(owner) * rwTakenMult(w, target, owner);
   }
-  return { dmg, weak, groggy };
+  return guard.side ? { dmg, weak, groggy, guard: guard.side } : { dmg, weak, groggy };
 }
 
 /** Apply raw (pre-mitigation) damage. Returns the mitigated hit (incl. shield-absorbed, incl. overkill). */
@@ -114,7 +141,7 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
   if (target.invulnTime > 0) return 0;
   if (w.tunables.invincible && target.kind === 'character') return 0;
   const sp = src.player != null ? w.state.players[src.player] : undefined;
-  const m = src.pure ? { dmg: raw, weak: false, groggy: false } : hitMults(w, src, target, raw);
+  const m: { dmg: number; weak: boolean; groggy: boolean; guard?: 'front' | 'back' } = src.pure ? { dmg: raw, weak: false, groggy: false } : hitMults(w, src, target, raw);
   const dmg = m.dmg;
   const weak = m.weak;
   const groggy = m.groggy;
@@ -137,6 +164,7 @@ export function applyDamage(w: World, src: DmgSrc, target: SimEntity, raw: numbe
     ...(weak ? { weak: true as const } : null),
     ...(groggy ? { groggy: true as const, ...(src.isDrag ? { drag: true as const } : null) } : null),
     ...(src.justMult != null ? { just: true as const } : null),
+    ...(m.guard ? { guard: m.guard, ...(src.player != null ? { by: src.player } : null) } : null),
   });
   const dealt = absorbed + Math.min(dmg - absorbed, hpBefore);
   storeStasisDamage(target, dealt); // 기획 13차 정지: stored for the rebound

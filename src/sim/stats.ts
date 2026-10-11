@@ -2,6 +2,7 @@
 
 import type { BossDef, StatBlock, StatMods } from '../types';
 import { getCharacter } from '../data';
+import { BOSS_FORM } from '../data/bosses/forms';
 import { MIN_MAX_HP_FRAC } from './constants';
 import { gearStatMods } from './expeditionGear';
 import { addMods, partyStatMods, relicParam, relicScale } from './modifiers';
@@ -62,13 +63,16 @@ export function effStats(w: World, e: SimEntity): StatBlock {
       atkSpeed *= en.atkSpeedMult;
     }
   }
+  let moveSpeed = b.moveSpeed * Math.max(0.1, 1 + m.moveSpeedPct);
+  // 기획 20차 (rule N1): a boss with a form walks × the debug knob, faster while enraged (nothing else reads these)
+  if (e.rt.form) moveSpeed *= w.tunables.bossMoveMult * (e.enraged ? BOSS_FORM.enrageMove : 1);
   return {
     maxHp,
     atk,
     def: clamp(b.def + m.defFlat, 0, 0.9),
     atkSpeed,
     range: b.range,
-    moveSpeed: b.moveSpeed * Math.max(0.1, 1 + m.moveSpeedPct),
+    moveSpeed,
     critChance: clamp(b.critChance + m.critChance, 0, 1),
     critMult: b.critMult + m.critMult,
   };

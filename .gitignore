@@ -6,6 +6,8 @@ dist-server/
 test-results/
 playwright-report/
 dist-artifact/
+# builds of parallel agents / review tracks (their own outDir)
+dist-*/
 
 # local secrets (API keys) — never commit
 .env

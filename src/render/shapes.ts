@@ -3,7 +3,7 @@
 // and the hit test can never disagree.
 
 import type { AreaShape, Vec2 } from '../types';
-import { DIR_VEC, areaExtent, crossAxes, rectFrame } from '../sim/geometry';
+import { areaDir, areaExtent, crossAxes, rectFrame } from '../sim/geometry';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y } from './camera';
 
 export const TAU = Math.PI * 2;
@@ -98,7 +98,7 @@ export function addAreaPath(
       return;
     }
     case 'cone': {
-      const u = DIR_VEC[area.dir];
+      const u = areaDir(area); // 기획 20차: dir, or rot when present (a rect reads it in rectFrame)
       const a0 = Math.atan2(u.y, u.x);
       const h = (area.angle * Math.PI) / 360;
       const R = Math.max(0.01, area.radius * k);

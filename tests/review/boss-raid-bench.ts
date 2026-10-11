@@ -14,6 +14,7 @@
 //   RAID_ATK=1          보스 레이드 공격 배율 (Tunables.bossRaidAtkMult)
 //   TELE=1              보스 예고 시간 배율 (Tunables.bossTelegraphMult: every part's wind-up and the gaps of a sweep)
 //   AREA=1              보스 범위 크기 배율 (Tunables.bossAreaMult)
+//   MOVE=1              보스 이동 속도 배율 (기획 20차, Tunables.bossMoveMult — walking and turning of the moving bosses)
 //   BOSS=<id>           that boss on floors 1–20 (looking at one boss)
 //   OFF=<id>,<id>       run as if those bosses had `raid: false` (preview a cut; the rest of their zone fills in)
 //   OUT=<file.json>     the whole report as JSON (per-floor rows, per-boss rows, skill table, rewards …)
@@ -40,6 +41,12 @@ for (const arg of proc.argv.slice(2)) {
 }
 for (const [k, v] of Object.entries(DEFAULTS)) proc.env[k] ??= v;
 proc.env.MODE = 'bossRaid';
+// 기획 20차: MOVE rides on critic-20f's TUN (a JSON of tunables), so that file stays as it is
+if (proc.env.MOVE) {
+  const move = Number(proc.env.MOVE);
+  if (!Number.isFinite(move) || move <= 0) throw new Error(`MOVE: a positive number, got '${proc.env.MOVE}'`);
+  proc.env.TUN = JSON.stringify({ ...(proc.env.TUN ? JSON.parse(proc.env.TUN) : null), bossMoveMult: move });
+}
 
 await import('./critic-20f');
 

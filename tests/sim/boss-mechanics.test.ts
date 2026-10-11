@@ -398,20 +398,24 @@ describe('shapes the boss table uses', () => {
     expect(fresh.pos.y).toBeCloseTo(7.5, 6);
   });
 
-  it('enrage does not speed up a skill the boss casts on itself (회의 연장): its cooldown stays, the attacks get ×0.6', () => {
-    const tg = raidGame('endless_meeting', { hpMult: 50, tunables: { ...CALM, bossGroggyThreshold: 0 } });
+  it('enrage does not speed up a skill the boss casts on itself (심폐소생): its cooldown stays, the attacks get ×0.6', () => {
+    // 기획 20차: 회의 연장 is gone (docs/bosses.md 4-5) — 멈추지 않는 제세동기's 심폐소생 is the self-cast that is left
+    const tg = raidGame('defibrillator', { hpMult: 50, tunables: { ...CALM, bossGroggyThreshold: 0 } });
     advance(tg, 0.3);
     expect(tg.game.dispatch({ type: 'debug', action: { kind: 'forceEnrage' } }).ok).toBe(true);
     const b = bossOf(tg);
     const ids = b.rt.skills.map(s => s.id);
     const castOnly = (id: string): number => {
       b.rt.skillGap = 0;
+      b.rt.lockTime = 0; // 기획 20차: a roaming boss stands through its entrance and each wind-up — free it for this cast
       b.rt.skillCds = ids.map(x => (x === id ? 0 : 99));
       tick(tg.w);
       return b.rt.skillCds[ids.indexOf(id)];
     };
-    expect(castOnly('em_extend')).toBeCloseTo(20, 0); // its own 20 s, not 12
-    expect(castOnly('em_call')).toBeCloseTo(9 * 0.6, 0);
+    const own = (id: string): number => b.rt.skills.find(s => s.id === id)!.cooldown;
+    expect(castOnly('df_revive')).toBeCloseTo(own('df_revive'), 0); // its own 18 s, not × 0.6
+    const attack = ids.find(id => id !== 'df_revive')!;
+    expect(castOnly(attack)).toBeCloseTo(own(attack) * 0.6, 0);
   });
 
   it("a boss's one-target warning starts at the boss (the aim line); a normal monster's keeps its old origin", () => {
@@ -471,7 +475,8 @@ describe('보스 예고 시간 배율 (bossTelegraphMult)', () => {
         const base = castOnce(def.id, sk, {});
         const slow = castOnce(def.id, sk, { bossTelegraphMult: 2 });
         const label = `${def.id} ${sk.id}`;
-        expect(base.parts, label).toHaveLength(partsOf(sk).length);
+        // 기획 20차 (rule N7): one cast is the first variant only — the `cycle` variants wait for the next casts
+        expect(base.parts, label).toHaveLength(1 + (sk.extra?.length ?? 0));
         expect(slow.parts, label).toHaveLength(base.parts.length);
         base.parts.forEach((p, i) => {
           const q = slow.parts[i];
@@ -575,7 +580,14 @@ describe('보스 범위 크기 배율 (bossAreaMult)', () => {
             expect(b.shape, label).toBe(a.shape);
             expect(q.center, `${label} part ${i}: the spot stays`).toEqual(p.center);
             expect(q.delay, `${label} part ${i}: the wind-up stays`).toBe(p.delay);
-            expect(b, `${label} part ${i}`).toEqual(scaleArea(a, mult));
+            // 기획 20차: a form boss's rush keeps its path length (it runs to its box) — the knob widens the path only
+            const rush = !!def.form && !![sk.action, ...(sk.extra ?? [])][i].charge && a.shape === 'line';
+            // 기획 20차 점검: a fixedArea part (번호 없는 서랍's grid cells) never changes size
+            if ([sk.action, ...(sk.extra ?? [])][i].fixedArea) {
+              expect(b, `${label} part ${i}: a grid cell stays`).toEqual(a);
+              return;
+            }
+            expect(b, `${label} part ${i}`).toEqual(rush ? { ...a, width: a.width * mult } : scaleArea(a, mult));
             if (a.shape === 'circle' && b.shape === 'circle') expect(b.radius).toBeCloseTo(a.radius * mult, 9);
             if (a.shape === 'ring' && b.shape === 'ring') {
               expect(b.outer).toBeCloseTo(a.outer * mult, 9);

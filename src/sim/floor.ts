@@ -1,13 +1,14 @@
 // Floors (R15–R21): plan, start, spawner, clear/timeout/enrage/retreat, reward phase.
 
 import type { BossDef, CommandResult, FloorPlan, Tunables, Vec2, WavePlan } from '../types';
-import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, BOSS_POS, floorStatMult, ZONES, zoneOf } from '../config';
+import { ARENA_BOSS, ARENA_NORMAL, BOSS_ENRAGED_EMPTY_FIELD_FAIL, floorStatMult, ZONES, zoneOf } from '../config';
 import { FIELD_EVENT_LAST_WAVE_HOLD, MAX_REROLLS, getBoss, getMonster } from '../data';
 import { BOT, FIRST_WAVE_Y_TOP, MID_RING, SPAWN_POINTS, SPAWN_RING, SPAWN_SCATTER, SPAWN_WARNING_TIME, WAVE_NEXT } from './constants';
 import { heal } from './combat';
 import { createCharacterEntity, createUnit } from './entities';
 import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvents';
 import { clearGroggy, resetGroggy } from './groggy';
+import { bossSpawnPos, initBossForm } from './bossForm';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { refundUnlandedUlts, revive, syncMembers } from './players';
 import { dropAnchors } from './status';
@@ -173,13 +174,15 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   if (s.plan.kind === 'boss' && s.plan.bossId) {
     const def = getBoss(s.plan.bossId);
     const hpMult = s.plan.statMult * w.tunables.monsterHpMult;
-    const e = createUnit(w, def, BOSS_POS, 'enemy', {
+    // 기획 20차: by form — a fixed boss (every classic one) still appears at BOSS_POS
+    const e = createUnit(w, def, bossSpawnPos(def), 'enemy', {
       kind: 'monster',
       ownerPlayer: null,
       expiresIn: null,
       hpMult: s.plan.bossHpMult ? hpMult * s.plan.bossHpMult : hpMult, // 기획 15차 원정 보스 HP × EXPEDITION.bossHp (기획 16차 밸런스: 0.8)
       atkMult: s.plan.statMult * (s.plan.bossAtkMult ?? 1), // 기획 19차 보스 레이드 공격 배율 (absent elsewhere → × 1)
     });
+    initBossForm(e);
     s.bossId = e.id;
     emit(w, { type: 'spawn', entityId: e.id, pos: copy(e.pos), tier: 'boss' });
   }

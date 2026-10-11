@@ -15,4 +15,5 @@ export const BOSSES: BossDef[] = [...ZONE_LISTS.map(list => list[0]), ...ZONE_LI
 /** Summon-only units of the new bosses (뽑기 인형, 외짝 양말, 오류 창): getMonster resolves them, wave pools never see them. */
 export const BOSS_UNITS: MonsterDef[] = [...LOBBY_UNITS, ...OFFICE_UNITS, ...WARD_UNITS, ...ROOFTOP_UNITS];
 
-export { ENRAGE, at, band, row, rowR, seq, sweep } from './helpers';
+export { ENRAGE, ahead, arenaAt, at, band, chargeAt, rays, relocateTo, repeat, row, rowR, safeRing, scan, seq, spokes, sweep } from './helpers';
+export { BOSS_FORM, BOSS_FORM_LABEL, BOSS_FORM_TIP, BOT_RAID, GUARD_HIT_COLOR, GUARD_HIT_TEXT, SAFE_HOLD, ZONE_AVOID } from './forms';

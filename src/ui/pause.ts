@@ -13,6 +13,10 @@ import { createSoundPanel, type SoundPanel } from './soundPanel';
 import { CUTIN } from '../render/cutin';
 import { FEEL, loadCutIn, loadFeel, saveCutIn, saveFeel, type FeelSettings } from './storage';
 import { buildSummary, renderBuild } from './buildPanel';
+import { bossFormLine, bossPatternTips } from './bossFormHud';
+
+/** 기획 20차: pattern tips listed on the pause screen (3 patterns + the phase one). */
+const PAUSE_TIPS = 4;
 
 export interface PauseCallbacks {
   onResume(): void;
@@ -131,18 +135,38 @@ export class PauseMenu {
     const lore = s ? raidLoreLine(s) : '';
     this.lore.textContent = lore;
     this.lore.classList.toggle('is-hidden', !lore);
-    this.renderLists(s?.players[view.localPlayer ?? 0] ?? null);
+    this.renderLists(s?.players[view.localPlayer ?? 0] ?? null, s);
     this.sound.sync();
     this.el.classList.remove('is-hidden');
   }
 
+  /**
+   * 기획 20차: in a raid the list opens with this boss — how it moves ('배회형 · …') and one row per pattern that has a
+   * tip, the signature first (the tip slot of the HUD shows each one for a few seconds; here they can be read again). Returns whether it drew any.
+   */
+  private renderBoss(s: GameState | null): boolean {
+    const bossId = s && s.mode === 'bossRaid' ? s.plan.bossId : undefined;
+    const form = bossFormLine(bossId);
+    if (!form) return false;
+    h('div', 'pl-title pl-boss-title', this.lists, '이 보스');
+    h('div', 'pl-boss-form', this.lists, form);
+    for (const t of bossPatternTips(bossId).slice(0, PAUSE_TIPS)) {
+      const row = h('div', `pl-row pl-pattern${t.signature ? ' is-signature' : ''}`, this.lists);
+      const txt = h('div', 'pl-text', row);
+      h('div', 'pl-name', txt, t.name);
+      h('div', 'pl-desc', txt, t.hint);
+    }
+    return true;
+  }
+
   /** 내 빌드, then 흔적 and 유물 of my player; the panel is hidden when there is nothing. */
-  private renderLists(me: PlayerState | null): void {
+  private renderLists(me: PlayerState | null, s: GameState | null = null): void {
     this.lists.replaceChildren();
+    const boss = this.renderBoss(s);
     const traces = me?.goedamTraces ?? [];
     const relics = me?.relics ?? [];
     const rewards = me?.rewards ?? [];
-    this.lists.classList.toggle('is-hidden', traces.length === 0 && relics.length === 0 && rewards.length === 0);
+    this.lists.classList.toggle('is-hidden', !boss && traces.length === 0 && relics.length === 0 && rewards.length === 0);
     if (me && (rewards.length || relics.length)) {
       const build = h('div', 'pl-build', this.lists);
       renderBuild(build, buildSummary(rewards, relics, me.party.map(m => m.defId), me.rerolls ?? 0));

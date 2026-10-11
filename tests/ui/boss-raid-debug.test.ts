@@ -7,6 +7,7 @@ import { BOSSES, BOSS_RAID, RAID_BOSS_IDS, RAID_ZONES, ZONE_BOSSES, getBoss } fr
 import { raidRosterIds } from '../../src/sim';
 import type { RunResult, Tunables } from '../../src/types';
 import { RAID_OFF_SUFFIX, raidBossGroups } from '../../src/ui/debug';
+import { BOSS_FORM_LABEL } from '../../src/data/bosses/forms';
 import { raidResultReason } from '../../src/ui/format';
 import { raidCardSub } from '../../src/ui/mainMenu';
 import { raidBossNames } from '../../src/ui/result';
@@ -27,12 +28,13 @@ function withBossOff<T>(id: string, fn: () => T): T {
 }
 
 describe('보스 튜닝 sliders', () => {
-  it('one group of four, in the order of the spec, with Korean labels', () => {
+  it('one group of five (기획 20차: + 보스 이동 속도 배율), in the order of the spec, with Korean labels', () => {
     expect(SLIDERS.filter(s => s.group === '보스 튜닝').map(s => [s.key, s.label])).toEqual([
       ['bossTelegraphMult', '보스 예고 시간 배율'],
       ['bossAreaMult', '보스 범위 크기 배율'],
       ['bossRaidHpMult', '보스 레이드 HP 배율'],
       ['bossRaidAtkMult', '보스 레이드 공격 배율'],
+      ['bossMoveMult', '보스 이동 속도 배율'],
     ]);
   });
 
@@ -90,7 +92,10 @@ describe('debug 「보스 고르기」 list', () => {
     for (const g of groups) {
       expect(g.options.map(o => o.id), g.zone).toEqual([...ZONE_BOSSES[g.zone]]);
       for (const o of g.options) {
-        expect(o.label, o.id).toBe(getBoss(o.id).name);
+        // 기획 20차: the row says the form after the name ('혼자 도는 세탁기 · 배회형')
+        expect(o.name, o.id).toBe(getBoss(o.id).name);
+        expect(o.form, o.id).toBe(getBoss(o.id).form ?? 'fixed');
+        expect(o.label, o.id).toBe(`${getBoss(o.id).name} · ${BOSS_FORM_LABEL[o.form]}`);
         expect(o.off, o.id).toBe(false);
       }
     }
@@ -101,7 +106,17 @@ describe('debug 「보스 고르기」 list', () => {
     expect(options.map(o => o.id)).toEqual([...RAID_BOSS_IDS]);
     expect(options).toHaveLength(BOSSES.length);
     expect(new Set(options.map(o => o.label)).size).toBe(20);
-    expect(options.map(o => o.label)).toContain('문서 파쇄기');
+    expect(options.map(o => o.name)).toContain('문서 파쇄기');
+    expect(options.map(o => o.label)).toContain('문서 파쇄기 · 배회형');
+  });
+
+  it('기획 20차: the forms of the list — 고정 6 · 배회 8 · 자리 이동 3 · 전장 3, the classic four fixed', () => {
+    const options = raidBossGroups().flatMap(g => g.options);
+    const count = (f: string) => options.filter(o => o.form === f).length;
+    expect([count('fixed'), count('roaming'), count('relocating'), count('arena')]).toEqual([6, 8, 3, 3]);
+    for (const id of ['elevator_keeper', 'overtime_lord', 'surgeon_director', 'abyss_watcher']) {
+      expect(options.find(o => o.id === id)!.label, id).toBe(`${getBoss(id).name} · 고정형`);
+    }
   });
 
   it('a boss that is off stays in the list with 「(꺼짐)」 after its name', () => {
@@ -109,7 +124,7 @@ describe('debug 「보스 고르기」 list', () => {
       const options = raidBossGroups().flatMap(g => g.options);
       expect(options).toHaveLength(20);
       expect(options.filter(o => o.off).map(o => o.id)).toEqual(['shredder_maw']);
-      expect(options.find(o => o.id === 'shredder_maw')!.label).toBe(`문서 파쇄기${RAID_OFF_SUFFIX}`);
+      expect(options.find(o => o.id === 'shredder_maw')!.label).toBe(`문서 파쇄기 · 배회형${RAID_OFF_SUFFIX}`);
       expect(RAID_OFF_SUFFIX.trim()).toBe('(꺼짐)');
     });
     // the data is back as it was

@@ -7,6 +7,7 @@
 import type { GameEvent, GameState } from '../types';
 import { Camera, PX_PER_UNIT_Z } from './camera';
 import { BOSS_DROP } from './bosses';
+import { bossHeadY, isMovingBoss } from './bosses/body';
 import { boldFont } from './look';
 import type { Vfx } from './vfx';
 import { groggyKick } from './juice';
@@ -64,7 +65,9 @@ export class GroggyFx {
     if (ev.type !== 'bossGroggy') return;
     const boss = s.entities.find(e => e.id === ev.entityId);
     const x = boss ? boss.pos.x : 12;
-    const y = boss ? boss.pos.y : -1.2;
+    // 기획 20차: a moving boss's gold ring starts at its feet (a set piece stands above the arena: its foot line is 2.6 below)
+    const moving = !!boss && isMovingBoss(boss.defId);
+    const y = boss ? boss.pos.y - (moving ? 2.6 : 0) : -1.2;
     const kick = groggyKick(vfx.juice.settings);
     vfx.juice.hitStop(kick.stop, { cap: kick.stop, ignoreBudget: true });
     vfx.juice.shake(kick.shake, 0.4);
@@ -104,7 +107,8 @@ export class GroggyFx {
     if (!st) return;
     const boss = s.bossId != null ? s.entities.find(e => e.id === s.bossId) : undefined;
     const x = cam.sx(boss ? boss.pos.x : 12);
-    const y = Math.max(176, cam.sy(boss ? boss.pos.y : -1.2) + BOSS_DROP + 1.6 * PX_PER_UNIT_Z);
+    // 기획 20차: over a moving boss the stamp sits above its head (kept clear of the top boss panel)
+    const y = boss && isMovingBoss(boss.defId) ? Math.max(176, bossHeadY(cam, boss.defId, boss.pos.y) - 50) : Math.max(176, cam.sy(boss ? boss.pos.y : -1.2) + BOSS_DROP + 1.6 * PX_PER_UNIT_Z);
     const a = st.age;
     const k = a < STAMP_IN ? 1.6 - 0.6 * (a / STAMP_IN) : 1;
     const fade = a > STAMP_IN + STAMP_HOLD ? Math.max(0, 1 - (a - STAMP_IN - STAMP_HOLD) / STAMP_OUT) : 1;

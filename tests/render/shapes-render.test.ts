@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createRenderer } from '../../src/render';
 import { Camera } from '../../src/render/camera';
-import { previewDashEnd, previewDrawParts } from '../../src/render/preview';
+import { drawAreaDirection, previewDashEnd, previewDrawParts } from '../../src/render/preview';
 import { pathArea } from '../../src/render/shapes';
 import { DEFAULT_TUNABLES } from '../../src/config';
 import { CHARACTERS } from '../../src/data';
@@ -112,6 +112,29 @@ describe('drawn footprint = hit-test footprint', () => {
     expect(Math.min(...w2.map(p => p.y))).toBeCloseTo(0);
     expect(Math.max(...w2.map(p => p.y))).toBeCloseTo(12);
     expect(Math.min(...w2.map(p => p.x))).toBeCloseTo(8.7);
+  });
+});
+
+describe('direction cue of a turned cone (기획 20차)', () => {
+  /** Every canvas call with its arguments, as one string per call. */
+  function trace(area: AreaShape): string[] {
+    const out: string[] = [];
+    const ctx = new Proxy({} as Record<string | symbol, unknown>, {
+      get: (t, prop) => (prop in t ? t[prop] : (...a: unknown[]) => void out.push(`${String(prop)}(${a.map(v => (typeof v === 'number' ? v.toFixed(3) : String(v))).join(',')})`)),
+      set: (t, prop, v) => ((t[prop] = v), true),
+    }) as unknown as CanvasRenderingContext2D;
+    const cam = new Camera();
+    cam.x = 12;
+    drawAreaDirection(ctx, cam, { x: 12, y: 6 }, area, '#ffffff', 0.8, 0.3, false);
+    return out;
+  }
+
+  it("the arrow follows `rot` (a boss's rel 'facing' cone), not the nominal dir: rot 180 draws what dir 'left' draws", () => {
+    const left = trace({ shape: 'cone', dir: 'left', radius: 5.5, angle: 110 });
+    expect(left.length).toBeGreaterThan(4);
+    expect(trace({ shape: 'cone', dir: 'right', rot: 180, radius: 5.5, angle: 110 })).toEqual(left);
+    expect(trace({ shape: 'cone', dir: 'right', rot: 90, radius: 5.5, angle: 110 })).toEqual(trace({ shape: 'cone', dir: 'down', radius: 5.5, angle: 110 }));
+    expect(trace({ shape: 'cone', dir: 'right', radius: 5.5, angle: 110 })).not.toEqual(left);
   });
 });
 

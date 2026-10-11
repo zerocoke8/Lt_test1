@@ -2,6 +2,7 @@
 
 import type { MonsterDef, Team, Vec2 } from '../types';
 import { getCharacter } from '../data';
+import { BOSS_FORM } from '../data/bosses/forms';
 import { ARENA_MARGIN, CHAR_RADIUS, SKILL_START_JITTER } from './constants';
 import { benchMaxHp, effStats } from './stats';
 import { dropAnchors } from './status';
@@ -152,6 +153,13 @@ export function benchActive(w: World, p: SimPlayer): SimEntity | null {
 
 export function clampUnit(w: World, e: SimEntity): void {
   if (e.rt.stationary) return;
+  if (e.rt.form) {
+    // 기획 20차 (rule N1): a moving boss's centre stays inside its box (walk, charge end, blink)
+    const b = BOSS_FORM.box;
+    e.pos.x = clamp(e.pos.x, b.xMin, b.xMax);
+    e.pos.y = clamp(e.pos.y, b.yMin, b.yMax);
+    return;
+  }
   const a = arena(w);
   const mg = Math.max(ARENA_MARGIN, Math.min(e.radius, 1));
   e.pos.x = clamp(e.pos.x, mg, a.width - mg);

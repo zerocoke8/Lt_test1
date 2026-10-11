@@ -4,7 +4,7 @@
 // Pure drawing over (DragPreview, arena); geometry comes from sim/geometry so the picture equals the hit test.
 
 import type { AreaShape, DragPreview, GameState, PreviewPart, Vec2 } from '../types';
-import { DIR_VEC, areaCentroid, dashEnd, rectFrame } from '../sim/geometry';
+import { areaCentroid, areaDir, dashEnd, rectFrame } from '../sim/geometry';
 import { dropOutcome } from '../sim/fieldEventPreview';
 import { Camera } from './camera';
 import { boldFont } from './look';
@@ -87,7 +87,7 @@ export function drawAreaDirection(ctx: CanvasRenderingContext2D, cam: Camera, ce
     return;
   }
   if (area.shape === 'cone') {
-    const u = DIR_VEC[area.dir];
+    const u = areaDir(area); // 기획 20차: dir, or rot when present (a boss's rel 'facing' cone)
     const R = area.radius;
     drawGroundChevrons(ctx, cam, center.x + u.x * 0.3, center.y + u.y * 0.3, center.x + u.x * R * 0.7, center.y + u.y * R * 0.7, color, strong ? 11 : 8, strong ? 30 : 26, time * 1.6, alpha * 0.55);
     drawGroundArrow(ctx, cam, center.x + u.x * R * 0.45, center.y + u.y * R * 0.45, center.x + u.x * R * 0.96, center.y + u.y * R * 0.96, color, strong ? 5 : 3, strong ? 22 : 14, 1, alpha);

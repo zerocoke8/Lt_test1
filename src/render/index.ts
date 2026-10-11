@@ -20,11 +20,11 @@ import { Backdrop } from './ground';
 import { COLORS, OTHER_PLAYER_FX, OTHER_ZONE_ALPHA, boldFont, lighten } from './look';
 import { gearBandsOf } from '../data/gear';
 import { CHARACTERS } from '../data';
-import { areaCentroid, areaExtent } from '../sim/geometry';
+import { areaCentroid, areaDir, areaExtent } from '../sim/geometry';
 import { drawAimedDirection, drawAreaDirection, drawFieldEventPreview, drawPreviewBadges, drawPreviewFootprint, previewDashEnd } from './preview';
 import { FieldEventFx } from './fieldEvents';
 import { GroggyFx } from './groggyFx';
-import { TAU, addAreaPath, areaReach, pathArea, pathCapsule } from './shapes';
+import { TAU, addAreaPath, areaReach, drawGroundChevrons, groundEllipse, pathArea, pathCapsule } from './shapes';
 import {
   HERO_POSE,
   type UnitMemo,
@@ -47,8 +47,11 @@ import {
 import { Vfx, type VfxContext, playerColor } from './vfx';
 import type { BandAvoid } from './cutin';
 import { TeleSequencer, type TeleSeqInfo } from './teleseq';
-import { BOSS_TELE_MOTIF } from './bosses';
+import { BOSS_TELE_MOTIF, BOSS_ZONE_LOOKS, bossLook } from './bosses';
 import { drawTeleMotif } from './bosses/teleMotif';
+import { type BossBodyAnim, bodyBox, bossBody, bossDecoy, bossHeadY, drawBossBody, drawBossBodyGround, drawBossOverhead, isMovingBoss, newBodyAnim, pickPose, stepBodyAnim } from './bosses/body';
+import { BossStage } from './bosses/stage';
+import { drawArriveMotif, drawChargeMotif, drawMarkBadge, drawSafeVeil, drawXrayGhost } from './bosses/fieldMarks';
 import { screenBoostFor } from './juice';
 import { DASH_LAND } from './dashtime';
 import { CREATURE_POSE, midAura } from './creatures';
@@ -82,6 +85,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const vc: VfxContext = { state: null as unknown as GameState, memos, localPlayer: 0 };
   const sorted: Entity[] = [];
   const bosses: Entity[] = [];
+  // 기획 20차 보스 형태: a boss whose form is not 'fixed' is a body inside the arena — it goes into `sorted` (drawn in y
+  // order with the characters) and is drawn by bosses/body.ts; `movers` = those of this frame. Fixed bosses stay in
+  // `bosses` and are drawn as set pieces exactly as before.
+  const movers: Entity[] = [];
+  const bodyAnims = new Map<number, BossBodyAnim>();
+  const stage = new BossStage();
+  /** The last moving boss drawn (it sinks away at that spot while the retreat plays). */
+  const lastMover = { x: 0, y: 0, radius: 1.5, facing: 0, color: '#888888', defId: '', phase: 1, anim: null as BossBodyAnim | null };
+  let hasLastMover = false;
+  let frameDt = 0;
   let stamp = 0;
   let time = 0;
   let dpr = 0;
@@ -164,9 +177,39 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   // ─────────────────────────── ground-layer passes ───────────────────────────
 
+  /**
+   * 기획 20차 (rule N4): trail zones (a boss's footprints, the path a rush drew) carry a `look`; all zones of one look
+   * are painted as ONE shape — one dashed edge, one fill — so a trail reads as a path, not as a string of circles.
+   */
+  function drawTrailZones(state: GameState): void {
+    const c = ctx!;
+    let looks: string[] | null = null;
+    for (const z of state.zones) if (z.look && !(looks ??= []).includes(z.look)) looks.push(z.look);
+    if (!looks) return;
+    for (const look of looks) {
+      const lk = BOSS_ZONE_LOOKS[look] ?? TRAIL_LOOK;
+      c.beginPath();
+      for (const z of state.zones) if (z.look === look) groundEllipse(c, cam, z.center.x, z.center.y, z.radius);
+      c.setLineDash(ZONE_DASH);
+      c.lineDashOffset = -time * 14;
+      c.globalAlpha = 0.9;
+      c.lineWidth = 5;
+      c.strokeStyle = lk.edge ?? COLORS.telegraphEnemy;
+      c.stroke();
+      c.setLineDash(NO_DASH);
+      c.lineDashOffset = 0;
+      c.globalAlpha = 0.72;
+      c.fillStyle = lk.fill;
+      c.fill();
+    }
+    c.globalAlpha = 1;
+  }
+
   function drawZones(state: GameState): void {
     const c = ctx!;
+    drawTrailZones(state);
     for (const z of state.zones) {
+      if (z.look) continue; // 기획 20차: drawn above, as one path per look
       if (!cam.visibleX(z.center.x, (z.area ? areaReach(z.area) : z.radius) + 1)) continue;
       // 기획 13차: a renewed skill's field is border decor only (render/marks.ts)
       const deco = vfx.marks.zone(z.id);
@@ -342,6 +385,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     teleBoxN = 0;
     for (const t of state.telegraphs) {
       if (t.team !== 'enemy' || t.self) continue; // 기획 19차 (M1): a boss's self-cast ring has no red fill
+      if (isSafeRing(t) || laterSweep(t)) continue; // 기획 20차: a safe ring is a veil, a later step of a moving line an outline
       const sq = teleSeq.info(t, seqTmp);
       if (sq && !sq.next) continue;
       const r = (t.area.shape === 'circle' && t.area.radius > 30 ? 40 : areaReach(teleArea(t))) + 0.3;
@@ -457,10 +501,58 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     return labelTmp;
   }
 
+  /** 기획 20차: find-the-safe-spot — an enemy ring whose outer edge covers the whole arena (helpers.ts safeRing). */
+  function isSafeRing(t: Telegraph): boolean {
+    return t.area.shape === 'ring' && t.area.outer >= SAFE_RING_OUTER;
+  }
+
+  /** The soonest landing among this frame's 'sweep' warnings (the step of a moving line that is about to land). */
+  let sweepMin = Infinity;
+  function laterSweep(t: Telegraph): boolean {
+    return t.motif === 'sweep' && t.remaining > sweepMin + SWEEP_SAME;
+  }
+
+  /**
+   * 기획 20차 (rule N3): the steps of a turning beam / a sliding line show one after the other. Only the step about to
+   * land is drawn strong; a chevron row from it to the next step says which way the line moves.
+   */
+  function drawSweepFlow(state: GameState): void {
+    let now: Telegraph | null = null;
+    let next: Telegraph | null = null;
+    for (const t of state.telegraphs) {
+      if (t.motif !== 'sweep' || t.area.shape !== 'rect') continue;
+      if (!laterSweep(t)) now ??= t;
+      else if (!next || t.remaining < next.remaining) next = t;
+    }
+    if (!now || !next) return;
+    const a = sweepPoint(now, SWEEP_A);
+    const b = sweepPoint(next, SWEEP_B);
+    drawGroundChevrons(ctx!, cam, a.x, a.y, b.x, b.y, '#ffffff', 11, 30, time * 2.2, 0.95);
+  }
+
+  /** A point on a strip: its middle, or — when the next strip shares that middle (a turning beam) — 35 % out along it. */
+  function sweepPoint(t: Telegraph, out: { x: number; y: number }): { x: number; y: number } {
+    const a = t.area as Extract<AreaShape, { shape: 'rect' }>;
+    const mid = areaCentroid(a, t.center);
+    const u = areaDir(a);
+    out.x = mid.x + u.x * a.length * 0.35;
+    out.y = mid.y + u.y * a.length * 0.35;
+    return out;
+  }
+
   function drawEnemyTelegraphs(state: GameState): void {
     const c = ctx!;
     const color = COLORS.telegraphEnemy;
+    sweepMin = Infinity;
+    for (const t of state.telegraphs) {
+      if (t.team !== 'enemy') continue;
+      if (t.motif === 'sweep' && t.remaining < sweepMin) sweepMin = t.remaining;
+      // under everything else; 기획 20차 점검: each boss paints its own veil (ink / moonlight / storm — BossLook.veil)
+      if (isSafeRing(t)) drawSafeVeil(c, cam, t, state.plan.arena.width, state.plan.arena.height, time, bossLook(state.plan.bossId ?? '')?.veil);
+    }
     fillEnemyTelegraphs(state, c);
+    // 기획 20차: on a bright floor (the pencil's paper) a dark casing goes under every red outline
+    const casing = stage.tone === 'light';
     seqChain.length = 0;
     for (const t of state.telegraphs) {
       if (t.team !== 'enemy') continue;
@@ -468,11 +560,18 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         drawSelfCastRing(c, t); // 기획 19차 (M1): yellow, not a danger
         continue;
       }
+      if (isSafeRing(t)) continue; // drawn as the veil above
       const p = t.total > 0 ? Math.max(0, Math.min(1, 1 - t.remaining / t.total)) : 1;
       const area = teleArea(t);
       const sq = teleSeq.info(t, seqTmp);
-      const later = !!sq && !sq.next;
+      const later = (!!sq && !sq.next) || laterSweep(t);
       pathArea(c, cam, t.center, t.origin, area, 1);
+      if (casing) {
+        c.globalAlpha = 0.55;
+        c.lineWidth = later ? 5 : 7;
+        c.strokeStyle = '#1a0006';
+        c.stroke();
+      }
       if (later) {
         // a later part of the same cast: a dashed outline only (its number says when)
         c.setLineDash(LATER_DASH);
@@ -495,9 +594,11 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
           c.stroke();
         }
         // a sweep band's own "down" chevrons would point the wrong way (the sweep goes sideways): arrows only on lone rects
-        if ((area.shape === 'rect' && !sq) || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
+        if (t.motif === 'charge') drawChargeMotif(c, cam, t, time); // 기획 20차: a rush flows along its path
+        else if ((area.shape === 'rect' && !sq && t.motif !== 'sweep') || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
         else if (area.shape === 'fan' || area.shape === 'line') drawAimedDirection(c, cam, t.center, t.origin, area, '#ffe2e2', 0.85, time);
       }
+      if (t.motif === 'arrive') drawArrive(state, t); // 기획 20차: the boss comes to this seat
       // 기획 19차: a new boss's warning says what it does (pull / push / linger / spawn); no classic skill has a row
       const skill = teleSeq.skillOf(t);
       const motif = skill != null ? BOSS_TELE_MOTIF[skill] : undefined;
@@ -508,6 +609,38 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       }
     }
     if (seqChain.length > 1) drawSeqChains();
+    if (sweepMin < Infinity) drawSweepFlow(state);
+    c.globalAlpha = 1;
+  }
+
+  /** 기획 20차: the "it arrives here" ring + silhouette of a relocate warning, sized from the boss's body. */
+  function drawArrive(state: GameState, t: Telegraph): void {
+    const boss = state.bossId != null ? state.entities.find(e => e.id === state.bossId) : undefined;
+    if (!boss) return;
+    const box = bodyBox(boss.defId);
+    drawArriveMotif(ctx!, cam, t, boss.radius, box.w, box.h, time);
+  }
+
+  /**
+   * 기획 20차 (rule N6): the badge over every unit a bound part is tied to (one per unit: the mark that lands first),
+   * with the ring of its time left. Drawn over the units, like the one-target brackets.
+   */
+  function drawMarks(state: GameState): void {
+    const c = ctx!;
+    for (const t of state.telegraphs) {
+      if (t.mark == null || t.team !== 'enemy') continue;
+      // one badge per unit: skip a mark when an earlier telegraph of the list marks the same unit sooner
+      let first = true;
+      for (const o of state.telegraphs) {
+        if (o === t) break;
+        if (o.mark === t.mark) first = false;
+      }
+      if (!first) continue;
+      const m = memos.get(t.mark);
+      if (!m) continue;
+      const top = cam.sy(m.y + m.pullY) - bodyWidth(m.radius) * m.look.heightMul - 34;
+      drawMarkBadge(c, cam.sx(m.x + m.pullX), top, t.total > 0 ? t.remaining / t.total : 0, time);
+    }
     c.globalAlpha = 1;
   }
 
@@ -585,7 +718,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         c.setLineDash(CAST_DASH);
         c.lineDashOffset = -time * 70;
         c.beginPath();
-        c.moveTo(cam.sx(boss.pos.x), cam.sy(0));
+        // 기획 20차: a moving boss aims from its body, a set piece from its foot line at the arena's back edge
+        if (isMovingBoss(boss.defId)) c.moveTo(cam.sx(boss.pos.x), cam.sy(boss.pos.y) - bodyBox(boss.defId).h * 0.5);
+        else c.moveTo(cam.sx(boss.pos.x), cam.sy(0));
         c.lineTo(sx, cy);
         c.stroke();
         c.setLineDash(NO_DASH);
@@ -948,8 +1083,150 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     pose.recoil = recoil;
   }
 
+  // ─────────────────────────── 기획 20차: moving boss bodies ───────────────────────────
+
+  /** Fill bossOpts for a boss entity (the same fields the set pieces get). */
+  function fillBossOpts(state: GameState, e: Entity, m: UnitMemo, retreat: number): BossDrawOpts {
+    const tgt = e.targetId !== null ? memos.get(e.targetId) : undefined;
+    const o = bossOpts;
+    o.color = m.look.color;
+    o.time = time;
+    o.enraged = e.enraged || state.bossEnraged;
+    o.flash = vfx.bossFlash;
+    o.retreat = retreat;
+    o.lookX = tgt ? tgt.x : null;
+    o.lookY = tgt ? tgt.y : null;
+    o.charge = e.anim === 'cast' || e.anim === 'attack' ? Math.sin(animProgress(e, m) * Math.PI) : 0;
+    o.shake = vfx.enrageT < 1 ? 1 - vfx.enrageT : 0;
+    o.phase = bossPhaseOf(e.defId, e.hp, e.maxHp);
+    o.phaseFlash = vfx.phaseFlash;
+    const gp = groggyFx.pose(state);
+    o.groggy = gp.groggy;
+    o.groggyWake = gp.groggyWake;
+    o.groggyNear = gp.groggyNear;
+    return o;
+  }
+
+  /** Where a moving boss is drawn this frame: its sim spot, or along the streak of a rush that is still replaying. */
+  const moverAt = { x: 0, y: 0 };
+  function moverPos(e: Entity): { x: number; y: number } {
+    moverAt.x = e.pos.x;
+    moverAt.y = e.pos.y;
+    if (vfx.dashPose(e.id, dashOff)) {
+      moverAt.x += dashOff.ox;
+      moverAt.y += dashOff.oy;
+    }
+    return moverAt;
+  }
+
+  /** Ground pass of a moving boss: shadow, boss ring, guard arcs — and a flat body (the moon's reflection) itself. */
+  function drawMoverGround(e: Entity, m: UnitMemo, state: GameState): void {
+    const c = ctx!;
+    const at = moverPos(e);
+    drawBossBodyGround(c, cam, e.defId, at.x, at.y, e.radius, e.facing, 1, time);
+    if (bossBody(e.defId).flat) drawMover(e, m, state);
+  }
+
+  function drawMover(e: Entity, m: UnitMemo, state: GameState): void {
+    const c = ctx!;
+    const at = moverPos(e);
+    let a = bodyAnims.get(e.id);
+    if (!a) bodyAnims.set(e.id, (a = newBodyAnim(at.x, at.y, e.facing)));
+    const o = fillBossOpts(state, e, m, 0);
+    const pose = pickPose(e.anim, o.groggy);
+    const rise = e.anim === 'appear' ? Math.min(1, m.appearAge / MOVER_RISE) : 1;
+    drawBossBody(c, cam, a, { defId: e.defId, x: at.x, y: at.y, facing: e.facing, pose, p: animProgress(e, m), rise }, o);
+    // screen-aligned groggy props of the look (a sign, Zzz …), as on a set piece
+    const props = o.groggy > 0 ? bossLook(e.defId)?.props : undefined;
+    if (props) props(c, cam, at.x, at.y, e.radius, o);
+    lastMover.x = at.x;
+    lastMover.y = at.y;
+    lastMover.radius = e.radius;
+    lastMover.facing = e.facing;
+    lastMover.color = m.look.color;
+    lastMover.defId = e.defId;
+    lastMover.phase = o.phase;
+    lastMover.anim = a;
+    hasLastMover = true;
+  }
+
+  /** Over a moving boss: the ▼ (bright for a moment after it appeared / arrived / rushed, and while a card is dragged), stun stars while it is down. */
+  function drawMoverOverhead(e: Entity, m: UnitMemo, dragging: boolean, state: GameState): void {
+    const c = ctx!;
+    const a = bodyAnims.get(e.id);
+    const at = moverPos(e);
+    // 기획 20차 점검 (가짜 찾기): a boss that has just jumped in among its fakes wears no ▼ for a moment (BossDef.decoy)
+    if (!(a && decoyHides(state, e.defId, a.sinceArrive))) drawBossOverhead(c, cam, e.defId, at.x, at.y, dragging || !a || a.sinceArrive < MOVER_MARK_SEC, time, 1);
+    if (e.anim === 'stunned' || hasStatus(e, 'stun')) drawStunStars(c, cam.sx(at.x), bossHeadY(cam, e.defId, at.y) + 4, bodyBox(e.defId).w * 0.5, time + m.phase);
+  }
+
+  /** Is this boss hiding among its fakes right now (it jumped less than decoy.hide s ago and one still stands)? */
+  function decoyHides(state: GameState, defId: string, sinceArrive: number): boolean {
+    const decoy = bossDecoy(defId);
+    if (!decoy || sinceArrive >= decoy.hide) return false;
+    return state.entities.some(x => x.defId === decoy.unit && x.hp > 0);
+  }
+
+  /** The boss is gone (it retreated): its body sinks into the floor where it last stood. */
+  function drawMoverRetreat(state: GameState, ground: boolean): void {
+    const retreat = vfx.bossRetreatT >= 0 ? Math.min(1, vfx.bossRetreatT / 2) : 0;
+    if (!hasLastMover || movers.length > 0 || retreat <= 0 || retreat >= 1 || !lastMover.anim) return;
+    const c = ctx!;
+    if (ground) {
+      drawBossBodyGround(c, cam, lastMover.defId, lastMover.x, lastMover.y, lastMover.radius, lastMover.facing, 1 - retreat, time);
+      return;
+    }
+    const o = bossOpts;
+    o.color = lastMover.color;
+    o.time = time;
+    o.enraged = state.bossEnraged;
+    o.flash = 0;
+    o.retreat = retreat;
+    o.lookX = null;
+    o.lookY = null;
+    o.charge = 0;
+    o.shake = 0;
+    o.phase = lastMover.phase;
+    o.phaseFlash = 0;
+    o.groggy = 0;
+    o.groggyWake = 0;
+    o.groggyNear = 0;
+    drawBossBody(c, cam, lastMover.anim, { defId: lastMover.defId, x: lastMover.x, y: lastMover.y, facing: lastMover.facing, pose: 'idle', p: 0, rise: 1 }, o);
+  }
+
+  /**
+   * A player character standing behind a moving boss (drawn before it, so the body covers it) shows through as a
+   * capsule in the player's colour — nobody gets lost behind a boss.
+   */
+  function drawXrays(state: GameState): void {
+    const c = ctx!;
+    for (const b of movers) {
+      if (bossBody(b.defId).flat) continue;
+      const at = moverPos(b);
+      const box = bodyBox(b.defId);
+      const bx = cam.sx(at.x);
+      const by = cam.sy(at.y);
+      const bossY = at.y;
+      for (const e of sorted) {
+        if (e.kind !== 'character' || e.ownerPlayer == null || e.pos.y >= bossY) continue;
+        const m = memos.get(e.id);
+        if (!m || vfx.hidden(e.id)) continue;
+        computePose(e, m);
+        const w = bodyWidth(e.radius);
+        const h = w * m.look.heightMul;
+        const cy = pose.fy - pose.z - h * 0.5;
+        if (Math.abs(pose.fx - bx) > box.w * 0.42 || cy < by - box.h * 0.95 || cy > by) continue;
+        drawXrayGhost(c, pose.fx, pose.fy - pose.z, w, h, playerColor(state, e.ownerPlayer), time);
+      }
+    }
+  }
+
   function drawUnitGround(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     const c = ctx!;
+    if (e.tier === 'boss') {
+      drawMoverGround(e, m, state); // 기획 20차: only moving bosses are in `sorted`
+      return;
+    }
     let lift = e.anim === 'appear' && m.appearAge < DASH_LAND ? 1 - (m.appearAge / DASH_LAND) ** 2 : 0;
     let gx = e.pos.x + m.pullX;
     let gy = e.pos.y + m.pullY;
@@ -981,14 +1258,17 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       // cast circle under the feet: a glow plus a dashed ring spinning in the character colour
       const ult = m.ultT < 0.9;
       const k = ult ? 1 - m.ultT / 0.9 : e.anim === 'cast' ? 1 : 1 - m.skillT / 0.45;
-      const r = e.radius * (ult ? 2.3 : 1.7) + (ult ? 0.6 : 0.25) * (1 - k);
+      // 기획 20차 점검: a boss's big summon (빈 침대, radius 1.3) winding up in a raid — three of them laid three pale
+      // 4-cell discs over the party and the lanes' start. Its ring hugs the body and has no fill.
+      const bulky = state.mode === 'bossRaid' && e.team === 'enemy' && e.radius >= 1;
+      const r = bulky ? e.radius * 1.1 : e.radius * (ult ? 2.3 : 1.7) + (ult ? 0.6 : 0.25) * (1 - k);
       c.globalAlpha = (ult ? 0.4 : 0.3) * k;
       c.fillStyle = m.look.light;
       c.beginPath();
       c.ellipse(sx0, sy0, r * PX_PER_UNIT, r * PX_PER_UNIT_Y, 0, 0, TAU);
-      c.fill();
-      c.globalAlpha = 0.95 * k;
-      c.lineWidth = ult ? 4 : 3;
+      if (!bulky) c.fill();
+      c.globalAlpha = (bulky ? 0.6 : 0.95) * k;
+      c.lineWidth = bulky ? 2 : ult ? 4 : 3;
       c.strokeStyle = m.look.light;
       c.setLineDash(CAST_DASH);
       c.lineDashOffset = -time * 60;
@@ -1034,6 +1314,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function drawUnitBody(e: Entity, m: UnitMemo): void {
     const c = ctx!;
+    if (e.tier === 'boss') {
+      if (!bossBody(e.defId).flat) drawMover(e, m, vc.state); // 기획 20차 (a flat body was drawn on the ground pass)
+      return;
+    }
     if (vfx.hidden(e.id)) return;
     computePose(e, m);
     const look = m.look;
@@ -1044,7 +1328,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const fy = pose.fy - pose.z;
     let alpha = 1;
     if (e.expiresIn !== null && e.expiresIn < 2 && e.kind === 'summon') alpha = Math.sin(time * 20) > 0 ? 1 : 0.45;
-    if (e.anim === 'cast' || m.ultT < 0.6) {
+    // 기획 20차 점검: no pale halo behind a boss's big summon in a raid (three 빈 침대 hid the party and the lanes' start)
+    const bulky = vc.state.mode === 'bossRaid' && e.team === 'enemy' && e.radius >= 1;
+    if ((e.anim === 'cast' && !bulky) || m.ultT < 0.6) {
       const k = 0.5 + 0.5 * Math.sin(time * 14);
       const ult = m.ultT < 0.6;
       c.globalAlpha = (ult ? 0.45 : 0.25) + 0.2 * k;
@@ -1105,6 +1391,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   function drawUnitOverhead(e: Entity, m: UnitMemo, local: number, state: GameState): void {
     if (e.eventTag === 'ward') return; // 기획 12차: the patient / child get their own markers (render/fieldEvents.ts)
+    if (e.tier === 'boss') {
+      drawMoverOverhead(e, m, draggingNow, state); // 기획 20차: no HP bar on the body (the boss panel has it)
+      return;
+    }
     const c = ctx!;
     computePose(e, m);
     const look = m.look;
@@ -1420,6 +1710,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (ui.dragPreview) juice.cancelFreeze();
     const dt = juice.frozen && freezeOk ? 0 : realStep;
     time += dt;
+    frameDt = dt;
+    draggingNow = ui.dragPreview !== null;
     stamp++;
     ensureBackingStore(realStep);
 
@@ -1432,6 +1724,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         groggyFx.reset();
         teleSeq.reset();
         lastMonsterSkill.clear();
+        bodyAnims.clear();
+        stage.reset();
+        hasLastMover = false;
         arenaFloor = -1;
       }
       runSeed = state.seed;
@@ -1454,6 +1749,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       cam.setArena(arena.width, arena.height);
       snapPending = true;
       hasLastBoss = false;
+      hasLastMover = false;
+      bodyAnims.clear();
+      stage.reset();
     }
     backdrop.ensure(arena.width, arena.height, boss, state.floor, dpr, state.plan.theme, state.plan.bossId);
 
@@ -1474,6 +1772,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (ev.type === 'floorStart') {
         snapPending = true;
         hasLastBoss = false;
+        hasLastMover = false;
       }
     }
 
@@ -1511,11 +1810,30 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     } else if (!ui.freezeCamera) {
       cam.follow(target, dt);
     }
+    movers.length = 0;
     for (const e of state.entities) {
-      if (e.tier === 'boss') bosses.push(e);
-      else if (cam.visibleX(e.pos.x, 2.5)) sorted.push(e);
+      if (e.tier === 'boss' && !isMovingBoss(e.defId)) bosses.push(e);
+      else if (cam.visibleX(e.pos.x, 2.5)) {
+        sorted.push(e);
+        if (e.tier === 'boss') movers.push(e); // 기획 20차: a body in the arena, y-sorted with the characters
+      }
     }
     sorted.sort(byY);
+    // 기획 20차: the floor art of the boss on this floor (baked per boss + phase), and each moving body's walk memory
+    const floorBoss = boss && state.bossId != null ? state.entities.find(e => e.id === state.bossId) : undefined;
+    stage.ensure(boss ? state.plan.bossId : undefined, floorBoss ? bossPhaseOf(floorBoss.defId, floorBoss.hp, floorBoss.maxHp) : stagePhase, arena.width, arena.height, dpr);
+    if (floorBoss) stagePhase = bossPhaseOf(floorBoss.defId, floorBoss.hp, floorBoss.maxHp);
+    stage.update(dt);
+    for (const e of movers) {
+      const at = moverPos(e);
+      let a = bodyAnims.get(e.id);
+      if (!a) bodyAnims.set(e.id, (a = newBodyAnim(at.x, at.y, e.facing)));
+      stepBodyAnim(a, at.x, at.y, e.facing, frameDt);
+    }
+    // forget the memory of bodies that are gone (the last one is kept: it sinks away during the retreat)
+    if (bodyAnims.size > movers.length + 1) {
+      for (const [id, a] of bodyAnims) if (a !== lastMover.anim && !movers.some(e => e.id === id)) bodyAnims.delete(id);
+    }
 
     // ── draw ──
     c.globalAlpha = 1;
@@ -1530,6 +1848,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       c.translate(sh.x, sh.y);
     }
     backdrop.draw(c, cam, time, ui.dragPreview !== null);
+    if (stage.active) {
+      // 기획 20차: the boss's floor art — over the zone floor, under zones, warnings and units
+      const retreat = vfx.bossRetreatT >= 0 ? Math.min(1, vfx.bossRetreatT / 2) : 0;
+      const fo = floorBoss && memos.get(floorBoss.id) ? fillBossOpts(state, floorBoss, memos.get(floorBoss.id)!, retreat) : stageOpts(state, retreat);
+      stage.draw(c, cam, arena.width, arena.height, fo, floorBoss ? 0 : retreat);
+    }
     drawBosses(state, true);
     c.save();
     c.beginPath();
@@ -1542,6 +1866,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.restore();
     if (ui.dragPreview) drawPreviewGround(ui.dragPreview, state);
     for (const e of sorted) drawUnitGround(e, memos.get(e.id)!, ui.localPlayer, state);
+    drawMoverRetreat(state, true);
     drawBosses(state, false);
     if (state.telegraphs.length > 0) {
       c.save();
@@ -1562,6 +1887,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       drawUnitBody(mine, memos.get(mine.id)!);
       drawLocalOutline(mine, memos.get(mine.id)!, playerColor(state, ui.localPlayer));
     }
+    drawMoverRetreat(state, false);
+    if (movers.length > 0) drawXrays(state); // 기획 20차: characters hidden behind a boss body show through
     drawProjectiles(state);
     vfx.drawAir(c, cam, time);
     if (vfx.screen.worldActive()) drawWorldScreen(state, sorted);
@@ -1569,6 +1896,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
     if (state.telegraphs.length > 0) drawSingleLocks(state); // 기획 19차 review: who a one-target attack is aimed at
+    if (state.telegraphs.length > 0) drawMarks(state); // 기획 20차 (rule N6): the badge over a marked unit
     fieldFx.drawOverlay(c, cam, state, time);
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     if (ui.dragPreview) drawFieldEventPreview(c, cam, state, ui.dragPreview, ui.localPlayer, time);
@@ -1707,7 +2035,44 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function previewColor(dp: DragPreview): string {
     return dp.valid ? dp.color || COLORS.previewValid : COLORS.previewInvalid;
   }
+
+  /** Draw options for the floor art while no boss entity is on the floor (it retreated): calm, last phase. */
+  function stageOpts(state: GameState, retreat: number): BossDrawOpts {
+    const o = bossOpts;
+    o.color = lastMover.color;
+    o.time = time;
+    o.enraged = state.bossEnraged;
+    o.flash = 0;
+    o.retreat = retreat;
+    o.lookX = null;
+    o.lookY = null;
+    o.charge = 0;
+    o.shake = 0;
+    o.phase = stagePhase;
+    o.phaseFlash = 0;
+    o.groggy = 0;
+    o.groggyWake = 0;
+    o.groggyNear = 0;
+    return o;
+  }
 }
+
+/** 기획 20차: the phase the floor art was last baked for (kept while the boss entity is gone). */
+let stagePhase = 1;
+/** 기획 20차: a card is being dragged this frame (the ▼ over a moving boss is bright). */
+let draggingNow = false;
+/** Seconds a moving body takes to rise in (floor start, arrival on a seat). */
+const MOVER_RISE = 0.35;
+/** Seconds the ▼ over a moving boss stays bright after it appeared / arrived / rushed. */
+const MOVER_MARK_SEC = 1.5;
+/** A ring whose outer edge is at least this far is "everything but the hole" (helpers.ts safeRing: 30). */
+const SAFE_RING_OUTER = 20;
+/** Steps of a moving line landing within this many seconds of each other count as one step. */
+const SWEEP_SAME = 0.05;
+const SWEEP_A = { x: 0, y: 0 };
+const SWEEP_B = { x: 0, y: 0 };
+/** The paint of a trail zone whose look has no row yet (BOSS_ZONE_LOOKS). */
+const TRAIL_LOOK = { fill: '#5a1220', edge: '#ff3b4d' };
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };
 /** 기획 19차 review: the ground mark of an enemy's one-target warning (display only — the hit is still one character). */

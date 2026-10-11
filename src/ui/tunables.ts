@@ -66,6 +66,8 @@ export const SLIDERS: SliderSpec[] = [
   { group: '보스 튜닝', key: 'bossAreaMult', label: '보스 범위 크기 배율', min: 0.5, max: 2, step: 0.05, unit: '×' },
   { group: '보스 튜닝', key: 'bossRaidHpMult', label: '보스 레이드 HP 배율', min: 0.2, max: 3, step: 0.05, unit: '×' },
   { group: '보스 튜닝', key: 'bossRaidAtkMult', label: '보스 레이드 공격 배율', min: 0.2, max: 3, step: 0.05, unit: '×' },
+  // 기획 20차: walking speed of a boss with a form (roaming / arena), live
+  { group: '보스 튜닝', key: 'bossMoveMult', label: '보스 이동 속도 배율', min: 0.5, max: 2, step: 0.05, unit: '×' },
   { group: '진행', key: 'gameSpeed', label: '게임 속도', min: 0.25, max: 4, step: 0.25, unit: '×' },
 ];
 

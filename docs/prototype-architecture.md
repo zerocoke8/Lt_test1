@@ -683,3 +683,27 @@ src/sim (서버·혼자 하기 공통, 결정적)
 - 보스 그림 색: `render/color.ts`의 `mix`·`darken`·`lighten`은 **hex만 읽고 `rgb()` 글자를 돌려줌** → 한 번 섞은 색을 다시 섞으면 회색(160)에서 시작함. 새 보스용 `bosses/kit.ts tinted()`는 페이즈·광폭화 색을 한 번에 섞어 **hex로 돌려줌**(그 뒤 `darken(tinted(…))` 가능). 기존 보스 4종(`classic.ts`의 자기 `tinted`, `boss.ts`)은 픽셀을 지키려고 그대로 둠 — 공용 `parseColor`를 고치면 기존 그림 전체가 바뀔 수 있어 건드리지 않음.
 - 보기 도구: `node tests/visual/boss-sheet.mjs out=docs/screenshots/bosses-20.png`(20종 × 대기·준비, 구역마다 한 줄). `poses=idle,windup,groggy,enraged phase=2 only=<id>,<id>`. 준비 자세는 둘째 프레임부터 고정(첫 프레임에서 시전 길이 0.8초를 기록해야 `o.charge`가 나옴), `phase=2`는 HP 40%.
 - 브라우저 테스트: `tests/e2e/boss-raid.spec.ts`(솔로 3개), `multi-boss-raid.spec.ts`(3명: 라벨·같은 보스·「보스 고르기」·전멸 / 20층 디버그 완주), `artifact.spec.ts`의 보스 레이드 항목(서버 없이 · 새로고침 뒤 기록).
+
+## 20차: 보스 형태 (2026-10-12)
+
+규칙은 [`bosses.md`](bosses.md) 1 · 3장, 결정은 `game-design.md` §33. 이 장은 "어디에 무엇이 있나"만. **모든 새 길은 보스 데이터의 새 칸(`form` 등)이 있을 때만, 또는 보스 레이드일 때만 열림** — 기존 4종 · 클래식 탑 · 원정은 한 틱도 안 바뀜(`tests/sim/default-off-golden.test.ts`와 결정론 테스트를 다시 기록하지 않고 통과). 새 규칙은 난수를 안 씀.
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/types.ts` | `BossDef`에 `form?`('fixed' · 'roaming' · 'relocating' · 'arena') · `spawn?` · `move?`(`mode` pursue / keepAway / patrol / path, `target`, `retarget`, `axis`, `turnRate`, `keep`, `waypoints`, `dwell`, `castMove`) · `spots?` · `stage?` · `guard?` · `trail?` · `signature?`. `MonsterSkill.castMove?` · `cycle?`. `SkillAction`에 `center: 'arena'` · `rel: 'facing'` · `once` · `bound` · `relocate` · `trail` · `charge.recover`. 띠 · 부채꼴에 `rot`. `Telegraph.motif?` · `mark?`, `Zone.look?`, 이벤트 `markClear`, `damage.guard?`, 튜닝 `bossMoveMult` |
+| `src/data/bosses/forms.ts` | 공용 숫자 전부: `BOSS_FORM`(상자 x 2~22 · y 3~10, 기본 등장 자리, 몸 돌리기 180°/초, 걷는 각 60°, 등장 1초, 도착 0.4초, 광폭화 걸음 ×1.25, 도발 면역 6초 …) · `ZONE_AVOID`(장판 피해 걷기) · `BOT_RAID`(봇 점수) · `BOSS_FORM_LABEL` · `BOSS_FORM_TIP` |
+| `src/data/bosses/helpers.ts` | 조각 도우미: `arenaAt(x, y)` · `ahead(d, side)` · `safeRing(inner)` · `chargeAt({…})` · `relocateTo({…})` · `spokes({…})`(도는 빛줄기) · `rays({…})`(갈래 선) · `scan({…})`(밀려오는 줄). `band` / `row` / `rowR` / `at`는 고정형 전용 |
+| `src/sim/bossForm.ts` | `bossSpawnPos`(고정 = `BOSS_POS`, 자리 이동 = `spots[0]`, 그 밖 = `spawn` / 길의 첫 점) · `initBossForm`(형태 상태, 「무거움」, 등장 1초, **걸어 다니는 보스는 맵 가운데 쪽을 보고 나옴**) · `bossStep`(쫓기 · 거리 두기 · 순찰 · 길, 한 축 걷기, 몸 돌리기) · `tickBossForm`(도발 뒤 면역 6초, 순찰 보스는 가까운 길 점으로) · 발자국 `dropTrailZone` · `spotFacing` |
+| `src/sim/units.ts` · `skills.ts` · `combat.ts` · `status.ts` · `stats.ts` · `entities.ts` · `floor.ts` · `geometry.ts` · `justSwap.ts` | `act()`가 형태 보스면 `formTarget` + `actFormBoss`로 갈림. 시전 중 멈춤 = 마지막 조각까지. 아레나 좌표 · 보는 쪽 기준 · 자리 이동 · 한 번만 맞기 · 표식 · 번갈아 쓰기 · 돌진 흔적(`skills.ts`), 앞뒤 배율(`combat.ts hitMults`), 도발은 배회형만(`status.ts`), 이동 속도 배율과 광폭화 걸음(`stats.ts`), 상자 안에만(`entities.ts clampUnit`), 기울인 띠(`geometry.ts rectFrame` — `rot`을 읽는 한 곳) |
+| `src/sim/zoneAvoid.ts` | 「남는 장판 피해 걷기」(레이드의 캐릭터만): 장판 밖으로 나오기, 깨끗한 자리 고르기, 35° · 70° · 105° 옆으로 돌기, 1.5초 뒤 포기, 아군이 선 자리 피하기, 안 밀리는 몸에 정면으로 막히면 한 걸음 비키기. 예고는 안 읽음 — 단, 「안전한 자리 찾기」 예고(큰 고리 · `keepOut` 조각) 밖에 선 캐릭터는 그 안으로 걸어 들어가지 않음(기획 20차 점검, `SAFE_HOLD`). 포기한 뒤에는 대상에 닿을 때까지 쫓음 |
+| `src/sim/bot.ts` | 레이드에서만: `raidDropScore`(장판 · 곧 떨어질 예고 · 보스 등 뒤), 「안전한 구멍」이 있으면 그 안의 가장자리에 꺼냄, 표식이 1.2초 남으면 교체. 클래식은 그대로 |
+| `src/render/bosses/body.ts` · `stage.ts` · `fieldMarks.ts` · `types.ts` | 몸 그리기 틀(`BossBody` — 오른쪽을 보는 그림만 그리면 틀이 뒤집기 · 걷기 흔들림 · 준비 부풀기 · 그로기 기울임 · 광폭화 · 등장 / 퇴각을 처리, 자세 5개, 220번 이하 · 글자 없음), 바닥 무대(`BossStageLook` — 한 번 굽고 프레임당 1장, 자리 점선 · 순찰 길 · 앞뒤 호는 데이터에서), 표식 배지 · 가린 캐릭터 실루엣 · 돌진 / 도착 / 안전 장막 덧그림(장막 그림은 보스마다: `BossLook.veil` ink · moon · storm) |
+| `src/render/index.ts` · `preview.ts` · `shapes.ts` · `shapeIcon.ts` | 움직이는 보스는 캐릭터와 같은 목록에서 세로 순서로 그림(고정형은 예전 길 그대로). 흔적 장판은 그림 종류마다 한 덩어리. 새 예고 종류 전부, 기울인 띠 · 부채꼴의 방향 화살표 |
+| `src/render/bosses/{lobby,office,ward,rooftop}.ts` | 보스별 `body`(움직이는 14종) · `stage`(연필 종이, 달 밤, 에스컬레이터 계단, 노래방 빛, 서랍 6칸, 모니터 책상, 회의 탁자, 촬영기 레일) · `<ZONE>_ZONE_LOOKS`(커피 · 흑연) · 새 쫄 그림(가짜 창 · 빈 침대) |
+| `src/ui/bossFormHud.ts` · `hud.ts` · `pause.ts` · `debug.ts` · `tunables.ts` · `bossRaid.css` | 형태 줄 · 형태 칩 · 「보스」 이름표 · 「교체!」 카드 · 패턴 팁 칸(`TipQueue` — 한 번에 하나, 예고 + 2.5초, 패턴마다 두 번) · 일시정지 「이 보스」(「뒤!」 / 「막힘」은 `render/vfx.ts`가 내 피해 숫자에 붙임) · 「보스 고르기」의 「이름 · 형태」 · 슬라이더 「보스 이동 속도 배율」 |
+| `src/net/protocol.ts` | 통신 버전 7 (`multiplayer.md` 2장 7번). 서버 코드는 안 바뀜 |
+
+- **보스 하나를 고칠 때**: 숫자 · 자리 · 걸음은 `src/data/bosses/<구역>.ts`의 그 보스 항목(등장 자리 `spawn`, 자리 목록 `spots`의 첫 줄이 시작 자리, 도는 길 `move.waypoints`). 고친 뒤 `npx vitest run tests/sim/bosses-<구역>.test.ts` → `npx vite-node tests/review/boss-softlock.ts BOSS=<id>` → `npx vite-node tests/review/boss-table.ts write`.
+- 테스트: `tests/sim/boss-forms.test.ts`(걸음 · 도발 · 자리 이동) · `boss-toolkit.test.ts`(조각 종류마다 + 슬라이더 + 저스트 교대) · `zone-avoid.test.ts` · `boss-softlock.test.ts`(20종 × 2시드 × 90초) · `bosses-<구역>.test.ts`(보스별 패턴: 가만히 있으면 맞고 팁대로 교체하면 안 맞음) · `tests/render/boss-body.test.ts` · `tests/ui/boss-form-hud.test.ts`. e2e `boss-raid.spec.ts`의 「보스 형태」, `multi-boss-raid.spec.ts`(세 화면에서 배회 · 전장 · 자리 이동형의 자리 · 방향 · 예고가 같음), `artifact.spec.ts`(서버 없이 형태 4가지).
+- 도구: `tests/review/boss-softlock.ts`(멈춤 검사 — 보스 멈춤 · 무피해 · 캐릭터 멈춤 · 안 끝남 · 좌표 · 잔여물이면 종료 코드 1), `boss-raid-bench.ts`에 `MOVE=`, `tests/visual/boss-sheet.mjs` · `boss-phone-sheet.mjs` · `boss-pattern-sheet.mjs`(`bossLive.mjs` 공용).
+- 알아 둘 것: `render/bosses/<구역>.ts`나 `body.ts`를 `bosses/index.ts`보다 먼저 가져오면 순환 참조로 죽음(게임 · 테스트는 `index`가 먼저라 괜찮음, 보기 도구를 새로 만들 때만 주의). 예고 덧그림 `push`는 패턴마다 방향을 하나만 기억함(에스컬레이터 「손잡이」에는 그래서 안 붙임).

@@ -6,11 +6,18 @@
 // the result chip names the boss that was fought. A second test runs all 20 floors by debug to the win line and
 // 「클리어 1회」. A third: '?mode=bossRaid&boss=<id>' starts on that boss (once), the 「보스 예고 시간 배율」 slider at ×2
 // doubles the next run's first telegraph, a classic run has no boss list.
-// Phone screenshots: docs/screenshots/boss-raid-{main,hud,result,debug}.png.
+// 기획 20차 (보스 형태): a fourth test walks one boss of each form through the debug 「보스 고르기」 list (every row says
+// the form) — a roaming boss stays inside the arena box, walks, wears its name tag and is pulled by a tank's taunt; a
+// relocating boss warns where it will arrive and then stands on its next seat; a mark on my field character turns its
+// card into 「교체!」 until I swap it out; an arena boss lays its floor over the
+// whole map; a fixed boss has no tag. Each floor banner and the boss box say the form; a pattern's tip shows once a run.
+// Phone screenshots: docs/screenshots/boss-raid-{main,hud,result,debug}.png (hud = a roaming boss fight, 기획 20차).
 
 import { expect, test, type Page } from '@playwright/test';
 import type { DebugAction } from '../../src/types';
 import type { AppPhase, RunOverrides } from '../../src/ui/app';
+import { getBoss } from '../../src/data';
+import { BOSS_FORM, BOSS_FORM_LABEL, BOSS_FORM_TIP } from '../../src/data/bosses/forms';
 
 const SHOTS = 'docs/screenshots';
 const RECORD_KEY = 'swap-tower.bossRaid.v1';
@@ -148,10 +155,10 @@ test('보스 레이드: 메인 카드 → 1층 보스 배너 → 다음 보스�
   expect(rects.lore.r).toBeLessThanOrEqual(rects.stage.r);
   expect(rects.pill.l).toBeGreaterThan(rects.box.r);
   expect(rects.pill.r).toBeLessThan(rects.tr.l);
-  if (mobile) {
-    await page.waitForTimeout(450); // the banner's scale-in
-    await page.screenshot({ path: `${SHOTS}/boss-raid-hud.png` });
-  }
+  // 기획 20차: the banner and the boss box say the boss's form (boss-raid-hud.png is taken in the form test below)
+  const form1 = getBoss(f1.bossId!).form ?? 'fixed';
+  await expect(page.locator('.banner-raid .banner-form')).toHaveText(`${BOSS_FORM_LABEL[form1]} · ${BOSS_FORM_TIP[form1]}`);
+  await expect(page.locator('.boss-form')).toHaveText(BOSS_FORM_LABEL[form1]);
 
   // pause: 「1층 · 보스 레이드」
   await tap('[aria-label="일시정지"]');
@@ -167,7 +174,10 @@ test('보스 레이드: 메인 카드 → 1층 보스 배너 → 다음 보스�
   await expect(picker.locator('option')).toHaveCount(20);
   await expect(picker).toHaveValue(f1.bossId!); // opens on the boss of this floor
   await expect(page.locator('.debug-panel .dbg-raid-go')).toHaveText('이 보스로');
-  await picker.selectOption({ label: '문서 파쇄기' });
+  // 기획 20차: every row says the form after the name
+  await expect(picker.locator('option[value="shredder_maw"]')).toHaveText('문서 파쇄기 · 배회형');
+  await expect(picker.locator('option[value="elevator_keeper"]')).toHaveText(`${getBoss('elevator_keeper').name} · 고정형`);
+  await picker.selectOption('shredder_maw');
   await expect(picker).toHaveValue('shredder_maw');
   if (mobile) {
     await page.waitForTimeout(200);
@@ -410,9 +420,10 @@ test('보스 레이드 디버그: ?boss= 로 시작 보스 · 예고 시간 ×2 
   expect(base.total).toBeGreaterThan(0.3);
   await tap('.btn-dbg');
   const sec = page.locator('.debug-panel .dbg-sec', { has: page.locator('.dbg-sec-title', { hasText: '보스 튜닝' }) });
-  await expect(sec.locator('.dbg-slider')).toHaveCount(4);
-  await expect(sec.locator('.dbg-slider-label')).toHaveText(['보스 예고 시간 배율', '보스 범위 크기 배율', '보스 레이드 HP 배율', '보스 레이드 공격 배율']);
-  await expect(sec.locator('.dbg-slider-value')).toHaveText(['1.00×', '1.00×', '1.00×', '1.25×']);
+  // 기획 20차: + 「보스 이동 속도 배율」 (the fifth slider)
+  await expect(sec.locator('.dbg-slider')).toHaveCount(5);
+  await expect(sec.locator('.dbg-slider-label')).toHaveText(['보스 예고 시간 배율', '보스 범위 크기 배율', '보스 레이드 HP 배율', '보스 레이드 공격 배율', '보스 이동 속도 배율']);
+  await expect(sec.locator('.dbg-slider-value')).toHaveText(['1.00×', '1.00×', '1.00×', '1.25×', '1.00×']);
   // 기획 19차 review: in a raid the four sliders sit right under 「보스 고르기」 (not eight screens down the list)
   expect(await page.evaluate(() => document.querySelector('.debug-panel .dbg-raid')!.closest('.dbg-sec')!.nextElementSibling!.querySelector('.dbg-sec-title')!.textContent)).toBe('보스 튜닝');
   const tele = sec.locator('.dbg-slider[data-key="bossTelegraphMult"]');
@@ -437,5 +448,368 @@ test('보스 레이드 디버그: ?boss= 로 시작 보스 · 예고 시간 ×2 
   await tap('.btn-dbg');
   await expect(page.locator('.debug-panel .dbg-skip')).toHaveText('층 건너뛰기');
   await expect(page.locator('.debug-panel .dbg-raid-boss')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+// ─────────────────────────── 기획 20차: boss forms ───────────────────────────
+
+interface BossSeen {
+  defId: string;
+  x: number;
+  y: number;
+  facing: number;
+  radius: number;
+}
+const bossNow = (page: Page) =>
+  page.evaluate((): BossSeen | null => {
+    const s = window.__proto!.game!.state;
+    const b = s.entities.find(e => e.id === s.bossId);
+    return b ? { defId: b.defId, x: b.pos.x, y: b.pos.y, facing: b.facing, radius: b.radius } : null;
+  });
+
+interface BossTrack {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  path: number;
+  last: { x: number; y: number } | null;
+  id: string;
+}
+type WatchWindow = Window & { __toasts?: string[]; __tips?: string[]; __track?: BossTrack; __trackTimer?: number };
+
+/**
+ * In the page: every toast ever shown (they leave after 2 s), every pattern tip the tip slot said (기획 20차 점검: its
+ * own slot, not a toast), and the box the boss stayed in + how far it went.
+ */
+const startWatch = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as WatchWindow;
+    if (!w.__toasts) {
+      const seen = (w.__toasts = [] as string[]);
+      new MutationObserver(list => {
+        for (const m of list) for (const n of m.addedNodes) if (n instanceof HTMLElement && n.classList.contains('toast')) seen.push(n.textContent ?? '');
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+    w.__toasts.length = 0;
+    if (!w.__tips) {
+      const said = (w.__tips = [] as string[]);
+      let last = '';
+      window.setInterval(() => {
+        const tip = document.querySelector('.raid-tip');
+        const on = !!tip && !tip.classList.contains('is-hidden');
+        const text = on ? (tip!.querySelector('.raid-tip-t')?.textContent ?? '') : '';
+        if (text && text !== last) said.push(text);
+        last = text;
+      }, 50);
+    }
+    w.__tips.length = 0;
+    clearInterval(w.__trackTimer);
+    const tr: BossTrack = (w.__track = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, path: 0, last: null, id: '' });
+    w.__trackTimer = window.setInterval(() => {
+      const s = window.__proto?.game?.state;
+      const b = s && s.bossId != null ? s.entities.find(e => e.id === s.bossId) : undefined;
+      if (!b) return;
+      if (b.defId !== tr.id) {
+        tr.id = b.defId;
+        tr.last = null;
+      }
+      tr.minX = Math.min(tr.minX, b.pos.x);
+      tr.maxX = Math.max(tr.maxX, b.pos.x);
+      tr.minY = Math.min(tr.minY, b.pos.y);
+      tr.maxY = Math.max(tr.maxY, b.pos.y);
+      if (tr.last) tr.path += Math.hypot(b.pos.x - tr.last.x, b.pos.y - tr.last.y);
+      tr.last = { x: b.pos.x, y: b.pos.y };
+    }, 40);
+  });
+const track = (page: Page) => page.evaluate(() => (window as WatchWindow).__track!);
+const toasts = (page: Page) => page.evaluate(() => [...((window as WatchWindow).__toasts ?? [])]);
+const tips = (page: Page) => page.evaluate(() => [...((window as WatchWindow).__tips ?? [])]);
+const walked = (page: Page, cells: number, timeout: number) => page.waitForFunction(n => ((window as WatchWindow).__track?.path ?? 0) >= n, cells, { timeout });
+
+/** Tag centre vs the boss's place on screen (client px): dx, and how far the tag's foot is above the boss's feet. */
+const tagVsBoss = (page: Page) =>
+  page.evaluate(() => {
+    const s = window.__proto!.game!.state;
+    const b = s.entities.find(e => e.id === s.bossId)!;
+    const tag = document.querySelector('.boss-tag')!.getBoundingClientRect();
+    const stage = document.querySelector('.stage')!.getBoundingClientRect();
+    const k = stage.width / 1280;
+    const f = window.__proto!.ui.fingerFor(b.pos);
+    // fingerFor = the finger of a drop on that spot: 80 logical px (ui/drag.ts LIFT) under the spot itself
+    const footY = f.y - 80 * k;
+    return { dx: (tag.left + tag.right) / 2 - f.x, above: footY - tag.bottom, k, inStage: tag.left >= stage.left - 1 && tag.right <= stage.right + 1 && tag.top >= stage.top - 1 };
+  });
+
+/** The tag is by its boss: over the head (|dx| < 70 px) or hung beside the body (within a body and a tag's width). */
+const tagNear = (t: { dx: number; k: number }): boolean => Math.abs(t.dx) < Math.max(70, 240 * t.k);
+
+/** Colours of a grid of floor points of the game canvas (the arena floor between the top HUD and the cards). */
+const floorColours = (page: Page) =>
+  page.evaluate(() => {
+    const cv = document.querySelector<HTMLCanvasElement>('canvas.stage-canvas')!;
+    const g = cv.getContext('2d')!;
+    const out: number[][] = [];
+    for (let iy = 0; iy < 4; iy++) {
+      for (let ix = 0; ix < 8; ix++) {
+        const d = g.getImageData(Math.round(cv.width * (0.12 + 0.76 * (ix / 7))), Math.round(cv.height * (0.3 + 0.36 * (iy / 3))), 1, 1).data;
+        out.push([d[0], d[1], d[2]]);
+      }
+    }
+    return out;
+  });
+
+const FORM_PETS = ['frog_bomb', 'fairy_heal', 'cat_void'];
+const FORM_PARTY: RunOverrides['players'] = [
+  // my guardian sits on the bench: dragging it in casts 성벽 강림 (its wave taunts); no other tank in the run
+  { name: '나', isBot: false, characters: ['blade', 'guardian', 'cleric'], pets: FORM_PETS },
+  { name: 'BOT 1', isBot: true, characters: ['ranger', 'mage', 'cleric'], pets: FORM_PETS },
+  { name: 'BOT 2', isBot: true, characters: ['mage', 'blade', 'bard'], pets: FORM_PETS },
+];
+
+test('보스 형태 (기획 20차): 보스 고르기 → 배회형은 걷고 · 이름표 · 도발 / 자리 이동형은 자리 바꿈 / 전장형은 바닥 / 고정형은 그대로', async ({ page }, testInfo) => {
+  const mobile = testInfo.project.name === 'phone';
+  const tap = tapper(page, mobile);
+  const errors: string[] = [];
+  watchErrors(page, errors);
+  await page.goto('/?mode=bossRaid');
+  await waitPhase(page, 'preset');
+  const box = BOSS_FORM.box;
+  const formOf = (id: string) => getBoss(id).form ?? 'fixed';
+  const start = async (setup: RunOverrides, bossId?: string) => {
+    await page.evaluate(s => window.__proto!.startRun(s), { seed: 2020, players: FORM_PARTY, ...setup, tunables: { invincible: true, ...(setup.tunables ?? {}) } });
+    await page.waitForFunction(id => window.__proto!.phase === 'combat' && (id == null || window.__proto!.game!.state.plan.bossId === id) && window.__proto!.game!.state.time < 1.5, bossId ?? null);
+    await startWatch(page);
+  };
+  /** The form in the banner and in the boss box; the tag over a moving boss (none over a fixed one). */
+  const expectFormHud = async (id: string) => {
+    const def = getBoss(id);
+    const form = formOf(id);
+    await expect(page.locator('.boss-name')).toHaveText(def.name);
+    await expect(page.locator('.banner-raid .banner-form')).toHaveText(`${BOSS_FORM_LABEL[form]} · ${BOSS_FORM_TIP[form]}`);
+    await expect(page.locator('.boss-form')).toHaveText(BOSS_FORM_LABEL[form]);
+    await expect(page.locator('.boss-form')).toHaveAttribute('data-form', form);
+    if (form === 'fixed') await expect(page.locator('.boss-tag')).toBeHidden();
+    else {
+      await expect(page.locator('.boss-tag')).toBeVisible();
+      await expect(page.locator('.boss-tag')).toHaveAttribute('data-form', form);
+      await expect(page.locator('.boss-tag-n')).toHaveText(def.name);
+    }
+  };
+  const insideBox = (b: { x: number; y: number }) => {
+    expect(b.x).toBeGreaterThanOrEqual(box.xMin - 0.01);
+    expect(b.x).toBeLessThanOrEqual(box.xMax + 0.01);
+    expect(b.y).toBeGreaterThanOrEqual(box.yMin - 0.01);
+    expect(b.y).toBeLessThanOrEqual(box.yMax + 0.01);
+  };
+
+  // ── 배회형 (혼자 도는 세탁기) through the debug list ──
+  await start({});
+  await tap('.btn-dbg');
+  const picker = page.locator('.debug-panel .dbg-raid-boss');
+  await expect(picker.locator('option')).toHaveCount(20);
+  for (const id of ['washer_drum', 'dead_monitor', 'answering_pencil', 'karaoke_room', 'abyss_watcher']) {
+    await expect(picker.locator(`option[value="${id}"]`)).toHaveText(`${getBoss(id).name} · ${BOSS_FORM_LABEL[formOf(id)]}`);
+  }
+  await picker.selectOption('washer_drum');
+  await tap('.dbg-raid-go');
+  await page.waitForFunction(() => window.__proto!.game!.state.plan.bossId === 'washer_drum');
+  await page.locator('.debug-panel [aria-label="닫기"]').click();
+  await startWatch(page);
+  const washer = getBoss('washer_drum');
+  expect(washer.form).toBe('roaming');
+  await expectFormHud('washer_drum');
+  const spawn = (await bossNow(page))!;
+  expect(spawn.defId).toBe('washer_drum');
+  expect(spawn.radius).toBeLessThanOrEqual(1.8); // about half the set piece (radius 3)
+  insideBox(spawn);
+  // the form chip hangs under 「보스 N/20」, clear of the boss bar and the top-right buttons
+  const chip = await page.evaluate(() => {
+    const r = (sel: string) => {
+      const b = document.querySelector(sel)!.getBoundingClientRect();
+      return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+    };
+    return { chip: r('.boss-form'), pill: r('.boss-raid'), bar: r('.boss-bar'), tr: r('.hud-tr') };
+  });
+  expect(chip.chip.l).toBeGreaterThan(chip.bar.r);
+  expect(chip.chip.r).toBeLessThan(chip.tr.l);
+  expect(chip.chip.t).toBeGreaterThanOrEqual(chip.pill.b - 1);
+  // it walks: 3 cells or more along its path within a few seconds, never out of the box
+  await walked(page, 3, 20_000);
+  const went = await track(page);
+  insideBox({ x: went.minX, y: went.minY });
+  insideBox({ x: went.maxX, y: went.maxY });
+  // the tag rides over the boss's head — or, when the top HUD row leaves no room there, beside the body (기획 20차 점검:
+  // never pushed down onto the body) —, inside the stage
+  await expect.poll(async () => tagNear(await tagVsBoss(page))).toBe(true);
+  const tag = await tagVsBoss(page);
+  expect(tag.above).toBeGreaterThan(0);
+  expect(tag.inStage).toBe(true);
+  // a pattern's tip (기획 20차: per run in a raid — also on a device that saw it in an earlier run; 기획 20차 점검: in
+  // its own slot under the boss box — never a toast —, at least 4 s on screen, with the pattern's name)
+  const hinted = [...washer.skills, ...(washer.phases ?? []).flatMap(p => p.skills ?? [])].filter(sk => sk.hint);
+  const hints = hinted.map(sk => sk.hint!);
+  expect(hints.length).toBeGreaterThan(0);
+  for (const h of hints) expect(h.length, h).toBeLessThanOrEqual(21);
+  await expect.poll(async () => (await tips(page)).some(t => hints.includes(t)), { timeout: 25_000 }).toBe(true);
+  const slot = page.locator('.raid-tip');
+  await expect(slot).toBeVisible();
+  expect(hinted.map(sk => sk.name)).toContain(await slot.locator('.raid-tip-k').textContent());
+  await expect(slot.locator('.raid-tip-more')).toBeVisible(); // the first tips say where to read them again
+  const tipBox = (await slot.boundingBox())!;
+  const stageBox = (await page.locator('.stage').boundingBox())!;
+  expect(tipBox.x).toBeGreaterThanOrEqual(stageBox.x);
+  expect(tipBox.x + tipBox.width).toBeLessThanOrEqual(stageBox.x + stageBox.width + 1);
+  expect((await toasts(page)).filter(t => hints.some(h => t.includes(h)))).toEqual([]);
+  if (mobile) {
+    // docs: a roaming boss fight on a phone — a warning on the floor, the tag over the body, the form under 「보스 1/20」,
+    // the pattern's tip in its slot
+    await page.waitForFunction(() => window.__proto!.game!.state.telegraphs.some(t => t.team === 'enemy' && !t.self && t.remaining / t.total < 0.6), undefined, { timeout: 20_000 }).catch(() => {});
+    await page.screenshot({ path: `${SHOTS}/boss-raid-hud.png` });
+  }
+  // a pattern's tip is said on its first two casts of a run, then no more
+  const said = await tips(page);
+  for (const h of hints) expect(said.filter(t => t === h).length, h).toBeLessThanOrEqual(2);
+
+  // ── a tank's taunt pulls a roaming boss: 천둥 안테나 keeps its distance — until my guardian's wave taunts it ──
+  expect(formOf('thunder_antenna')).toBe('roaming');
+  await start({ bossRaid: { onlyBoss: 'thunder_antenna', hpMult: 6 } }, 'thunder_antenna');
+  await expectFormHud('thunder_antenna');
+  // let it settle, then drop the guardian 3 cells beside it (the wave is a 9-cell band through the drop point)
+  await page.waitForFunction(() => window.__proto!.game!.state.time > 2.2);
+  const before = (await bossNow(page))!;
+  const dropX = before.x > 12 ? before.x - 3 : before.x + 3;
+  const drop = await page.evaluate(([x, y]) => window.__proto!.ui.dragTo('swap', 1, { x, y }), [dropX, before.y]);
+  expect(drop.ok).toBe(true);
+  await page.waitForFunction(() => window.__proto!.game!.state.entities.some(e => e.tier === 'boss' && e.statuses.some(st => st.id === 'taunt')), undefined, { timeout: 5000 });
+  const pulled = await page.evaluate(async () => {
+    const g = window.__proto!.game!;
+    const gap = () => {
+      const s = g.state;
+      const b = s.entities.find(e => e.id === s.bossId)!;
+      const t = s.entities.find(e => e.kind === 'character' && e.defId === 'guardian');
+      return { taunted: b.statuses.some(st => st.id === 'taunt'), target: b.targetId, guardian: t?.id ?? -1, d: t ? Math.hypot(b.pos.x - t.pos.x, b.pos.y - t.pos.y) : NaN };
+    };
+    const first = gap();
+    let min = first.d;
+    let targeted = first.target === first.guardian;
+    // while the taunt lasts (2.5 s) it comes closer
+    for (let i = 0; i < 100 && gap().taunted; i++) {
+      await new Promise(r => setTimeout(r, 40));
+      const now = gap();
+      if (Number.isFinite(now.d)) min = Math.min(min, now.d);
+      targeted = targeted || now.target === now.guardian;
+    }
+    return { first: first.d, min, targeted };
+  });
+  expect(pulled.targeted, 'the taunted boss targets my guardian').toBe(true);
+  expect(pulled.min, `it walked toward the guardian (distance ${pulled.first.toFixed(2)} → ${pulled.min.toFixed(2)})`).toBeLessThan(pulled.first - 0.5);
+  insideBox((await bossNow(page))!);
+
+  // ── 자리 이동형 (퇴근 못 한 모니터): it warns where it arrives, then stands on its next seat, facing that seat's way ──
+  const monitor = getBoss('dead_monitor');
+  expect(monitor.form).toBe('relocating');
+  const seats = monitor.spots!;
+  expect(seats.length).toBeGreaterThanOrEqual(3);
+  for (const sp of seats) insideBox(sp);
+  await start({ bossRaid: { onlyBoss: 'dead_monitor', hpMult: 6 }, tunables: { gameSpeed: 2 } }, 'dead_monitor');
+  await expectFormHud('dead_monitor');
+  // the longest form label (「자리 이동형」) still ends before the top-right buttons
+  const longChip = await page.evaluate(() => [document.querySelector('.boss-form')!.getBoundingClientRect().right, document.querySelector('.hud-tr')!.getBoundingClientRect().left]);
+  expect(longChip[0]).toBeLessThan(longChip[1]);
+  const seat0 = (await bossNow(page))!;
+  expect(seat0.x).toBeCloseTo(seats[0].x, 3);
+  expect(seat0.y).toBeCloseTo(seats[0].y, 3);
+  const arrive = await page
+    .waitForFunction(
+      () => {
+        const t = window.__proto!.game!.state.telegraphs.find(x => x.team === 'enemy' && x.motif === 'arrive');
+        return t ? { x: t.center.x, y: t.center.y } : null;
+      },
+      undefined,
+      { timeout: 30_000 },
+    )
+    .then(h => h.jsonValue() as Promise<{ x: number; y: number }>);
+  expect(arrive.x).toBeCloseTo(seats[1].x, 3);
+  expect(arrive.y).toBeCloseTo(seats[1].y, 3);
+  await page.waitForFunction(
+    ([x, y]) => {
+      const s = window.__proto!.game!.state;
+      const b = s.entities.find(e => e.id === s.bossId);
+      return !!b && Math.hypot(b.pos.x - x, b.pos.y - y) < 0.01;
+    },
+    [seats[1].x, seats[1].y],
+    { timeout: 15_000 },
+  );
+  const seat1 = (await bossNow(page))!;
+  const DIR = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 } as const;
+  expect(Math.cos(seat1.facing - DIR[seats[1].facing])).toBeGreaterThan(0.99);
+  // 기획 20차 점검 (가짜 찾기): a fake window stands on the desk it left, so the jump is NOT announced — no tag (and no
+  // flash, no name) for decoy.hide seconds; then the 「보스」 chip is back, by the real screen
+  expect(monitor.decoy).toEqual({ unit: 'fake_monitor', hide: 4 });
+  expect(await page.evaluate(() => window.__proto!.game!.state.entities.some(e => e.defId === 'fake_monitor' && e.hp > 0))).toBe(true);
+  await expect(page.locator('.boss-tag')).toBeHidden();
+  await expect(page.locator('.boss-tag')).toBeVisible({ timeout: 9_000 });
+  await expect.poll(async () => tagNear(await tagVsBoss(page))).toBe(true);
+
+  // ── 표식 (끝나지 않는 회의 「발표 지명」, rule N6): my marked card says 「교체!」; swapping that character out clears the mark ──
+  expect(formOf('endless_meeting')).toBe('relocating');
+  await start({ players: [FORM_PARTY![0]], bossRaid: { onlyBoss: 'endless_meeting', hpMult: 6 }, tunables: { gameSpeed: 2 } }, 'endless_meeting');
+  await expectFormHud('endless_meeting');
+  await expect(page.locator('.ccard.is-marked')).toHaveCount(0);
+  const marked = () => {
+    const s = window.__proto!.game!.state;
+    const me = s.players[0];
+    const id = me.activeIndex != null ? me.party[me.activeIndex].entityId : null;
+    return id != null && s.telegraphs.some(t => t.team === 'enemy' && t.mark === id);
+  };
+  await page.waitForFunction(marked, undefined, { timeout: 30_000 });
+  // slow down to read the card while the mark runs
+  await page.evaluate(() => (window.__proto!.game!.tunables.gameSpeed = 0.5));
+  const card = page.locator('.ccard.is-marked');
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveClass(/is-active/);
+  await expect(card.locator('.cc-mark')).toBeVisible();
+  await expect(card.locator('.cc-mark')).toHaveText('교체!');
+  const at = await page.evaluate(() => {
+    const s = window.__proto!.game!.state;
+    const me = s.players[0];
+    const e = s.entities.find(x => x.id === me.party[me.activeIndex!].entityId)!;
+    return { x: e.pos.x, y: e.pos.y };
+  });
+  expect((await page.evaluate(([x, y]) => window.__proto!.ui.dragTo('swap', 1, { x, y }), [at.x, at.y])).ok).toBe(true);
+  await page.waitForFunction(() => !window.__proto!.game!.state.telegraphs.some(t => t.mark != null), undefined, { timeout: 5000 });
+  await expect(page.locator('.ccard.is-marked')).toHaveCount(0);
+  await expect(page.locator('.cc-mark:visible')).toHaveCount(0);
+
+  // ── 전장형 (대답하는 연필): its floor covers the map — the same floor under a fixed boss of that zone looks different ──
+  const pencil = getBoss('answering_pencil');
+  expect(pencil.form).toBe('arena');
+  expect(pencil.stage?.floor).toBeTruthy();
+  await start({ startFloor: 16, bossRaid: { onlyBoss: 'abyss_watcher', hpMult: 6 } }, 'abyss_watcher');
+  await expectFormHud('abyss_watcher');
+  expect((await bossNow(page))!.y).toBeLessThan(0); // the set piece above the arena, as before
+  await page.waitForFunction(() => window.__proto!.game!.state.time > 1.2);
+  const plain = await floorColours(page);
+  await start({ startFloor: 16, bossRaid: { onlyBoss: 'answering_pencil', hpMult: 6 } }, 'answering_pencil');
+  await expectFormHud('answering_pencil');
+  insideBox((await bossNow(page))!);
+  await page.waitForFunction(() => window.__proto!.game!.state.time > 1.2);
+  const staged = await floorColours(page);
+  const shift = staged.map((c, i) => Math.hypot(c[0] - plain[i][0], c[1] - plain[i][1], c[2] - plain[i][2])).sort((a, b) => a - b);
+  expect(shift[Math.floor(shift.length / 2)], 'most floor points changed colour: the paper lies over the whole map').toBeGreaterThan(25);
+  // the core moves on its stage too
+  await walked(page, 1, 25_000);
+  insideBox((await bossNow(page))!);
+
+  // ── 고정형 새 보스 (지하 7번 노래방): still the set piece at the top, no tag ──
+  await start({ bossRaid: { onlyBoss: 'karaoke_room', hpMult: 6 } }, 'karaoke_room');
+  await expectFormHud('karaoke_room');
+  const fixed = (await bossNow(page))!;
+  expect(fixed.y).toBeLessThan(0);
+  expect(fixed.radius).toBe(3);
+  await page.waitForTimeout(1500);
+  expect((await track(page)).path).toBe(0);
+
   expect(errors).toEqual([]);
 });

@@ -96,6 +96,8 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   bossAreaMult: [0.25, 3],
   bossRaidHpMult: [0.05, 10],
   bossRaidAtkMult: [0.05, 10],
+  // 기획 20차 보스 이동 속도 배율
+  bossMoveMult: [0.5, 2],
 };
 
 /**

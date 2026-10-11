@@ -6,6 +6,10 @@
 //   pack=1                             the zone's own monsters as a fight (normal floor)
 //   boss=<id> [phase=1|2|3]            boss floor with that boss (any of the 20 raid bosses; one without art shows the watcher)
 //   pose=idle|windup|groggy|enraged    기획 19차: the boss alone in that pose (no adds, no sample warnings) — for looks
+//   pose=walk                          기획 20차: a moving boss walking (a fixed one: idle). A moving boss (form roaming /
+//                                      relocating / arena) stands in the middle of the arena, (12, 6.5), with three
+//                                      characters around it — one right behind it (its X-ray ghost shows through)
+//   window.__sandbox.focus / .forms    기획 20차: where the boss stands on the canvas (logical px) and every boss's form
 //   bench=boss:<id> [pose=… phase=…]   기획 19차: render cost of that boss scene (ms/frame → window.__sandbox.bench)
 //   window.__sandbox.bossIds           기획 19차: the 20 raid boss ids (tests/visual/boss-sheet.mjs walks them)
 //   fx=blink|charge|fan|split|heal|phase|landing   synthetic events for the new mechanics
@@ -15,13 +19,24 @@
 import { createRenderer } from '../../src/render';
 import { ARENA_NORMAL, BOSS_POS, PLAYER_COLORS } from '../../src/config';
 import { BOSSES, RAID_BOSS_IDS, getCharacter } from '../../src/data';
+import { BOSS_FORM_LABEL } from '../../src/data/bosses/forms';
 import { CREATURE_ART } from '../../src/render/creatures';
 import type { ContributionStats, Entity, FloorTheme, GameEvent, GameState, PlayerState, RenderUiState, Telegraph, Vec2, Zone } from '../../src/types';
 import { LOGICAL_H, LOGICAL_W } from '../../src/types';
 
 declare global {
   interface Window {
-    __sandbox?: { ready: boolean; step?: (ms: number) => void; bench?: number; bossIds?: readonly string[]; bossNames?: Record<string, string> };
+    __sandbox?: {
+      ready: boolean;
+      step?: (ms: number) => void;
+      bench?: number;
+      bossIds?: readonly string[];
+      bossNames?: Record<string, string>;
+      /** 기획 20차: form label per boss id ('배회형' …), and where the boss of this scene stands (logical px; null = no boss). */
+      forms?: Record<string, string>;
+      moving?: Record<string, boolean>;
+      focus?: Vec2 | null;
+    };
   }
 }
 
@@ -169,8 +184,31 @@ function packScene(zone: FloorTheme): Scene {
   return { state: s, script: [], labels: [] };
 }
 
-type BossPose = 'idle' | 'windup' | 'groggy' | 'enraged';
-const BOSS_POSES: readonly BossPose[] = ['idle', 'windup', 'groggy', 'enraged'];
+type BossPose = 'idle' | 'windup' | 'groggy' | 'enraged' | 'walk';
+const BOSS_POSES: readonly BossPose[] = ['idle', 'windup', 'groggy', 'enraged', 'walk'];
+
+/** 기획 20차: where a moving boss stands in a pose scene, and how fast the walk pose drifts (cells / s). */
+const MOVER_SPOT: Vec2 = { x: 12, y: 6.5 };
+const MOVER_WALK = 1.4;
+
+/** 기획 20차: the boss's data when it is a moving one (form roaming / relocating / arena), else null. */
+function moverDef(bossId: string) {
+  const d = BOSSES.find(b => b.id === bossId);
+  return d && d.form && d.form !== 'fixed' ? d : null;
+}
+
+/**
+ * 기획 20차: three characters around a moving boss — mine in front of it on the left, one on its right, one right
+ * behind it (smaller y, inside its body box → the X-ray ghost in the player's colour).
+ */
+function addStandIns(s: GameState, at: Vec2, r: number): Entity {
+  const me = hero(0, 0, 'blade', at.x - r - 1.6, at.y + 1.0);
+  const b1 = hero(1, 1, 'guardian', at.x + r + 1.5, at.y + 0.6, { facing: Math.PI });
+  const b2 = hero(2, 0, 'mage', at.x + 0.25, at.y - 0.7, { facing: 0 });
+  s.entities.push(me, b1, b2);
+  s.players.push(player(0, '나', ['blade', 'mage', 'cleric'], 0, me.id), player(1, 'BOT 1', ['guardian', 'ranger', 'cleric'], 1, b1.id), player(2, 'BOT 2', ['mage', 'blade', 'bard'], 0, b2.id));
+  return me;
+}
 
 /** 기획 19차: the zone a boss belongs to (its data, else the lobby). */
 function zoneOfBoss(bossId: string, fallback: FloorTheme): FloorTheme {
@@ -181,11 +219,14 @@ function bossScene(zone: FloorTheme, bossId: string, phase: number, enraged: boo
   const s = baseState(ZONE_FLOOR[zone] < 5 ? 5 : ZONE_FLOOR[zone] + 3, 'boss', 24, zone, bossId);
   s.floor = { lobby: 5, office: 10, ward: 15, rooftop: 20 }[zone];
   s.plan.floor = s.floor;
-  const me = addParty(s, 10.5, 6.5);
+  const mover = moverDef(bossId);
+  const at = mover ? { ...MOVER_SPOT } : { ...BOSS_POS };
+  const me = mover ? addStandIns(s, at, mover.radius) : addParty(s, 10.5, 6.5);
   const maxHp = 10000;
   const hp = phase >= 3 ? 2000 : phase === 2 ? 4000 : 9000; // 40 %: under every boss's first line (45–60 %), over every second (25–30 %)
   const rage = enraged || pose === 'enraged';
-  const b = ent({ kind: 'monster', team: 'enemy', defId: bossId, tier: 'boss', pos: { ...BOSS_POS }, radius: 3, maxHp, hp, targetId: me.id, anim: pose === 'idle' || pose === 'groggy' ? 'idle' : 'cast', animTime: 0.8, enraged: rage });
+  const anim: Entity['anim'] = pose === 'idle' || pose === 'groggy' ? 'idle' : pose === 'walk' ? (mover && !mover.stationary ? 'move' : 'idle') : 'cast';
+  const b = ent({ kind: 'monster', team: 'enemy', defId: bossId, tier: 'boss', pos: at, radius: mover ? mover.radius : 3, maxHp, hp, targetId: me.id, anim, animTime: 0.8, enraged: rage });
   s.entities.push(b);
   s.bossId = b.id;
   s.bossEnraged = rage;
@@ -200,8 +241,10 @@ function bossScene(zone: FloorTheme, bossId: string, phase: number, enraged: boo
     return {
       state: s, script, labels: [],
       // from the second frame on, so the renderer first records the whole cast (0.8 s) and the charge reads half-way
-      tick: (t: number) => {
+      tick: (t: number, dt: number) => {
         if (pose === 'windup' && t > 0) b.animTime = 0.4; // half-way: the charge glow at its strongest
+        // 기획 20차: the walk pose really walks (the stride comes from the distance covered), toward my character
+        if (anim === 'move') b.pos.x -= MOVER_WALK * dt;
       },
     };
   }
@@ -218,7 +261,7 @@ function bossScene(zone: FloorTheme, bossId: string, phase: number, enraged: boo
   } else if (bossId === 'surgeon_director') {
     for (const dx of [-4, 0, 4]) T({ x: 12 + dx, y: 11 }, { x: 12 + dx * 0.3, y: 0.5 }, { shape: 'line', length: 11, width: 1.1 }, 0.7, 1.2);
   } else {
-    T({ x: 7, y: 9 }, { ...BOSS_POS }, { shape: 'line', length: 14, width: 2 }, 1.0, 1.8);
+    T({ x: 7, y: 9 }, { ...at }, { shape: 'line', length: 14, width: 2 }, 1.0, 1.8);
     T({ x: 16, y: 6 }, { x: 16, y: 6 }, { shape: 'ring', inner: 1.8, outer: 4 }, 0.6, 1.8);
   }
   s.telegraphs.push(...teles);
@@ -349,7 +392,12 @@ export function run(params: URLSearchParams): void {
   // 기획 19차: a raid boss shows on its own zone's background unless zone= says otherwise
   const namedBoss = benchBoss ?? (bossParam && bossParam !== '1' ? bossParam : null);
   const zone = (params.get('zone') ?? (namedBoss ? zoneOfBoss(namedBoss, 'lobby') : 'lobby')) as FloorTheme;
-  const bossInfo = { bossIds: RAID_BOSS_IDS, bossNames: Object.fromEntries(BOSSES.map(b => [b.id, b.name])) };
+  const bossInfo = {
+    bossIds: RAID_BOSS_IDS,
+    bossNames: Object.fromEntries(BOSSES.map(b => [b.id, b.name])),
+    forms: Object.fromEntries(BOSSES.map(b => [b.id, BOSS_FORM_LABEL[b.form ?? 'fixed']])),
+    moving: Object.fromEntries(BOSSES.map(b => [b.id, !!moverDef(b.id)])),
+  };
   const bench = params.get('bench');
   if (bench) {
     const scene = benchBoss ? bossScene(zone, benchBoss, Number(params.get('phase') ?? '1'), false, pose ?? 'windup') : benchScene(zone, bench);
@@ -423,5 +471,7 @@ export function run(params: URLSearchParams): void {
     }
   }
   for (let i = 0; i * DT < total; i++) frame(DT);
-  window.__sandbox = { ready: true, step: (ms: number) => { for (let k = 0; k < Math.round(ms / (1000 * DT)); k++) frame(DT); }, ...bossInfo };
+  const bossEnt = scene.state.bossId != null ? scene.state.entities.find(e => e.id === scene.state.bossId) : undefined;
+  const focus = bossEnt ? r.worldToScreen(bossEnt.pos) : null;
+  window.__sandbox = { ready: true, step: (ms: number) => { for (let k = 0; k < Math.round(ms / (1000 * DT)); k++) frame(DT); }, ...bossInfo, focus };
 }

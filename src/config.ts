@@ -54,6 +54,8 @@ export const DEFAULT_TUNABLES: Tunables = {
   bossAreaMult: 1,
   bossRaidHpMult: BOSS_RAID.hpMult,
   bossRaidAtkMult: BOSS_RAID.atkMult,
+  // 기획 20차 「보스 이동 속도 배율」: walking speed of a boss with a form (docs/bosses.md 3장); 1 = the data as written
+  bossMoveMult: 1,
 };
 
 /**

@@ -1,11 +1,12 @@
 // Bot controller (R23). Same rules as a human: it only issues Commands that go through dispatch validation.
 // Uses the sim Rng so runs stay deterministic.
 
-import type { Command, CommandResult, PreviewPart, Vec2 } from '../types';
+import type { BossDef, Command, CommandResult, PreviewPart, Telegraph, Vec2 } from '../types';
 import { VIEW_WIDTH_UNITS } from '../config';
 import type { SkillDef } from '../types';
 import { getCharacter, getPet } from '../data';
-import { BOT } from './constants';
+import { BOT_RAID } from '../data/bosses/forms';
+import { BOT, CHAR_RADIUS } from './constants';
 import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botEvents';
 import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
@@ -141,6 +142,100 @@ function bestDrop(
   return best;
 }
 
+// ─────────────────────────── 기획 20차: 보스 레이드 drop extras (docs/bosses.md 3장 「봇」; no rng) ───────────────────────────
+
+/**
+ * Raid-only part of a drop's score: inside an enemy zone that lingers, inside a warning that lands soon, the hole /
+ * the outside of a safe ring (an enemy ring whose outer edge covers the arena), behind a boss with a front shield.
+ * Exported for tests/sim/bot.test.ts.
+ */
+export function raidDropScore(w: World, c: Vec2): number {
+  let n = 0;
+  for (const z of w.state.zones) {
+    if (z.team !== 'enemy' || (z.kind !== 'damage' && z.kind !== 'debuff')) continue;
+    if (!hitsArea(z.area ?? { shape: 'circle', radius: z.radius }, z.center, z.center, c, CHAR_RADIUS)) continue;
+    n += BOT_RAID.zone;
+    break;
+  }
+  let soon = false;
+  for (const t of w.state.telegraphs) {
+    if (t.team !== 'enemy' || t.self) continue;
+    if (t.area.shape === 'ring' && t.area.outer >= BOT_RAID.safeOuter) {
+      n += dist(c, t.center) <= t.area.inner - CHAR_RADIUS ? BOT_RAID.safeIn : BOT_RAID.safeOut;
+    } else if (!soon && t.remaining <= BOT_RAID.soon && hitsArea(t.area, t.center, t.origin, c, CHAR_RADIUS)) {
+      soon = true;
+      n += BOT_RAID.telegraph;
+    }
+  }
+  const boss = getEntity(w, w.state.bossId);
+  const guard = (boss?.rt.monDef as BossDef | null | undefined)?.guard;
+  if (boss && guard) {
+    let off = Math.abs(Math.atan2(c.y - boss.pos.y, c.x - boss.pos.x) - boss.facing) % (Math.PI * 2);
+    if (off > Math.PI) off = Math.PI * 2 - off;
+    if ((off * 180) / Math.PI >= 180 - guard.backArc / 2) n += BOT_RAID.back;
+  }
+  return n;
+}
+
+/** How far inside the rim of a safe hole a bot aims (cells): the whole body is in, with a little room. */
+const HOLE_MARGIN = CHAR_RADIUS + 0.15;
+
+/** The safe ring that lands first (find-the-safe-spot), if any is up. */
+function firstSafeRing(w: World): { center: Vec2; inner: number } | null {
+  let first: Telegraph | null = null;
+  for (const t of w.state.telegraphs) {
+    if (t.team !== 'enemy' || t.self || t.area.shape !== 'ring' || t.area.outer < BOT_RAID.safeOuter) continue;
+    if (!first || t.remaining < first.remaining) first = t;
+  }
+  return first && first.area.shape === 'ring' ? { center: first.center, inner: first.area.inner } : null;
+}
+
+/**
+ * Find-the-safe-spot is a rule, not a bonus (기획 20차 polish): a boss is worth 3 a hit part, so the +2 / −3 of the
+ * score alone would still drop the card outside the hole to hit it. While a safe ring is up the drop must be inside
+ * the hole of the ring that lands first — the usual best spot when it already is, else the best of: the middle of
+ * the hole, and the spots just inside its rim toward each enemy (a melee character then starts as near as it can).
+ */
+function withSafeHoles(w: World, view: View, score: (c: Vec2) => number, best: { pos: Vec2; score: number } | null, enemies: SimEntity[]): { pos: Vec2; score: number } | null {
+  const ring = firstSafeRing(w);
+  if (!ring) return best;
+  const reach = Math.max(0, ring.inner - HOLE_MARGIN);
+  if (best && dist(best.pos, ring.center) <= reach) return best;
+  let pick: { pos: Vec2; score: number } | null = null;
+  const tryAt = (c: Vec2): void => {
+    const pos = toView(w, view, c);
+    if (dist(pos, ring.center) > reach + 1e-6) return; // pushed out of the hole by the screen edge
+    const sc = score(pos);
+    if (!pick || sc > pick.score) pick = { pos, score: sc };
+  };
+  // the rim spots first: on a tie the card lands toward the enemy, the middle of the hole is the last resort
+  for (const e of enemies) {
+    const dd = dist(e.pos, ring.center);
+    if (dd < 1e-6) continue;
+    const k = Math.min(reach, dd) / dd;
+    tryAt({ x: ring.center.x + (e.pos.x - ring.center.x) * k, y: ring.center.y + (e.pos.y - ring.center.y) * k });
+  }
+  tryAt(ring.center);
+  return pick ?? best;
+}
+
+/**
+ * A mark (rule N6) on the field character with BOT_RAID.markSwapAt s or less left and a card ready: swap it out — the
+ * mark goes with it. Card: the groggy pick, else the healthiest. No rng draw.
+ */
+function markThink(w: World, p: SimPlayer, dispatch: Dispatch): void {
+  const me = activeEntity(w, p);
+  if (!me || !w.state.telegraphs.some(t => t.mark === me.id && t.remaining <= BOT_RAID.markSwapAt + 1e-9)) return;
+  const ready = p.party.map((_, i) => i).filter(i => canSwap(w, p.id, i).ok);
+  if (ready.length === 0) return;
+  const hp = (i: number) => p.party[i].hp / Math.max(1, p.party[i].maxHp);
+  const idx = groggyCard(w, p, ready) ?? [...ready].sort((a, c) => hp(c) - hp(a) || a - c)[0];
+  if (dispatch({ type: 'swap', player: p.id, partyIndex: idx, pos: bestDropPoint(w, p, idx) }).ok) {
+    p.rt.bot.nextSwapAt = w.state.time + BOT.periodicSwap[0];
+    p.rt.bot.reactAt = null;
+  }
+}
+
 /** Where to drop party member idx: spot where its real drag footprint covers the most enemies (or hurt allies). */
 export function bestDropPoint(w: World, p: SimPlayer, idx: number): Vec2 {
   const parts = previewPartsFor(w.state, p.id, 'swap', idx);
@@ -151,15 +246,19 @@ export function bestDropPoint(w: World, p: SimPlayer, idx: number): Vec2 {
   const allies = alliesAlive(w).filter(a => a.kind === 'character');
   // 기획 13차: a healer's renewed drag also hits enemies (종, 제세동) — it still aims at the hurt allies first
   const healer = getCharacter(p.party[idx].defId).role === 'healer' && parts.some(pt => pt.affects === 'allies');
+  // 기획 20차 (보스 레이드만): zones, warnings about to land, safe holes and a guard boss's back change the score
+  const raid = w.bossRaid ? (c: Vec2) => raidDropScore(w, c) : null;
   if (!parts.some(pt => pt.affects === 'enemies') || healer) {
     const hurt = allies.filter(a => a.hp < a.maxHp * 0.9);
     const foes = (c: Vec2) => (healer ? enemyScore(parts, c, enemies) * HEALER_ENEMY_WEIGHT : 0);
-    const score = (c: Vec2) => allyScore(parts, c, allies, hurtWeight) + foes(c) + eventDropBonus(w, p, 'swap', idx, c);
-    const best = bestDrop(w, parts, hurt.length ? hurt : allies, 'allies', score, near, view);
+    const score = (c: Vec2) => allyScore(parts, c, allies, hurtWeight) + foes(c) + eventDropBonus(w, p, 'swap', idx, c) + (raid ? raid(c) : 0);
+    let best = bestDrop(w, parts, hurt.length ? hurt : allies, 'allies', score, near, view);
+    if (raid) best = withSafeHoles(w, view, score, best, enemies);
     if (best) return best.pos;
   } else {
-    const score = (c: Vec2) => enemyScore(parts, c, enemies) + allyScore(parts, c, allies, () => 0.3) + eventDropBonus(w, p, 'swap', idx, c);
-    const best = bestDrop(w, parts, enemies, 'enemies', score, near, view);
+    const score = (c: Vec2) => enemyScore(parts, c, enemies) + allyScore(parts, c, allies, () => 0.3) + eventDropBonus(w, p, 'swap', idx, c) + (raid ? raid(c) : 0);
+    let best = bestDrop(w, parts, enemies, 'enemies', score, near, view);
+    if (raid) best = withSafeHoles(w, view, score, best, enemies);
     if (best && best.score > 0) return best.pos;
   }
   const t = me ? getEntity(w, me.targetId) : null;
@@ -197,6 +296,9 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
   } else {
     b.ultAt = null;
   }
+
+  if (w.bossRaid) markThink(w, p, dispatch); // 기획 20차 (rule N6): a marked field character is swapped out in time
+  if (s.phase !== 'combat') return;
 
   justThink(w, p, dispatch); // 기획 17차 저스트 교대
   if (s.phase !== 'combat') return;

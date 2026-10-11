@@ -282,7 +282,7 @@ test('artifact build (기획 15차 · 16차 원정): solo expedition without a s
   expect(w.requests.every(r => r === '/')).toBe(true);
 });
 
-test('artifact build (기획 19차 보스 레이드): solo raid without a server — floor 1 boss, 보스 고르기, reward → floor 2, the best floor survives a reload, zero console errors', async ({
+test('artifact build (기획 19차 보스 레이드): solo raid without a server — floor 1 boss, 보스 고르기 (one boss of each 기획 20차 form), reward → floor 2, the best floor survives a reload, zero console errors', async ({
   page,
 }) => {
   pageMode = 'artifact';
@@ -328,6 +328,48 @@ test('artifact build (기획 19차 보스 레이드): solo raid without a server
   await page.waitForFunction(() => window.__proto!.game!.state.telegraphs.some(t => t.team === 'enemy'), undefined, { timeout: 20_000 });
   await page.waitForTimeout(1500);
 
+  // 기획 20차 보스 형태 (integration): one boss of each form plays inside the single file — the form chip, a body in the
+  // arena that walks (배회형) / changes its seat (자리 이동형) / moves on its stage (전장형), the set piece on top (고정형),
+  // and a warning of each on the floor
+  const bossAt = () =>
+    page.evaluate(() => {
+      const s = window.__proto!.game!.state;
+      const b = s.entities.find(e => e.id === s.bossId)!;
+      return { x: b.pos.x, y: b.pos.y };
+    });
+  const FORMS: [id: string, label: string, travels: number][] = [
+    ['washer_drum', '배회형', 3],
+    ['dead_monitor', '자리 이동형', 5],
+    ['answering_pencil', '전장형', 1],
+    ['morgue_drawers', '고정형', 0], // a ward boss: never the seed's floor-2 boss (checked below)
+  ];
+  for (const [id, label, travels] of FORMS) {
+    expect((await debug({ kind: 'raidBoss', boss: id })).ok, id).toBe(true);
+    await page.waitForFunction(b => window.__proto!.game!.state.plan.bossId === b && window.__proto!.phase === 'combat', id);
+    await page.evaluate(() => (window.__proto!.game!.tunables.gameSpeed = 2));
+    await expect(page.locator('.boss-form')).toHaveText(label);
+    const from = await bossAt();
+    if (travels > 0) {
+      expect(from.y, `${id}: a body inside the arena`).toBeGreaterThanOrEqual(3 - 0.01);
+      await expect(page.locator('.boss-tag')).toBeVisible();
+      await page.waitForFunction(
+        ([x, y, need]) => {
+          const s = window.__proto!.game!.state;
+          const b = s.entities.find(e => e.id === s.bossId);
+          return !!b && Math.hypot(b.pos.x - x, b.pos.y - y) >= need;
+        },
+        [from.x, from.y, travels],
+        { timeout: 30_000 },
+      );
+    } else {
+      expect(from.y, `${id}: the set piece above the arena`).toBeLessThan(0);
+      await expect(page.locator('.boss-tag')).toBeHidden();
+    }
+    await page.waitForFunction(() => window.__proto!.game!.state.telegraphs.some(t => t.team === 'enemy' && !t.self), undefined, { timeout: 20_000 });
+    await page.waitForTimeout(400);
+  }
+  await page.evaluate(() => (window.__proto!.game!.tunables.gameSpeed = 1));
+
   // 「다음 보스로」 → the floor reward → floor 2, another boss
   expect((await debug({ kind: 'skipFloor' })).ok).toBe(true);
   await phase('reward');
@@ -350,7 +392,7 @@ test('artifact build (기획 19차 보스 레이드): solo raid without a server
   await phase('combat');
   const f2 = await page.evaluate(() => ({ floor: window.__proto!.game!.state.floor, boss: window.__proto!.game!.state.plan.bossId }));
   expect(f2.floor).toBe(2);
-  expect(f2.boss).not.toBe(other);
+  expect(f2.boss).not.toBe('morgue_drawers');
   await expect(page.locator('.boss-raid-n')).toHaveText('2/20');
   await page.waitForTimeout(800);
 

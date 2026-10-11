@@ -1,12 +1,15 @@
 // Per-tick unit behaviour: timers, DoT/regen/aura pulses, targeting (R6–R8), movement,
 // basic attacks, auto normal skills, monster skills, separation.
 
-import type { BasicAttack, BossDef, MonsterSkill } from '../types';
+import type { BasicAttack, BossDef, MonsterSkill, SkillAction } from '../types';
 import { STASIS } from '../config';
 import { ATTACK_ANIM, MONSTER_SKILL_GAP, PULSE_INTERVAL } from './constants';
 import { applyDamage, basicHit, explode, fireProjectile, heal } from './combat';
 import { normalCooldownFor } from './cooldowns';
 import { LOCK_RELEASE } from '../data';
+import { ZONE_AVOID } from '../data/bosses/forms';
+import { bossStep, farthestEnemy, tickBossForm } from './bossForm';
+import { steer } from './zoneAvoid';
 import { charCtx, findWoundedAlly, unitCtx, usesWoundedAlly } from './ctx';
 import { clampUnit } from './entities';
 import { onMonsterDeath } from './ondeath';
@@ -14,7 +17,7 @@ import { isGroggy } from './groggy';
 import { actionDelay, castSkill, startAction } from './skills';
 import { effStats } from './stats';
 import { constrainTether, hasStatus, isBossy, statusValue, tickStatusTimers } from './status';
-import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type PendingHit, type SimEntity, type SimStatus, type World } from './world';
+import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type BossFormRt, type PendingHit, type SimEntity, type SimStatus, type World } from './world';
 import { rwStatusExpire } from './rewards/hooks';
 
 export function tickUnits(w: World, dt: number): void {
@@ -85,6 +88,7 @@ function unitTimers(w: World, e: SimEntity, dt: number): void {
   // 기획 17차: an enemy's status from a player ran out → that player's reward hooks (원한의 쪽지)
   tickStatusTimers(e.statuses, dt, e.team === 'enemy' ? st => st.sourcePlayer != null && rwStatusExpire(w, e, st) : undefined);
   if (e.team === 'enemy' && e.statuses.length) tauntSource(w, e); // 기획 13차: a taunt ends with its taunter (also while stunned)
+  if (rt.form) tickBossForm(e, rt.form, dt); // 기획 20차: taunt immunity after a taunt, a patrol boss back to its route
   if (stasis && !e.statuses.includes(stasis)) {
     endStasis(w, e, stasis as SimStatus);
     if (!isAlive(e)) return;
@@ -154,18 +158,42 @@ function act(w: World, e: SimEntity, dt: number): void {
   if (e.rt.lockTime > 0) return; // casting / appearing: stand still
   if ((e.anim === 'appear' || e.anim === 'cast') && e.animTime <= 0) e.anim = 'idle';
 
-  const t = updateTarget(w, e);
+  const form = e.rt.form;
+  const t = form ? formTarget(w, e, form, dt) : updateTarget(w, e);
   if (e.kind === 'character') tryNormalSkill(w, e, t);
   else if (!hasStatus(e, 'charm')) tryMonsterSkills(w, e, t); // 기획 13차: a charmed enemy only swings at its own side
   if (e.rt.lockTime > 0 || !isAlive(e)) return;
+  if (form) {
+    actFormBoss(w, e, form, t, dt); // 기획 20차 (rule N1): turn rate, move modes, the box
+    return;
+  }
 
   if (!t || !isAlive(t)) {
     if (e.anim === 'move' || e.animTime <= 0) e.anim = 'idle';
     return;
   }
   const st = effStats(w, e);
-  const d = edgeDist(e, t);
   e.facing = Math.atan2(t.pos.y - e.pos.y, t.pos.x - e.pos.x);
+  // 기획 20차 (rule N8, 보스 레이드만): a character walks around the zones an enemy left (never in the classic tower / 원정)
+  // 기획 20차 점검: a form boss walks while it is hit. A step that ends in reach is followed by the swing on the same
+  // tick — else a character trailing a body that drifts away (달 · 커피 머신) only ever walked that last hair of range.
+  // Only a target with rt.form (a moving raid boss): the classic tower and 원정 never get here.
+  const chase = !!t.rt.form;
+  let walked = false;
+  if (e.kind === 'character' && w.bossRaid && ZONE_AVOID.on && !hasStatus(e, 'root')) {
+    const r = steer(w, e, t, st.range, st.moveSpeed * dt, dt);
+    if (r === 'moved') {
+      clampUnit(w, e);
+      e.anim = 'move';
+      if (!chase || edgeDist(e, t) > st.range) return;
+      walked = true;
+    }
+    if (r === 'wait') {
+      if (e.anim === 'move' || e.animTime <= 0) e.anim = 'idle';
+      return;
+    }
+  }
+  const d = edgeDist(e, t);
   if (d > st.range) {
     if (e.rt.stationary || hasStatus(e, 'root')) {
       if (e.animTime <= 0) e.anim = 'idle';
@@ -179,10 +207,57 @@ function act(w: World, e: SimEntity, dt: number): void {
       clampUnit(w, e);
     }
     e.anim = 'move';
-    return;
+    if (!chase || edgeDist(e, t) > st.range) return;
+    walked = true;
   }
   if (e.rt.attackCd <= 0) basicAttack(w, e, t, st.atkSpeed);
-  else if (e.anim === 'move' || e.animTime <= 0) e.anim = 'idle';
+  else if (!walked && (e.anim === 'move' || e.animTime <= 0)) e.anim = 'idle';
+}
+
+/**
+ * 기획 20차 (rule N1): a form boss that is free to act — bossForm.ts moves and turns it; it swings when its target is in
+ * reach and faced. A cast or attack pose that is still playing is kept while it walks.
+ */
+function actFormBoss(w: World, e: SimEntity, f: BossFormRt, t: SimEntity | null, dt: number): void {
+  const r = bossStep(w, e, f, t, dt);
+  const moved = r.moved;
+  if (r.attack && t && isAlive(t) && e.rt.attackCd <= 0) {
+    basicAttack(w, e, t, effStats(w, e).atkSpeed);
+    return;
+  }
+  if (e.animTime > 0 && (e.anim === 'attack' || e.anim === 'cast' || e.anim === 'appear')) return;
+  e.anim = moved ? 'move' : 'idle';
+}
+
+/**
+ * 기획 20차 (rule N1): a form boss's target — its taunter first (roaming only: the others are immune), else by
+ * BossMoveDef.target ('nearest', held until it dies or leaves · 'farthest'), picked again every `retarget` s. Never
+ * while it casts (act() does not get here then). No rng.
+ */
+function formTarget(w: World, e: SimEntity, f: BossFormRt, dt: number): SimEntity | null {
+  const forced = forcedTarget(w, e);
+  if (forced !== undefined) {
+    if (forced?.id !== e.targetId) e.targetHeldFor = 0;
+    e.targetId = forced ? forced.id : null;
+    return forced;
+  }
+  const mv = f.def.move;
+  let t = getEntity(w, e.targetId);
+  if (t && t.team === e.team) t = null;
+  let due = false;
+  if (mv?.retarget != null) {
+    f.retargetIn -= dt;
+    due = f.retargetIn <= 1e-9;
+    if (due) {
+      f.retargetIn = mv.retarget;
+      f.retargets = (f.retargets ?? 0) + 1; // 기획 20차 점검: an axisAlternate mover swaps its leading axis
+    }
+  }
+  if (t && !due) return t;
+  const n = mv?.target === 'farthest' ? farthestEnemy(w, e) : pickTarget(w, e);
+  if ((n ? n.id : null) !== e.targetId) e.targetHeldFor = 0;
+  e.targetId = n ? n.id : null;
+  return n;
 }
 
 export function nearestEnemy(w: World, e: SimEntity, filter?: (o: SimEntity) => boolean): SimEntity | null {
@@ -320,6 +395,22 @@ function movesCaster(sk: MonsterSkill): boolean {
   return (sk.extra ? [sk.action, ...sk.extra] : [sk.action]).some(a => !!a.blink || !!a.charge);
 }
 
+/**
+ * The parts of this cast. 기획 20차 (rule N7, 번갈아 쓰기): a skill with `cycle` uses action / extra first, then cycle[0],
+ * cycle[1] … and around again — a per-skill cast counter under rt, no rng.
+ */
+function castParts(e: SimEntity, sk: MonsterSkill): SkillAction[] {
+  let v: Pick<MonsterSkill, 'action' | 'extra'> = sk;
+  if (sk.cycle && sk.cycle.length > 0) {
+    const counts = (e.rt.cycleNo ??= {});
+    const n = counts[sk.id] ?? 0;
+    counts[sk.id] = n + 1;
+    const k = n % (sk.cycle.length + 1);
+    if (k > 0) v = sk.cycle[k - 1];
+  }
+  return v.extra ? [v.action, ...v.extra] : [v.action];
+}
+
 function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
   const def = e.rt.monDef;
   const skills = e.rt.skills;
@@ -337,18 +428,23 @@ function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
     // a telegraphed skill is wound up until it lands: a stun in between breaks every part of it (status.ts)
     const ctx = unitCtx(w, e, sk.id, sk.name);
     const windup: PendingHit[] = [];
+    const parts = castParts(e, sk);
     let delay = 0;
-    for (const a of sk.extra ? [sk.action, ...sk.extra] : [sk.action]) {
+    for (const a of parts) {
       const p = startAction(w, ctx, a);
       if (p) windup.push(p);
       delay = Math.max(delay, actionDelay(ctx, a));
     }
     e.rt.windup = windup;
     // the caster stands still until its main part lands (a charge moves it then); later parts of a sequence don't hold it
-    const hold = actionDelay(ctx, sk.action); // 기획 19차: with the boss telegraph knob, so the pose lasts as long as the warning
+    // 기획 20차 (rule N1): a form boss stands (and keeps its facing) until the LAST part landed — unless the skill or
+    // the boss says castMove (the moon never stops)
+    const form = e.rt.form;
+    const hold = form ? delay : actionDelay(ctx, parts[0]); // 기획 19차: with the boss telegraph knob, so the pose lasts as long as the warning
     e.anim = 'cast';
     e.animTime = Math.max(0.4, Math.min(delay, hold > 0 ? hold : delay));
-    if (!e.rt.stationary && hold > 0) e.rt.lockTime = hold;
+    const free = !!form && (!!sk.castMove || !!form.def.move?.castMove);
+    if (!e.rt.stationary && hold > 0 && !free) e.rt.lockTime = Math.max(e.rt.lockTime, hold);
     return;
   }
 }
@@ -384,7 +480,10 @@ function separate(w: World): void {
     const a = list[i];
     for (let j = i + 1; j < n; j++) {
       const b = list[j];
-      if (a.rt.stationary && b.rt.stationary) continue;
+      // 기획 20차 (rule N1): a heavy body (roaming / arena boss) pushes like a stationary one and is never pushed
+      const fa = a.rt.stationary || !!a.rt.heavy;
+      const fb = b.rt.stationary || !!b.rt.heavy;
+      if (fa && fb) continue;
       if (a.rt.untargetable || b.rt.untargetable) continue; // 기획 17차: reward shooters / mines push nobody
       const minD = a.radius + b.radius;
       let dx = b.pos.x - a.pos.x;
@@ -404,8 +503,8 @@ function separate(w: World): void {
       const push = (minD - d) * 0.5;
       const ra = a.radius * a.radius;
       const rb = b.radius * b.radius;
-      const wa = a.rt.stationary ? 0 : b.rt.stationary ? 1 : rb / (ra + rb);
-      const wb = b.rt.stationary ? 0 : 1 - wa;
+      const wa = fa ? 0 : fb ? 1 : rb / (ra + rb);
+      const wb = fb ? 0 : 1 - wa;
       a.pos.x -= dx * push * wa;
       a.pos.y -= dy * push * wa;
       b.pos.x += dx * push * wb;

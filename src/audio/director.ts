@@ -118,6 +118,8 @@ export const EVENT_SOUNDS: Record<GameEvent['type'], string> = {
   justSwap: 'just.swap / just.swap.far (+ just.whiff when the dodged attack lands)',
   rewardProc: 'reward.proc (mine, quiet; the 빚 toast has no sound)',
   tagSet: 'reward.set',
+  // 기획 20차 (rule N6): a cleared mark has no sound of its own yet (the swap that cleared it is heard)
+  markClear: 'none',
 };
 
 // ─────────────────────────── static lookups ───────────────────────────
@@ -457,6 +459,8 @@ export class Director {
       case 'tagSet':
         if (e.player === c.lp) c.play('reward.set');
         return;
+      case 'markClear':
+        return; // 기획 20차: silent
       default: {
         const never: never = e;
         return never;

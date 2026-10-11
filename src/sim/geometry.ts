@@ -19,6 +19,52 @@ export function dirVec(d: Dir): Vec2 {
   return { x: v.x, y: v.y };
 }
 
+/**
+ * 기획 20차 (rule N3): unit vector of `deg` degrees clockwise from +x on screen (world +y is down). Quarter turns are
+ * exact, so a strip written with rot 90 lies exactly on the grid.
+ */
+export function rotVec(deg: number): Vec2 {
+  const d = ((deg % 360) + 360) % 360;
+  if (d === 0) return { x: 1, y: 0 };
+  if (d === 90) return { x: 0, y: 1 };
+  if (d === 180) return { x: -1, y: 0 };
+  if (d === 270) return { x: 0, y: -1 };
+  const a = (d * Math.PI) / 180;
+  return { x: Math.cos(a), y: Math.sin(a) };
+}
+
+/** Direction of a rect / cone: its `rot` (기획 20차) when present, else its fixed `dir`. */
+export function areaDir(area: { dir: Dir; rot?: number }): Readonly<Vec2> {
+  return area.rot != null ? rotVec(area.rot) : DIR_VEC[area.dir];
+}
+
+/** The same direction in degrees clockwise from +x. */
+export function areaRot(area: { dir: Dir; rot?: number }): number {
+  if (area.rot != null) return area.rot;
+  return area.dir === 'right' ? 0 : area.dir === 'down' ? 90 : area.dir === 'left' ? 180 : 270;
+}
+
+/**
+ * 기획 20차 (rule N2, rel 'facing'): a rect / cone written as "the caster faces +x" turned to `facing` (radians) — its
+ * direction becomes a `rot`. Other shapes have no direction and come back as they are.
+ */
+export function faceArea(area: AreaShape, facing: number): AreaShape {
+  if (area.shape !== 'rect' && area.shape !== 'cone') return area;
+  return { ...area, rot: areaRot(area) + snapDeg((facing * 180) / Math.PI) };
+}
+
+/** Degrees with float dust removed (a facing of exactly π / 2 is 90, not 90.00000000000001). */
+function snapDeg(deg: number): number {
+  const r = Math.round(deg * 1e6) / 1e6;
+  return r === 0 ? 0 : r;
+}
+
+/** A vector written as "the caster faces +x" (x = ahead, y = to its right) turned to `facing` (radians). */
+export function faceVec(v: Vec2, facing: number): Vec2 {
+  const u = rotVec(snapDeg((facing * 180) / Math.PI));
+  return { x: v.x * u.x - v.y * u.y, y: v.x * u.y + v.y * u.x };
+}
+
 /** Edge distance used by the 'single' shape when it has to pick a unit near the center. */
 export const SINGLE_REACH = 1;
 
@@ -34,7 +80,7 @@ export interface RectFrame {
 
 /** The world rectangle of a 'rect' area placed at center. */
 export function rectFrame(area: Extract<AreaShape, { shape: 'rect' }>, center: Vec2): RectFrame {
-  const u = DIR_VEC[area.dir];
+  const u = areaDir(area); // 기획 20차: the one place a rect's direction is read (dir, or rot when present)
   const back = area.anchor === 'center' ? area.length / 2 : 0;
   return { sx: center.x - u.x * back, sy: center.y - u.y * back, ux: u.x, uy: u.y, len: area.length, hw: area.width / 2 };
 }
@@ -129,7 +175,7 @@ export function hitsArea(area: AreaShape, center: Vec2, origin: Vec2, pos: Vec2,
       return distToRect(pos, f.sx, f.sy, f.ux, f.uy, f.len, f.hw) <= radius + EPS;
     }
     case 'cone':
-      return hitsCone(center, DIR_VEC[area.dir], ((area.angle / 2) * Math.PI) / 180, area.radius, pos, radius);
+      return hitsCone(center, areaDir(area), ((area.angle / 2) * Math.PI) / 180, area.radius, pos, radius);
     case 'ring': {
       const d = Math.hypot(pos.x - center.x, pos.y - center.y);
       return d > area.inner - radius && d <= area.outer + radius + EPS;
@@ -219,6 +265,25 @@ export function chargeEnd(origin: Vec2, center: Vec2, distance: number, arenaSiz
   return { x: origin.x + u.x * t, y: origin.y + u.y * t };
 }
 
+/** Where a rush may end: a box of centre positions (기획 20차: a form boss's box; elsewhere the arena minus a margin). */
+export interface MoveBox {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
+/** chargeEnd inside any box (기획 20차): shortened, never bent, so the caster stays inside `box`. */
+export function chargeEndIn(origin: Vec2, center: Vec2, distance: number, box: MoveBox, fallback?: Vec2): Vec2 {
+  const u = aimDir(origin, center, fallback);
+  let t = Math.max(0, distance);
+  if (u.x > 1e-9) t = Math.min(t, Math.max(0, (box.xMax - origin.x) / u.x));
+  else if (u.x < -1e-9) t = Math.min(t, Math.max(0, (box.xMin - origin.x) / u.x));
+  if (u.y > 1e-9) t = Math.min(t, Math.max(0, (box.yMax - origin.y) / u.y));
+  else if (u.y < -1e-9) t = Math.min(t, Math.max(0, (box.yMin - origin.y) / u.y));
+  return { x: origin.x + u.x * t, y: origin.y + u.y * t };
+}
+
 /** Rough reach of an area from its center (zone bookkeeping, culling, effect sizes). */
 export function areaExtent(a: AreaShape): number {
   switch (a.shape) {
@@ -246,7 +311,7 @@ export function areaCentroid(a: AreaShape, center: Vec2): Vec2 {
     return { x: f.sx + (f.ux * f.len) / 2, y: f.sy + (f.uy * f.len) / 2 };
   }
   if (a.shape === 'cone') {
-    const u = DIR_VEC[a.dir];
+    const u = areaDir(a);
     return { x: center.x + u.x * a.radius * 0.5, y: center.y + u.y * a.radius * 0.5 };
   }
   return { x: center.x, y: center.y };
@@ -296,7 +361,7 @@ export function aimSamples(a: AreaShape): Vec2[] {
       return out;
     }
     case 'cone': {
-      const u = DIR_VEC[a.dir];
+      const u = areaDir(a);
       return [0.3, 0.55, 0.8].map(k => ({ x: u.x * a.radius * k, y: u.y * a.radius * k }));
     }
     case 'ring': {

@@ -37,8 +37,10 @@ const KEYS: Record<string, string[]> = {
   ult: ['charge', 'fullSince'],
   stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage', 'justSwaps', 'justDodged'],
   // self: 기획 19차 (rule M1) a boss's wind-up on itself
-  telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total', 'self'],
-  zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
+  // motif / mark: 기획 20차 (a charge / arrive / sweep warning, a bound mark's unit) — only on the new part kinds
+  telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total', 'self', 'motif', 'mark'],
+  // look: 기획 20차 trail zones (footprints, a charge's path)
+  zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind', 'look'],
   projectile: ['id', 'team', 'pos', 'targetId', 'targetPos', 'speed', 'color'],
   // family … rarityBumped: 기획 17차 (tags, 지명권 member / role, curse · coop · economy flag, 대가 text, 상자 bump)
   offer: ['rewardId', 'partyIndex', 'name', 'description', 'rarity', 'isRelic', 'family', 'tags', 'target', 'member', 'role', 'flag', 'cost', 'rarityBumped'],

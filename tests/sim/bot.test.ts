@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { bestDropPoint } from '../../src/sim/bot';
+import { bestDropPoint, raidDropScore } from '../../src/sim/bot';
 import { hitsArea } from '../../src/sim/geometry';
 import { applyStatus } from '../../src/sim/status';
-import { active, advance, BOT1, eventsOf, HUMAN, killActive, makeGame, quietFloor, spawnAt } from './helpers';
+import { active, advance, BOT1, clearEvents, eventsOf, HUMAN, killActive, makeGame, quietFloor, spawnAt, type TestGame } from './helpers';
+import { BOT_RAID, arenaAt, safeRing } from '../../src/data/bosses';
+import { unitCtx } from '../../src/sim/ctx';
+import { startAction } from '../../src/sim/skills';
+import type { SimEntity } from '../../src/sim/world';
+import type { SkillAction, Vec2 } from '../../src/types';
+import { bossOf, raidGame } from './bossRaidHelpers';
 
 const BOT_P0 = { ...HUMAN, isBot: true };
 
@@ -109,3 +115,154 @@ describe('기획 13차: bots aim the renewed multi-beat drags', () => {
   });
 });
 
+// ─────────────────────────── 기획 20차: 보스 레이드 봇 (docs/bosses.md 3장 「봇」) ───────────────────────────
+
+describe('기획 20차: raid bots read zones, warnings, safe holes and marks (no rng; the classic tower is untouched)', () => {
+  const HIT: SkillAction['effects'] = [{ kind: 'damage', amount: 1 }];
+  const BOT_MAGE = { ...HUMAN, isBot: true, characters: ['guardian', 'mage', 'blade'] };
+
+  /** A raid fight whose boss does nothing by itself and never dies; my seat is a bot that is not due to swap. */
+  function quietRaid(bossId: string, players = [BOT_MAGE]): TestGame {
+    const tg = raidGame(bossId, { hpMult: 80, players, tunables: { monsterDmgMult: 0.01, bossGroggyThreshold: 0 } });
+    const b = bossOf(tg);
+    b.rt.skillCds = b.rt.skillCds.map(() => 9999);
+    b.rt.phase = 99;
+    advance(tg, 1.1); // past the entrance pose
+    b.rt.lockTime = 9999;
+    b.rt.attackCd = 9999;
+    for (const p of tg.w.state.players) p.rt.bot.nextSwapAt = tg.w.state.time + 999;
+    clearEvents(tg);
+    return tg;
+  }
+
+  /** The boss casts these parts as one cast at `target`. */
+  function cast(tg: TestGame, parts: SkillAction[], target?: SimEntity): void {
+    const b = bossOf(tg);
+    if (target) b.targetId = target.id;
+    const ctx = unitCtx(tg.w, b, 'syn_bot', '시험');
+    for (const a of parts) startAction(tg.w, ctx, a);
+  }
+
+  const drop = (tg: TestGame, idx = 1) => bestDropPoint(tg.w, tg.w.state.players[0], idx);
+  const d = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  it('a safe ring is up (find the safe spot): the card is dropped inside the hole', () => {
+    const tg = quietRaid('thunder_antenna');
+    const hole = { x: 6, y: 8 };
+    const before = drop(tg);
+    expect(d(before, hole)).toBeGreaterThan(3); // without the ring it aims at the boss, far from that spot
+    cast(tg, [{ ...arenaAt(hole.x, hole.y), area: safeRing(3), affects: 'enemies', delay: 2.5, effects: HIT }]);
+    const pos = drop(tg);
+    expect(d(pos, hole)).toBeLessThanOrEqual(3 - 0.45 + 1e-6);
+    // every card: the hole wins over any enemy-covering spot outside it (BOT_RAID.safeIn / safeOut)
+    expect(BOT_RAID.safeIn - BOT_RAID.safeOut).toBeGreaterThanOrEqual(4);
+    for (const idx of [1, 2]) expect(d(drop(tg, idx), hole)).toBeLessThanOrEqual(3 - 0.45 + 1e-6);
+  });
+
+  it('the same ring in the classic tower changes nothing (the raid terms are not read there)', () => {
+    const tg = makeGame({ players: [BOT_MAGE], startFloor: 5 });
+    advance(tg, 0.5);
+    const p = tg.w.state.players[0];
+    const before = bestDropPoint(tg.w, p, 1);
+    const boss = tg.w.state.entities.find(e => e.tier === 'boss')!;
+    const ctx = unitCtx(tg.w, boss, 'syn_bot', '시험');
+    startAction(tg.w, ctx, { center: 'point', area: safeRing(3), affects: 'enemies', delay: 2.5, effects: HIT });
+    expect(tg.w.state.telegraphs.some(t => t.team === 'enemy' && t.area.shape === 'ring')).toBe(true);
+    expect(bestDropPoint(tg.w, p, 1)).toEqual(before);
+  });
+
+  it('the hole wins even when the boss could be hit from outside it; a spot already in the hole keeps its aim', () => {
+    const tg = quietRaid('thunder_antenna');
+    const b = bossOf(tg);
+    const usual = drop(tg);
+    // a hole far from the boss: the drop goes to its rim on the boss's side (as near as a safe spot gets)
+    const far = { x: b.pos.x > 12 ? 5 : 19, y: 9 };
+    cast(tg, [{ ...arenaAt(far.x, far.y), area: safeRing(2.5), affects: 'enemies', delay: 2.5, effects: HIT }]);
+    const pos = drop(tg);
+    expect(d(pos, far)).toBeLessThanOrEqual(2.5 - 0.45 + 1e-6);
+    expect(d(pos, far)).toBeGreaterThan(1); // not the middle: toward the boss
+    expect(d(pos, b.pos)).toBeLessThan(d(far, b.pos));
+    // a hole around the usual best spot: nothing to change
+    const tg2 = quietRaid('thunder_antenna');
+    const usual2 = drop(tg2);
+    expect(usual2).toEqual(usual);
+    cast(tg2, [{ ...arenaAt(usual2.x, usual2.y), area: safeRing(3), affects: 'enemies', delay: 2.5, effects: HIT }]);
+    expect(drop(tg2)).toEqual(usual2);
+  });
+
+  it('score terms: a lingering enemy zone, a warning that lands soon (once), far-off warnings and the classic tower not at all', () => {
+    const tg = quietRaid('thunder_antenna');
+    const at = { x: 6, y: 8 };
+    const away = { x: 18, y: 8 };
+    expect(raidDropScore(tg.w, at)).toBe(0);
+    // a warning still far off: nothing; two that land soon on the same spot: counted once
+    cast(tg, [{ ...arenaAt(at.x, at.y), area: { shape: 'circle', radius: 1.6 }, affects: 'enemies', delay: BOT_RAID.soon + 1.5, effects: HIT }]);
+    expect(raidDropScore(tg.w, at)).toBe(0);
+    cast(tg, [
+      { ...arenaAt(at.x, at.y), area: { shape: 'circle', radius: 1.6 }, affects: 'enemies', delay: BOT_RAID.soon - 0.2, effects: HIT },
+      { ...arenaAt(at.x, at.y), area: { shape: 'circle', radius: 2 }, affects: 'enemies', delay: BOT_RAID.soon - 0.4, effects: HIT },
+    ]);
+    expect(raidDropScore(tg.w, at)).toBe(BOT_RAID.telegraph);
+    expect(raidDropScore(tg.w, away)).toBe(0);
+    // a zone that lingers there
+    const tz = quietRaid('thunder_antenna');
+    cast(tz, [{ ...arenaAt(at.x, at.y), area: { shape: 'circle', radius: 1.6 }, affects: 'enemies', delay: 0, telegraphLead: 0, effects: HIT, zone: { duration: 8, tickInterval: 0.5 } }]);
+    advance(tz, 0.1);
+    expect(tz.w.state.zones.some(z => z.team === 'enemy')).toBe(true);
+    expect(raidDropScore(tz.w, at)).toBe(BOT_RAID.zone);
+    expect(raidDropScore(tz.w, away)).toBe(0);
+    // safe ring: inside the hole / outside it
+    const tr = quietRaid('thunder_antenna');
+    cast(tr, [{ ...arenaAt(at.x, at.y), area: safeRing(3), affects: 'enemies', delay: 2.5, effects: HIT }]);
+    expect(raidDropScore(tr.w, at)).toBe(BOT_RAID.safeIn);
+    expect(raidDropScore(tr.w, away)).toBe(BOT_RAID.safeOut);
+  });
+
+  it('a boss with a front shield: right behind it is worth a little more than in front of it', () => {
+    const tg = quietRaid('shredder_maw');
+    const b = bossOf(tg);
+    expect(b.rt.monDef && 'guard' in b.rt.monDef && b.rt.monDef.guard).toBeTruthy();
+    b.facing = 0; // looks right
+    const back = { x: b.pos.x - 3, y: b.pos.y };
+    const front = { x: b.pos.x + 3, y: b.pos.y };
+    const side = { x: b.pos.x, y: b.pos.y + 3 };
+    expect(raidDropScore(tg.w, back)).toBe(BOT_RAID.back);
+    expect(raidDropScore(tg.w, front)).toBe(0);
+    expect(raidDropScore(tg.w, side)).toBe(0);
+  });
+
+  it('a warning that is still far off does not move the drop', () => {
+    const tg = quietRaid('thunder_antenna');
+    const best = drop(tg);
+    cast(tg, [{ ...arenaAt(best.x, best.y), area: { shape: 'circle', radius: 1.6 }, affects: 'enemies', delay: BOT_RAID.soon + 1.5, effects: HIT }]);
+    expect(drop(tg)).toEqual(best);
+  });
+
+  it('a mark (rule N6) on its field character: it waits, then swaps it out when the mark has ' + BOT_RAID.markSwapAt + ' s left — the mark is cleared', () => {
+    const tg = quietRaid('endless_meeting');
+    const me = active(tg, 0);
+    const delay = 3;
+    cast(tg, [{ center: 'target', area: { shape: 'single' }, affects: 'enemies', bound: true, delay, effects: HIT }], me);
+    expect(tg.w.state.telegraphs.some(t => t.mark === me.id)).toBe(true);
+    advance(tg, delay - BOT_RAID.markSwapAt - 0.3);
+    expect(tg.w.state.players[0].activeIndex, 'not yet').toBe(0);
+    expect(eventsOf(tg, 'markClear')).toHaveLength(0);
+    // the bot thinks twice a second: the swap comes within its next thought, well before the mark goes off
+    advance(tg, 0.75);
+    expect(tg.w.state.players[0].activeIndex).not.toBe(0);
+    expect(eventsOf(tg, 'markClear')).toHaveLength(1);
+    expect(tg.w.state.telegraphs.some(t => t.mark != null)).toBe(false);
+    // nobody was hit by it
+    advance(tg, 1.5);
+    expect(eventsOf(tg, 'damage').filter(e => e.targetTeam === 'ally' && e.skillName === '시험')).toHaveLength(0);
+  });
+
+  it('same seed, same raid bot run (the raid terms draw no random numbers)', () => {
+    const run = () => {
+      const tg = raidGame('endless_meeting', { seed: 77, players: [BOT_MAGE, BOT1] });
+      advance(tg, 20);
+      return JSON.stringify([tg.w.state.players.map(p => [p.activeIndex, p.stats.swaps]), tg.w.state.entities.map(e => [e.defId, +e.pos.x.toFixed(4), +e.pos.y.toFixed(4), Math.round(e.hp)])]);
+    };
+    expect(run()).toBe(run());
+  });
+});
