@@ -43,6 +43,7 @@
 2. `src/audio/files/drag.guardian.wave.mp3`로 넣는다. 끝. (`import.meta.glob`이 자동으로 찾고, 아티팩트 빌드는 파일을 한 HTML 안에 넣어 줌)
 3. 음량을 맞추거나 변형 여러 개를 쓰려면 `manifest.ts`의 `SFX_MANIFEST`에 한 줄: `{ src: ['a.mp3','b.mp3'], gain: 0.8, rate: [0.96, 1.04], 출처, 라이선스 }`.
 
+- **18차: ElevenLabs로 만들기.** `scripts/sfx-prompts.json`에 소리마다 영어 설명·길이·한국어 이름을 적고 `npm run sfx:gen`을 하면 `src/audio/files/<id>.mp3`가 생긴다 (이미 있는 파일은 건너뜀, `--only=hit.basic,ui.tap` / `--family=hit` / `--force` / `--dry`). API 키는 프로젝트 폴더의 `.env.local`에 `ELEVENLABS_API_KEY=…` (git에 안 올라감). 보낸 문장은 `files/generated.json`에 남는다. `npm run sfx:preview`는 듣기용 `sfx-preview.html`을 만든다. 분위기 문장은 prompts.json의 `style` 한 줄로 모든 소리에 붙는다. 첫 20개(타격·공격·회복·등장·퇴장·카드·저스트·몬스터·버튼·층 클리어)는 만들었고, 자주 나는 타격·공격 8개는 `SFX_MANIFEST`에서 음높이를 ±6% 흔든다.
 - 찾는 순서: ① 스킬 전용 파일 `skill.<skillId>` → ② id 파일 → ③ 그 id의 합성 레시피 → ④ 묶음 기본 합성음 (예: `drag._role.melee`) → ⑤ 무음 (콘솔에 debug 한 줄, 오류 아님).
 - 파일을 못 읽으면 합성음으로 돌아감 (warn 한 번).
 - 권장: **모노 mp3/m4a 96kbps**, 파일 전체 약 3MB까지 (아티팩트 한도 16MB, base64로 +33%). **ogg는 쓰지 않음** (옛 iOS Safari가 못 읽음). 파일마다 출처·라이선스를 manifest에 적음.

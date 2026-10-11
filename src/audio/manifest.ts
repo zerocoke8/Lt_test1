@@ -18,7 +18,17 @@ export interface ManifestEntry {
 }
 
 /** Per-id overrides. Example: 'drag.guardian.wave': { src: ['wave-a.mp3', 'wave-b.mp3'], gain: 0.8, rate: [0.96, 1.04], source: '…', license: 'CC0' }. */
-export const SFX_MANIFEST: Record<string, ManifestEntry> = {};
+export const SFX_MANIFEST: Record<string, ManifestEntry> = {
+  // 기획 18차: first batch made with ElevenLabs text-to-sound-effects (scripts/sfx-gen.mjs; prompts in scripts/sfx-prompts.json,
+  // what was sent per file in files/generated.json). The sounds that fire many times a second get a small random pitch
+  // so one file does not sound like a machine gun. Every other generated file plays as it is (picked up by its name).
+  ...Object.fromEntries(
+    ['hit.basic', 'hit.skill', 'hit.boss', 'hurt.char', 'atk.swing.melee', 'atk.swing.tank', 'atk.shot.mage', 'heal.tick'].map(id => [
+      id,
+      { src: [`${id}.mp3`], rate: [0.94, 1.06] as [number, number], source: 'ElevenLabs sound effects (generated)', license: 'ElevenLabs terms of the generating account' },
+    ]),
+  ),
+};
 
 export interface FileSource {
   urls: string[];

@@ -310,8 +310,10 @@ describe('game', () => {
     const snaps = a.msgs.slice(from).filter(m => m.t === 'snap') as Extract<(typeof a.msgs)[number], { t: 'snap' }>[];
     expect(snaps.length).toBeGreaterThan(10);
     const withTunables = snaps.filter(m => m.tunables).length;
-    expect(withTunables).toBeGreaterThanOrEqual(1); // the periodic resend
-    expect(withTunables).toBeLessThanOrEqual(2);
+    expect(withTunables).toBeLessThanOrEqual(2); // unchanged tunables are not on every snapshot
+    // The periodic resend rides every 15th snapshot; a congested socket skips snapshots (broadcastSnap), so on a slow
+    // machine (the designer's PC) the window can hold fewer than 15 — then the next resend must still arrive soon.
+    if (withTunables === 0) expect((await a.snap(m => !!m.tunables, 1500)).tunables).toBeDefined();
     expect(snaps.every(m => m.telemetry === undefined)).toBe(true);
     const plan = snaps[snaps.length - 1].state.plan;
     expect(plan.waves.length).toBeGreaterThan(0);

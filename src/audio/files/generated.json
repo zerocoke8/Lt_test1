@@ -1,0 +1,142 @@
+{
+ "ui.tap": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Soft clean button tap, a tiny wooden click. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:11.826Z"
+ },
+ "hit.basic": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Short soft punchy thud of a small hit landing on a squishy cartoon ghost, quick and dry. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:16.251Z"
+ },
+ "hit.skill": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Heavier punchy impact thud with a little magical sparkle on top, cartoon game hit. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:18.076Z"
+ },
+ "hit.crit": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Critical hit: a sharp bright metallic 'ting' over a crisp punchy impact. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:19.394Z"
+ },
+ "hit.boss": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Deep dull heavy thump of hitting a huge monster, low and weighty. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.6,
+  "bytes": 7881,
+  "at": "2026-10-10T19:56:20.594Z"
+ },
+ "hurt.char": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Dull soft thud of a small cute character getting hit, with a tiny squeak. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:21.921Z"
+ },
+ "hurt.shield": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Bright glassy 'clink' of an attack bouncing off a magic shield. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:23.228Z"
+ },
+ "atk.swing.melee": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Quick light sword swing whoosh. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:24.467Z"
+ },
+ "atk.swing.tank": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Low heavy swing whoosh of a big shield. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:25.814Z"
+ },
+ "atk.shot.mage": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Small magic bolt being cast: a soft airy 'fwoom' with a little sparkle. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:26.990Z"
+ },
+ "heal.tick": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Tiny gentle healing chime, one soft bell sparkle. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:28.379Z"
+ },
+ "char.appear.melee": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "A cute ghost hero pops onto the battlefield: a quick rising whoosh ending in a bouncy 'pop'. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.7,
+  "bytes": 9135,
+  "at": "2026-10-10T19:56:29.634Z"
+ },
+ "char.leave": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "A small character quickly vanishing: a short soft downward whip and a puff of air. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:30.929Z"
+ },
+ "ui.card.lift": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Picking up a paper card: a light paper slide with a soft click. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.5,
+  "bytes": 6627,
+  "at": "2026-10-10T19:56:32.327Z"
+ },
+ "ui.cardReady": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Soft bright notification that a card is ready: two quick rising bell notes. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.6,
+  "bytes": 7881,
+  "at": "2026-10-10T19:56:33.626Z"
+ },
+ "just.swap": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Perfect dodge success: a sharp sparkling 'shing', a bright rising chime and a short slow-motion whoosh. Satisfying and heroic. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 1,
+  "bytes": 12897,
+  "at": "2026-10-10T19:56:35.564Z"
+ },
+ "mon.spawnWarn": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Eerie short warning that a monster is about to appear: a low ghostly whisper swell with one tiny spooky bell. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.8,
+  "bytes": 10389,
+  "at": "2026-10-10T19:56:37.226Z"
+ },
+ "mon.death": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "A small spooky monster is defeated: a quick soft puff of smoke with a tiny ghostly squeal fading away. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.6,
+  "bytes": 7881,
+  "at": "2026-10-10T19:56:38.568Z"
+ },
+ "mon.windup": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "A monster winding up an attack: a short tense rising growl and whoosh. Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
+  "seconds": 0.6,
+  "bytes": 7881,
+  "at": "2026-10-10T19:56:39.910Z"
+ },
+ "floor.clear": {
+  "source": "ElevenLabs text-to-sound-effects",
+  "text": "Short victory sting for clearing a floor in a cute ghost-story mobile game: a bright cheerful chime flourish with a faint eerie twinkle at the end. No speech.",
+  "seconds": 1.5,
+  "bytes": 18539,
+  "at": "2026-10-10T19:56:41.166Z"
+ }
+}

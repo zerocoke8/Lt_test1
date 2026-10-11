@@ -12,6 +12,7 @@
 
 ## Code map
 - `src/sim` deterministic 30 Hz sim (seeded Rng; never Math.random/Date), `src/data` content, `src/render` Canvas 2D drawing, `src/ui` DOM HUD/screens, `src/audio` WebAudio synth SFX (file override `src/audio/files/<id>.mp3`), `src/net` client, `server` Node ws server (server-authoritative; runs the same sim).
+- Sound files (18차): `npm run sfx:gen` makes `src/audio/files/<id>.mp3` with the ElevenLabs text-to-sound-effects API from `scripts/sfx-prompts.json` (English prompt + Korean label per id; `--dry`, `--only=`, `--family=`, `--force`); key in `.env.local` as `ELEVENLABS_API_KEY=` (git-ignored). `npm run sfx:preview` writes `sfx-preview.html` to listen. Pitch-jittered ids are listed in `SFX_MANIFEST` (src/audio/manifest.ts); what was sent per file is in `files/generated.json`. 20 frequent sounds exist; 378 ids are still synth.
 - Docs: `docs/game-design.md` (decision log), `docs/balance.md` (benches, tables), `docs/prototype-architecture.md`, `docs/multiplayer.md`, feature specs (`goedam-rooms.md`, `combat-events.md`, `new-characters.md`, `boss-groggy.md`, `skill-renewal.md`, `sfx.md`, `expedition.md`, `tempo.md`, `just-swap.md`, `floor-rewards.md`), `docs/roguelike-choices.pdf`.
 - Benches: `tests/review/critic-20f.ts` (20-floor clear rates + per-floor tempo telemetry, 240/960 runs on matched seeds), `tests/review/expedition-bench.ts` / `expedition-economy.ts` (원정, balance.md §16), `tests/playtest/drag-bench.ts` / `drag-value.ts` / `ult-bench.ts`, `tests/review/reward-bench.ts` (one reward's value, 17차).
 
@@ -37,6 +38,7 @@ npx playwright test            # phone, desktop, multi projects; ~10 min
 - Commit messages end with the Co-Authored-By / Claude-Session lines given in the session's system reminder. No model names in commits/PRs.
 
 ## Environment quirks
+- Two places this repo is worked on: the cloud session (Linux container) and the designer's Windows PC (`C:\Users\민철\Desktop\Lt_test1\Lt_test1`, PowerShell, Node 24, Playwright's own Chromium — `playwright.config.ts` falls back to it when /opt/pw-browsers/chromium is absent). Never edit from both at once; pull before working. On the PC, `tests/net/server.test.ts` 「snapshots: tunables … 」 is timing-sensitive (see its comment).
 - OpenAI hosts (auth.openai.com, api.openai.com, chatgpt.com) are blocked by the environment network policy; the designer must allow them (environment settings → Network access) before Codex image generation can be used.
 - Deleting remote branches via git push is blocked by the proxy — ask the designer to delete `wip/*` branches on GitHub.
 - For Korean PDFs: Google Fonts (Noto Sans KR woff2 subsets) download fine; render HTML with Playwright Chromium `page.pdf()`.

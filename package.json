@@ -16,7 +16,9 @@
     "build:all": "vite build && npm run build:server",
     "start": "node dist-server/index.js",
     "dev:server": "npm run build:server && PORT=8787 node dist-server/index.js",
-    "art:gear": "node scripts/art-gear.mjs"
+    "art:gear": "node scripts/art-gear.mjs",
+    "sfx:gen": "node scripts/sfx-gen.mjs",
+    "sfx:preview": "node scripts/sfx-preview.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

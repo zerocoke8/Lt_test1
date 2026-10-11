@@ -10,3 +10,7 @@ dist-artifact/
 # local secrets (API keys) — never commit
 .env
 .env.*
+
+# sound generation leftovers
+sfx-preview.html
+*.bak

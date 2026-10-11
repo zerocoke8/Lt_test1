@@ -649,9 +649,15 @@ describe('sfx file overrides (2-2)', () => {
     expect(bad.play('drag.guardian.wave')).toBe(true);
   });
 
-  it('the bundled files folder holds no audio yet (the artifact stays synth-only)', () => {
+  // 기획 18차: real files are generated with scripts/sfx-gen.mjs — keep them few-rule safe instead of "none".
+  it('bundled sound files: each replaces a known sound id (or a whole skill), no ogg, 3 MB in all', () => {
     const dir = join(__dirname, '../../src/audio/files');
-    expect(readdirSync(dir).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f))).toEqual([]);
+    const audio = readdirSync(dir).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f));
+    expect(audio.filter(f => /\.ogg$/i.test(f))).toEqual([]);
+    const ids = audio.map(f => f.replace(/\.(mp3|m4a|wav)$/i, ''));
+    expect(ids.filter(id => !id.startsWith('skill.') && !hasRecipe(id))).toEqual([]);
+    const bytes = audio.reduce((a, f) => a + statSync(join(dir, f)).size, 0);
+    expect(bytes).toBeLessThanOrEqual(3 * 1024 * 1024);
   });
 });
 
