@@ -4,9 +4,9 @@
 // 기획 17차: 「내 빌드」 (tags + floor rewards) at the top of that list; the settings row gets 진동 · 저스트 도우미 · 저스트 슬로.
 
 import type { GameState, PlayerState } from '../types';
-import { getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, goedamTraceKind } from '../data';
+import { getBoss, getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, goedamTraceKind } from '../data';
 import { button, h } from './dom';
-import { formatClock } from './format';
+import { RAID_LABEL, formatClock } from './format';
 import { stageTitle } from './expeditionFormat';
 import { toggleFullscreen } from './stage';
 import { createSoundPanel, type SoundPanel } from './soundPanel';
@@ -34,6 +34,8 @@ export class PauseMenu {
   readonly el: HTMLElement;
   private readonly title: HTMLElement;
   private readonly info: HTMLElement;
+  /** 기획 19차 review: the raid boss's whole 괴담 line (the floor banner only has a short sentence). */
+  private readonly lore: HTMLElement;
   private readonly note: HTMLElement;
   private readonly resumeBtn: HTMLButtonElement;
   private readonly debugBtn: HTMLButtonElement;
@@ -50,6 +52,7 @@ export class PauseMenu {
     const box = h('div', 'pause-box', wrap);
     this.title = h('div', 'pause-title', box, '일시정지');
     this.info = h('div', 'pause-info', box);
+    this.lore = h('div', 'pause-lore is-hidden', box);
     const btns = h('div', 'pause-btns', box);
     this.resumeBtn = button('btn btn-primary', '계속', btns, () => cb.onResume());
     this.debugBtn = button('btn btn-secondary', '디버그', btns, () => cb.onDebug());
@@ -125,6 +128,9 @@ export class PauseMenu {
         : '멀티 게임은 멈추지 않아요 · 나가면 내 자리는 봇이 이어서 해요'
       : '';
     this.info.textContent = s ? `${placeLabel(s)} · 진행 ${formatClock(s.time)}` : '';
+    const lore = s ? raidLoreLine(s) : '';
+    this.lore.textContent = lore;
+    this.lore.classList.toggle('is-hidden', !lore);
     this.renderLists(s?.players[view.localPlayer ?? 0] ?? null);
     this.sound.sync();
     this.el.classList.remove('is-hidden');
@@ -175,9 +181,21 @@ function cutInLabel(): string {
   return CUTIN.short ? '컷인: 짧게' : '컷인: 기본';
 }
 
-/** '7층 · 일반층' / 기획 16차 원정: '4단계 · 사무실' (+ ' · 보스 단계'). */
-function placeLabel(s: GameState): string {
+/** 기획 19차: '문서 파쇄기 — 서류를 넣으면 …' for the boss of a raid floor, '' elsewhere. */
+export function raidLoreLine(s: Pick<GameState, 'plan' | 'mode'>): string {
+  if (s.mode !== 'bossRaid' || !s.plan.bossId) return '';
+  try {
+    const b = getBoss(s.plan.bossId);
+    return b.lore ? `${b.name} — ${b.lore}` : '';
+  } catch {
+    return '';
+  }
+}
+
+/** '7층 · 일반층' / 기획 16차 원정: '4단계 · 사무실' (+ ' · 보스 단계') / 기획 19차: '7층 · 보스 레이드'. */
+export function placeLabel(s: Pick<GameState, 'floor' | 'plan' | 'expedition' | 'mode'>): string {
   const boss = s.plan.kind === 'boss';
   if (s.expedition) return `${stageTitle(s.expedition.stage)}${boss ? ' · 보스 단계' : ''}`;
+  if (s.mode === 'bossRaid') return `${s.floor}층 · ${RAID_LABEL}`;
   return `${s.floor}층 · ${boss ? '보스층' : '일반층'}`;
 }

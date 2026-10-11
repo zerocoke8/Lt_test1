@@ -3,6 +3,8 @@
 import type { EntityKind, MonsterDef, Role } from '../types';
 import { getCharacter, getMonster, getPet } from '../data';
 import { type CreatureShape, creatureArtFor } from './creatures';
+import { darken, lighten } from './color';
+import { MINION_LOOKS, bossLook } from './bosses';
 
 export const FONT_STACK =
   '"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic","WenQuanYi Zen Hei",system-ui,sans-serif';
@@ -43,40 +45,8 @@ export const COLORS = {
 
 export const ROLE_GLYPH: Record<Role, string> = { tank: '방', melee: '근', ranged: '원', healer: '힐', support: '지' };
 
-// ─────────────────────────── color helpers (cached, no per-frame churn) ───────────────────────────
-
-const rgbCache = new Map<string, [number, number, number]>();
-
-export function parseColor(hex: string): [number, number, number] {
-  let c = rgbCache.get(hex);
-  if (c) return c;
-  let h = hex.trim().replace('#', '');
-  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-  const n = parseInt(h.slice(0, 6), 16);
-  c = Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255] : [160, 160, 160];
-  rgbCache.set(hex, c);
-  return c;
-}
-
-const mixCache = new Map<string, string>();
-
-/** Mix `hex` toward `toward` by t (0..1). Result cached as css string. */
-export function mix(hex: string, toward: string, t: number): string {
-  const key = hex + toward + t.toFixed(3);
-  let s = mixCache.get(key);
-  if (s) return s;
-  const a = parseColor(hex);
-  const b = parseColor(toward);
-  const r = Math.round(a[0] + (b[0] - a[0]) * t);
-  const g = Math.round(a[1] + (b[1] - a[1]) * t);
-  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
-  s = `rgb(${r},${g},${bl})`;
-  mixCache.set(key, s);
-  return s;
-}
-
-export const lighten = (hex: string, t: number) => mix(hex, '#ffffff', t);
-export const darken = (hex: string, t: number) => mix(hex, '#000000', t);
+// colour helpers (cached): src/render/color.ts (기획 19차: a leaf module, re-exported here for every older import)
+export { darken, lighten, mix, parseColor } from './color';
 
 // ─────────────────────────── unit looks ───────────────────────────
 
@@ -215,6 +185,9 @@ function makeLook(name: string, color: string, glyph: string, role: Role | null,
   };
 }
 
+/** 기획 19차: body height × diameter of a boss summon drawn through MINION_LOOKS. */
+const MINION_HEIGHT = 1.2;
+
 const lookCache = new Map<string, UnitLook>();
 const FALLBACK = makeLook('?', '#9aa0a6', '?', null, 'blob', false);
 
@@ -229,9 +202,18 @@ export function unitLook(kind: EntityKind, defId: string): UnitLook {
     } else {
       // 기획 8차: 괴담 looks by id (content contract) or MonsterDef.look; data may not know a new id yet
       const d = tryMonster(defId);
-      const art = creatureArtFor(defId, d?.look);
+      // 기획 19차: a new boss's summon-only unit (뽑기 인형 …) draws through MINION_LOOKS — before the look aliases
+      const minion = d?.look != null && MINION_LOOKS[d.look] ? d.look : null;
+      const art = minion ? null : creatureArtFor(defId, d?.look);
       const boss = BOSS_COLOR[defId];
-      if (art) {
+      // 기획 19차: a registered boss look (src/render/bosses/) names its own colour (hit flashes / ghosts / labels)
+      const raidBoss = !boss && d?.tier === 'boss' ? bossLook(defId) : undefined;
+      if (minion && d) {
+        look = makeLook(d.name, d.color, '', null, minion as BodyShape, d.basic.kind === 'projectile');
+        look.heightMul = MINION_HEIGHT;
+      } else if (raidBoss && d) {
+        look = makeLook(d.name, raidBoss.color, '', null, 'blob', true);
+      } else if (art) {
         look = makeLook(d?.name ?? art.name, art.color, '', null, art.shape, d ? d.basic.kind === 'projectile' : art.ranged);
         look.heightMul = art.heightMul;
       } else if (boss) {

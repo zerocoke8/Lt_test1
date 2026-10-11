@@ -647,3 +647,39 @@ src/sim (서버·혼자 하기 공통, 결정적)
 - 테스트: `tests/sim/justSwap.test.ts`, `rewards-core`·`rewards-fx`·`rewards-hooks`·`rewards-swap`·`rewards-combat`·`rewards-rules.test.ts`, `tests/net/rewards17.test.ts`, `tests/ui/reward-screen`·`build-panel`·`just-hud`, `tests/render/just-fx`, 퍼징(모든 보상을 모든 자리에 + 상한), 전송 KEYS. e2e `rewards.spec.ts`·`just-swap.spec.ts`·`multi-just.spec.ts`(폰 3대: 각자 고름·다시 뽑기·지명권·협동·저스트 도장·어긋남 없음), `expedition.spec.ts`(로비 버프 목록 · 16차 저장 런 읽기), `artifact.spec.ts`(서버 없이 보상 + 저스트).
 - 골든(`default-off-golden` 두 판, `healers.test` 난수 동일성 3개)은 「기획 17차」 주석으로 한 번 다시 기록.
 - 벤치: `tests/review/critic-20f.ts`(`JUST`·`JUST_RATE`·`POLICY=dodge`·`PICK`·`POOL`·`BANDS`·`PAR`), 새 `reward-bench.ts`(보상 하나의 가치)·`reward-cats.ts`(계열 → 분류), `expedition-bench.ts`(봇 점수로 고름, `JUST=off`).
+
+## 19차: 보스 레이드 — 기반 (2026-10-11)
+
+모드 규칙은 [`boss-raid.md`](boss-raid.md), 보스 20종 표·새 규칙 M1~M4·외형·소리는 [`bosses.md`](bosses.md). 이 장은 "어디가 갈라지고, 새 보스는 어디에 넣나"만.
+
+### 모드가 갈라지는 곳 (클래식은 그대로)
+
+| 경로 | 하는 일 |
+|---|---|
+| `src/types.ts` | `GameSetup.mode?: 'bossRaid'` · `GameSetup.bossRaid?`(벤치·테스트용 `hpMult`·`onlyBoss`·`order`·`off`), `GameState.mode?`(클래식은 칸이 없음 → 상태 JSON 그대로), `FloorPlan.nextBossId?`·`bossAtkMult?`(레이드 플랜에만), `BossDef.lore`·`zone`(20종 필수)·`raid?`(`false` = 레이드에서 뺌), `Telegraph.self?`(M1), `Tunables` 보스 튜닝 4개, 디버그 `raidBoss`, `Telemetry.floorTimes[].boss?`(레이드에만) |
+| `src/data/bossRaid.ts` | `BOSS_RAID {floors 20, perZone 5, hpMult 0.8, atkMult 1, relicEvery 5, finalBoss}`(`hpMult`·`atkMult`는 슬라이더 기본값), `ZONE_BOSSES`(구역 → 보스 5), `RAID_BOSS_IDS`(20), `BOSS_RAID_BAND`(앞·중·뒤), `ZONE_CLASSIC_BOSS` |
+| `src/sim/bossRaid.ts` | 순수 함수: `isRaidBossOn(id, off?)`(데이터가 있고 `raid !== false`이고 `off`에 없음) · `raidRoster(zone, off?)`(구역의 켜진 보스, 표 순서; 하나도 없으면 그 구역의 기존 보스 1종) · `raidRosterIds(off?)`(전부 켜면 20) → `bossRaidSlots(seed, off?)`(`boss-raid.md` 3-2: 구역마다 최종 보스를 빼 두고 나머지를 `mixSeed(seed, 0xb055, 구역)` 스트림으로 섞음, 맨 앞이 「뒤」 보스면 자리 바꿈, 자리 5개를 섞은 순서로 채우고 **모자라면 처음부터 되풀이**, 최종 보스는 마지막 자리 — 전부 켜면 예전 순서와 똑같음을 골든으로 지킴) → `bossRaidOrder(seed, setup?)`(`setup.order`·`onlyBoss`가 우선, 아니면 `bossRaidSlots(seed, setup.off)`), `planBossRaidFloor(floor, order, tunables, hpMult?)`(클래식 보스층과 같은 플랜 + `bossHpMult`(= 벤치 고정값 또는 `tunables.bossRaidHpMult`) + `bossAtkMult`(= `tunables.bossRaidAtkMult`) + `nextBossId`), `raidBossOfFloor`, `isBossRaidRelicFloor`, `bossRaidTheme`. 판 난수 `w.rng`를 쓰지 않음 |
+| `src/sim/game.ts` · `floor.ts` · `world.ts` | `createWorld`: `mode` → `World.bossRaid {order, hpMult?}` + `state.mode`(원정이 같이 오면 원정이 이김). `startFloor`: `w.bossRaid`면 `planBossRaidFloor`(`planFloor`는 안 건드림 → 클래식 골든 그대로) — **HP·공격 배율은 여기서(층 시작 때) 읽음**, 보스 공격 = `plan.statMult × (plan.bossAtkMult ?? 1)`(소환 쫄은 `statMult`만). 디버그 `raidBoss`(`game.ts`): 레이드가 아니면 「보스 레이드 전용」, 모르는 id면 「알 수 없는 보스」, 아니면 `order[(층−1) % 길이] = 보스` 뒤 같은 층을 `startFloor`. `floorClear`·`endRun`이 `floorTimes` 줄에 실제로 싸운 `boss`를 적음(레이드만). `floorClear`: 유물 화면과 다시 뽑기 +1은 「레이드가 아니거나 5·10·15·20층」일 때만. 괴담 방 일정·돌발 괴담 없음·광폭화·그로기·승리(`maxFloor`)는 기존 코드 그대로 |
+| `server/room.ts` · `hub.ts` · `validate.ts` · `src/net/protocol.ts` · `lobbyClient.ts` | 통신 버전 6. `Room.variant`(원정의 `RoomMode`와 별개), 방 정보·목록·`start`에 `mode`, `lobbyClient.createRoom(preset, mode?)` — `multiplayer.md` 2장 6번 |
+| `src/sim/ctx.ts` · `skills.ts` · `units.ts` · `telemetry.ts` | 보스 튜닝(모든 모드, 등급 boss인 적만 — `ctx.ts baseUnitCtx`): `radiusMult = tunables.bossAreaMult`(기존 `scaleArea` 규칙 그대로), `CastCtx.delayMult = tunables.bossTelegraphMult`(1이면 칸 자체가 없음). `skills.ts actionDelay(ctx, action)` = 조각의 `delay × delayMult` — `startAction`이 `delay`·`telegraphLead`에 곱하고(시전 이벤트에도 곱한 값이 실림 → 그림·소리가 그대로 따라감), `units.ts`의 시전 자세 길이도 같은 값. 쿨·첫 시전·연타 간격·장판 시간·기본 공격은 그대로. `telemetry.ts BOUNDS`: 0.25~4 · 0.25~3 · 0.05~10 · 0.05~10 |
+| `src/ui/debug.ts` · `tunables.ts` | 「층 건너뛰기」 버튼이 레이드에서는 「다음 보스로」(같은 `skipFloor`, `SKIP_LABEL`). `SLIDERS`의 「보스 튜닝」 묶음 4개. 나머지 화면(메인 카드·HUD·결과·저장·「보스 고르기」)은 화면 트랙 |
+
+### 보스 등록소 3개 — 구역 파일 하나씩 (로비·사무실·폐병동·옥상)
+
+| 등록소 | 파일 | 내용 |
+|---|---|---|
+| 데이터 | `src/data/bosses/{lobby,office,ward,rooftop}.ts` · `helpers.ts` · `index.ts` | `<ZONE>_BOSSES: BossDef[]`(구역의 기존 보스가 맨 앞 — `monsters.ts`에서 옮김, 수치 그대로 + `lore`·`zone`) · `<ZONE>_UNITS`(소환 전용 쫄: `getMonster`로만 찾고 웨이브 풀에는 없음). `index.ts`: `BOSSES` = 기존 4종 먼저(순서 그대로) → 새 보스, `BOSS_UNITS`. 도우미 `ENRAGE`·`seq`·`sweep`·`band(x)`·`row(y)`·`rowR(y)`·`at(x, y)` |
+| 그림 | `src/render/bosses/{lobby,…}.ts` · `kit.ts` · `types.ts` · `index.ts` · `classic.ts` · `teleMotif.ts` | `<ZONE>_LOOKS: Record<보스 id, BossLook {draw, color, headY?, props?}>` · `<ZONE>_TELE_MOTIF`(패턴 id → 예고 덧그림 pull·push·linger·spawn) · `<ZONE>_MINION_LOOKS`(쫄 `look` → 그리기). `boss.ts`는 기존 3종 → 등록소 → 없으면 「심연의 감시자」 그림 순으로 고름. 그로기 머리 위치·소품(`bossGroggy.ts`), 이름·색(`look.ts`), 쫄(`creatures.ts`)도 등록소를 봄. 기존 그림 파일은 `bosses/classic.ts`로 옮김(그림 그대로). 색 도우미는 `render/color.ts`로 분리(순환 import 방지, `look.ts`가 다시 내보냄) |
+| 소리 | `src/audio/synth/bossVoices/{lobby,…}.ts` · `types.ts` · `index.ts` | `<ZONE>_BOSS_VOICE: Record<보스 id, {base, motif, timbre, kinds}>`. `kinds` = 패턴 id → 준비·타격음 종류(15종: 기존 12 + water·static·chime). `recipes.ts`가 `BOSSES`를 돌며 `boss.intro/phase/death.<id>`를 만들고, `director.ts`는 `bossSkillKind(패턴 id)`로 종류를 찾음(표 없으면 burst). 기존 4종은 같은 기본음·모티프·음색(구운 소리가 전과 같음을 테스트로 고정) |
+
+- 새 규칙(`bosses.md` 3장): **M1** 보스 자기 시전 — `sim/skills.ts`에서 보스(tier 'boss')의 지연된 `affects: 'self'` 조각이 `Telegraph.self`를 달고, `justCue`(HUD 저스트 신호)가 건너뜀(sim의 `findJustThreats`와 봇은 원래 적 대상 조각만 봄 → 변경 없음), 그림은 노란 고리(`render/index.ts drawSelfCastRing`, 빨간 채움·착탄 섬광 없음), 그로기가 오면 끊김(기존 규칙). **M3** 끌리거나 밀린 캐릭터가 0.2초 미끄러짐(`render/units.ts` — 걷기보다 빠른 이동만, 등장·돌진 제외). M2(`telegraphLead`)·M4(조각 `offset` 자리에 소환)는 코드 변경 없이 테스트로 고정.
+- 예고 덧그림: `teleseq.ts`의 `skillOf(예고)`(시전 이벤트와 맞춘 패턴 id) → `BOSS_TELE_MOTIF` → `drawTeleMotif`. 기존 보스 패턴에는 표가 없어 그림이 그대로.
+- 소리 미리 굽기: `audio/index.ts warmBoss`가 `plan.bossId`와 `plan.nextBossId`를 둘 다 준비.
+- 테스트: `tests/sim/boss-raid.test.ts`(순서·**켬/끔 자리 규칙과 예전 순서 골든**·플랜·1→20층 승리·유물/다시 뽑기/괴담 일정·돌발 괴담 없음·**HP/공격 배율은 다음 층부터·쫄 제외**·**`raidBoss`**·**`floorTimes[].boss`**·클래식 불변), `boss-mechanics.test.ts`(M1~M4 + 고리 장판·월식 고리·속박 + **보스 튜닝**: 20종의 모든 패턴에서 예고 ×2 = 조각 준비 시간·짧은 예고·쓸기 간격 2배, 범위 ×0.5·×2 = 원·띠 크기, 고리 구멍 유지, 「한 명」·자리 그대로, 중형보스·일반 몬스터·클래식 일반층은 틱 단위로 동일), `boss-roster.test.ts`(세 등록소가 서로 맞는지), `tests/sim/bossRaidHelpers.ts`(`raidGame`·`bossOf`·`expectBossContract(id, tunables?)` — 두 번째 칸에 슬라이더 값을 넣으면 같은 계약을 그 배율에서 확인), `tests/render/boss-looks.test.ts`(자세 15가지 × 30프레임, 호출 360·글자 2 한도, 덧그림, 노란 고리, 캐릭터 미끄러짐), `tests/ui/audio.test.ts`(새 종류·처치음·기존 4종 소리 동일), `tests/net/boss-raid.test.ts`, 전송 KEYS(`mode`·`nextBossId`·`bossAtkMult`·`self`). 클래식 골든(`default-off-golden`)은 다시 기록하지 않음.
+- 도구: 벤치 `npx vite-node tests/review/boss-raid-bench.ts RUNS=240 POLICY=active`(= `critic-20f.ts`의 `MODE=bossRaid`; `RAID_HP`·`RAID_ATK`·`TELE`·`AREA`(슬라이더와 같은 값) · `BOSS=<id>` · `OFF=<id>,<id>`(끈 것처럼) · `OUT`·`PAR`), 보스 숫자 표 `npx vite-node tests/review/boss-table.ts write`(`bosses.md` 2장을 데이터에서 다시 씀), 샌드박스 `tests/visual/render-sandbox.html?scene=zoo&boss=<id>&pose=idle|windup|groggy|enraged&phase=2`(`bench=boss:<id>`), 한 장 보기 `node tests/visual/boss-sheet.mjs`.
+
+### 19차 통합 메모 (2026-10-11)
+
+- 보스 그림 색: `render/color.ts`의 `mix`·`darken`·`lighten`은 **hex만 읽고 `rgb()` 글자를 돌려줌** → 한 번 섞은 색을 다시 섞으면 회색(160)에서 시작함. 새 보스용 `bosses/kit.ts tinted()`는 페이즈·광폭화 색을 한 번에 섞어 **hex로 돌려줌**(그 뒤 `darken(tinted(…))` 가능). 기존 보스 4종(`classic.ts`의 자기 `tinted`, `boss.ts`)은 픽셀을 지키려고 그대로 둠 — 공용 `parseColor`를 고치면 기존 그림 전체가 바뀔 수 있어 건드리지 않음.
+- 보기 도구: `node tests/visual/boss-sheet.mjs out=docs/screenshots/bosses-20.png`(20종 × 대기·준비, 구역마다 한 줄). `poses=idle,windup,groggy,enraged phase=2 only=<id>,<id>`. 준비 자세는 둘째 프레임부터 고정(첫 프레임에서 시전 길이 0.8초를 기록해야 `o.charge`가 나옴), `phase=2`는 HP 40%.
+- 브라우저 테스트: `tests/e2e/boss-raid.spec.ts`(솔로 3개), `multi-boss-raid.spec.ts`(3명: 라벨·같은 보스·「보스 고르기」·전멸 / 20층 디버그 완주), `artifact.spec.ts`의 보스 레이드 항목(서버 없이 · 새로고침 뒤 기록).

@@ -91,6 +91,11 @@ const BOUNDS: Partial<Record<NumKey, [number, number, boolean?]>> = {
   justSwapCdCut: [0, 0.9],
   justSwapIcd: [0, 10],
   botJustChance: [0, 1],
+  // 기획 19차 보스 튜닝 (the sliders are narrower: 0.5–3 · 0.5–2 · 0.2–3 · 0.2–3)
+  bossTelegraphMult: [0.25, 4],
+  bossAreaMult: [0.25, 3],
+  bossRaidHpMult: [0.05, 10],
+  bossRaidAtkMult: [0.05, 10],
 };
 
 /**

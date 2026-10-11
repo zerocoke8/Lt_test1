@@ -60,6 +60,12 @@ export const SLIDERS: SliderSpec[] = [
   { group: '저스트 교대', key: 'justSwapCdCut', label: '저스트 쿨 할인', min: 0, max: 0.9, step: 0.05, unit: '×' },
   { group: '저스트 교대', key: 'justSwapIcd', label: '저스트 내부 쿨', min: 0, max: 10, step: 0.5, unit: '초' },
   { group: '저스트 교대', key: 'botJustChance', label: '봇 저스트 확률', min: 0, max: 1, step: 0.01, unit: '×' },
+  // 기획 19차 보스 튜닝 (docs/boss-raid.md 4-2): telegraph / area = every boss in every mode, from its next cast; the two
+  // raid knobs = the next boss (read at floor start)
+  { group: '보스 튜닝', key: 'bossTelegraphMult', label: '보스 예고 시간 배율', min: 0.5, max: 3, step: 0.05, unit: '×' },
+  { group: '보스 튜닝', key: 'bossAreaMult', label: '보스 범위 크기 배율', min: 0.5, max: 2, step: 0.05, unit: '×' },
+  { group: '보스 튜닝', key: 'bossRaidHpMult', label: '보스 레이드 HP 배율', min: 0.2, max: 3, step: 0.05, unit: '×' },
+  { group: '보스 튜닝', key: 'bossRaidAtkMult', label: '보스 레이드 공격 배율', min: 0.2, max: 3, step: 0.05, unit: '×' },
   { group: '진행', key: 'gameSpeed', label: '게임 속도', min: 0.25, max: 4, step: 0.25, unit: '×' },
 ];
 

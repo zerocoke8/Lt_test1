@@ -285,7 +285,8 @@ test('원정 온라인: 둘이 2단계 → 한 명이 도중에 나가면 그 �
   expect(await storedRun(C)).toBeNull();
 
   // D plays on (C's seat is a bot now) and keeps its bag
-  expect(await D.page.evaluate(() => window.__proto!.game!.state.players[0].isBot)).toBe(true);
+  // (the leave reaches D with a later snapshot — wait for it instead of reading the current one)
+  await D.page.waitForFunction(() => window.__proto!.game!.state.players[0].isBot === true, undefined, { timeout: 10_000 });
   expect(await debugAct(D, { kind: 'expeditionClearStage' })).toMatchObject({ ok: true });
   await finishStage([D]);
   await closeReveal(D);

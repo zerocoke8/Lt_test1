@@ -51,13 +51,9 @@ export const CHAR_VOICE: Record<string, Voice> = {
 /** Role pitch factor for 등장 (탱커 ×0.7 … 힐러 ×1.3) and role bodies. */
 export const ROLE_PITCH: Record<Role, number> = { tank: 0.7, melee: 0.9, ranged: 1.05, support: 1.15, healer: 1.3 };
 
-/** Boss motif rows (boss.intro / boss.phase): root pitch and a short motif in semitones. */
-export const BOSS_VOICE: Record<string, { base: number; motif: number[] }> = {
-  elevator_keeper: { base: 98, motif: [0, -4, -1] },
-  overtime_lord: { base: 82.4, motif: [0, 1, 0, -5] },
-  surgeon_director: { base: 110, motif: [0, 6, 5] },
-  abyss_watcher: { base: 55, motif: [0, 1, -1, 0] },
-};
+// Boss motif rows (boss.intro / boss.phase / boss.death): 기획 19차 — one file per zone in ./bossVoices (root pitch, motif,
+// timbre token, wind-up / impact kind per skill). Re-exported here for the older imports.
+export { BOSS_VOICE, BOSS_KINDS, bossSkillKind, type BossKind, type BossTimbre, type BossVoice } from './bossVoices';
 
 /** Floor themes (zones) — used by floor.start / amb. */
 export const ZONES = ['lobby', 'office', 'ward', 'rooftop'] as const;

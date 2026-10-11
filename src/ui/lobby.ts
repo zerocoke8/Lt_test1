@@ -2,13 +2,16 @@
 //  목록: 닉네임 · 혼자 하기 (봇 2명) · 방 만들기 · 코드로 참가 · 열린 방 목록 (탭해서 참가)
 //  방:   큰 방 코드 · 슬롯 3칸 (닉네임 + 캐릭터 3 + 펫 3, 빈자리 → 봇) · 방장 표시 · 시작(방장) · 나가기 · 프리셋 변경
 // Pure view: the app wires the callbacks to LobbyClient and calls update() whenever the lobby state changes.
+// 기획 19차 보스 레이드: a 「보스 레이드」 chip in the header (list: the mode I picked = what 「방 만들기」 makes; room: the room's
+// mode), a tag on raid rows of the room list and next to the room name. Rooms of either mode can be joined.
 
 import type { NetStatus, OfflineReason } from '../net/connection';
-import type { RoomInfo, RoomMember, RoomSummary } from '../net/protocol';
+import type { RoomInfo, RoomMember, RoomSummary, RoomVariantMode } from '../net/protocol';
 import { MAX_ROOM_PLAYERS, ROOM_CODE_ALPHABET } from '../net/protocol';
 import { BOT_PRESETS } from '../config';
 import { CHARACTERS, PETS, getCharacter, getPet } from '../data';
 import { button, h, replayClass, setClass, setText, show } from './dom';
+import { RAID_LABEL } from './format';
 import { petIcon, portrait } from './preset';
 import type { PresetSave } from './storage';
 import { NICKNAME_MAX } from './storage';
@@ -40,6 +43,8 @@ export interface LobbyModel {
   preset: PresetSave;
   /** Start pressed / game starting: waiting for the first snapshot. */
   starting: boolean;
+  /** 기획 19차: the mode picked on the main menu (what 「방 만들기」 makes); absent / null = the classic tower. */
+  mode?: RoomVariantMode | null;
 }
 
 export const OFFLINE_TEXT = '게임 서버에 연결할 수 없어요 — 혼자 하기만 가능';
@@ -68,6 +73,14 @@ function statusText(st: NetStatus, latency: number | null): string {
     case 'replaced':
       return '다른 탭에서 접속 중';
   }
+}
+
+/** 기획 19차: header texts by view and mode. PURE. */
+export function lobbyHeader(inRoom: boolean, mode: RoomVariantMode | null | undefined): { title: string; sub: string; chip: string } {
+  const raid = mode === 'bossRaid';
+  const fill = '빈자리는 시작할 때 봇이 채워요';
+  if (inRoom) return { title: '방', sub: raid ? `20층 · 층마다 보스 · ${fill}` : `최대 3명 · ${fill}`, chip: raid ? RAID_LABEL : '' };
+  return { title: '매칭', sub: raid ? `20층 · 층마다 보스 · 최대 3명 협동 · ${fill}` : `최대 3명 협동 · ${fill}`, chip: raid ? RAID_LABEL : '' };
 }
 
 function cleanCode(raw: string): string {
@@ -107,12 +120,14 @@ export class LobbyScreen {
   private readonly backBtn: HTMLButtonElement;
   private readonly title: HTMLElement;
   private readonly sub: HTMLElement;
+  private readonly modeChip: HTMLElement;
   private readonly statusPill: HTMLElement;
   // list view
   private readonly listView: HTMLElement;
   private readonly nameInput: HTMLInputElement;
   private readonly myParty: HTMLElement;
   private readonly createBtn: HTMLButtonElement;
+  private readonly createSub: HTMLElement;
   private readonly codeInput: HTMLInputElement;
   private readonly joinBtn: HTMLButtonElement;
   private readonly offlineBox: HTMLElement;
@@ -124,6 +139,7 @@ export class LobbyScreen {
   private readonly roomView: HTMLElement;
   private readonly roomCode: HTMLElement;
   private readonly roomName: HTMLElement;
+  private readonly roomTag: HTMLElement;
   private readonly roomHint: HTMLElement;
   private readonly slots: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
@@ -140,7 +156,9 @@ export class LobbyScreen {
     const head = h('div', 'lb-head', this.el);
     this.backBtn = button('btn btn-secondary lb-back', '← 편성', head, () => this.cb.onPreset());
     const titles = h('div', 'lb-titles', head);
-    this.title = h('div', 'lb-title', titles, '매칭');
+    const titleRow = h('div', 'lb-title-row', titles);
+    this.title = h('div', 'lb-title', titleRow, '매칭');
+    this.modeChip = h('span', 'lb-mode is-hidden', titleRow, RAID_LABEL);
     this.sub = h('div', 'lb-sub', titles, '최대 3명 협동 · 빈자리는 시작할 때 봇이 채워요');
     this.statusPill = h('div', 'lb-status', head);
 
@@ -172,10 +190,12 @@ export class LobbyScreen {
     const solo = button('btn btn-secondary lb-solo', '', left, () => this.cb.onSolo());
     h('span', 'lb-btn-main', solo, '혼자 하기');
     h('span', 'lb-btn-sub', solo, '봇 2명과 함께');
-    this.createBtn = button('btn btn-primary lb-create', '방 만들기', left, () => {
+    this.createBtn = button('btn btn-primary lb-create', '', left, () => {
       if (this.model?.status !== 'online') return this.refuse(this.createBtn, '서버에 연결된 뒤에 만들 수 있어요');
       this.cb.onCreate();
     });
+    h('span', 'lb-btn-main', this.createBtn, '방 만들기');
+    this.createSub = h('span', 'lb-btn-sub lb-create-sub is-hidden', this.createBtn, RAID_LABEL);
     const codeRow = h('div', 'lb-field lb-code', left);
     h('span', 'lb-label', codeRow, '코드로 참가');
     this.codeInput = h('input', 'lb-input lb-code-input', codeRow);
@@ -214,7 +234,9 @@ export class LobbyScreen {
     h('div', 'lb-code-label', codeCol, '방 코드');
     this.roomCode = h('div', 'lb-roomcode', codeCol);
     const codeInfo = h('div', 'lb-code-info', codeBox);
-    this.roomName = h('div', 'lb-roomname', codeInfo);
+    const nameRow2 = h('div', 'lb-roomname-row', codeInfo);
+    this.roomName = h('div', 'lb-roomname', nameRow2);
+    this.roomTag = h('span', 'lb-mode lb-room-mode is-hidden', nameRow2, RAID_LABEL);
     this.roomHint = h('div', 'lb-roomhint', codeInfo, '친구에게 코드를 알려 주세요 · 매칭 화면의 "코드로 참가"에 입력하면 들어와요');
     this.slots = h('div', 'lb-slots', this.roomView);
     const foot = h('div', 'lb-foot', this.roomView);
@@ -279,8 +301,13 @@ export class LobbyScreen {
     show(this.listView, !inRoom);
     show(this.roomView, inRoom);
     show(this.backBtn, !inRoom);
-    setText(this.title, inRoom ? '방' : '매칭');
-    setText(this.sub, inRoom ? '최대 3명 · 빈자리는 시작할 때 봇이 채워요' : '최대 3명 협동 · 빈자리는 시작할 때 봇이 채워요');
+    // 기획 19차: in a room its own mode counts (joining by code is allowed whatever I picked)
+    const head = lobbyHeader(inRoom, inRoom ? m.room!.mode : m.mode);
+    setText(this.title, head.title);
+    setText(this.sub, head.sub);
+    show(this.modeChip, !!head.chip);
+    show(this.createSub, m.mode === 'bossRaid');
+    setClass(this.createBtn, 'is-raid', m.mode === 'bossRaid');
     show(this.starting, m.starting);
     if (document.activeElement !== this.nameInput && this.nameInput.value !== m.name) this.nameInput.value = m.name;
     setClass(this.createBtn, 'is-disabled', !online);
@@ -293,7 +320,7 @@ export class LobbyScreen {
     setText(this.retryBtn, replaced ? '여기서 계속' : badVersion ? '새로고침' : '다시 시도');
 
     // re-render lists only when their content changed (inputs keep focus/caret)
-    const key = JSON.stringify([m.preset, m.rooms, m.room, m.myId, m.status, badVersion]);
+    const key = JSON.stringify([m.preset, m.rooms, m.room, m.myId, m.status, badVersion, m.mode ?? null]);
     if (key === this.renderedKey) return;
     this.renderedKey = key;
     this.myParty.replaceChildren();
@@ -339,7 +366,12 @@ export class LobbyScreen {
       });
       row.dataset.code = r.code;
       const main = h('div', 'lb-room-main', row);
-      h('div', 'lb-room-name', main, r.name);
+      const nameRow = h('div', 'lb-room-name-row', main);
+      h('div', 'lb-room-name', nameRow, r.name);
+      if (r.mode === 'bossRaid') {
+        row.dataset.mode = r.mode;
+        h('span', 'lb-mode lb-row-mode', nameRow, RAID_LABEL);
+      }
       h('div', 'lb-room-host', main, `방장 ${r.hostName} · 코드 ${r.code}`);
       const count = h('div', 'lb-room-count', row);
       for (let i = 0; i < r.max; i++) h('span', `lb-dot ${i < r.players ? 'is-on' : ''}`, count);
@@ -351,6 +383,7 @@ export class LobbyScreen {
   private renderRoom(m: LobbyModel, room: RoomInfo): void {
     setText(this.roomCode, room.code);
     setText(this.roomName, room.name);
+    show(this.roomTag, room.mode === 'bossRaid');
     const me = room.members.find(x => x.id === m.myId);
     const iAmHost = !!me?.isHost;
     show(this.startBtn, iAmHost);

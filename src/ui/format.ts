@@ -148,6 +148,60 @@ export function resultReason(r: RunResult, quitWhileOut: boolean, bossFloor = fa
   }
 }
 
+// ─────────────────────────── 보스 레이드 (기획 19차, docs/boss-raid.md 7장) ───────────────────────────
+
+/** The mode's name on chips and tags. */
+export const RAID_LABEL = '보스 레이드';
+
+/** Progress pill: '보스 7/20' (floor n = the n-th boss; `total` = Tunables.maxFloor). */
+export function raidProgress(floor: number, total: number): string {
+  return `보스 ${Math.max(0, Math.floor(floor))}/${total}`;
+}
+
+/** Floor banner / result chip: '7층 · 문서 파쇄기'. */
+export function raidFloorTitle(floor: number, bossName: string): string {
+  return `${floor}층 · ${bossName}`;
+}
+
+/** Longest 괴담 line the floor banner shows (it is up for about 2 s of reading: one short sentence, one line on a phone). */
+export const RAID_BANNER_LORE_MAX = 28;
+
+/**
+ * 기획 19차 review: the banner's 괴담 line — `loreShort` when the boss has one, else the first sentence of its lore (the
+ * whole line is on the pause screen and in docs/bosses.md).
+ */
+export function raidBannerLore(boss: { lore?: string; loreShort?: string }): string {
+  if (boss.loreShort) return boss.loreShort;
+  const lore = boss.lore ?? '';
+  const end = lore.indexOf('. ');
+  return end < 0 ? lore : lore.slice(0, end + 1);
+}
+
+/** Floor-start banner of a raid floor: '7층 · 문서 파쇄기' / the boss's 괴담 line / '보스 7/20 · HP를 0으로 만들면 퇴각해요'. */
+export function raidBanner(floor: number, boss: { name: string; lore?: string; loreShort?: string }, total: number): { big: string; lore: string; sub: string } {
+  return { big: raidFloorTitle(floor, boss.name), lore: raidBannerLore(boss), sub: `${raidProgress(floor, total)} · HP를 0으로 만들면 퇴각해요` };
+}
+
+/** Clear banner line under 「보스 퇴각!」: '7층 돌파 · 보스 7/20'. */
+export function raidClearSub(floor: number, total: number): string {
+  return `${floor}층 돌파 · ${raidProgress(floor, total)}`;
+}
+
+/** Bosses beaten in a finished run: every floor on a win, the floors below the one the run ended on otherwise. */
+export function raidBossesBeaten(r: Pick<RunResult, 'outcome' | 'floorReached'>): number {
+  return r.outcome === 'victory' ? Math.max(0, r.floorReached) : Math.max(0, r.floorReached - 1);
+}
+
+/**
+ * Result line of a raid: the win says 「보스 20종을 모두 쓰러뜨렸어요」 when the run had one boss per floor (`roster` = the
+ * bosses that are on = `total` floors); with bosses switched off (some came twice) it says 「20층을 모두 돌파했어요」.
+ * Every floor is a boss floor, so no '(보스층)'.
+ */
+export function raidResultReason(r: RunResult, quitWhileOut: boolean, total: number, roster: number = total): string {
+  if (r.reason === 'cleared') return roster === total ? `보스 ${total}종을 모두 쓰러뜨렸어요` : `${total}층을 모두 돌파했어요`;
+  return resultReason(r, quitWhileOut, true).replace(' (보스층)', '');
+}
+
 // ─────────────────────────── 괴담 방 (기획 10차) ───────────────────────────
 
 const GOEDAM_TAG_LABEL: Record<GoedamTag, string> = { safe: '안전', cost: '대가', gamble: '도박', observe: '관찰', permanent: '영구' };

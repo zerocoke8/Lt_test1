@@ -7,7 +7,7 @@
 
 import { Camera, PX_PER_UNIT } from './camera';
 import type { BossDrawOpts } from './boss';
-import { BOSS_DROP } from './bosses';
+import { BOSS_DROP, bossLook } from './bosses';
 import { TAU } from './shapes';
 
 const SINK_PX = 14;
@@ -57,8 +57,11 @@ function headY(defId: string, by: number, R: number, g: number): number {
       return by + 8 + 44 * g - R * 0.36 * 1.1 + SINK_PX * g;
     case 'surgeon_director':
       return by + 12 + 20 * g - R * 0.34 * 1.2 + SINK_PX * g;
-    default:
-      return by - 14 - R * 0.55 * 0.9 + SINK_PX * g;
+    default: {
+      // 기획 19차: a registered look says where its head is; else the watcher's
+      const fn = bossLook(defId)?.headY;
+      return fn ? fn(by, R, g) : by - 14 - R * 0.55 * 0.9 + SINK_PX * g;
+    }
   }
 }
 
@@ -133,6 +136,10 @@ export function drawGroggyProps(ctx: CanvasRenderingContext2D, cam: Camera, defI
       ecg(ctx, cx, headY(defId, by, R, g) - 44, t, o.groggyWake, alpha * g);
       droppedScalpel(ctx, cx + R * 0.62, by + 104, alpha * g);
       break;
+    default:
+      // 기획 19차: a registered look's own groggy props (「고장」 sign, 「용지 걸림」 lamp …)
+      bossLook(defId)?.props?.(ctx, cam, x, y, radius, o);
+      ctx.globalAlpha = 1;
   }
   // big stun stars (2× the unit ones) over the head
   orbitStars(ctx, cx, headY(defId, by, R, g) - 10, 44, 3, 10, t, alpha * g);

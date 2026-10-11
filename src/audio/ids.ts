@@ -81,6 +81,8 @@ const RULES: Rule[] = [
   ['boss.windup.', { prio: 4, db: -8, gap: 100 }],
   ['boss.impact.', { prio: 4, db: -8, gap: 80 }],
   ['boss.enrage', { prio: 3, db: -6 }],
+  // 기획 19차: the boss's own way out, under the shared boss.retreat
+  ['boss.death.', { bus: 'hero', prio: 4, db: -9, gap: 500, group: 'hero' }],
   ['boss.', { bus: 'hero', prio: 5, db: -5, gap: 500, group: 'hero' }],
   ['enrage.heart', { bus: 'bg', prio: 3, db: -18, group: 'loop' }],
   ['groggy.break', { bus: 'hero', prio: 5, db: -4, gap: 500, group: 'hero' }],

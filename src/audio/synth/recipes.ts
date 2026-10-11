@@ -4,7 +4,7 @@
 
 import type { Role } from '../../types';
 import { CHARACTERS, PETS, GOEDAM_ROOMS, FIELD_EVENTS, BOSSES } from '../../data';
-import { BOSS_VOICE, CHAR_VOICE, ROLE_PITCH, ZONES, type Material, type Voice } from './voices';
+import { BOSS_KINDS, BOSS_VOICE, CHAR_VOICE, ROLE_PITCH, ZONES, type BossKind, type BossTimbre, type Material, type Voice } from './voices';
 import { CHORD, bell, click, noise, seq, st, tone, type Layer, type LayerOpts, type Recipe } from './prims';
 
 type Make = () => Recipe;
@@ -382,29 +382,52 @@ def('copy.pop', () => r([noise('white', 0.08, { bp: [2500], q: 0.8 }), tone('sin
 /** Common minor chord + the boss motif (intro) / 5 semitones lower + heartbeat (phase). */
 function defBosses(): void {
   for (const b of BOSSES) {
-    const v = BOSS_VOICE[b.id] ?? { base: 82, motif: [0, -1] };
+    // a boss without a voice row (its sound has not landed yet) keeps the old default: root 82, the abyss layers
+    const v = BOSS_VOICE[b.id] ?? { base: 82, motif: [0, -1], timbre: 'abyss' as const };
     const motif = (k: number, t0: number): Layer[] => v.motif.map((s, i) => tone('saw', v.base * 2 * k * st(s), v.base * 2 * k * st(s), 0.35, { t: t0 + i * 0.22, g: 0.5, a: 0.01 }));
-    def(`boss.intro.${b.id}`, () => r([...chord(v.base, 'min', 2, { w: 'saw', a: 0.1 }), ...motif(1, 0.3), ...bossMotifExtra(b.id)], { rev: 0.5 }));
+    def(`boss.intro.${b.id}`, () => r([...chord(v.base, 'min', 2, { w: 'saw', a: 0.1 }), ...motif(1, 0.3), ...bossTimbre(v.timbre)], { rev: 0.5 }));
     def(`boss.phase.${b.id}`, () => r([...crash(0.6), ...partials([300, 450, 710], 0.6, { g: 0.5 }), noise('pink', 0.5, { t: 0.1, e: 'swell', bp: [400, 2000] }), ...motif(st(-5), 0.6), ...heart(1.4, 0.8), ...heart(1.9, 0.8)], { rev: 0.4 }));
+    // 기획 19차: the boss's own way out — its timbre and motif played backwards over a low boom (with the shared boss.retreat)
+    def(`boss.death.${b.id}`, () => r([...motif(st(-12), 0.1), ...bossTimbre(v.timbre), ...boom(52, 24, 1.2, { g: 0.9 })], { reverse: true, rev: 0.55 }));
   }
 }
 
-function bossMotifExtra(id: string): Layer[] {
-  switch (id) {
-    case 'elevator_keeper':
+/**
+ * The layers on top of a boss motif (≈ 1.6 s), by timbre token (기획 19차; was a switch on the boss id). The first four
+ * are the classic bosses' layers, unchanged; the other eight are for the new bosses (docs/bosses.md 5장).
+ */
+function bossTimbre(token: BossTimbre): Layer[] {
+  switch (token) {
+    case 'elevator':
       return [bell(660, 0.8, { t: 0.1 }), bell(523 * st(0.4), 0.8, { t: 0.45 }), tone('saw', 140, 120, 0.8, { t: 1, vib: [3, 1], g: 0.2 })];
-    case 'overtime_lord':
+    case 'office':
       return [tone('sq', 120, 120, 1.2, { e: 'flat', trem: 50, g: 0.15 }), ...boom(90, 40, 0.4, { t: 1.2 })];
-    case 'surgeon_director':
+    case 'surgery':
       return [tone('sin', 1000, 1000, 1, { e: 'flat', t: 0.2, g: 0.25 }), noise('white', 0.3, { t: 1.2, bp: [5000], q: 4, g: 0.3 })];
-    default:
+    case 'abyss':
       return [tone('sin', 55, 55, 1.6, { trem: 3 }), tone('sin', 57, 57, 1.6), noise('pink', 0.15, { t: 0.9, lp: [1200] }), ...whisper(0.8, { t: 1, g: 0.5 })];
+    case 'bell': // a struck bell that rings out of tune, then a small answer
+      return [bell(392, 1.2, { t: 0.1, parts: [1, 2.01, 2.76, 5.4] }), bell(415, 0.9, { t: 0.7, g: 0.5 }), tone('sin', 98, 98, 1.4, { trem: 4, g: 0.25 })];
+    case 'hum': // a machine left on: mains hum with a slow beat, a relay click
+      return [tone('sq', 100, 100, 1.5, { e: 'flat', trem: 6, g: 0.12 }), tone('sin', 150, 151, 1.5, { g: 0.2 }), ...click(1.1, 900, 0.8)];
+    case 'water': // water running behind a wall, three drips
+      return [noise('pink', 1.4, { e: 'hump', bp: [500, 1400], q: 1.4, g: 0.5 }), drip(0.5, 0.6), drip(0.85, 0.5), drip(1.25, 0.6), ...boom(70, 40, 0.4, { t: 1.2, g: 0.5 })];
+    case 'static': // a dead channel: hiss, a mains buzz, two crackles
+      return [sizzle(1.3, { e: 'hump', g: 0.35 }), tone('saw', 60, 60, 1.3, { e: 'flat', trem: 30, g: 0.12 }), ...zap(4, { t: 0.5, g: 0.6 })];
+    case 'paper': // paper being fed, then one hard stamp
+      return [noise('white', 0.9, { bp: [3200], q: 1, grain: 90, e: 'hump', g: 0.5 }), ...boom(95, 45, 0.35, { t: 1.1 }), ...click(1.1, 2400)];
+    case 'steps': // footsteps coming down, getting closer
+      return [...steps(5, 0.24, { t: 0.15, g: 0.7 }), tone('saw', 70, 62, 1.4, { e: 'swell', g: 0.2 })];
+    case 'wind': // a draught through a cold room, a far whistle
+      return [whoosh(300, 900, 1.5, { g: 0.6 }), tone('sin', 880, 830, 1.2, { t: 0.3, e: 'hump', vib: [5, 6], g: 0.12 }), ...whisper(0.7, { t: 0.9, g: 0.35 })];
+    case 'clatter': // loose metal and wheels: rattles, a dull thud
+      return [...chain(9, { t: 0.15, gap: 0.09, g: 0.6 }), ...partials([420, 633, 987], 0.5, { t: 0.2, g: 0.35 }), ...boom(85, 45, 0.3, { t: 1.15, g: 0.7 })];
   }
 }
 
-/** boss.windup.<kind> / boss.impact.<kind> (docs/sfx.md 3-7). */
-export const BOSS_KINDS = ['doors', 'countdown', 'papers', 'stamp', 'summon', 'blades', 'gas', 'slice', 'burst', 'beam', 'tentacle', 'ring'] as const;
-const BOSS_WINDUP: Record<(typeof BOSS_KINDS)[number], () => Layer[]> = {
+/** boss.windup.<kind> / boss.impact.<kind> (docs/sfx.md 3-7). The list lives in ./bossVoices/types.ts (기획 19차: + water · static · chime). */
+export { BOSS_KINDS };
+const BOSS_WINDUP: Record<BossKind, () => Layer[]> = {
   doors: () => [bell(1318, 0.4), bell(1046, 0.5, { t: 0.25 }), noise('pink', 0.6, { t: 0.4, bp: [400, 900], e: 'hump' })],
   countdown: () => seq(6, 0.1, (i, t) => tone('sq', 1200, 1200, 0.05, { t: t * (1 - i * 0.08), g: 0.3 })),
   papers: () => [noise('white', 0.6, { bp: [3000], q: 1, grain: 80, e: 'hump' })],
@@ -417,8 +440,12 @@ const BOSS_WINDUP: Record<(typeof BOSS_KINDS)[number], () => Layer[]> = {
   beam: () => [tone('saw', 200, 1200, 0.7, { e: 'swell', g: 0.4 }), noise('white', 0.7, { e: 'swell', bp: [1000, 4000], g: 0.3 })],
   tentacle: () => [noise('brown', 0.5, { lp: [600], trem: 6, e: 'hump' })],
   ring: () => [bell(82, 1.2, { parts: [1, 1.48, 2.1] })],
+  // 기획 19차: water = 쏴아 (a rush building up) · static = 지지직 (a charge crackling up) · chime = 종 울림 (a rising ding-dong)
+  water: () => [noise('pink', 0.8, { e: 'swell', bp: [400, 1800], q: 1.2 }), drip(0.1, 0.5), drip(0.35, 0.5)],
+  static: () => [sizzle(0.7, { e: 'swell', g: 0.5 }), tone('saw', 90, 240, 0.7, { e: 'swell', trem: 40, g: 0.25 }), ...zap(3, { t: 0.3, g: 0.5 })],
+  chime: () => [bell(784, 0.5, { parts: [1, 2.01, 3.2] }), bell(1046, 0.6, { t: 0.2, parts: [1, 2.01, 3.2] }), tone('sin', 1568, 1568, 0.3, { t: 0.4, e: 'swell', g: 0.2 })],
 };
-const BOSS_IMPACT: Record<(typeof BOSS_KINDS)[number], () => Layer[]> = {
+const BOSS_IMPACT: Record<BossKind, () => Layer[]> = {
   doors: () => [noise('pink', 0.2, { bp: [600, 200] }), ...boom(80, 35, 0.5, { t: 0.15 }), ...partials([200, 300], 0.4, { t: 0.15, g: 0.5 })],
   countdown: () => [...click(0, 1200, 1.5), ...boom(100, 40, 0.3)],
   papers: () => [whoosh(3000, 800, 0.3), noise('white', 0.2, { bp: [3000], grain: 200 })],
@@ -431,6 +458,10 @@ const BOSS_IMPACT: Record<(typeof BOSS_KINDS)[number], () => Layer[]> = {
   beam: () => [noise('white', 0.6, { lp: [8000, 2000] }), tone('saw', 120, 100, 0.6, { g: 0.4 })],
   tentacle: () => [noise('pink', 0.2, { lp: [1500, 300] }), tone('sin', 140, 60, 0.15)],
   ring: () => [bell(65, 1.5, { parts: [1, 1.48, 2.1, 2.9] }), ...boom(55, 30, 0.6)],
+  // 기획 19차: water = 철벅 · static = 빠직 · chime = 땡
+  water: () => [noise('pink', 0.35, { lp: [2600, 400] }), tone('sin', 180, 60, 0.2), noise('white', 0.25, { t: 0.05, hp: [3000], g: 0.4 })],
+  static: () => [...zap(5, { g: 1 }), noise('white', 0.12, { bp: [4500], q: 0.6 }), tone('sq', 110, 60, 0.15, { g: 0.5 })],
+  chime: () => [bell(1318, 0.9, { parts: [1, 2.01, 2.76, 5.4] }), ...boom(90, 45, 0.3, { g: 0.6 })],
 };
 for (const k of BOSS_KINDS) {
   def(`boss.windup.${k}`, () => r(BOSS_WINDUP[k]()));

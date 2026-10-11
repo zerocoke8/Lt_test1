@@ -1,6 +1,6 @@
 // Lobby state on top of Connection: room list, my room, start/gameEnded/error events (R30/R31).
 
-import type { PresetChoice, RoomInfo, RoomSummary, ServerMsg } from './protocol';
+import type { PresetChoice, RoomInfo, RoomSummary, RoomVariantMode, ServerMsg } from './protocol';
 import { Connection, type NetStatus } from './connection';
 
 export type StartMsg = Extract<ServerMsg, { t: 'start' }>;
@@ -96,9 +96,10 @@ export class LobbyClient {
     this.conn.send({ t: 'listRooms' });
   }
 
-  createRoom(preset: PresetChoice): boolean {
+  /** mode (기획 19차): 'bossRaid' = a 보스 레이드 room; absent = the classic tower. */
+  createRoom(preset: PresetChoice, mode?: RoomVariantMode): boolean {
     this.lastError = null;
-    return this.conn.send({ t: 'createRoom', preset });
+    return this.conn.send(mode ? { t: 'createRoom', preset, mode } : { t: 'createRoom', preset });
   }
 
   joinRoom(code: string, preset: PresetChoice): boolean {

@@ -5,7 +5,7 @@ import type { ClientMsg, ExpRunInfo, PresetChoice } from '../src/net/protocol';
 import { GOEDAM_OPTION_RE } from '../src/net/protocol';
 import type { Command, DebugAction, ExpeditionCarry, Vec2 } from '../src/types';
 import type { GearLoadout, GearSpec } from '../src/data/gear';
-import { CHARACTERS, PETS, REWARDS, isFieldEventId } from '../src/data';
+import { BOSSES, CHARACTERS, PETS, REWARDS, isFieldEventId } from '../src/data';
 import { EXPEDITION_STAGES } from '../src/data/stages';
 import { RUN_ID_RE } from '../src/expedition/runCheck';
 
@@ -21,6 +21,7 @@ const goedamId = (v: unknown): v is string => typeof v === 'string' && GOEDAM_OP
 let charIds: Set<string> | null = null;
 let petIds: Set<string> | null = null;
 let rewardIds: Set<string> | null = null;
+let bossIds: Set<string> | null = null;
 
 export function parsePreset(v: unknown): PresetChoice | null {
   if (!isObj(v)) return null;
@@ -75,6 +76,12 @@ function parseDebug(v: unknown): DebugAction | null {
       if (typeof v.rewardId !== 'string' || !rewardIds.has(v.rewardId)) return null;
       if (v.member === undefined || v.member === null) return { kind: 'grantReward', rewardId: v.rewardId };
       return isInt(v.member, 0, 2) ? { kind: 'grantReward', rewardId: v.rewardId, member: v.member } : null;
+    }
+    case 'raidBoss': {
+      // 기획 19차 「보스 고르기」: a known boss id (host only — it is not a per-player action; the sim refuses it outside a raid)
+      bossIds ??= new Set(BOSSES.map(b => b.id));
+      const boss = str(v.boss, 40);
+      return boss != null && bossIds.has(boss) ? { kind: 'raidBoss', boss } : null;
     }
   }
   return null;
@@ -222,7 +229,10 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (!preset) return null;
       const roomName = v.roomName === undefined ? undefined : str(v.roomName, 200);
       if (roomName === null) return null;
-      return roomName === undefined ? { t: 'createRoom', preset } : { t: 'createRoom', preset, roomName };
+      // 기획 19차: the room's game (absent = classic); anything but a known mode is a bad request
+      if (v.mode !== undefined && v.mode !== 'bossRaid') return null;
+      const mode = v.mode === 'bossRaid' ? ({ mode: 'bossRaid' } as const) : null;
+      return roomName === undefined ? { t: 'createRoom', preset, ...mode } : { t: 'createRoom', preset, roomName, ...mode };
     }
     case 'joinRoom': {
       const preset = parsePreset(v.preset);

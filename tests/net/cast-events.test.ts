@@ -47,10 +47,12 @@ describe('cast events over the wire', () => {
     a.send({ t: 'cmd', seq: 2, cmd: { type: 'swap', player: 0, partyIndex: 2, pos: { ...foe.pos } } });
     expect((await a.next('cmdResult', m => m.seq === 2)).ok).toBe(true);
     const seen: GameEvent[] = [];
+    const burning = new Set<number>();
     const until = Date.now() + 6000;
     while (Date.now() < until) {
       const snap = await b.snap(() => true, 4000);
       seen.push(...snap.events);
+      for (const e of snap.state.entities) if (e.statuses.some(st => st.id === 'burn')) burning.add(e.id);
       const casts = seen.filter((e): e is Cast => e.type === 'skillCast' && e.skillId === 'mage_d');
       if (casts.length >= MAGE.length && seen.some(e => e.type === 'damage' && e.source === 'drag')) break;
       await sleep(10);
@@ -65,9 +67,14 @@ describe('cast events over the wire', () => {
     expect(dmg.length).toBeGreaterThan(0);
     expect(dmg.every(d => typeof d.source === 'string')).toBe(true);
     const drag = dmg.filter(d => d.source === 'drag');
-    expect(drag.length).toBeGreaterThan(0);
-    // every drag hit carries its skill's name; the bot (3rd seat) may swap in the same window with its own drag skill
-    expect(drag.every(d => typeof d.skillName === 'string' && d.skillName.length > 0)).toBe(true);
+    expect(drag.length, `no drag hit on an enemy — foe ${JSON.stringify(foe.pos)} ${foe.defId} hp ${foe.hp}; damage seen: ${JSON.stringify(seen.filter(e => e.type === 'damage').map(e => [e.source, e.targetTeam, e.targetId, e.amount]))}; foe id ${foe.id}`).toBeGreaterThan(0);
+    // every drag hit carries its skill's name; the bot (3rd seat) may swap in the same window with its own drag skill.
+    // Not a hit: the burn a drag skill leaves (the meteors do) ticks with source 'drag' and no name (sim/units.ts pulse) —
+    // only on a target that is burning, or that a named drag hit set on fire earlier in this window.
+    const named = (d: Dmg) => typeof d.skillName === 'string' && d.skillName.length > 0;
+    const burnTick = (d: Dmg) => burning.has(d.targetId) || seen.slice(0, seen.indexOf(d)).some(e => e.type === 'damage' && e.source === 'drag' && e.targetId === d.targetId && named(e));
+    expect(drag.filter(d => !named(d) && !burnTick(d))).toEqual([]);
+    expect(drag.some(named)).toBe(true);
     expect(drag.some(d => d.skillName === getCharacter('mage').drag.name)).toBe(true);
   }, 30_000);
 });

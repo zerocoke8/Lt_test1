@@ -341,16 +341,16 @@ test('3 players: lobby → room → start → directional drags seen by all → 
       await expect(p.page.locator('.rw-card')).toHaveCount(3);
       await expect(p.page.locator('.rw-timer')).toContainText('초');
     }
-    await tap(A, '.rw-card >> nth=0');
+    await tap(A, '.rw-card >> nth=0 >> .rw-pick');
     await expect(A.page.locator('.rw-wait')).toBeVisible();
     await expect(A.page.locator('.rw-wait-text')).toHaveText('다른 플레이어 선택 대기 중 (1/3)');
     await expect(B.page.locator('.rw-card')).toHaveCount(3); // B still choosing
-    await tap(B, '.rw-card >> nth=1');
+    await tap(B, '.rw-card >> nth=1 >> .rw-pick');
     await expect(A.page.locator('.rw-wait-text')).toHaveText('다른 플레이어 선택 대기 중 (2/3)');
     expect(await state<string>(A.page, 's.phase')).toBe('reward');
     expect(await state<number>(A.page, 's.floor')).toBe(1);
     await shot(A, 'multi-reward-wait');
-    await tap(C, '.rw-card >> nth=2');
+    await tap(C, '.rw-card >> nth=2 >> .rw-pick');
     for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.floor === 2 && window.__proto!.phase === 'combat', undefined, { timeout: 8000 });
     const picked = await state<number[]>(A.page, 's.players.map(p => p.rewards.length + p.relics.length)');
     expect(picked).toEqual([1, 1, 1]);
@@ -464,7 +464,8 @@ test('3 players: 괴담 room (기획 10차) — two choose, one idles → room d
     expect((await dbg({ kind: 'goedamNext', room: 'broken_vending' })).ok).toBe(true);
     expect((await dbg({ kind: 'skipFloor' })).ok).toBe(true);
     for (const p of all) await waitPhase(p.page, 'reward');
-    for (const p of all) await tap(p, '.rw-card >> nth=0');
+    // 기획 19차 정리: the 「선택」 button, not the card centre — a card with 「누구에게?」 has its member picker there (the tap picked nothing on some seeds)
+    for (const p of all) await tap(p, '.rw-card >> nth=0 >> .rw-pick');
 
     // ── the same room opens on all three screens, with a fresh 25 s deadline ──
     for (const p of all) await waitPhase(p.page, 'goedam', 10_000);

@@ -215,7 +215,8 @@ export class Hub implements RoomHost {
         if (s.room) this.leave(s, false);
         const code = randomRoomCode(c => this.rooms.has(c));
         // no custom name → "<방장>의 방", following the host (also after a host handoff or rename)
-        const room = new Room(code, sanitizeName(msg.roomName, ROOM_NAME_MAX) || null, this, s.id);
+        // 기획 19차: a 보스 레이드 room is a classic room with a variant (listed, joinable by code whatever the mode)
+        const room = new Room(code, sanitizeName(msg.roomName, ROOM_NAME_MAX) || null, this, s.id, null, msg.mode === 'bossRaid' ? 'bossRaid' : 'classic');
         this.rooms.set(code, room);
         room.add(s, msg.preset);
         return;

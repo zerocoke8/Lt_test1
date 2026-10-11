@@ -219,6 +219,11 @@ export interface SkillAction {
     count: number;
     duration: number;
     countMax?: number;
+    /**
+     * 기획 19차 (enemy summons): at most this many living units of this kind around the spot — a cast only adds what is
+     * missing, so fixed-spot units (오류 창) never stack on one coordinate.
+     */
+    spotCap?: number;
     /** 기획 12차: ally summon stats as fractions of the caster's effective maxHp / atk (종이 인형). */
     inherit?: { hp: number; atk: number };
   };
@@ -371,6 +376,17 @@ export interface BossDef extends MonsterDef {
    * (100 × threshold × human-count multiplier × repeat multiplier). Absent = no gauge.
    */
   groggy?: { threshold: number };
+  /** 기획 19차 보스 레이드: the one-line 괴담 (floor banner, docs/bosses.md). */
+  lore: string;
+  /** 기획 19차 review: the floor banner's line when the first sentence of `lore` does not stand alone (≤ 28 characters). */
+  loreShort?: string;
+  /** 기획 19차: the zone the boss belongs to (boss raid band, background). */
+  zone: FloorTheme;
+  /**
+   * 기획 19차 보스 레이드: `raid: false` takes the boss out of the raid (docs/boss-raid.md 3-1); absent / true = in.
+   * The classic tower (floors 5 · 10 · 15 · 20) ignores it.
+   */
+  raid?: boolean;
 }
 
 /** Summoned ally units (pets, skills) use MonsterDef shape with tier 'summon'. */
@@ -726,8 +742,12 @@ export interface FloorPlan {
    * spawner's mid trigger: with the second-to-last wave), no fixed time.
    */
   guardian?: { monsterId: string; hpMult: number; atkMult: number };
-  /** Boss stage: boss HP × this. */
+  /** Boss stage: boss HP × this. 기획 19차 보스 레이드: Tunables.bossRaidHpMult, read when the floor starts. */
   bossHpMult?: number;
+  /** 기획 19차 보스 레이드 (raid plans only): boss attack × this (Tunables.bossRaidAtkMult at floor start; its summons not). */
+  bossAtkMult?: number;
+  /** 기획 19차 보스 레이드 (raid plans only): the next floor's boss (sound pre-bake). */
+  nextBossId?: string;
 }
 
 export type FloorTheme = 'lobby' | 'office' | 'ward' | 'rooftop';
@@ -943,6 +963,11 @@ export interface Telegraph {
   area: AreaShape;
   remaining: number;
   total: number;
+  /**
+   * 기획 19차 (rule M1): a boss's wind-up on itself (heal / shield / haste / 간주) — drawn as a yellow ring, never a
+   * danger (저스트 cue and bots skip it). Only set for a tier-'boss' caster's delayed affects:'self' part.
+   */
+  self?: true;
 }
 
 export interface Zone {
@@ -1050,6 +1075,8 @@ export interface GameState {
   runResult: RunResult | null;
   /** 기획 15차 원정: this stage's progress, loot and choices. Absent in the classic tower. */
   expedition?: ExpeditionState;
+  /** 기획 19차 보스 레이드 (docs/boss-raid.md): every floor is a boss floor. Absent in the classic tower / 원정. */
+  mode?: 'bossRaid';
 }
 
 // ─────────────────────────── 원정 (기획 15차, docs/expedition.md) ───────────────────────────
@@ -1125,7 +1152,9 @@ export type DebugAction =
   /** 기획 17차: give a floor reward now (any id; member = party index for member / role cards). */
   | { kind: 'grantReward'; rewardId: string; member?: number | null; player?: number }
   /** 기획 17차: the player's next normal reward screen has a legendary card (if one is left). */
-  | { kind: 'offerFixture'; player?: number };
+  | { kind: 'offerFixture'; player?: number }
+  /** 기획 19차 보스 레이드 「보스 고르기」: restart this floor with that boss (raid only; the later floors keep the order). */
+  | { kind: 'raidBoss'; boss: string };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
@@ -1354,6 +1383,16 @@ export interface Tunables {
   justSwapCdCut: number;
   justSwapIcd: number;
   botJustChance: number;
+  /**
+   * 기획 19차 보스 튜닝 (docs/boss-raid.md 4-2; debug sliders, host only). Telegraph / area: every tier-'boss' enemy's
+   * skills in every mode, from its next cast — every part's delay and telegraphLead × bossTelegraphMult, every part's
+   * area × bossAreaMult (scaleArea: a ring keeps its hole, 'single' and offsets unchanged). Raid HP / attack: the boss
+   * of a 보스 레이드 floor only, read when the floor starts (not its summons). Defaults 1 · 1 · 0.8 · 1.
+   */
+  bossTelegraphMult: number;
+  bossAreaMult: number;
+  bossRaidHpMult: number;
+  bossRaidAtkMult: number;
 }
 
 // ─────────────────────────── Module APIs ───────────────────────────
@@ -1377,6 +1416,22 @@ export interface GameSetup {
   startFloor?: number;
   /** 기획 15차 원정: play one stage (기획 16차: one floor) instead of the classic tower. */
   expedition?: ExpeditionSetup;
+  /** 기획 19차 보스 레이드: 20 boss floors (docs/boss-raid.md). Absent = the classic tower. */
+  mode?: 'bossRaid';
+  /** 기획 19차: bench / test knobs of a boss raid (ignored without mode 'bossRaid'). */
+  bossRaid?: BossRaidSetup;
+}
+
+/** 기획 19차 보스 레이드 — bench / test overrides. */
+export interface BossRaidSetup {
+  /** Boss HP × this instead of Tunables.bossRaidHpMult (fixed for the whole run). */
+  hpMult?: number;
+  /** This boss on every floor (tuning one boss). */
+  onlyBoss?: string;
+  /** The exact floor order (floor n = order[(n − 1) % length]). */
+  order?: string[];
+  /** Bosses to leave out as if their data said `raid: false` (preview a cut before editing the data). */
+  off?: string[];
 }
 
 /** Implemented by src/sim (createGame). */
@@ -1407,7 +1462,8 @@ export interface Telemetry {
   swapsPerMinute: number;
   damageShareBySource: Record<DamageSource, number>;
   avgUltDelay: number;
-  floorTimes: { floor: number; seconds: number; outcome: 'clear' | 'fail' }[];
+  /** boss (기획 19차): the boss fought on that floor — 보스 레이드 games only (absent in the classic tower / 원정). */
+  floorTimes: { floor: number; seconds: number; outcome: 'clear' | 'fail'; boss?: string }[];
   /** 기획 10차: this player's 괴담 수첩 (absent on old snapshots). */
   goedam?: GoedamLogEntry[];
   /** 기획 12차: every 돌발 괴담 of the run (absent on old snapshots). credit = player index or null. */

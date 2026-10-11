@@ -18,6 +18,7 @@ import { canSwap, canUsePet, doSwap, syncMembers, tickPlayers, useUlt, usePet } 
 import { Rng } from './rng';
 import { emptyUltGauge, fillUlts } from './ultMode';
 import { canDebugClearStage, expeditionRt, expeditionWon, initExpedition, planExpeditionFloor, seatGear } from './expedition';
+import { bossRaidRt, hasBossData, planBossRaidFloor } from './bossRaid';
 import { scaleArea, tickPending, tickZones } from './skills';
 import { benchMaxHp } from './stats';
 import { applyTunablesPatch, computeTelemetry, emptyContribution } from './telemetry';
@@ -41,7 +42,12 @@ export function createWorld(setup: GameSetup): World {
   const startFloorN = exRt ? 1 : Math.max(1, Math.floor(setup.startFloor ?? 1)); // 기획 16차 원정: a stage is one floor
   // Placeholder plan so the state is complete; startFloor() below re-plans with the run rng.
   const placeholderRng = new Rng(setup.seed ^ 0x5bd1e995);
-  const plan = exRt ? planExpeditionFloor(exRt.stage, placeholderRng, tunables) : planFloor(startFloorN, placeholderRng, tunables);
+  const raid = bossRaidRt(setup); // 기획 19차 보스 레이드 (undefined = classic / 원정)
+  const plan = exRt
+    ? planExpeditionFloor(exRt.stage, placeholderRng, tunables)
+    : raid
+      ? planBossRaidFloor(startFloorN, raid.order, tunables, raid.hpMult)
+      : planFloor(startFloorN, placeholderRng, tunables);
   const state: SimState = {
     seed: setup.seed,
     tick: 0,
@@ -87,6 +93,11 @@ export function createWorld(setup: GameSetup): World {
     groggy: { sinceGain: 0, breakSerial: 0 },
   };
   if (exRt) w.expedition = exRt;
+  if (raid) {
+    // 기획 19차: the mode rides on the state (HUD / result / snapshots); absent in the classic tower → its JSON is unchanged
+    w.bossRaid = raid;
+    state.mode = 'bossRaid';
+  }
 
   const n = setup.players.length;
   setup.players.forEach((ps, i) => {
@@ -342,8 +353,26 @@ function debug(w: World, a: DebugAction): CommandResult {
       if (!p0) return { ok: false, reason: '플레이어 없음' };
       p0.rt.offerFixture = true;
       return { ok: true };
+    case 'raidBoss':
+      return raidBoss(w, a.boss);
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };
+}
+
+/**
+ * 기획 19차 debug 「보스 고르기」 (docs/boss-raid.md 7-1): this floor again with that boss — the floor number (so the floor
+ * multiplier) stays, only this floor's slot of the order changes. A boss that is off may be picked too (testing).
+ */
+function raidBoss(w: World, boss: string): CommandResult {
+  if (!w.bossRaid) return { ok: false, reason: '보스 레이드 전용' };
+  if (typeof boss !== 'string' || !hasBossData(boss)) return { ok: false, reason: '알 수 없는 보스' };
+  // a pick on the reward / 괴담 screen would throw that screen away and log the floor twice
+  if (w.state.phase !== 'combat') return { ok: false, reason: '전투 중에만 고를 수 있어요' };
+  const order = w.bossRaid.order;
+  const floor = w.state.floor;
+  order[(floor - 1) % order.length] = boss;
+  startFloor(w, floor, true);
+  return { ok: true };
 }
 
 /** First preview part's area (kept for compatibility; the full footprint is previewParts). */

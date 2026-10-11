@@ -9,3 +9,7 @@ export { extractCarry, planExpeditionFloor, rollStageLoot, stageResultFromState,
 // 기획 17차: the floor-reward bot pick (server timeout, client timer text) and the reroll check
 export { botPickIndex, botPickMember } from './rewards/botPick';
 export { rerollProblem } from './rewards/offers';
+// 기획 19차 보스 레이드: the pure order / plan helpers (HUD boss names, result chips, the bench)
+export { bossRaidBossId, bossRaidOrder, bossRaidSlots, bossRaidTheme, hasBossData, isBossRaidRelicFloor, planBossRaidFloor } from './bossRaid';
+// the bosses that are on (BossDef.raid / BossRaidSetup.off): the main card's count, the debug 「보스 고르기」 list
+export { isRaidBossOn, raidRoster, raidRosterIds } from './bossRaid';

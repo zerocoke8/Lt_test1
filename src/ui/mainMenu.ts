@@ -1,8 +1,13 @@
 // 기획 15차: 메인 화면 (docs/expedition.md 8-1) — two mode cards before the preset: 「클래식 탑」 (today's game, unchanged)
 // and 「원정」 (실험). The last picked mode is highlighted. Sound / fullscreen toggles as on the preset screen.
 // 기획 16차: with a run in progress the 원정 card's foot says so (orange): 「진행 중: N단계 대기 · 가방 M」.
+// 기획 19차: a third card 「보스 레이드」 (docs/boss-raid.md 7장) — 20 floor lamps in the four zone colours (lit up to my best
+// floor) under a watching eye; the foot says 「최고 기록 N층 · 클리어 N회」 or 「첫 도전」.
 
 import type { GearLoadout } from '../data/gear';
+import { BOSS_RAID } from '../data';
+import { raidRosterIds } from '../sim';
+import { bossRaidFoot, type BossRaidRecord } from './bossRaidStore';
 import { button, h, ICON_FULLSCREEN } from './dom';
 import { createDoll } from './expeditionDoll';
 import type { GameMode } from './expeditionStore';
@@ -15,6 +20,8 @@ export interface MainMenuInfo {
   lastMode: GameMode | null;
   /** 기획 16차: the run in progress (next stage, bag size), else null. */
   run: { stage: number; bag: number; complete: boolean } | null;
+  /** 기획 19차: this device's 보스 레이드 record (absent = never played). */
+  bossRaid?: BossRaidRecord;
 }
 
 export interface MainMenu {
@@ -40,7 +47,12 @@ function showcaseLoadout(tier: number): GearLoadout {
   };
 }
 
-export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onExpedition(): void }): MainMenu {
+/** 기획 19차: the raid card's line — 「20층 · 층마다 보스 · 보스 N종」, N = the bosses that are on (BossDef.raid). PURE. */
+export function raidCardSub(): string {
+  return `${BOSS_RAID.floors}층 · 층마다 보스 · 보스 ${raidRosterIds().length}종`;
+}
+
+export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onExpedition(): void; onBossRaid(): void }): MainMenu {
   const el = h('div', 'screen main-menu is-hidden', parent);
   const head = h('div', 'mm-head', el);
   h('div', 'mm-logo', head, '스왑 타워');
@@ -76,6 +88,23 @@ export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onE
   h('div', 'mm-card-sub', exp, '12단계 · 단계마다 로비 · 나가면 장비를 지켜요');
   const foot = h('div', 'mm-card-foot mm-exp-foot', exp);
 
+  // 기획 19차 보스 레이드: an eye over 20 floor lamps (4 zones × 5, bottom row = floors 1–5)
+  const raid = button('mm-card mm-raid', '', cards, () => cb.onBossRaid());
+  raid.dataset.sfx = 'ui.start';
+  const raidArt = h('div', 'mm-art mm-raid-art', raid);
+  const eye = h('div', 'mm-raid-eye', raidArt);
+  h('div', 'mm-raid-pupil', eye);
+  const lampBox = h('div', 'mm-raid-lamps', raidArt);
+  const lamps: HTMLElement[] = [];
+  for (let f = 1; f <= BOSS_RAID.floors; f++) {
+    const lamp = h('i', `mm-raid-lamp is-zone${Math.ceil(f / BOSS_RAID.perZone)}`, lampBox);
+    if (f % BOSS_RAID.relicEvery === 0) lamp.classList.add('is-relic');
+    lamps.push(lamp);
+  }
+  h('div', 'mm-card-title', raid, '보스 레이드');
+  h('div', 'mm-card-sub', raid, raidCardSub());
+  const raidFoot = h('div', 'mm-card-foot mm-raid-foot', raid);
+
   let visible = false;
   return {
     el,
@@ -94,6 +123,11 @@ export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onE
       foot.classList.toggle('is-run', !!info.run);
       classic.classList.toggle('is-last', info.lastMode === 'classic');
       exp.classList.toggle('is-last', info.lastMode === 'expedition');
+      raid.classList.toggle('is-last', info.lastMode === 'bossRaid');
+      const rec = info.bossRaid ?? { bestFloor: 0, clears: 0, runs: 0 };
+      raidFoot.textContent = bossRaidFoot(rec);
+      raidFoot.classList.toggle('is-record', rec.bestFloor > 0);
+      lamps.forEach((lamp, i) => lamp.classList.toggle('is-on', i < rec.bestFloor));
     },
     hide() {
       visible = false;

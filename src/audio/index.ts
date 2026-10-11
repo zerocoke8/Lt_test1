@@ -306,10 +306,17 @@ export class Sfx {
 
   /** The boss's sounds bake before its floor: on the reward / 괴담 screen that leads to it (else on its first frame). */
   private warmBoss(s: GameState): void {
-    const b = s.plan.bossId ?? (s.phase !== 'combat' ? bossOfFloor(s.floor + 1) : null);
-    if (!b || this.warmedBoss.has(b) || !this.engine.ctx) return;
+    if (!this.engine.ctx) return;
+    // 기획 19차 보스 레이드: every floor has a boss, so the plan names the next one too (FloorPlan.nextBossId)
+    this.warmOneBoss(s.plan.bossId ?? s.plan.nextBossId ?? (s.phase !== 'combat' ? bossOfFloor(s.floor + 1) : null));
+    if (s.plan.bossId) this.warmOneBoss(s.plan.nextBossId ?? null);
+  }
+
+  private warmOneBoss(b: string | null): void {
+    if (!b || this.warmedBoss.has(b)) return;
     this.warmedBoss.add(b);
-    this.enqueueAll([`boss.intro.${b}`, `boss.phase.${b}`, ...recipeIds().filter(id => BOSS_COMMON.some(p => id.startsWith(p)))]);
+    const own = [`boss.intro.${b}`, `boss.phase.${b}`, `boss.death.${b}`];
+    this.enqueueAll([...own, ...recipeIds().filter(id => BOSS_COMMON.some(p => id.startsWith(p)))]);
     this.pumpSoon();
   }
 

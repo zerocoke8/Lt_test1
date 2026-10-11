@@ -5,6 +5,8 @@
 //  기획 10차: 우상단 타이머 아래 흔적 칩 (아이콘 + 남은 층, 최대 4개 + '+n'), 층 시작 배너의 흔적 한 줄, 흔적 만료 토스트
 //  기획 17차: 필드 카드 저스트 신호 (빨강 = 위험, 금색 = 지금!), 초보 「지금!」 화살표, 보상 칩 (빚·상자·욕심·촛불·손톱),
 //            이중 장전 충전 칸, 두 번 차는 게이지 (궁극기 버튼 안쪽 두 번째 고리)
+//  기획 19차 보스 레이드: 보스 박스 레벨 자리 「N층」 + 박스 오른쪽 「보스 N/20」, 층 시작 배너 「N층 · 보스 이름」 + 괴담 한 줄,
+//            보스 HP 바 위 흰 보호막 띠 (보스가 자기에게 건 보호막)
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
 import {
@@ -22,7 +24,7 @@ import {
 } from '../data';
 import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
-import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, refusalText } from './format';
+import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, raidBanner, raidClearSub, raidProgress, refusalText } from './format';
 import { stageBannerSub } from './expeditionFormat';
 import { petIcon, portrait } from './preset';
 import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
@@ -63,6 +65,9 @@ const TIP_MS = 9000;
 const CUT_MIN = 0.4;
 /** HUD trace chips shown before '+n' (기획 10차 5-2). */
 const TRACE_CHIPS = 4;
+
+/** 기획 19차 보스 레이드: the floor-start banner (boss name + 괴담 line) stays this long (styles: .banner-raid). */
+const RAID_BANNER_MS = 3200;
 
 /** 기획 12차: bench heals below this many HP (메딕 대기실 간호 ticks) only glow, no '+N'. */
 const BENCH_HEAL_POP_MIN = 10;
@@ -240,6 +245,11 @@ export class Hud {
   private readonly bossPct: HTMLElement;
   private readonly bossFill: HTMLElement;
   private readonly bossLag: HTMLElement;
+  /** 기획 19차: the boss's own shield as a white strip over its HP bar (끝나지 않는 회의 「회의 연장」). */
+  private readonly bossShield: HTMLElement;
+  /** 기획 19차 보스 레이드: 「보스 N/20」 beside the boss box. */
+  private readonly raidPill: HTMLElement;
+  private readonly raidPillN: HTMLElement;
   private readonly bossPips: Pip[];
   /** 기획 8차 boss phases: one diamond per phase (filled up to the current one) + threshold ticks on the HP bar. */
   private readonly bossPhase: HTMLElement;
@@ -318,6 +328,7 @@ export class Hud {
     const me = s.players[this.localPlayer];
     this.root = h('div', 'hud', layer);
     setClass(this.root, 'is-multi', this.multi);
+    setClass(this.root, 'is-raid', s.mode === 'bossRaid'); // 기획 19차 (styles: bossRaid.css)
     // 기획 8차 리뷰: the enrage vignette is a compositor-animated overlay (under every HUD widget) instead of a
     // full-screen canvas gradient redrawn each frame (that cost ~15 fps on a phone-sized software raster)
     this.enrageVignette = h('div', 'enrage-vignette is-hidden', this.root);
@@ -358,6 +369,10 @@ export class Hud {
     this.bossBar = bbar;
     this.bossLag = h('div', 'bar-lag', bbar);
     this.bossFill = h('div', 'bar-fill', bbar);
+    this.bossShield = h('div', 'bar-shield boss-shield', bbar);
+    this.raidPill = h('div', 'boss-raid is-hidden', this.bossBox);
+    h('span', 'boss-raid-k', this.raidPill, '보스');
+    this.raidPillN = h('span', 'boss-raid-n', this.raidPill);
     this.bossPips = makePips(this.bossBox, 16, 'boss-pips');
     // over the (mostly empty) status-pip row: right under the HP bar but clear of the boss's big eye below the box
     this.bossCast = h('div', 'boss-cast is-hidden', this.bossBox);
@@ -776,7 +791,7 @@ export class Hud {
     this.banner(big, sub, 'clear');
   }
 
-  private banner(big: string, sub: string, kind: string, lore = '', trace = ''): void {
+  private banner(big: string, sub: string, kind: string, lore = '', trace = '', ms = 0): void {
     this.bannerBox.replaceChildren();
     // 기획 8차 리뷰: mid-fight boss banners (phase change, enrage) must not cover the fight at the boss's feet, where
     // the new phase's first pattern lands right away → a smaller, shorter strip low over the arena's front edge
@@ -787,7 +802,7 @@ export class Hud {
     if (lore) h('div', 'banner-lore', b, lore);
     if (sub) h('div', 'banner-sub', b, sub);
     if (trace) h('div', 'banner-trace', b, trace);
-    setTimeout(() => b.remove(), low ? 1500 : 2300);
+    setTimeout(() => b.remove(), ms > 0 ? ms : low ? 1500 : 2300);
   }
 
   private onEvents(s: GameState, events: GameEvent[]): void {
@@ -803,6 +818,11 @@ export class Hud {
             // 기획 16차 원정: one floor per stage — '4단계 · 사무실 / 깨면 장비 1개'
             const t = expeditionBanner(s);
             this.banner(t.big, t.sub, e.kind === 'boss' ? 'boss' : 'floor', '', traceBannerLine(s.players[this.localPlayer]));
+          } else if (s.mode === 'bossRaid') {
+            // 기획 19차: '7층 · 문서 파쇄기' + one short 괴담 sentence (review: the whole line could not be read in 2 s — it
+            // is on the pause screen); a little longer than the classic banner (two things to read)
+            const t = raidBanner(s.floor, { name: bossName(s.plan.bossId), ...bossLore(s.plan.bossId) }, this.game.tunables.maxFloor);
+            this.banner(t.big, t.sub, 'boss banner-raid', t.lore, traceBannerLine(s.players[this.localPlayer]), RAID_BANNER_MS);
           } else if (e.kind === 'boss') {
             const name = bossName(s.plan.bossId);
             this.banner(`${e.floor}층 · 보스`, `${name} — HP를 0으로 만들면 퇴각해요`, 'boss', '', traceBannerLine(s.players[this.localPlayer]));
@@ -829,8 +849,8 @@ export class Hud {
             // 기획 16차: a normal stage picks its floor reward next; a boss stage goes straight back to the lobby
             const sub = s.expedition.boss ? `${retreat ? '보스 퇴각 · ' : ''}전리품은 원정 로비에서 공개` : '층 보상 1장을 고르면 원정 로비로';
             this.banner(`${s.expedition.stage}단계 클리어!`, sub, 'clear');
-          } else
-            this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
+          } else if (s.mode === 'bossRaid') this.banner(retreat ? '보스 퇴각!' : '클리어!', raidClearSub(e.floor, this.game.tunables.maxFloor), 'clear');
+          else this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
           break;
         case 'spawn':
           // 기획 16차 원정: the stage's 수문장 comes with the second-to-last wave
@@ -1015,16 +1035,28 @@ export class Hud {
       const name = bossName(s.plan.bossId);
       setText(this.bossName, name);
       setClass(this.bossName, 'is-long', name.length > 8);
-      setText(this.bossLv, s.expedition ? `${s.expedition.stage}단계` : `Lv.${s.floor}`);
+      const raid = s.mode === 'bossRaid';
+      // 기획 19차 보스 레이드: the level slot is the floor; 「보스 N/20」 hangs beside the box
+      setText(this.bossLv, s.expedition ? `${s.expedition.stage}단계` : raid ? `${s.floor}층` : `Lv.${s.floor}`);
+      setClass(this.bossBox, 'is-raid', raid);
+      show(this.raidPill, raid);
+      if (raid) {
+        setText(this.raidPillN, `${s.floor}/${this.game.tunables.maxFloor}`);
+        setAttr(this.raidPill, 'title', raidProgress(s.floor, this.game.tunables.maxFloor));
+      }
       this.updatePhases(s.plan.bossId, boss);
       show(this.bossEnrage, s.bossEnraged);
       setClass(this.bossBox, 'is-enraged', s.bossEnraged);
+      // 기획 19차 review (rule M1): the boss winds up on itself — the box blinks yellow (the ring is half off screen)
+      setClass(this.bossBox, 'is-selfcast', s.phase === 'combat' && s.telegraphs.some(t => t.team === 'enemy' && t.self));
       const f = boss ? frac(boss.hp, boss.maxHp) : 0;
       setText(this.bossPct, `${Math.ceil(f * 100)}%`);
       setStyle(this.bossFill, 'transform', sx(f));
       // trailing "damage taken" bar
       this.bossLagFrac = this.bossLagFrac < f ? f : Math.max(f, this.bossLagFrac - dt * 0.35);
       setStyle(this.bossLag, 'transform', sx(this.bossLagFrac));
+      // 기획 19차 (rule M1): a boss's shield on itself — a white strip over the HP bar
+      setStyle(this.bossShield, 'transform', sx(boss ? frac(boss.shield, boss.maxHp) : 0));
       updatePips(this.bossPips, boss ? boss.statuses : [], true);
       // 기획 13차: a groggy boss casts nothing — its spot shows the groggy pill
       show(this.bossCast, !!boss && s.phase === 'combat' && performance.now() < this.castUntil && !groggyDown(s));
@@ -1334,6 +1366,17 @@ function bossName(id: string | undefined): string {
     return getBoss(id).name;
   } catch {
     return '보스';
+  }
+}
+
+/** 기획 19차: the boss's 괴담 line and its short banner form (BossDef.lore / loreShort), empty when unknown. */
+function bossLore(id: string | undefined): { lore?: string; loreShort?: string } {
+  if (!id) return {};
+  try {
+    const b = getBoss(id);
+    return { lore: b.lore, loreShort: b.loreShort };
+  } catch {
+    return {};
   }
 }
 

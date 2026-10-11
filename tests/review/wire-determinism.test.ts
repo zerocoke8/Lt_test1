@@ -3,8 +3,11 @@
 // previewParts, canSwap/canUsePet, telemetry) never perturb the deterministic sim.
 import { describe, expect, it } from 'vitest';
 import { cleanState, wireJson } from '../../server/snapshot';
+import { BOSS_RAID } from '../../src/data';
 import { dropOutcome } from '../../src/sim/fieldEventPreview';
 import { tick } from '../../src/sim/game';
+import { unitCtx } from '../../src/sim/ctx';
+import { startAction } from '../../src/sim/skills';
 import type { Command, GameState, Tunables } from '../../src/types';
 import { canSwapState, canUltState } from '../../src/sim/players';
 import { fieldUltGauge, ultFillTimes, ultSecondsLeft } from '../../src/sim/ultMode';
@@ -13,9 +16,10 @@ import { BOT1, makeGame, type TestGame } from '../sim/helpers';
 
 const KEYS: Record<string, string[]> = {
   // expedition: 기획 15차 원정 only (absent in the classic tower)
-  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'bossGroggy', 'runResult', 'expedition'],
+  state: ['seed', 'tick', 'time', 'phase', 'floor', 'plan', 'floorTime', 'timeRemaining', 'entities', 'players', 'telegraphs', 'zones', 'projectiles', 'bossId', 'bossEnraged', 'wavesRemaining', 'monstersAlive', 'midBossSpawned', 'rewardOffers', 'rewardOffersByPlayer', 'goedam', 'fieldEvent', 'bossGroggy', 'runResult', 'expedition', 'mode'], // mode: 기획 19차 보스 레이드 only
   // stage … bossHpMult: 기획 15차 원정 floor plans only (기획 16차: one floor per stage, no stageFloor)
-  plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'maxGap', 'bossId', 'theme', 'stage', 'equivFloor', 'guardian', 'bossHpMult'],
+  // nextBossId / bossAtkMult: 기획 19차 보스 레이드 plans only
+  plan: ['floor', 'kind', 'timeLimit', 'arena', 'statMult', 'waves', 'midBossId', 'maxGap', 'bossId', 'theme', 'stage', 'equivFloor', 'guardian', 'bossHpMult', 'nextBossId', 'bossAtkMult'],
   guardian: ['monsterId', 'hpMult', 'atkMult'],
   expedition: ['stage', 'boss', 'outcome', 'loot', 'humans', 'goedamSeen'],
   gearSpec: ['slot', 'tier', 'rarity', 'optionId', 'relicId'],
@@ -32,7 +36,8 @@ const KEYS: Record<string, string[]> = {
   pet: ['defId', 'cooldownRemaining', 'cooldownTotal'],
   ult: ['charge', 'fullSince'],
   stats: ['damageDealt', 'damageToBoss', 'damageTaken', 'healing', 'kills', 'swaps', 'ultsUsed', 'petsUsed', 'damageBySource', 'ultDelayTotal', 'ultDelayCount', 'fieldEvents', 'groggyPoints', 'groggyBreaks', 'groggyDamage', 'justSwaps', 'justDodged'],
-  telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total'],
+  // self: 기획 19차 (rule M1) a boss's wind-up on itself
+  telegraph: ['id', 'team', 'center', 'origin', 'area', 'remaining', 'total', 'self'],
   zone: ['id', 'team', 'ownerPlayer', 'center', 'radius', 'area', 'remaining', 'total', 'kind'],
   projectile: ['id', 'team', 'pos', 'targetId', 'targetPos', 'speed', 'color'],
   // family … rarityBumped: 기획 17차 (tags, 지명권 member / role, curse · coop · economy flag, 대가 text, 상자 bump)
@@ -169,6 +174,47 @@ describe('wire snapshot = contract only', () => {
     for (const k of ['bossGroggy', 'bossGroggy:down', 'memberUlt']) expect(seen.has(k), k).toBe(true);
     // the run really exercised every kind
     for (const k of ['entity:character', 'entity:monster', 'entity:summon', 'status', 'telegraph', 'zone', 'projectile', 'reward', 'goedam', 'goedamLog', 'fieldEvent', 'entity:event']) expect(seen.has(k), k).toBe(true);
+  });
+});
+
+describe('기획 19차 보스 레이드: wire snapshot = contract only', () => {
+  it('three raid floors (fight, groggy, a self-cast ring, the reward screen) carry only contract keys; the classic run has none of the raid keys', () => {
+    const seen = new Set<string>();
+    const bad = new Set<string>();
+    const tg = makeGame({ seed: 19, mode: 'bossRaid', players: [{ name: '나', isBot: false, characters: ['guardian', 'paladin', 'chrono'], pets: ['owl_frost', 'cat_void', 'frog_bomb'] }, { ...BOT1 }], tunables: { invincible: true } });
+    const s = tg.w.state;
+    let selfSeen = false;
+    for (let floor = 1; floor <= 3; floor++) {
+      for (let t = 0; t < 30 * 12 && s.phase === 'combat'; t++) {
+        if (t === 60) tg.game.dispatch({ type: 'debug', action: { kind: 'forceGroggy' } });
+        if (t === 300) {
+          // a synthetic self part of the boss (rule M1): the telegraph carries `self` on the wire
+          const boss = s.entities.find(e => e.id === s.bossId)!;
+          startAction(tg.w, unitCtx(tg.w, boss, 'syn_self', '시험'), { center: 'self', area: { shape: 'circle', radius: 3.4 }, affects: 'self', delay: 1.5, effects: [{ kind: 'shield', amount: 0.05, duration: 4 }] });
+        }
+        tick(tg.w);
+        if (t % 15 !== 0) continue;
+        const wire = cleanState(s);
+        expect(wire.mode).toBe('bossRaid');
+        expect(wire.plan.nextBossId).toBeDefined();
+        expect(wire.plan.bossAtkMult).toBe(BOSS_RAID.atkMult);
+        selfSeen ||= wire.telegraphs.some(x => x.self === true);
+        for (const b of audit(wire, seen)) bad.add(b);
+      }
+      tg.game.dispatch({ type: 'debug', action: { kind: 'skipFloor' } });
+      for (const b of audit(cleanState(s), seen)) bad.add(b);
+      if (s.phase === 'reward') tg.game.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
+      expect(JSON.stringify(JSON.parse(wireJson(tg.game.drainEvents())))).not.toMatch(/"(rt|src)":/);
+    }
+    expect([...bad]).toEqual([]);
+    expect(selfSeen).toBe(true);
+    expect(s.floor).toBe(4);
+    for (const k of ['bossGroggy:down', 'telegraph', 'offer']) expect(seen.has(k), k).toBe(true);
+    // the classic tower: none of the raid keys on the wire (its snapshots are byte-compatible with protocol 5 clients)
+    const classic = makeGame({ seed: 19, startFloor: 5, tunables: { invincible: true } });
+    for (let t = 0; t < 30 * 8; t++) tick(classic.w);
+    const cw = wireJson(classic.w.state);
+    expect(cw).not.toMatch(/"(mode|nextBossId|bossAtkMult|bossHpMult|self)":/);
   });
 });
 

@@ -9,6 +9,7 @@
 
 import type { AppliedReward, CommandResult, GameState, PlayerState, Rarity, RewardDef, RewardFamilyDef, RewardOffer, Role, SynergyTag } from '../../types';
 import {
+  BOSS_RAID,
   FAMILIES,
   MAX_REROLLS,
   PREF_DEALER,
@@ -158,6 +159,7 @@ export function familyEligible(s: GameState, ps: PlayerState, f: RewardFamilyDef
   if (f.unique && rewardCount(ps, f.key) > 0) return false;
   if (f.key === 'relay_blast' && ps.relics.includes('relay_flag')) return false;
   if (!s.expedition && NOT_BEFORE_BOSS.has(f.key) && (s.floor + 1) % 5 === 0) return false;
+  if (s.mode === 'bossRaid' && BOSS_RAID.rewardsOff.includes(f.key)) return false; // 기획 19차: dead cards in a boss-only run
   if (f.flag === 'economy' && economyActive(ps, f.key)) return false;
   if (f.key === 'incense' && ps.rerolls >= MAX_REROLLS) return false;
   if (f.key === 'petcd' && petCooldownReduction(ps) >= MAX_PET_COOLDOWN_REDUCTION - 1e-9) return false; // at its cap

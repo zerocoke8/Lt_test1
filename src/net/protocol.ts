@@ -16,7 +16,11 @@ import type { GearLoadout, GearSpec } from '../data/gear';
 /*     5 = 기획 17차: chooseReward.member (지명권), the 'rerollReward' command, the floor-reward / 저스트 state and events
  *     (PlayerState.rerolls · rewardState · rewardPicksLeft, offer tags / target / member, justSwap · rewardProc · tagSet),
  *     reward timeout 30 s picked by the bot score (botPickIndex). */
-export const PROTOCOL_VERSION = 5;
+/*     6 = 기획 19차 보스 레이드: createRoom.mode, RoomInfo.mode, RoomSummary.mode, start.mode 'bossRaid', GameState.mode,
+ *     FloorPlan.nextBossId · bossAtkMult, Telegraph.self (a raid room is a classic room with a mode tag: listed, joinable
+ *     by code); the debug action 'raidBoss' (host only), the four boss tunables (bossTelegraphMult · bossAreaMult ·
+ *     bossRaidHpMult · bossRaidAtkMult) and Telemetry.floorTimes[].boss on raid rows. */
+export const PROTOCOL_VERSION = 6;
 export const MAX_ROOM_PLAYERS = 3;
 /** Snapshot broadcast rate (Hz). The server sim still ticks at 30 Hz. */
 export const SNAPSHOT_HZ = 15;
@@ -60,7 +64,12 @@ export interface RoomInfo {
   /** Join order = player slot order in the game. Empty slots are filled with bots on start. */
   members: RoomMember[];
   max: number;
+  /** 기획 19차: a 보스 레이드 room (absent = the classic tower). */
+  mode?: RoomVariantMode;
 }
+
+/** 기획 19차: the game a listed room plays, when it is not the classic tower. */
+export type RoomVariantMode = 'bossRaid';
 
 export interface RoomSummary {
   code: string;
@@ -69,6 +78,8 @@ export interface RoomSummary {
   players: number;
   max: number;
   status: 'waiting' | 'playing';
+  /** 기획 19차: a 보스 레이드 room (absent = the classic tower). */
+  mode?: RoomVariantMode;
 }
 
 /** 기획 15차 원정: one seat of a stage queue (expQueueState). */
@@ -119,7 +130,8 @@ export type ClientMsg =
   | { t: 'hello'; v: number; name: string; token?: string }
   | { t: 'setName'; name: string }
   | { t: 'listRooms' }
-  | { t: 'createRoom'; preset: PresetChoice; roomName?: string }
+  /** `mode` (기획 19차): 'bossRaid' = a 보스 레이드 room; absent = the classic tower. */
+  | { t: 'createRoom'; preset: PresetChoice; roomName?: string; mode?: RoomVariantMode }
   | { t: 'joinRoom'; code: string; preset: PresetChoice }
   | { t: 'setPreset'; preset: PresetChoice }
   | { t: 'leaveRoom' }
@@ -190,8 +202,8 @@ export type ServerMsg =
       message: string;
     }
   /** Game started (or you reconnected into it). `playerIndex` = your PlayerState index = RenderUiState.localPlayer. */
-  /** `mode` = 'expedition' for a 원정 stage game (absent = the classic tower). */
-  | { t: 'start'; playerIndex: number; hostPlayerIndex: number; seed: number; tunables: Tunables; mode?: 'expedition' }
+  /** `mode` = 'expedition' for a 원정 stage game, 'bossRaid' (기획 19차) for a 보스 레이드 run (absent = the classic tower). */
+  | { t: 'start'; playerIndex: number; hostPlayerIndex: number; seed: number; tunables: Tunables; mode?: 'expedition' | RoomVariantMode }
   /**
    * Authoritative state at SNAPSHOT_HZ. `state` is a plain GameState (no sim-internal fields).
    * `events` = everything emitted since the previous snapshot (oldest first).

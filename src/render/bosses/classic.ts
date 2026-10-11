@@ -5,13 +5,16 @@
 // The top HUD box (boss HP panel) covers logical y < ~95 between x ≈ 430–850. 기획 8차 리뷰: the set pieces are drawn
 // BOSS_DROP px lower than their foot line so the faces/eyes clear it (the 5층 doors read as a dark slit under it).
 
-import { Camera, PX_PER_UNIT } from './camera';
-import type { BossDrawOpts } from './boss';
-import { darken, lighten, mix } from './look';
-import { TAU, hash01, pathRoundRect } from './shapes';
+// 기획 19차: moved from render/bosses.ts into the boss art folder, drawing untouched. New bosses live in the zone files
+// next to this one and build on kit.ts.
 
-/** Px the boss set pieces are drawn below their sim position (clear of the HUD boss panel). */
-export const BOSS_DROP = 24;
+import { Camera, PX_PER_UNIT } from '../camera';
+import type { BossDrawOpts } from '../boss';
+import { darken, lighten, mix } from '../color';
+import { TAU, hash01, pathRoundRect } from '../shapes';
+import { BOSS_DROP } from './kit';
+
+export { BOSS_DROP };
 
 /** Base y of a set piece: its foot line just inside the arena's back edge. */
 function anchor(cam: Camera, x: number, y: number, o: BossDrawOpts): { cx: number; cy: number; alpha: number } {

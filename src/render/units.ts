@@ -139,16 +139,35 @@ export function syncMemo(m: UnitMemo, e: Entity, stamp: number, dt: number): voi
   m.stamp = stamp;
 }
 
-/** 기획 13차 PullLerp: an enemy that jumped this frame (pull / knockback) keeps being drawn where it was, sliding in. */
+/**
+ * 기획 19차 (rule M3): a pulled / knocked-back CHARACTER slides too (집게, 손잡이, 배수구, 역주행). A character's jump
+ * counts when it is faster than any walk (CHAR_PULL_SPEED units / s) and at least CHAR_PULL_MIN — never while it is
+ * appearing (a swap-in is a new unit anyway; a floor start re-places it with the 'appear' pose).
+ */
+const CHAR_PULL_SPEED = 10;
+const CHAR_PULL_MIN = 0.2;
+
+/** Is this frame's jump (squared length d2) a pull / knock-back to slide? */
+function slides(m: UnitMemo, e: Entity, d2: number, dt: number): boolean {
+  if (m.noLerp || m.tier === 'boss' || d2 >= PULL_MAX * PULL_MAX) return false;
+  if (m.kind === 'character') {
+    if (e.anim === 'appear') return false;
+    const min = Math.max(CHAR_PULL_MIN, CHAR_PULL_SPEED * dt);
+    return d2 > min * min;
+  }
+  return m.team === 'enemy' && d2 > PULL_MIN * PULL_MIN;
+}
+
+/**
+ * 기획 13차 PullLerp: an enemy that jumped this frame (pull / knockback) keeps being drawn where it was, sliding in.
+ * 기획 19차: characters too (slides()).
+ */
 function pullLerp(m: UnitMemo, e: Entity, dt: number): void {
-  if (m.team === 'enemy' && m.kind !== 'character' && m.tier !== 'boss' && !m.noLerp) {
-    const jx = m.x - e.pos.x;
-    const jy = m.y - e.pos.y;
-    const d2 = jx * jx + jy * jy;
-    if (d2 > PULL_MIN * PULL_MIN && d2 < PULL_MAX * PULL_MAX) {
-      m.pullX += jx;
-      m.pullY += jy;
-    }
+  const jx = m.x - e.pos.x;
+  const jy = m.y - e.pos.y;
+  if ((jx !== 0 || jy !== 0) && slides(m, e, jx * jx + jy * jy, dt)) {
+    m.pullX += jx;
+    m.pullY += jy;
   }
   m.noLerp = false;
   if (m.pullX !== 0 || m.pullY !== 0) {

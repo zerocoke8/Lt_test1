@@ -18,6 +18,7 @@ export interface TeleSeqInfo {
 
 interface PendingCast {
   key: string;
+  skillId: string;
   cx: number;
   cy: number;
   shape: string;
@@ -45,11 +46,13 @@ export class TeleSequencer {
   private nextId = 1;
   private stamp = 0;
   private readonly liveStamp = new Map<number, number>();
+  /** telegraph id → skill id (기획 19차 warning motifs) */
+  private readonly skill = new Map<number, string>();
 
   /** Feed every event of the frame (only telegraphed enemy monster casts matter). */
   noteEvent(ev: GameEvent): void {
     if (ev.type !== 'skillCast' || ev.team !== 'enemy' || !(ev.delay != null && ev.delay > 0)) return;
-    this.casts.push({ key: `${ev.sourceId}|${ev.skillId}`, cx: ev.center.x, cy: ev.center.y, shape: ev.area.shape, used: false });
+    this.casts.push({ key: `${ev.sourceId}|${ev.skillId}`, skillId: ev.skillId, cx: ev.center.x, cy: ev.center.y, shape: ev.area.shape, used: false });
   }
 
   /** Once per drawn frame, after the frame's events: group new telegraphs, refresh which part is next. */
@@ -64,6 +67,7 @@ export class TeleSequencer {
       const c = this.casts.find(k => !k.used && k.shape === t.area.shape && Math.abs(k.cx - t.center.x) < 1e-3 && Math.abs(k.cy - t.center.y) < 1e-3);
       if (!c) continue;
       c.used = true;
+      this.skill.set(t.id, c.skillId); // 기획 19차: which skill a warning belongs to (motifs)
       (fresh ??= []).push({ t, key: c.key });
     }
     this.casts.length = 0;
@@ -111,6 +115,7 @@ export class TeleSequencer {
         if (this.liveStamp.get(id) !== stamp) {
           this.seen.delete(id);
           this.liveStamp.delete(id);
+          this.skill.delete(id);
         }
       });
     }
@@ -127,8 +132,17 @@ export class TeleSequencer {
     return out;
   }
 
+  /**
+   * 기획 19차: the skill id of an enemy warning (matched to its skillCast the frame it appeared), or undefined — a
+   * warning that came up later than its cast (telegraphLead) or was first seen on a reconnect has none.
+   */
+  skillOf(t: Telegraph): string | undefined {
+    return this.skill.get(t.id);
+  }
+
   reset(): void {
     this.casts.length = 0;
+    this.skill.clear();
     this.seen.clear();
     this.groupOf.clear();
     this.groups.length = 0;

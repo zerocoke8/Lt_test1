@@ -8,6 +8,7 @@ import { LOGICAL_H, LOGICAL_W } from '../types';
 import { CHARACTERS, PETS, getGoedamTrace, getMonster, goedamTraceKind } from '../data';
 import { DASH_LAND } from '../render/dashtime';
 import { stageCues, type Cue } from './stages';
+import { bossSkillKind } from './synth/bossVoices';
 import { fieldUltGauge } from '../sim/ultMode';
 
 export interface SoundReq {
@@ -97,7 +98,7 @@ export const EVENT_SOUNDS: Record<GameEvent['type'], string> = {
   floorStart: 'floor.start.<zone> / boss.intro.<boss> / zone.enter',
   floorClear: 'floor.clear / floor.clear.boss',
   enrage: 'boss.enrage',
-  bossRetreat: 'boss.retreat',
+  bossRetreat: 'boss.retreat + boss.death.<boss>',
   runOver: 'run.victory / run.defeat',
   goedamOpen: 'gd.enter + gd.room.<room>',
   goedamOutcome: 'gd.flicker + gd.result.<tone>',
@@ -131,29 +132,6 @@ for (const c of CHARACTERS) for (const slot of ['normal', 'drag', 'ult'] as cons
 const CHAR_ROLE = new Map<string, Role>(CHARACTERS.map(c => [c.id, c.role]));
 const RANGED_CHARS = new Set(CHARACTERS.filter(c => c.basic.kind !== 'melee').map(c => c.id));
 const PET_IDS = new Set(PETS.map(p => p.id));
-
-/** Boss skill id → windup / impact kind (3-7). */
-const BOSS_KIND: Record<string, string> = {
-  ek_doors: 'doors',
-  ek_doors_back: 'doors',
-  ek_summon: 'summon',
-  ek_counter: 'countdown',
-  ol_paperstorm: 'papers',
-  ol_summon: 'summon',
-  ol_stamp: 'stamp',
-  ol_stamp_combo: 'stamp',
-  sd_scalpels: 'blades',
-  sd_scalpel_storm: 'blades',
-  sd_summon: 'summon',
-  sd_gas: 'gas',
-  sd_incision: 'slice',
-  boss_burst: 'burst',
-  boss_summon: 'summon',
-  boss_rift: 'beam',
-  boss_beams: 'beam',
-  boss_tentacles: 'tentacle',
-  boss_abyss_ring: 'ring',
-};
 
 /** Monster look → mon.death variant (3-6). */
 const DEATH_LOOK: Record<string, string> = {
@@ -206,6 +184,8 @@ interface Snap {
   printed: number;
   bots: boolean[];
   connected: boolean;
+  /** 기획 19차: the boss on the field (its def id), null without one — whose boss.death plays when it retreats. */
+  boss: string | null;
 }
 
 interface TeleInfo {
@@ -403,6 +383,9 @@ export class Director {
         return;
       case 'bossRetreat':
         c.play('boss.retreat');
+        // 기획 19차: with the boss's own way out (its timbre backwards)
+        // (the boss of the frame before: with bots only, the next floor's plan may already be in this state)
+        this.playBossDeath(c);
         c.duck('sfx', -8, 0, 1);
         c.out.ctl.push({ kind: 'stop', key: 'groggy', fade: 0.3 }, { kind: 'stop', key: 'enrage', fade: 0.3 });
         return;
@@ -557,6 +540,12 @@ export class Director {
     c.play(`floor.start.${theme}`, { delay: ZONE_FIRST.has(e.floor) ? 0.6 : 0 });
   }
 
+  /** 기획 19차: boss.death.<id> of the boss that just retreated. */
+  private playBossDeath(c: FrameCtx): void {
+    const boss = this.snap?.boss ?? c.s.plan.bossId;
+    if (boss) c.play(`boss.death.${boss}`);
+  }
+
   // ─────────────────────────── skills ───────────────────────────
 
   private onCast(c: FrameCtx, e: Extract<GameEvent, { type: 'skillCast' }>, pending: { center: Vec2; info: TeleInfo }[]): void {
@@ -564,7 +553,7 @@ export class Director {
       if (e.team !== 'enemy' || !(e.delay && e.delay > 0)) return;
       const src = e.sourceId != null ? c.ent(e.sourceId) : null;
       const tier = src?.tier ?? 'normal';
-      const kind = tier === 'boss' ? (BOSS_KIND[e.skillId] ?? 'burst') : null;
+      const kind = tier === 'boss' ? bossSkillKind(e.skillId) : null; // 기획 19차: from the boss voice rows
       pending.push({ center: e.center, info: { kind, tier, shape: impactShape(e.area) } });
       const once = `wu:${e.sourceId}:${e.skillId}`;
       if (!this.once(once, c.now, 0.3)) return;
@@ -890,6 +879,7 @@ function takeSnap(s: GameState, lp: number, old: Snap | null): Snap {
     feSec: s.fieldEvent ? Math.ceil(s.fieldEvent.remaining) : 99,
     printed: s.fieldEvent?.printed ?? 0,
     bots: s.players.map(p => p.isBot),
+    boss: s.bossId != null ? (s.plan.bossId ?? null) : null,
     connected: true,
   };
 }

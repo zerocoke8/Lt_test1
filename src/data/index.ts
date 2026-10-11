@@ -1,7 +1,8 @@
 import type { BossDef, CharacterDef, MonsterDef, PetDef, RelicDef, RewardDef } from '../types';
 import { CHARACTERS } from './characters';
 import { PETS } from './pets';
-import { BOSSES, MONSTERS } from './monsters';
+import { MONSTERS } from './monsters';
+import { BOSSES, BOSS_UNITS } from './bosses';
 import { REWARDS } from './rewards';
 import { RELICS } from './relics';
 import { FIELD_EVENT_UNITS } from './fieldEvents';
@@ -13,6 +14,9 @@ export { RARITY_WEIGHTS, RARITY_LABEL, RARITY_COLOR } from './rewards';
 // 기획 17차: families, tags, rarity bands (src/data/rewards/)
 export { PREF_DEALER, FAMILIES, RARITIES, RARITY_BY_BAND, getFamily, hasFamily, rewardFamily, isBasicFamily, familyRarities, MAX_REROLLS, TAG_INFO, SYNERGY_TAGS, TAG_SET_SIZE, TAG_SET_BONUS, TAG_BONUS, RELIC_TAGS, ROLE_TAGS, ROLE_NAME, SWAP_TAGS } from './rewards';
 export { REWARD_UNITS } from './rewardUnits';
+// 기획 19차 보스 레이드: the boss registry (src/data/bosses/) and the mode's table (src/data/bossRaid.ts)
+export { BOSS_UNITS };
+export * from './bossRaid';
 export * from './goedam';
 export * from './fieldEvents';
 
@@ -31,7 +35,8 @@ export const getReward = index<RewardDef>(REWARDS, 'reward');
 export const getRelic = index<RelicDef>(RELICS, 'relic');
 // 기획 12차: 돌발 괴담 units resolve by id too (they are not in MONSTERS, so wave pools / roster tests never see them)
 // 기획 17차: floor-reward summons (afterimages, turret, straw doll, mine) resolve by id too, never in MONSTERS
-const monsterOrBoss = index<MonsterDef>([...MONSTERS, ...BOSSES, ...FIELD_EVENT_UNITS, ...REWARD_UNITS], 'monster');
+// 기획 19차: the new bosses' summon-only units too (BOSS_UNITS — 뽑기 인형, 외짝 양말, 오류 창)
+const monsterOrBoss = index<MonsterDef>([...MONSTERS, ...BOSSES, ...FIELD_EVENT_UNITS, ...REWARD_UNITS, ...BOSS_UNITS], 'monster');
 export const getMonster = (id: string): MonsterDef => monsterOrBoss(id);
 export const getBoss = index<BossDef>(BOSSES, 'boss');
 

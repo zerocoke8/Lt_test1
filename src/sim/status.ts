@@ -111,6 +111,16 @@ function setStatusData(target: SimEntity, s: StatusInstance, opts?: StatusOpts):
 }
 
 /**
+ * 기획 19차 (review): a character's 속박 / 묶기 ends when it leaves the field or a new floor starts — the anchor is a spot
+ * of the old fight, and a kept one would drag the character back there (틀린 답, the first root on a character).
+ */
+export function dropAnchors(e: { statuses: StatusInstance[] }): void {
+  if (e.statuses.some(anchored)) e.statuses = e.statuses.filter(s => !anchored(s));
+}
+
+const anchored = (s: StatusInstance): boolean => s.id === 'tether' || s.id === 'root';
+
+/**
  * 기획 13차 묶기 / 속박: keep a tethered (rooted) unit within its radius of the anchor — after it moved, was pushed or
  * separated. Returns true when it was pulled back.
  */

@@ -1,10 +1,11 @@
 // The floor bosses: giant procedural set pieces looming above the arena's back edge. 심연의 감시자 (eye + tentacles,
-// the 20층 rooftop boss) lives here; the 기획 8차 bosses are in bosses.ts. drawBossArt routes by boss id.
+// the 20층 rooftop boss) lives here; the 기획 8차 bosses are in bosses/classic.ts, the 기획 19차 보스 레이드 bosses in the
+// looks registry (bosses/<zone>.ts). drawBossArt routes by boss id.
 
 import { Camera, PX_PER_UNIT } from './camera';
 import { darken, lighten, mix } from './look';
 import { TAU, hash01 } from './shapes';
-import { BOSS_DROP, drawElevatorKeeper, drawOvertimeLord, drawSurgeonDirector } from './bosses';
+import { BOSS_DROP, bossLook, drawElevatorKeeper, drawOvertimeLord, drawSurgeonDirector } from './bosses';
 import { beginGroggyPose, endGroggyPose, drawGroggyProps } from './bossGroggy';
 import { getBoss } from '../data';
 
@@ -72,8 +73,12 @@ function drawBossPiece(ctx: CanvasRenderingContext2D, cam: Camera, defId: string
     case 'surgeon_director':
       drawSurgeonDirector(ctx, cam, x, y, radius, o);
       return;
-    default:
-      drawBoss(ctx, cam, x, y, radius, o);
+    default: {
+      // 기획 19차: a registered look, else the watcher (also for a boss whose art has not landed yet)
+      const look = bossLook(defId);
+      if (look) look.draw(ctx, cam, x, y, radius, o);
+      else drawBoss(ctx, cam, x, y, radius, o);
+    }
   }
 }
 

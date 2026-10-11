@@ -4,21 +4,24 @@
 //   zone=lobby|office|ward|rooftop     background (default lobby)
 //   gallery=1                          every look key in rows, names under them (arena 24, centered)
 //   pack=1                             the zone's own monsters as a fight (normal floor)
-//   boss=<id> [phase=1|2|3]            boss floor with that boss (elevator_keeper / overtime_lord / surgeon_director / abyss_watcher)
+//   boss=<id> [phase=1|2|3]            boss floor with that boss (any of the 20 raid bosses; one without art shows the watcher)
+//   pose=idle|windup|groggy|enraged    기획 19차: the boss alone in that pose (no adds, no sample warnings) — for looks
+//   bench=boss:<id> [pose=… phase=…]   기획 19차: render cost of that boss scene (ms/frame → window.__sandbox.bench)
+//   window.__sandbox.bossIds           기획 19차: the 20 raid boss ids (tests/visual/boss-sheet.mjs walks them)
 //   fx=blink|charge|fan|split|heal|phase|landing   synthetic events for the new mechanics
 //   t=<s>                              seconds rendered (fixed 1/60 steps) before the shot
 //   enraged=1
 
 import { createRenderer } from '../../src/render';
 import { ARENA_NORMAL, BOSS_POS, PLAYER_COLORS } from '../../src/config';
-import { getCharacter } from '../../src/data';
+import { BOSSES, RAID_BOSS_IDS, getCharacter } from '../../src/data';
 import { CREATURE_ART } from '../../src/render/creatures';
 import type { ContributionStats, Entity, FloorTheme, GameEvent, GameState, PlayerState, RenderUiState, Telegraph, Vec2, Zone } from '../../src/types';
 import { LOGICAL_H, LOGICAL_W } from '../../src/types';
 
 declare global {
   interface Window {
-    __sandbox?: { ready: boolean; step?: (ms: number) => void; bench?: number };
+    __sandbox?: { ready: boolean; step?: (ms: number) => void; bench?: number; bossIds?: readonly string[]; bossNames?: Record<string, string> };
   }
 }
 
@@ -166,17 +169,42 @@ function packScene(zone: FloorTheme): Scene {
   return { state: s, script: [], labels: [] };
 }
 
-function bossScene(zone: FloorTheme, bossId: string, phase: number, enraged: boolean): Scene {
+type BossPose = 'idle' | 'windup' | 'groggy' | 'enraged';
+const BOSS_POSES: readonly BossPose[] = ['idle', 'windup', 'groggy', 'enraged'];
+
+/** 기획 19차: the zone a boss belongs to (its data, else the lobby). */
+function zoneOfBoss(bossId: string, fallback: FloorTheme): FloorTheme {
+  return BOSSES.find(b => b.id === bossId)?.zone ?? fallback;
+}
+
+function bossScene(zone: FloorTheme, bossId: string, phase: number, enraged: boolean, pose: BossPose | null = null): Scene {
   const s = baseState(ZONE_FLOOR[zone] < 5 ? 5 : ZONE_FLOOR[zone] + 3, 'boss', 24, zone, bossId);
   s.floor = { lobby: 5, office: 10, ward: 15, rooftop: 20 }[zone];
   s.plan.floor = s.floor;
   const me = addParty(s, 10.5, 6.5);
   const maxHp = 10000;
-  const hp = phase >= 3 ? 2000 : phase === 2 ? 4500 : 9000;
-  const b = ent({ kind: 'monster', team: 'enemy', defId: bossId, tier: 'boss', pos: { ...BOSS_POS }, radius: 3, maxHp, hp, targetId: me.id, anim: 'cast', animTime: 0.8, enraged });
+  const hp = phase >= 3 ? 2000 : phase === 2 ? 4000 : 9000; // 40 %: under every boss's first line (45–60 %), over every second (25–30 %)
+  const rage = enraged || pose === 'enraged';
+  const b = ent({ kind: 'monster', team: 'enemy', defId: bossId, tier: 'boss', pos: { ...BOSS_POS }, radius: 3, maxHp, hp, targetId: me.id, anim: pose === 'idle' || pose === 'groggy' ? 'idle' : 'cast', animTime: 0.8, enraged: rage });
   s.entities.push(b);
   s.bossId = b.id;
-  s.bossEnraged = enraged;
+  s.bossEnraged = rage;
+  if (pose) {
+    // 기획 19차: the look alone — no adds, no sample warnings; wind-up holds the cast pose at its peak, groggy is mid-break
+    const script: Scene['script'] = [];
+    if (phase >= 2) script.push({ at: 0.05, ev: { type: 'bossPhase', entityId: b.id, phase, name: `${phase}페이즈` } });
+    if (pose === 'groggy') {
+      s.bossGroggy = { fill: 0, left: 3.5, total: 5, lock: 0, lockTotal: 10, count: 1, near: false, breaker: 0 };
+      script.push({ at: 0.02, ev: { type: 'bossGroggy', entityId: b.id, player: 0, count: 1, duration: 5 } });
+    }
+    return {
+      state: s, script, labels: [],
+      // from the second frame on, so the renderer first records the whole cast (0.8 s) and the charge reads half-way
+      tick: (t: number) => {
+        if (pose === 'windup' && t > 0) b.animTime = 0.4; // half-way: the charge glow at its strongest
+      },
+    };
+  }
   const add = ZONE_PACK[zone][0];
   s.entities.push(mon(add, 7, 4, { targetId: me.id, anim: 'move' }), mon(add, 15, 5, { targetId: me.id }), mon(ZONE_PACK[zone][1], 16.5, 8.4, { targetId: me.id, anim: 'attack', animTime: 0.4 }));
   const teles: Telegraph[] = [];
@@ -314,10 +342,18 @@ function benchScene(zone: FloorTheme, id: string): Scene {
 }
 
 export function run(params: URLSearchParams): void {
-  const zone = (params.get('zone') ?? 'lobby') as FloorTheme;
+  const bossParam = params.get('boss');
+  const poseParam = params.get('pose');
+  const pose = BOSS_POSES.includes(poseParam as BossPose) ? (poseParam as BossPose) : null;
+  const benchBoss = params.get('bench')?.startsWith('boss:') ? params.get('bench')!.slice(5) : null;
+  // 기획 19차: a raid boss shows on its own zone's background unless zone= says otherwise
+  const namedBoss = benchBoss ?? (bossParam && bossParam !== '1' ? bossParam : null);
+  const zone = (params.get('zone') ?? (namedBoss ? zoneOfBoss(namedBoss, 'lobby') : 'lobby')) as FloorTheme;
+  const bossInfo = { bossIds: RAID_BOSS_IDS, bossNames: Object.fromEntries(BOSSES.map(b => [b.id, b.name])) };
   const bench = params.get('bench');
   if (bench) {
-    const scene = benchScene(zone, bench);
+    const scene = benchBoss ? bossScene(zone, benchBoss, Number(params.get('phase') ?? '1'), false, pose ?? 'windup') : benchScene(zone, bench);
+    scene.tick ??= () => {};
     const canvas = document.getElementById('c') as HTMLCanvasElement;
     canvas.style.width = `${Math.floor(LOGICAL_W * 0.54)}px`;
     canvas.style.height = `${Math.floor(LOGICAL_H * 0.54)}px`;
@@ -336,15 +372,15 @@ export function run(params: URLSearchParams): void {
     }
     times.sort((a, b) => a - b);
     const avg = times.slice(20).reduce((a, b) => a + b, 0) / (times.length - 20);
-    window.__sandbox = { ready: true, bench: +avg.toFixed(2) } as Window['__sandbox'];
+    window.__sandbox = { ready: true, bench: +avg.toFixed(2), ...bossInfo } as Window['__sandbox'];
     return;
   }
   const fx = params.get('fx');
-  const bossId = params.get('boss');
+  const bossId = bossParam;
   const scene: Scene = fx
     ? fxScene(zone, fx)
     : bossId
-      ? bossScene(zone, bossId === '1' ? ZONE_BOSS[zone] : bossId, Number(params.get('phase') ?? '1'), params.get('enraged') === '1')
+      ? bossScene(zone, bossId === '1' ? ZONE_BOSS[zone] : bossId, Number(params.get('phase') ?? '1'), params.get('enraged') === '1', pose)
       : params.get('pack') === '1'
         ? packScene(zone)
         : galleryScene(zone);
@@ -387,5 +423,5 @@ export function run(params: URLSearchParams): void {
     }
   }
   for (let i = 0; i * DT < total; i++) frame(DT);
-  window.__sandbox = { ready: true, step: (ms: number) => { for (let k = 0; k < Math.round(ms / (1000 * DT)); k++) frame(DT); } };
+  window.__sandbox = { ready: true, step: (ms: number) => { for (let k = 0; k < Math.round(ms / (1000 * DT)); k++) frame(DT); }, ...bossInfo };
 }

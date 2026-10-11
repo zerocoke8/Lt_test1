@@ -16,11 +16,15 @@ import { buildFileTable, resolveSource } from '../../src/audio/manifest';
 import { AUDIO_DEFAULTS, forcedMute, loadAudio, sanitizeAudio } from '../../src/audio/settings';
 import { STAGE_CUES, stageCues } from '../../src/audio/stages';
 import { CHAR_VOICE } from '../../src/audio/synth/voices';
+import { BOSS_KINDS, BOSS_TIMBRES, BOSS_VOICE, bossSkillKind } from '../../src/audio/synth/bossVoices';
 import { hasRecipe, recipeIds } from '../../src/audio/synth/recipes';
 import { peakOf } from '../../src/audio/synth/prims';
 import { uiSoundFor, type UiTarget } from '../../src/audio/uiSfx';
 import { Sfx } from '../../src/audio';
 import { boardFamily } from '../../src/audio/devboard';
+
+/** 기획 19차: baked boss.intro digests of the classic four (length:hash) — the same on the commit before the voice registry (18d69b8). */
+const CLASSIC_INTRO_DIGEST: Record<string, string> = { elevator_keeper: '105600:665229598', overtime_lord: '105600:3062746771', surgeon_director: '105600:3954526778', abyss_watcher: '105600:3386170169' };
 
 // ─────────────────────────── fake AudioContext ───────────────────────────
 
@@ -490,6 +494,73 @@ describe('sfx ids: nothing missing', () => {
       drag.guardian.charge drag.guardian.shatter drag.paladin.charge drag.warden.drop drag.ranger.draw drag.mage.sigil drag.gunner.pump drag.chrono.wind
       ult.chrono.tock ult.chrono.resume`.split(/\s+/).filter(Boolean);
     for (const id of doc) expect(all.has(id), id).toBe(true);
+  });
+
+  // ── 기획 19차 보스 레이드: the boss sound registry (src/audio/synth/bossVoices) ──
+
+  it('기획 19차: 15 boss pattern kinds (water · static · chime are new) each have a wind-up and an impact that bake', () => {
+    expect([...BOSS_KINDS]).toEqual(['doors', 'countdown', 'papers', 'stamp', 'summon', 'blades', 'gas', 'slice', 'burst', 'beam', 'tentacle', 'ring', 'water', 'static', 'chime']);
+    for (const k of BOSS_KINDS) for (const f of ['boss.windup', 'boss.impact']) expect(all.has(`${f}.${k}`), `${f}.${k}`).toBe(true);
+    for (const k of ['water', 'static', 'chime']) {
+      for (const f of ['boss.windup', 'boss.impact']) {
+        const s = bakeSamples(`${f}.${k}`)!;
+        expect(s.length, `${f}.${k}`).toBeGreaterThan(3000);
+        expect(peakOf(s), `${f}.${k}`).toBeGreaterThan(0.3);
+        expect(peakOf(s), `${f}.${k}`).toBeLessThanOrEqual(0.91);
+      }
+    }
+    expect(sfxRow('boss.windup.water')).toEqual(sfxRow('boss.windup.doors'));
+  });
+
+  it('기획 19차: every boss has an intro, a phase and a death sound; every timbre token bakes; kinds only name that boss skills', () => {
+    for (const b of BOSSES) {
+      for (const f of ['boss.intro', 'boss.phase', 'boss.death']) expect(all.has(`${f}.${b.id}`), `${f}.${b.id}`).toBe(true);
+      const v = BOSS_VOICE[b.id];
+      expect(v, `${b.id} voice`).toBeDefined();
+      const skills = new Set([...b.skills, ...(b.phases ?? []).flatMap(p => p.skills ?? [])].map(sk => sk.id));
+      for (const id of Object.keys(v.kinds)) expect(skills.has(id), `${b.id} kinds key ${id}`).toBe(true);
+      for (const id of skills) expect(BOSS_KINDS as readonly string[], `${id} kind`).toContain(v.kinds[id]);
+    }
+    const death = bakeSamples('boss.death.abyss_watcher')!;
+    expect(death.length).toBeGreaterThan(32000);
+    expect(peakOf(death)).toBeGreaterThan(0.3);
+    expect(sfxRow('boss.death.abyss_watcher')).toMatchObject({ bus: 'hero', group: 'hero' });
+    expect(sfxRow('boss.death.abyss_watcher').db).toBeLessThan(sfxRow('boss.retreat').db);
+    expect([...BOSS_TIMBRES]).toHaveLength(12);
+  });
+
+  it('기획 19차: the classic four sound as before — same root, motif and timbre layers', () => {
+    expect(BOSS_VOICE.elevator_keeper).toMatchObject({ base: 98, motif: [0, -4, -1], timbre: 'elevator' });
+    expect(BOSS_VOICE.overtime_lord).toMatchObject({ base: 82.4, motif: [0, 1, 0, -5], timbre: 'office' });
+    expect(BOSS_VOICE.surgeon_director).toMatchObject({ base: 110, motif: [0, 6, 5], timbre: 'surgery' });
+    expect(BOSS_VOICE.abyss_watcher).toMatchObject({ base: 55, motif: [0, 1, -1, 0], timbre: 'abyss' });
+    // golden digests of the baked intro (recorded before the registry move): any change of a classic layer shows here
+    const digest = (id: string): string => {
+      const s = bakeSamples(id)!;
+      let h = 2166136261;
+      for (let i = 0; i < s.length; i += 7) {
+        h ^= Math.round(s[i] * 32767) & 0xffff;
+        h = Math.imul(h, 16777619) >>> 0;
+      }
+      return `${s.length}:${h}`;
+    };
+    expect(Object.fromEntries(['elevator_keeper', 'overtime_lord', 'surgeon_director', 'abyss_watcher'].map(id => [id, digest(`boss.intro.${id}`)]))).toEqual(CLASSIC_INTRO_DIGEST);
+  });
+
+  it('기획 19차: the director takes the kind of a boss skill from the voice rows, and a retreat plays that boss own way out', () => {
+    expect(bossSkillKind('ek_doors_back')).toBe('doors');
+    expect(bossSkillKind('boss_abyss_ring')).toBe('ring');
+    expect(bossSkillKind('sd_incision')).toBe('slice');
+    expect(bossSkillKind('xx_unknown')).toBe('burst');
+    const boss = { floor: 5, kind: 'boss' as const, timeLimit: 90, arena: { width: 24, height: 12 }, statMult: 1, waves: [], theme: 'lobby' as const, bossId: 'elevator_keeper' };
+    const d = new Director();
+    d.route([], state({ plan: boss, bossId: 4 }), view({ now: 1 }));
+    // bots only: by the retreat frame the state may already be the next floor (another boss)
+    const next = state({ tick: 101, floor: 6, plan: { ...boss, floor: 6, bossId: 'overtime_lord' }, bossId: 4 });
+    const r = ids(d.route([SAMPLES.bossRetreat], next, view({ now: 1.1 })));
+    expect(r).toContain('boss.retreat');
+    expect(r).toContain('boss.death.elevator_keeper');
+    expect(r).not.toContain('boss.death.overtime_lord');
   });
 
   it('every id has a mixing row with a sane level and priority', () => {

@@ -28,6 +28,7 @@ import type {
   Zone,
 } from '../types';
 import { ARENA_MARGIN, MAX_EVENTS } from './constants';
+import type { BossRaidRt } from './bossRaid';
 import type { ExpeditionRt } from './expedition';
 import type { FieldEventAi, FieldEventRt } from './fieldEvents';
 import { Rng } from './rng';
@@ -234,6 +235,11 @@ export interface CastCtx {
   forceCrit?: boolean;
   /** 기획 17차: reward groggy multiplier of this cast (with the hooks' groggyMult, max ×2 per cast). */
   groggyMult?: number;
+  /**
+   * 기획 19차 보스 튜닝: every part's delay and telegraphLead × this (Tunables.bossTelegraphMult, a tier-'boss' enemy's
+   * cast only — ctx.ts). Absent = 1.
+   */
+  delayMult?: number;
 }
 
 export interface GroggyMark {
@@ -391,6 +397,8 @@ export interface World {
   groggy: GroggyRt;
   /** 기획 15차 원정: this stage game (absent in the classic tower). */
   expedition?: ExpeditionRt;
+  /** 기획 19차 보스 레이드: the run's boss order + boss HP knob (absent in the classic tower / 원정). */
+  bossRaid?: BossRaidRt;
   /** 기획 17차 debug 「저스트 연습」: players with the drill on, seconds to their next drill circle. */
   justDrill?: { player: number; next: number }[];
 }
@@ -505,7 +513,9 @@ export function endRun(w: World, outcome: RunResult['outcome'], reason: RunResul
   const last = w.floorTimes[w.floorTimes.length - 1];
   const alreadyLogged = !!last && last.floor === s.floor && last.outcome === 'clear';
   if (outcome === 'defeat' && (reason === 'timeout' || reason === 'wipe') && !alreadyLogged) {
-    w.floorTimes.push({ floor: s.floor, seconds: s.floorTime, outcome: 'fail' });
+    // 기획 19차 보스 레이드: the boss really fought (the order may have been changed by debug 「보스 고르기」)
+    const boss = w.bossRaid && s.plan.bossId ? { boss: s.plan.bossId } : null;
+    w.floorTimes.push({ floor: s.floor, seconds: s.floorTime, outcome: 'fail', ...boss });
   }
   s.phase = 'runOver';
   s.rewardOffers = null;

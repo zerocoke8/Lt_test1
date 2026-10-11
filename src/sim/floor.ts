@@ -10,10 +10,12 @@ import { closeFieldEvent, notePrinted, startFloorFieldEvent } from './fieldEvent
 import { clearGroggy, resetGroggy } from './groggy';
 import { autoResolveGoedam, chooseGoedam, expireGoedamTraces, goedamAllDone, openGoedamRoom } from './goedam';
 import { refundUnlandedUlts, revive, syncMembers } from './players';
+import { dropAnchors } from './status';
 import { openRewardScreen, pickOffer, rerollReward as rerollOffers } from './rewards/offers';
 import { botPickIndex } from './rewards/botPick';
 import { rwOnFloorClear, rwOnFloorStart } from './rewards/hooks';
 import { enterStageEnd, expeditionCombatClear, planExpeditionFloor } from './expedition';
+import { isBossRaidRelicFloor, planBossRaidFloor, raidBossOfFloor } from './bossRaid';
 import type { Rng } from './rng';
 import {
   activeEntity,
@@ -115,7 +117,11 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
   s.projectiles.length = 0;
   w.pending = [];
   s.floor = Math.max(1, Math.floor(n));
-  s.plan = w.expedition ? planExpeditionFloor(w.expedition.stage, w.rng, w.tunables) : planFloor(s.floor, w.rng, w.tunables); // 기획 16차 원정: one floor
+  s.plan = w.expedition
+    ? planExpeditionFloor(w.expedition.stage, w.rng, w.tunables) // 기획 16차 원정: one floor
+    : w.bossRaid
+      ? planBossRaidFloor(s.floor, w.bossRaid.order, w.tunables, w.bossRaid.hpMult) // 기획 19차 보스 레이드: no rng draw
+      : planFloor(s.floor, w.rng, w.tunables);
   s.floorTime = 0;
   s.timeRemaining = s.plan.timeLimit;
   s.bossId = null;
@@ -146,6 +152,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
     }
     const e = activeEntity(w, p);
     if (!e) continue;
+    dropAnchors(e); // 기획 19차: a 속박 of the last floor would pull it back to the old spot
     e.pos = startPos(w, p.id);
     e.targetId = null;
     e.targetHeldFor = 0;
@@ -171,7 +178,7 @@ export function startFloor(w: World, n: number, reappear: boolean): void {
       ownerPlayer: null,
       expiresIn: null,
       hpMult: s.plan.bossHpMult ? hpMult * s.plan.bossHpMult : hpMult, // 기획 15차 원정 보스 HP × EXPEDITION.bossHp (기획 16차 밸런스: 0.8)
-      atkMult: s.plan.statMult,
+      atkMult: s.plan.statMult * (s.plan.bossAtkMult ?? 1), // 기획 19차 보스 레이드 공격 배율 (absent elsewhere → × 1)
     });
     s.bossId = e.id;
     emit(w, { type: 'spawn', entityId: e.id, pos: copy(e.pos), tier: 'boss' });
@@ -496,7 +503,7 @@ export function floorClear(w: World): void {
   const s = w.state;
   if (s.phase !== 'combat') return;
   emit(w, { type: 'floorClear', floor: s.floor });
-  w.floorTimes.push({ floor: s.floor, seconds: s.floorTime, outcome: 'clear' });
+  w.floorTimes.push({ floor: s.floor, seconds: s.floorTime, outcome: 'clear', ...raidBossOfFloor(w) });
   s.telegraphs.length = 0;
   s.projectiles.length = 0;
   refundUnlandedUlts(w); // 기획 13차: an ult still in its cut-in is given back
@@ -519,7 +526,9 @@ export function floorClear(w: World): void {
   expireGoedamTraces(w);
 
   // 기획 17차 다시 뽑기: every boss clear gives each player one more (max 5; 원정 boss stages too, carried)
-  if (s.plan.kind === 'boss') for (const p of s.players) p.rerolls = Math.min(MAX_REROLLS, p.rerolls + 1);
+  // 기획 19차 보스 레이드: only the relic floors (5 · 10 · 15 · 20) count as "a boss clear" for the reroll and the relic
+  const relicFloor = s.plan.kind === 'boss' && (!w.bossRaid || isBossRaidRelicFloor(s.floor));
+  if (relicFloor) for (const p of s.players) p.rerolls = Math.min(MAX_REROLLS, p.rerolls + 1);
 
   // R19: alive members (field + bench) heal floorHealFrac × maxHp; dead keep their revive timer.
   const frac = w.tunables.floorHealFrac;
@@ -565,7 +574,6 @@ export function floorClear(w: World): void {
   // R20/R33: reward phase (time frozen). Out players get nothing; every human gets their own screen and the next floor
   // starts once all of them chose. 기획 17차: bots pick by score (botPickIndex) right away; a skipped screen (빚) is none.
   s.phase = 'reward';
-  const relicFloor = s.plan.kind === 'boss';
   s.rewardOffersByPlayer = s.players.map(() => null);
   for (const p of s.players) {
     if (p.out) continue;

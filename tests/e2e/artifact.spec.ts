@@ -282,6 +282,99 @@ test('artifact build (기획 15차 · 16차 원정): solo expedition without a s
   expect(w.requests.every(r => r === '/')).toBe(true);
 });
 
+test('artifact build (기획 19차 보스 레이드): solo raid without a server — floor 1 boss, 보스 고르기, reward → floor 2, the best floor survives a reload, zero console errors', async ({
+  page,
+}) => {
+  pageMode = 'artifact';
+  const w = watch(page);
+  const tapSel = async (sel: string) => {
+    const l = page.locator(sel).first();
+    await expect(l).toBeVisible();
+    await l.click();
+  };
+  const phase = (p: string) => page.waitForFunction(x => window.__proto?.phase === x, p, { timeout: 15_000 });
+  const debug = (action: object) => page.evaluate(a => window.__proto!.game!.dispatch({ type: 'debug', action: a as never }), action);
+  await page.goto(`${base}?main=1`);
+  await phase('main');
+  await expect(page.locator('.mm-raid .mm-card-sub')).toHaveText('20층 · 층마다 보스 · 보스 20종');
+  await expect(page.locator('.mm-raid-foot')).toHaveText('첫 도전');
+  await tapSel('.mm-raid');
+  await phase('preset');
+  await expect(page.locator('.ps-title')).toHaveText('보스 레이드 편성');
+  // 출발 → no game server, so straight into the solo raid with two bots
+  await tapSel('.preset .btn-start');
+  await phase('combat');
+  expect(
+    await page.evaluate(() => {
+      const s = window.__proto!.game!.state;
+      return [window.__proto!.mode, s.mode, s.floor, s.plan.kind, s.players.map(p => p.isBot)];
+    }),
+  ).toEqual(['solo', 'bossRaid', 1, 'boss', [false, true, true]]);
+  await expect(page.locator('.boss-lv')).toHaveText('1층');
+  await expect(page.locator('.boss-raid-n')).toHaveText('1/20');
+  const seedBoss = await page.evaluate(() => window.__proto!.game!.state.plan.bossId!);
+  // the sound table of all 20 bosses is inside the single file (intro / phase / death per boss, the three new kinds)
+  const ids = await page.evaluate(() => window.__proto!.sfx.ids());
+  for (const id of [`boss.intro.${seedBoss}`, 'boss.intro.inverted_moon', 'boss.phase.claw_machine', 'boss.death.dead_monitor', 'boss.windup.water', 'boss.impact.chime']) expect(ids).toContain(id);
+
+  // debug 「보스 고르기」: the same floor again with a boss of another zone, and it plays
+  const other = seedBoss === 'inverted_moon' ? 'dead_monitor' : 'inverted_moon';
+  expect((await debug({ kind: 'raidBoss', boss: other })).ok).toBe(true);
+  await page.waitForFunction(b => window.__proto!.game!.state.plan.bossId === b && window.__proto!.phase === 'combat', other);
+  await expect(page.locator('.boss-lv')).toHaveText('1층');
+  await expect(page.locator('.boss-name')).toHaveText(other === 'inverted_moon' ? '거꾸로 뜬 달' : '퇴근 못 한 모니터');
+  await page.evaluate(() => (window.__proto!.game!.tunables.invincible = true));
+  // a few seconds of the fight: the boss casts (a warning shows up) with the renderer and the sound live
+  await page.waitForFunction(() => window.__proto!.game!.state.telegraphs.some(t => t.team === 'enemy'), undefined, { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+
+  // 「다음 보스로」 → the floor reward → floor 2, another boss
+  expect((await debug({ kind: 'skipFloor' })).ok).toBe(true);
+  await phase('reward');
+  await expect(page.locator('.rw-card')).toHaveCount(3);
+  for (let i = 0; i < 80; i++) {
+    const p = await page.evaluate(() => {
+      const g = window.__proto!.game!;
+      const s = g.state;
+      if (s.phase === 'reward' && (s.rewardOffersByPlayer[0]?.length ?? 0) > 0) {
+        if (!g.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0, member: 0 }).ok) g.dispatch({ type: 'chooseReward', player: 0, offerIndex: 0 });
+      } else if (s.phase === 'goedam') {
+        g.dispatch({ type: 'goedam', player: 0, option: 'leave' });
+        g.dispatch({ type: 'goedam', player: 0, option: 'continue' });
+      }
+      return { phase: s.phase, floor: s.floor };
+    });
+    if (p.phase === 'combat' && p.floor === 2) break;
+    await page.waitForTimeout(150);
+  }
+  await phase('combat');
+  const f2 = await page.evaluate(() => ({ floor: window.__proto!.game!.state.floor, boss: window.__proto!.game!.state.plan.bossId }));
+  expect(f2.floor).toBe(2);
+  expect(f2.boss).not.toBe(other);
+  await expect(page.locator('.boss-raid-n')).toHaveText('2/20');
+  await page.waitForTimeout(800);
+
+  // a wipe → the raid result; the record is on this device
+  expect((await debug({ kind: 'wipeParty' })).ok).toBe(true);
+  await phase('result');
+  await expect(page.locator('.rs-title')).toHaveText('패배');
+  await expect(page.locator('.rs-mode')).toHaveText('보스 레이드');
+  await expect(page.locator('.rs-fact-floor .rs-fact-v')).toHaveText('2층');
+  await expect(page.locator('.rs-fact-best .rs-fact-v')).toHaveText('2층');
+  const record = () => page.evaluate(() => JSON.parse(localStorage.getItem('swap-tower.bossRaid.v1') ?? 'null'));
+  expect(await record()).toEqual({ bestFloor: 2, clears: 0, runs: 1 });
+
+  // reload (localStorage inside the artifact's own origin): the card still shows the best floor
+  await page.goto(`${base}?main=1`);
+  await phase('main');
+  await expect(page.locator('.mm-raid-foot')).toHaveText('최고 기록 2층 · 클리어 0회');
+  await expect(page.locator('.mm-raid-lamp.is-on')).toHaveCount(2);
+  await expect(page.locator('.mm-raid')).toHaveClass(/is-last/);
+  expect(await record()).toEqual({ bestFloor: 2, clears: 0, runs: 1 });
+  expect(w.errors, w.errors.join('\n')).toEqual([]);
+  expect(w.requests.every(r => r === '/')).toBe(true);
+});
+
 test('regular build on a static host: one /healthz probe (404), no retries, solo only', async ({ page }) => {
   pageMode = 'regular';
   served.length = 0;

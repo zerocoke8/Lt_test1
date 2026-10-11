@@ -68,10 +68,26 @@ function originOf(w: World, ctx: CastCtx): Vec2 {
   return c ? copy(c.pos) : copy(ctx.origin);
 }
 
-export function addTelegraph(w: World, team: Team, center: Vec2, origin: Vec2, area: AreaShape, delay: number): Telegraph {
+export function addTelegraph(w: World, team: Team, center: Vec2, origin: Vec2, area: AreaShape, delay: number, self = false): Telegraph {
   const t: Telegraph = { id: newId(w), team, center: copy(center), origin: copy(origin), area, remaining: delay, total: delay };
+  if (self) t.self = true; // 기획 19차 (rule M1)
   w.state.telegraphs.push(t);
   return t;
+}
+
+/**
+ * 기획 19차 (rule M1, docs/bosses.md 3장): a boss's delayed part on itself (heal / shield / haste / 간주). Its telegraph
+ * is marked `self` — a yellow ring, never a danger. Only a tier-'boss' caster, so nothing else changes.
+ */
+function isBossSelfCast(w: World, ctx: CastCtx, action: SkillAction): boolean {
+  if (action.affects !== 'self' || ctx.team !== 'enemy') return false;
+  return getEntity(w, ctx.casterId)?.tier === 'boss';
+}
+
+/** A tier-'boss' enemy's one-target part (no classic boss has one, so classic telegraphs are unchanged). */
+function isBossSingle(w: World, ctx: CastCtx, action: SkillAction): boolean {
+  if (action.area.shape !== 'single' || action.affects !== 'enemies' || ctx.team !== 'enemy') return false;
+  return getEntity(w, ctx.casterId)?.tier === 'boss';
 }
 
 function removeTelegraph(w: World, id: number | null): void {
@@ -154,11 +170,21 @@ function hitGap(a: SkillAction): number {
   return a.blinkChain?.interval ?? a.hitInterval ?? 0.2;
 }
 
+/**
+ * A part's wind-up of this cast: its data delay × the cast's delayMult (기획 19차 보스 예고 시간 배율 — bosses only, 1
+ * elsewhere). The gaps between the parts of a sweep scale with it; hit intervals, zones and cooldowns do not.
+ */
+export function actionDelay(ctx: CastCtx, action: SkillAction): number {
+  return (action.delay ?? 0) * (ctx.delayMult ?? 1);
+}
+
 /** Starts one action; returns its pending hit when it is delayed (telegraphed), else null. index = its place in the skill. */
 export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: CastOpts, index = 0): PendingHit | null {
   if (action.blink) doBlink(w, ctx, action.blink);
   let center = actionCenter(w, ctx, action);
-  const origin = isAimed(action.area) ? originOf(w, ctx) : center;
+  // 기획 19차 review: a boss's one-target part keeps the boss's spot as its origin (the renderer draws the aim line
+  // from it); every other unaimed part starts where it lands, as before
+  const origin = isAimed(action.area) || isBossSingle(w, ctx, action) ? originOf(w, ctx) : center;
   let area = scaleArea(action.area, ctx.radiusMult);
   let chargeTo: Vec2 | undefined;
   if (action.charge) {
@@ -177,7 +203,9 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
     if (area.shape === 'line') area = { shape: 'line', length: len + (caster?.radius ?? 0), width: area.width };
   }
   if (action.dash && !action.dash.atFire && !opts?.noDash) doDash(w, ctx, center, action.dash);
-  const delay = action.delay ?? 0;
+  const delay = actionDelay(ctx, action);
+  // 기획 13차 telegraphLead: shown only for the last N s (0 = never); absent = the whole delay. 기획 19차: × delayMult too
+  const lead = action.telegraphLead != null ? action.telegraphLead * (ctx.delayMult ?? 1) : undefined;
   const hits = hitCount(action);
   emit(w, {
     type: 'skillCast',
@@ -193,7 +221,7 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
     ...(hits > 1 ? { hits, hitInterval: hitGap(action) } : null),
     ...(action.stage ? { stage: action.stage, actionIndex: index } : null),
     ...(action.follow ? { follow: true as const } : null),
-    ...(action.telegraphLead != null && delay > 0 ? { telegraphLead: action.telegraphLead } : null),
+    ...(lead != null && delay > 0 ? { telegraphLead: lead } : null),
   });
   const p: PendingHit = {
     kind: 'hit',
@@ -212,9 +240,7 @@ export function startAction(w: World, ctx: CastCtx, action: SkillAction, opts?: 
     ...(opts?.noDash ? { noDash: true } : null),
   };
   if (delay > 0) {
-    // 기획 13차 telegraphLead: shown only for the last N s (0 = never); absent = the whole delay
-    const lead = action.telegraphLead;
-    if (lead == null || lead >= delay - 1e-9) p.telegraphId = addTelegraph(w, ctx.team, center, origin, area, delay).id;
+    if (lead == null || lead >= delay - 1e-9) p.telegraphId = addTelegraph(w, ctx.team, center, origin, area, delay, isBossSelfCast(w, ctx, action)).id;
     else if (lead > 0) p.telegraphLead = lead;
     w.pending.push(p);
     return p;
@@ -471,7 +497,7 @@ function waitingHit(w: World, p: PendingHit): void {
     }
   }
   if (p.telegraphLead != null && p.telegraphId == null && p.remaining <= p.telegraphLead + 1e-9) {
-    p.telegraphId = addTelegraph(w, p.ctx.team, p.center, p.origin, p.area, p.remaining).id;
+    p.telegraphId = addTelegraph(w, p.ctx.team, p.center, p.origin, p.area, p.remaining, isBossSelfCast(w, p.ctx, p.action)).id;
     p.telegraphLead = undefined;
   }
 }
@@ -599,10 +625,10 @@ function applyEffect(w: World, ctx: CastCtx, eff: Effect, t: SimEntity, center: 
       applySkillStatus(w, ctx, eff, t, center);
       break;
     case 'knockback':
-      displace(w, t, center, eff.distance, true, eff.dir);
+      if (!shrugsOff(w, ctx, t)) displace(w, t, center, eff.distance, true, eff.dir);
       break;
     case 'pull':
-      displace(w, t, center, eff.distance, false);
+      if (!shrugsOff(w, ctx, t)) displace(w, t, center, eff.distance, false);
       break;
     case 'cleanse':
       cleanse(t.statuses);
@@ -635,6 +661,15 @@ function applySkillStatus(w: World, ctx: CastCtx, eff: Extract<Effect, { kind: '
   if (eff.status === 'tether' || eff.status === 'root') constrainTether(t);
   const s = t.statuses.find(x => x.id === eff.status);
   emit(w, { type: 'statusApplied', targetId: t.id, status: eff.status, duration: s?.total ?? duration, player: ctx.player, sourceId: ctx.casterId });
+}
+
+/**
+ * 기획 19차 보스 레이드 (review): a character still inside its appear invulnerability is not pushed or pulled by an enemy
+ * part — like damage (combat.ts) and debuffs (status.ts), so a 저스트 교대 on a pull / push pattern really gets out of it.
+ * Raid games only: the classic tower and 원정 keep their old displacement (bit-identical runs).
+ */
+function shrugsOff(w: World, ctx: CastCtx, t: SimEntity): boolean {
+  return !!w.bossRaid && ctx.team === 'enemy' && t.kind === 'character' && t.invulnTime > 0;
 }
 
 function displace(w: World, t: SimEntity, center: Vec2, distance: number, away: boolean, dir?: Dir): void {
@@ -724,6 +759,13 @@ export function tickZones(w: World, dt: number): void {
   list.push(...keep);
 }
 
+/** Living enemy units of that kind at a summon spot (within the summon spread of it). */
+function aliveNear(w: World, unitId: string, center: Vec2): number {
+  let n = 0;
+  for (const e of w.state.entities) if (e.team === 'enemy' && e.defId === unitId && isAlive(e) && dist(e.pos, center) <= SUMMON_SPREAD + 0.5) n++;
+  return n;
+}
+
 function spawnSummons(w: World, ctx: CastCtx, summon: NonNullable<SkillAction['summon']>, center: Vec2): void {
   const def = getMonster(summon.unitId);
   const base = summon.countMax != null && summon.countMax > summon.count ? w.rng.int(summon.count, summon.countMax) : summon.count;
@@ -734,6 +776,8 @@ function spawnSummons(w: World, ctx: CastCtx, summon: NonNullable<SkillAction['s
     // 기획서 9-1 동시 최대 maxAliveMonsters: enemy adds only fill the room that is left (boss excluded).
     const room = w.tunables.maxAliveMonsters - countEnemies(w) - queuedEnemies(w);
     count = Math.min(count, Math.max(0, Math.floor(room)));
+    // 기획 19차 (review): a capped spot only gets what is missing (오류 창 never stack on one coordinate)
+    if (summon.spotCap != null) count = Math.min(count, Math.max(0, summon.spotCap - aliveNear(w, summon.unitId, center)));
   }
   for (let i = 0; i < count; i++) {
     const ang = (i / count) * Math.PI * 2 + w.rng.range(0, 0.6);

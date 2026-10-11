@@ -57,6 +57,16 @@
 //   completions per run, reward ('relic') damage share. Both humans and the bot-style seat pick by botPickIndex.
 //   FE_SEAT=play                    the human seats (active/dodge) with events on: play (react like a bot: once-per-event swap,
 //                                   event pet rules, event drop score) | ignore (event-blind: the bots alone do the events)
+//   MODE=bossRaid                   기획 19차 보스 레이드 (docs/boss-raid.md 9장): every floor a boss in the seeded order.
+//       RAID_HP=0.8 RAID_ATK=1      보스 레이드 HP · 공격 배율 (Tunables.bossRaidHpMult / bossRaidAtkMult, the debug sliders)
+//       TELE=1 AREA=1               보스 예고 시간 · 범위 크기 배율 (Tunables.bossTelegraphMult / bossAreaMult; work in classic too)
+//       BOSS=<id>                   that boss on every floor 1–20 (tuning one boss)
+//       OFF=<id>,<id>               run as if those bosses had `raid: false` (BossRaidSetup.off — preview a cut)
+//       OUT=/path.json              also write the whole JSON there; TABLE=0 prints the JSON instead of the raid tables
+//       Output 'raid': per BOSS (the order is shuffled, so by boss, not by floor) fights, clear %, mean / median / p90
+//       seconds, enrage %, groggy breaks per fight, wipes, deaths per fight and the top killer pattern's share of the
+//       deaths; run minutes (combat + 7 s per floor of screens); share of floor-reward picks with the #보스 tag.
+//       Easier: npx vite-node tests/review/boss-raid-bench.ts RUNS=240 POLICY=active   (name=value args, Windows-friendly)
 //
 // Same seeds + same 'active' policy as tests/playtest/balance.ts (SEED0 + k × 7919) → identical runs (cross-check).
 // Damage attribution: every monster/boss skill effect amount (damage/heal) is wrapped in a getter that marks the
@@ -71,7 +81,7 @@
 // within 2.2.
 
 import { BOT_PRESETS, DEFAULT_TUNABLES, LATE_STAT_GROWTH, TICK_RATE, VIEW_WIDTH_UNITS, ZONES } from '../../src/config';
-import { BOSSES, CHARACTERS, MONSTERS, getPet } from '../../src/data';
+import { BOSSES, BOSS_RAID, BOSS_UNITS, CHARACTERS, MONSTERS, RAID_BOSS_IDS, getPet } from '../../src/data';
 import fs from 'node:fs';
 import { bestDropPoint, tickBots } from '../../src/sim/bot';
 import { EVENT_BLIND, eventPetPoint, eventThink } from '../../src/sim/botEvents';
@@ -123,6 +133,34 @@ const justTunables = (): Partial<Tunables> => (JUST === 'off' ? { justSwapWindow
 const PAR = Math.max(1, Number(env.PAR ?? 1));
 const SHARD = env.SHARD ? env.SHARD.split('/').map(Number) : null;
 const groggyTunables = (): Partial<Tunables> => (GROGGY === 'off' ? { bossGroggyThreshold: 0 } : {});
+/**
+ * 기획 19차 보스 레이드: MODE=bossRaid, BOSS (one boss on every floor), OFF (bosses left out) and the four boss knobs
+ * (the debug sliders' tunables): RAID_HP · RAID_ATK (raid only), TELE · AREA (every boss, classic too).
+ */
+const MODE: 'classic' | 'bossRaid' = env.MODE === 'bossRaid' ? 'bossRaid' : 'classic';
+const knob = (name: string): number | null => {
+  const raw = env[name];
+  if (raw == null || raw === '') return null;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) throw new Error(`${name}: a positive number, got '${raw}'`);
+  return v;
+};
+const RAID_HP = knob('RAID_HP');
+const RAID_ATK = knob('RAID_ATK');
+const BOSS_TELE = knob('TELE');
+const BOSS_AREA = knob('AREA');
+const RAID_BOSS = env.BOSS || null;
+const RAID_OFF = (env.OFF ?? '').split(',').map(x => x.trim()).filter(Boolean);
+for (const id of [...(RAID_BOSS ? [RAID_BOSS] : []), ...RAID_OFF]) {
+  if (!BOSSES.some(b => b.id === id)) throw new Error(`BOSS / OFF: no data for ${id} (registered: ${BOSSES.map(b => b.id).join(', ')})`);
+}
+const raidSetup = () => (MODE === 'bossRaid' ? { mode: 'bossRaid' as const, bossRaid: { ...(RAID_BOSS ? { onlyBoss: RAID_BOSS } : null), ...(RAID_OFF.length ? { off: RAID_OFF } : null) } } : null);
+const bossTunables = (): Partial<Tunables> => ({
+  ...(RAID_HP != null ? { bossRaidHpMult: RAID_HP } : null),
+  ...(RAID_ATK != null ? { bossRaidAtkMult: RAID_ATK } : null),
+  ...(BOSS_TELE != null ? { bossTelegraphMult: BOSS_TELE } : null),
+  ...(BOSS_AREA != null ? { bossAreaMult: BOSS_AREA } : null),
+});
 
 const PETS_DEFAULT = [
   ['frog_bomb', 'fairy_heal', 'cat_void'],
@@ -153,7 +191,7 @@ function applyPatch(path: string, value: number | string | boolean): void {
   if (head === 'ZONES') obj = ZONES as unknown as Record<string, unknown>;
   else if (head === 'LATE') obj = LATE_STAT_GROWTH as unknown as Record<string, unknown>;
   else {
-    const def = [...MONSTERS, ...BOSSES, ...CHARACTERS, ...FIELD_EVENT_DEFS, ...FIELD_EVENT_UNITS].find(d => d.id === head);
+    const def = [...MONSTERS, ...BOSSES, ...BOSS_UNITS, ...CHARACTERS, ...FIELD_EVENT_DEFS, ...FIELD_EVENT_UNITS].find(d => d.id === head);
     if (!def) throw new Error(`PATCH: unknown def ${head}`);
     obj = def as unknown as Record<string, unknown>;
   }
@@ -194,7 +232,7 @@ function wrapAction(a: SkillAction | undefined, key: string): void {
   if (!a) return;
   for (const e of a.effects) wrapEffect(e, key);
 }
-for (const d of [...MONSTERS, ...BOSSES] as (MonsterDef | BossDef)[]) {
+for (const d of [...MONSTERS, ...BOSSES, ...BOSS_UNITS] as (MonsterDef | BossDef)[]) {
   const skills = [...(d.skills ?? []), ...(((d as BossDef).phases ?? []).flatMap(p => p.skills ?? []))];
   for (const sk of skills) {
     const key = `${d.id}.${sk.id}`;
@@ -627,7 +665,7 @@ const inc = (o: Record<string, number>, k: string, v = 1) => {
 };
 
 function runOnce(seed: number): RunRec {
-  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...groggyTunables(), ...justTunables(), ...TUN, ...goedamTunables(GOEDAM) };
+  const tunables: Tunables = { ...DEFAULT_TUNABLES, ...feTunables(), ...groggyTunables(), ...justTunables(), ...bossTunables(), ...TUN, ...goedamTunables(GOEDAM) };
   const comp = COMPS[COMP];
   if (!comp) throw new Error(`unknown COMP ${COMP}`);
   const humanCount = POLICY === 'bot' || POLICY === 'idle' || POLICY === 'botseat' ? Math.max(1, HUMANS) : HUMANS;
@@ -637,7 +675,7 @@ function runOnce(seed: number): RunRec {
     characters: i === 0 && HCOMP ? [...HCOMP] : [...chars],
     pets: [...PETS_DEFAULT[i]],
   }));
-  const { game, world: w } = createGameWithWorld({ seed, players, tunables, startFloor: START });
+  const { game, world: w } = createGameWithWorld({ seed, players, tunables, startFloor: START, ...raidSetup() });
   const s = w.state;
   for (let f = 1; f < START; f++) {
     for (const p of s.players) {
@@ -1070,7 +1108,8 @@ async function runAll(): Promise<RunRec[]> {
     files.map(
       (f, i) =>
         new Promise<void>((res, rej) => {
-          const ch = spawn('npx', ['vite-node', 'tests/review/critic-20f.ts'], { env: { ...env, SHARD: `${i}/${PAR}`, RAW_OUT: f, PAR: '1' }, stdio: ['ignore', 'ignore', 'inherit'] });
+          // shell on Windows: npx is npx.cmd there
+          const ch = spawn('npx', ['vite-node', 'tests/review/critic-20f.ts'], { env: { ...env, SHARD: `${i}/${PAR}`, RAW_OUT: f, PAR: '1' }, stdio: ['ignore', 'ignore', 'inherit'], shell: (globalThis as { process?: { platform?: string } }).process?.platform === 'win32' });
           ch.on('exit', code => (code === 0 ? res() : rej(new Error(`shard ${i} exit ${code}`))));
         }),
     ),
@@ -1122,7 +1161,8 @@ for (let f = START; f <= LAST; f++) {
   const row: Record<string, unknown> = {
     floor: f,
     kind: recs[0].kind,
-    who: recs[0].boss ?? recs[0].mid,
+    // 기획 19차 보스 레이드: the boss of a floor differs by seed — the most common one here, all of them under 'raid'
+    who: MODE === 'bossRaid' ? commonest(recs.map(r => r.boss ?? '?')) : (recs[0].boss ?? recs[0].mid),
     reached: recs.length,
     clearPct: r1((clears.length / recs.length) * 100),
     timeouts: recs.filter(r => r.outcome === 'timeout').length,
@@ -1384,8 +1424,107 @@ function rewardReport(rs: RunRec[]): unknown {
   };
 }
 
+// ─────────────────────────── 기획 19차 보스 레이드 report ───────────────────────────
+
+function commonest(xs: string[]): string {
+  const n: Record<string, number> = {};
+  for (const x of xs) inc(n, x);
+  return Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '?';
+}
+
+/** Seconds of screens between two floors (reward / relic / 괴담), added to the combat time for the run length. */
+const RAID_SCREEN_SEC = 7;
+
+interface RaidBossRow {
+  boss: string;
+  fights: number;
+  floorMed: number;
+  clearPct: number | null;
+  sec: { mean: number | null; med: number | null; p90: number | null };
+  enragedPct: number | null;
+  breaksPerFight: number | null;
+  wipes: number;
+  timeouts: number;
+  deathsPerFight: number | null;
+  /** The pattern that killed the most characters and its share of this boss's deaths (target: under 40 %). */
+  topKiller: { key: string; pctOfDeaths: number | null } | null;
+}
+
+/** Per boss (not per floor: the order is shuffled), run length and the #보스 tag's share of the picks. */
+interface RaidReport {
+  /** The four boss knobs of this run (the debug sliders' values). */
+  hpMult: number;
+  atkMult: number;
+  telegraphMult: number;
+  areaMult: number;
+  onlyBoss: string | null;
+  /** Bosses left out with OFF= (on top of the data's `raid: false`). */
+  off: string[];
+  byBoss: RaidBossRow[];
+  runMin: { fullMed: number | null; fullP10: number | null; fullP90: number | null; allMed: number | null };
+  bossTagPickPct: { seat0: number | null; others: number | null };
+  missing: string[];
+}
+
+function raidReport(rs: RunRec[]): RaidReport {
+  const by = new Map<string, FloorRec[]>();
+  for (const r of rs) {
+    for (const f of r.floors) {
+      if (!f.boss) continue;
+      const list = by.get(f.boss);
+      if (list) list.push(f);
+      else by.set(f.boss, [f]);
+    }
+  }
+  const order = (id: string) => (RAID_BOSS_IDS.indexOf(id) + 100) % 100;
+  const byBoss: RaidBossRow[] = [...by]
+    .sort((a, b) => order(a[0]) - order(b[0]))
+    .map(([boss, recs]) => {
+      const clears = recs.filter(x => x.outcome === 'clear').map(x => x.seconds);
+      const bs = recs.map(x => x.boss2).filter((b): b is BossRec => !!b);
+      const kills: Record<string, number> = {};
+      for (const x of recs) for (const [k, v] of Object.entries(x.kills)) inc(kills, k, v);
+      const deaths = recs.reduce((a, x) => a + x.deaths, 0);
+      const worst = Object.entries(kills).sort((a, b) => b[1] - a[1])[0];
+      return {
+        boss,
+        fights: recs.length,
+        floorMed: pctl(recs.map(x => x.floor), 0.5),
+        clearPct: r1((clears.length / recs.length) * 100),
+        sec: { mean: r1(clears.reduce((a, b) => a + b, 0) / Math.max(1, clears.length)), med: r1(pctl(clears, 0.5)), p90: r1(pctl(clears, 0.9)) },
+        enragedPct: r1((bs.filter(b => b.enragedAt != null).length / Math.max(1, bs.length)) * 100),
+        breaksPerFight: r2(bs.reduce((a, b) => a + b.groggyAt.length, 0) / Math.max(1, bs.length)),
+        wipes: recs.filter(x => x.outcome === 'wipe').length,
+        timeouts: recs.filter(x => x.outcome === 'timeout').length,
+        deathsPerFight: r2(deaths / recs.length),
+        topKiller: worst ? { key: worst[0], pctOfDeaths: r1((worst[1] / Math.max(1, deaths)) * 100) } : null,
+      };
+    });
+  const wall = (r: RunRec) => (r.combatSec + r.floors.length * RAID_SCREEN_SEC) / 60;
+  const won = rs.filter(r => r.victory);
+  const tagShare = (pick: (pi: number) => boolean) => {
+    const ids = rs.flatMap(r => r.rw.picks.filter((_, pi) => pick(pi)).flat());
+    return r1((ids.filter(id => getReward(id).tags.includes('boss')).length / Math.max(1, ids.length)) * 100);
+  };
+  return {
+    hpMult: RAID_HP ?? DEFAULT_TUNABLES.bossRaidHpMult,
+    atkMult: RAID_ATK ?? DEFAULT_TUNABLES.bossRaidAtkMult,
+    telegraphMult: BOSS_TELE ?? DEFAULT_TUNABLES.bossTelegraphMult,
+    areaMult: BOSS_AREA ?? DEFAULT_TUNABLES.bossAreaMult,
+    onlyBoss: RAID_BOSS,
+    off: RAID_OFF,
+    byBoss,
+    // combat + RAID_SCREEN_SEC per floor; full = victorious runs only
+    runMin: { fullMed: r1(pctl(won.map(wall), 0.5)), fullP10: r1(pctl(won.map(wall), 0.1)), fullP90: r1(pctl(won.map(wall), 0.9)), allMed: r1(pctl(rs.map(wall), 0.5)) },
+    bossTagPickPct: { seat0: tagShare(pi => pi === 0), others: tagShare(pi => pi !== 0) },
+    // bosses of the table that never came up: off (raid: false / OFF=) or on a floor no run reached
+    missing: RAID_BOSS ? [] : RAID_BOSS_IDS.filter(id => !by.has(id)),
+  };
+}
+
 const out = {
-  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name, FIELD_EVENTS, FE_SEAT, JUST, JUST_RATE, PICK, POOL: env.POOL ?? 'all', BANDS: env.BANDS ?? null, DROP: env.DROP ?? null },
+  cfg: { RUNS, FLOORS, START, SEED0, POLICY, COMP, HCOMP, HUMANS, REACT, TUN, PATCH, GOEDAM: GOEDAM.name, FIELD_EVENTS, FE_SEAT, JUST, JUST_RATE, PICK, POOL: env.POOL ?? 'all', BANDS: env.BANDS ?? null, DROP: env.DROP ?? null, MODE, RAID_HP, RAID_ATK, TELE: BOSS_TELE, AREA: BOSS_AREA, BOSS: RAID_BOSS, OFF: RAID_OFF },
+  raid: MODE === 'bossRaid' ? raidReport(runs) : undefined,
   runs: {
     victories: vict.length,
     victoryPct: r1((vict.length / runs.length) * 100),
@@ -1409,4 +1548,32 @@ const out = {
   perFloor,
 };
 if (env.GOEDAM_DUMP) fs.writeFileSync(env.GOEDAM_DUMP, JSON.stringify(runs.map(r => ({ seed: r.seed, ...r.goedam }))));
-console.log(JSON.stringify(out, null, 1));
+if (env.OUT) fs.writeFileSync(env.OUT, JSON.stringify(out, null, 1));
+if (MODE === 'bossRaid' && env.TABLE !== '0') printRaidTables();
+else console.log(JSON.stringify(out, null, 1));
+
+/** 기획 19차: the raid report as plain tables (the JSON goes to OUT). */
+function printRaidTables(): void {
+  const raid = out.raid!;
+  const cell = (v: unknown, w: number) => String(v ?? '-').padStart(w);
+  const name = (id: string) => BOSSES.find(b => b.id === id)?.name ?? id;
+  const lines: string[] = [];
+  const knobs = `HP 배율 ${raid.hpMult} · 공격 배율 ${raid.atkMult} · 예고 시간 배율 ${raid.telegraphMult} · 범위 크기 배율 ${raid.areaMult}`;
+  lines.push(`보스 레이드 벤치 — RUNS ${RUNS} · POLICY ${POLICY} · SEED0 ${SEED0} · ${knobs}${raid.onlyBoss ? ` · BOSS ${raid.onlyBoss}` : ''}${raid.off.length ? ` · OFF ${raid.off.join(',')}` : ''}`);
+  lines.push(`20층 클리어 ${out.runs.victories}/${runs.length} (${out.runs.victoryPct}%) · 도달 층 중앙값 ${out.runs.endFloorMed} · 런 길이(클리어) 중앙값 ${raid.runMin.fullMed}분 (p10 ${raid.runMin.fullP10} · p90 ${raid.runMin.fullP90}) · 전체 중앙값 ${raid.runMin.allMed}분`);
+  lines.push(`#보스 태그 보상 비중: 사람 자리 ${raid.bossTagPickPct.seat0}% · 나머지 ${raid.bossTagPickPct.others}%`);
+  if (raid.missing.length) lines.push(`이번 벤치에 안 나온 보스 ${raid.missing.length}종 (꺼졌거나 그 층까지 못 감): ${raid.missing.join(', ')}`);
+  lines.push('', '층별', ' 층  가장 흔한 보스              도달  클리어%   중앙값초   p90초  광폭화%  그로기  전멸');
+  for (const row of perFloor as { floor: number; who: string; reached: number; clearPct: number; wipes: number; sec: { med: number; p90: number }; boss?: { enragedPct: number; groggy: { breaksPerFight: number } } }[]) {
+    lines.push(`${cell(row.floor, 3)}  ${row.who.padEnd(24)} ${cell(row.reached, 5)} ${cell(row.clearPct, 8)} ${cell(row.sec.med, 9)} ${cell(row.sec.p90, 7)} ${cell(row.boss?.enragedPct, 8)} ${cell(row.boss?.groggy.breaksPerFight, 7)} ${cell(row.wipes, 5)}`);
+  }
+  lines.push('', '보스별 (순서가 섞이므로 층이 아니라 보스로 모음)', ' 보스                      이름                  전투  층중앙  클리어%  평균초  중앙값초   p90초  광폭화%  그로기/전투  전멸  사망/전투  가장 많이 죽인 패턴 (사망 중 %)');
+  for (const b of raid.byBoss) {
+    const k = b.topKiller ? `${b.topKiller.key} (${b.topKiller.pctOfDeaths}%)` : '-';
+    lines.push(
+      ` ${b.boss.padEnd(24)} ${name(b.boss).padEnd(14, '　')} ${cell(b.fights, 6)} ${cell(b.floorMed, 6)} ${cell(b.clearPct, 8)} ${cell(b.sec.mean, 7)} ${cell(b.sec.med, 8)} ${cell(b.sec.p90, 7)} ${cell(b.enragedPct, 8)} ${cell(b.breaksPerFight, 11)} ${cell(b.wipes, 5)} ${cell(b.deathsPerFight, 9)}  ${k}`,
+    );
+  }
+  if (env.OUT) lines.push('', `전체 JSON: ${env.OUT}`);
+  console.log(lines.join('\n'));
+}

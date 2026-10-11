@@ -129,7 +129,8 @@ export function justCue(s: GameState, tunables: Pick<Tunables, 'justSwapWindow' 
   if (!p || !me) return out;
   const jp = justParams({ tunables: tunables as Tunables }, p);
   for (const t of s.telegraphs) {
-    if (t.team !== 'enemy' || !hitsArea(t.area, t.center, t.origin, me.pos, me.radius)) continue;
+    // 기획 19차 (rule M1): a boss's wind-up on itself is no danger
+    if (t.team !== 'enemy' || t.self || !hitsArea(t.area, t.center, t.origin, me.pos, me.radius)) continue;
     out.danger = true;
     const left = t.remaining - Math.max(0, ageSec);
     if (left > 1e-9 && left <= justWindow(jp, t.total) + 1e-9 && left > me.invulnTime) {

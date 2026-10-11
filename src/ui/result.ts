@@ -1,11 +1,25 @@
 // 결과 화면 (R22): outcome/reason/floor/duration, per-player contribution (my row highlighted), my tuning log,
 // and (기획 10차) my 괴담 수첩 — one line per room I went through.
 // Solo: 프리셋으로 / 다시 하기. Multiplayer: 방 나가기 / 방으로 (the room stays; the host can start again).
+// 기획 19차 보스 레이드 (state.mode): a 「보스 레이드」 chip by the title, 「쓰러뜨린 보스」 and 「내 최고 기록」 facts, floor chips
+// with the boss names (「3층 · 문서 파쇄기」), the win line 「보스 20종을 모두 쓰러뜨렸어요」.
 
-import type { DamageSource, Game, PlayerState, RunResult } from '../types';
-import { getCharacter, goedamLogText } from '../data';
+import type { DamageSource, Game, GameState, PlayerState, RunResult } from '../types';
+import { getBoss, getCharacter, goedamLogText } from '../data';
+import { bossRaidOrder, raidRosterIds } from '../sim';
 import { button, h } from './dom';
-import { SOURCE_COLOR, SOURCE_LABEL, formatClock, formatNumber, resultReason, resultTitle } from './format';
+import {
+  RAID_LABEL,
+  SOURCE_COLOR,
+  SOURCE_LABEL,
+  formatClock,
+  formatNumber,
+  raidBossesBeaten,
+  raidFloorTitle,
+  raidResultReason,
+  resultReason,
+  resultTitle,
+} from './format';
 import { showsBotTag } from './hud';
 
 export interface ResultCallbacks {
@@ -22,6 +36,8 @@ export interface ResultView {
   multi: boolean;
   /** Multiplayer: I am the room host (a 'quit' result means the host ended the run). */
   isHost?: boolean;
+  /** 기획 19차 보스 레이드: my record after this run (absent → the 「내 최고 기록」 fact is left out). */
+  raid?: { best: number; isNewBest: boolean };
 }
 
 type Col = { label: string; get: (p: PlayerState) => number; fmt?: (n: number) => string };
@@ -51,18 +67,33 @@ export function createResultScreen(
     const s = game.state;
     const r: RunResult = s.runResult ?? { outcome: 'defeat', reason: 'quit', floorReached: s.floor, duration: s.time };
     el.classList.toggle('is-victory', r.outcome === 'victory');
+    const raid = s.mode === 'bossRaid';
+    const total = game.tunables.maxFloor;
+    // 기획 19차: the bosses that are on (20 unless some are switched off in the data)
+    const roster = raid ? raidRosterIds().length : 0;
+    el.classList.toggle('is-raid', raid);
 
     const head = h('div', 'rs-head', el);
     h('div', 'rs-title', head, resultTitle(r));
+    if (raid) h('span', 'rs-mode', head, RAID_LABEL);
     const hostEnded = view.multi && !view.isHost && r.reason === 'quit';
-    h('div', 'rs-reason', head, hostEnded ? '방장이 런을 끝냈어요' : resultReason(r, quitWhileOut, s.plan.kind === 'boss'));
+    h('div', 'rs-reason', head, hostEnded ? '방장이 런을 끝냈어요' : raid ? raidResultReason(r, quitWhileOut, total, roster) : resultReason(r, quitWhileOut, s.plan.kind === 'boss'));
     const facts = h('div', 'rs-facts', head);
-    const fact = (k: string, v: string) => {
-      const f = h('div', 'rs-fact', facts);
+    const fact = (k: string, v: string, cls = '') => {
+      const f = h('div', `rs-fact ${cls}`.trim(), facts);
       h('div', 'rs-fact-v', f, v);
       h('div', 'rs-fact-k', f, k);
+      return f;
     };
-    fact('도달 층', `${r.floorReached}층`);
+    fact('도달 층', `${r.floorReached}층`, 'rs-fact-floor');
+    if (raid) {
+      // 기획 19차: bosses beaten out of 20 and this device's best floor (「신기록」 when this run raised it)
+      fact(`쓰러뜨린 보스 (${roster}종)`, `${raidBossesBeaten(r)}마리`, 'rs-fact-bosses');
+      if (view.raid) {
+        const best = fact('내 최고 기록', `${view.raid.best}층`, `rs-fact-best${view.raid.isNewBest ? ' is-new' : ''}`);
+        if (view.raid.isNewBest) h('span', 'rs-new', best, '신기록');
+      }
+    }
     fact('플레이 시간', formatClock(r.duration));
     const me = s.players[LOCAL];
     if (me) fact('보유 유물', `${me.relics.length}개`);
@@ -142,14 +173,18 @@ export function createResultScreen(
       fill.style.background = SOURCE_COLOR[k];
       h('span', 'rs-bar-v', row, `${(v * 100).toFixed(1)}%`);
     }
-    h('div', 'rs-sub', right, '층별 시간');
-    const floors = h('div', 'rs-floors', right);
+    // 기획 19차 review: in a raid 「어느 보스에서 얼마나」 is the main fact — under the contribution table (the left panel's
+    // empty half, two columns) instead of the bottom of the scrolling log
+    const floorHost = raid ? left : right;
+    h('div', 'rs-sub', floorHost, raid ? '층별 보스' : '층별 시간');
+    const floors = h('div', 'rs-floors', floorHost);
+    const bossOf = raid ? raidBossNames(s) : null;
     const list = [...t.floorTimes];
     if (r.reason === 'quit' && !list.some(f => f.floor === r.floorReached)) list.push({ floor: r.floorReached, seconds: s.floorTime, outcome: 'fail' });
     if (!list.length) h('div', 'rs-empty', floors, '기록 없음');
     for (const f of list) {
       const chip = h('div', `rs-floor ${f.outcome === 'clear' ? 'is-clear' : 'is-fail'}`, floors);
-      h('span', 'rs-floor-n', chip, `${f.floor}층`);
+      h('span', 'rs-floor-n', chip, bossOf ? raidFloorTitle(f.floor, bossOf(f.floor, f.boss)) : `${f.floor}층`);
       h('span', 'rs-floor-t', chip, `${f.seconds.toFixed(1)}초`);
     }
 
@@ -173,6 +208,23 @@ export function createResultScreen(
       el.classList.add('is-hidden');
       el.replaceChildren();
     },
+  };
+}
+
+/**
+ * 기획 19차 보스 레이드: floor → boss name. `fought` = the boss the sim logged for that floor (Telemetry.floorTimes[].boss —
+ * the truth after a debug 「보스 고르기」, which rewrites the run's order). Without it: the floor on screen reads its own
+ * plan, any other floor the order of the run seed (the same pure function the sim uses).
+ */
+export function raidBossNames(s: Pick<GameState, 'seed' | 'floor' | 'plan'>): (floor: number, fought?: string) => string {
+  const order = bossRaidOrder(s.seed);
+  return (floor, fought) => {
+    const id = fought ?? (floor === s.floor && s.plan.bossId ? s.plan.bossId : order[(Math.max(1, floor) - 1) % order.length]);
+    try {
+      return getBoss(id).name;
+    } catch {
+      return '보스';
+    }
   };
 }
 

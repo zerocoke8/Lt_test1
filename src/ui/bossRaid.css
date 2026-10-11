@@ -1,0 +1,382 @@
+/* 기획 19차 보스 레이드 (docs/boss-raid.md 7장): the third main-menu card, the mode chips of the 매칭 / 방 / 결과 screens,
+   the HUD's 「보스 N/20」 block and floor banner, the boss's own shield strip. LOGICAL px on the 1280×720 stage
+   (phone ≈ 0.54×): info text ≥ 18 px. The mode's colour is the boss bar's rose (#ff8fab on dark, #3a0612 text). */
+
+/* ───────────── main menu: three cards ───────────── */
+
+.mm-cards {
+  gap: 24px;
+}
+
+.mm-card {
+  width: 396px;
+  padding: 18px 18px 22px;
+}
+
+.mm-card-sub {
+  word-break: keep-all;
+  line-height: 1.3;
+}
+
+/* the 원정 art was laid out for a 488 px strip: pull the door / bag / heroes together for 356 px */
+.mm-door {
+  left: 6px;
+}
+
+.mm-bag {
+  right: 4px;
+}
+
+.mm-heroes {
+  left: 60px;
+  right: 44px;
+}
+
+.mm-hero {
+  margin: 0 -22px;
+}
+
+.mm-raid {
+  background: linear-gradient(180deg, #2a1622, #141019);
+}
+
+.mm-raid-art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  padding-bottom: 14px;
+}
+
+.mm-raid-eye {
+  width: 168px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #5a0f24, #1a060d);
+  border: 4px solid #ff4d6d;
+  box-shadow: 0 0 26px rgba(255, 77, 109, 0.45), inset 0 -10px 18px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mm-raid-pupil {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #fff3c4, #ffd166 45%, #b3541e);
+  box-shadow: 0 0 0 9px rgba(20, 4, 9, 0.9), 0 0 18px rgba(255, 209, 102, 0.8);
+  animation: mmRaidLook 5.2s ease-in-out infinite;
+}
+
+@keyframes mmRaidLook {
+  0%, 38% { transform: translateX(0); }
+  46%, 62% { transform: translateX(-26px); }
+  70%, 86% { transform: translateX(26px); }
+  94%, 100% { transform: translateX(0); }
+}
+
+/* 20 floor lamps: rows fill left → right, bottom → top (floors 1–5 at the bottom) */
+.mm-raid-lamps {
+  width: 290px;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  gap: 8px 10px;
+}
+
+.mm-raid-lamp {
+  --zc: #5eead4;
+  width: 50px;
+  height: 28px;
+  border-radius: 7px;
+  border: 2px solid var(--zc);
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0.5;
+}
+
+.mm-raid-lamp.is-zone2 { --zc: #fbbf24; }
+.mm-raid-lamp.is-zone3 { --zc: #93c5fd; }
+.mm-raid-lamp.is-zone4 { --zc: #c084fc; }
+
+.mm-raid-lamp.is-relic {
+  border-style: double;
+  border-width: 4px;
+}
+
+.mm-raid-lamp.is-on {
+  background: var(--zc);
+  border-color: #ffffff;
+  box-shadow: 0 0 10px var(--zc);
+  opacity: 1;
+}
+
+.mm-raid-foot {
+  color: #ffb3c4;
+  font-weight: 800;
+}
+
+.mm-raid-foot.is-record {
+  color: #ffd166;
+}
+
+/* ───────────── 매칭 / 방: the mode chip and tags ───────────── */
+
+.lb-title-row,
+.lb-room-name-row,
+.lb-roomname-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lb-mode,
+.rs-mode {
+  flex: none;
+  padding: 3px 13px;
+  border-radius: 999px;
+  font-size: 19px;
+  font-weight: 900;
+  white-space: nowrap;
+  color: #3a0612;
+  background: #ff8fab;
+}
+
+.lb-row-mode {
+  font-size: 18px;
+  padding: 2px 10px;
+}
+
+.lb-room-row[data-mode='bossRaid'] {
+  border-color: rgba(255, 143, 171, 0.45);
+}
+
+/* 「방 만들기」 keeps its classic look; with the raid picked it says so on a second line */
+.lb-create .lb-btn-main {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.lb-create.is-raid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+
+.lb-create-sub {
+  font-size: 18px;
+  font-weight: 900;
+  color: #06331b;
+}
+
+/* ───────────── HUD ───────────── */
+
+/* 「보스 7/20」: a small block beside the boss box (the name row is full: level · name · 광폭화 · phases · HP %) */
+.boss-raid {
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 0;
+  height: 46px;
+  min-width: 76px;
+  padding: 0 10px;
+  border-radius: 12px;
+  /* nearly solid: boss art behind it (천둥 안테나's lightning rod and its lamp) blurred the words */
+  background: rgba(10, 12, 20, 0.92);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.boss-raid-k {
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffb3c4;
+  line-height: 1.05;
+}
+
+.boss-raid-n {
+  font-size: 23px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.stage.is-small .boss-raid-k {
+  font-size: 18px;
+}
+
+.stage.is-small .boss-raid-n {
+  font-size: 24px;
+}
+
+.boss.is-raid .boss-lv {
+  color: #fff;
+  background: rgba(255, 143, 171, 0.3);
+}
+
+/* raid names are longer ('거꾸로 가는 에스컬레이터'): the chips never wrap or shrink, and an enraged boss trades its floor
+   chip for 「광폭화」 (the floor stays in the 「보스 N/20」 block) so the whole name still fits */
+.boss.is-raid .boss-lv,
+.boss.is-raid .boss-enrage,
+.boss.is-raid .boss-pct {
+  flex: none;
+  white-space: nowrap;
+}
+
+.boss.is-raid.is-enraged .boss-lv {
+  display: none;
+}
+
+/* a raid's floor 1 is a boss floor: a new device gets the 「카드 길게 누르기」 tip and the groggy tip toast at once —
+   toasts go above the tip while it shows */
+.hud.is-raid:has(.sheet-tip:not(.is-hidden)) .toasts-hud {
+  bottom: 246px;
+}
+
+/* the boss winds up on itself (rule M1: heal / shield / 간주): the box blinks yellow until it lands or groggy breaks it */
+.boss.is-selfcast {
+  border-color: #ffd60a;
+  animation: boss-selfcast 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes boss-selfcast {
+  from {
+    box-shadow: 0 0 0 2px rgba(255, 214, 10, 0.35), 0 0 10px rgba(255, 214, 10, 0.2);
+  }
+  to {
+    box-shadow: 0 0 0 4px rgba(255, 214, 10, 0.95), 0 0 24px rgba(255, 214, 10, 0.6);
+  }
+}
+
+/* the boss's own shield (rule M1): a white strip along the top of its HP bar, over the fill, under the phase ticks */
+.boss-shield {
+  z-index: 1;
+  height: 42%;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  transition: transform 0.12s linear;
+}
+
+/* pause screen: the boss's whole 괴담 line under the place line */
+.pause-info:has(+ .pause-lore:not(.is-hidden)) {
+  margin-bottom: 4px;
+}
+
+.pause-lore {
+  max-width: 720px;
+  margin: 0 auto 14px;
+  font-size: 16px;
+  font-style: italic;
+  line-height: 1.35;
+  color: #ffd6df;
+  word-break: keep-all;
+}
+
+/* floor banner: '7층 · 거꾸로 가는 에스컬레이터' is long — smaller than the classic 70 px; the 괴담 line may take two lines */
+.banner.banner-raid {
+  animation-duration: 3.1s;
+}
+
+.banner-raid .banner-big {
+  font-size: 54px;
+  white-space: nowrap;
+}
+
+.banner-raid .banner-lore {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.3;
+  word-break: keep-all;
+}
+
+.banner-raid .banner-lore + .banner-sub {
+  font-size: 20px;
+}
+
+/* ───────────── result ───────────── */
+
+.rs-mode {
+  font-size: 20px;
+}
+
+.result.is-raid .rs-head {
+  gap: 18px;
+}
+
+.result.is-raid .rs-fact {
+  position: relative;
+  min-width: 96px;
+  padding: 8px 12px;
+}
+
+.result.is-raid .rs-fact-k {
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.rs-fact-best.is-new {
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.rs-fact-best.is-new .rs-fact-v {
+  color: var(--gold);
+}
+
+.rs-new {
+  position: absolute;
+  top: -11px;
+  right: -8px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 900;
+  color: #2a1d00;
+  background: var(--gold);
+}
+
+/* floor chips carry the boss name: two columns under the contribution table, the time at the right */
+.result.is-raid .rs-floors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.result.is-raid .rs-contrib .rs-sub {
+  margin-top: 12px;
+}
+
+.result.is-raid .rs-floor-n {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result.is-raid .rs-floor-t {
+  flex: none;
+}
+
+.result.is-raid .rs-floor {
+  font-size: 18px;
+  justify-content: space-between;
+  border-radius: 10px;
+}
+
+/* 기획 19차 debug 「보스 고르기」: the boss list + 「이 보스로」 (only in a raid) */
+.dbg-raid {
+  display: grid;
+  grid-template-columns: 1fr 124px;
+  gap: 6px;
+}
+
+.dbg-raid .dbg-select {
+  font-size: 18px;
+}

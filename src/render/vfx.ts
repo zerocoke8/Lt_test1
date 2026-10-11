@@ -1821,6 +1821,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   trackTelegraphs(teles: Telegraph[]): void {
     const stamp = ++this.teleStamp;
     for (const t of teles) {
+      if (t.self) continue; // 기획 19차 (M1): a boss's self-cast lands on nobody — no impact flash
       let s = this.teles.get(t.id);
       if (!s) {
         s = { cx: 0, cy: 0, ox: 0, oy: 0, area: t.area, team: t.team, remaining: 0, stamp };

@@ -134,6 +134,9 @@ function baseUnitCtx(w: World, e: SimEntity, skillId: string, name: string): Cas
   const def = e.rt.monDef;
   let summonMult = 1;
   if (e.enraged && def?.tier === 'boss') summonMult = (def as BossDef).enrage.summonCountMult;
+  // 기획 19차 보스 튜닝 (docs/boss-raid.md 4-2): a boss's telegraph time × and area size ×, in every mode; mid bosses,
+  // monsters and summons never (both 1 by default → nothing changes)
+  const tune = e.team === 'enemy' && e.tier === 'boss' ? w.tunables : null;
   let atk = st.atk;
   let dmgMult = 1;
   if (e.rt.petPowered && e.ownerPlayer != null) {
@@ -159,7 +162,7 @@ function baseUnitCtx(w: World, e: SimEntity, skillId: string, name: string): Cas
     dmgMult,
     healMult: 1,
     shieldMult: 1,
-    radiusMult: 1,
+    radiusMult: tune ? tune.bossAreaMult : 1,
     point: null,
     targetId: t?.id ?? null,
     targetPos: t ? copy(t.pos) : null,
@@ -167,6 +170,7 @@ function baseUnitCtx(w: World, e: SimEntity, skillId: string, name: string): Cas
     origin: copy(e.pos),
     isDrag: false,
     summonMult,
+    ...(tune && tune.bossTelegraphMult !== 1 ? { delayMult: tune.bossTelegraphMult } : null),
   };
 }
 

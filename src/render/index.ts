@@ -47,6 +47,8 @@ import {
 import { Vfx, type VfxContext, playerColor } from './vfx';
 import type { BandAvoid } from './cutin';
 import { TeleSequencer, type TeleSeqInfo } from './teleseq';
+import { BOSS_TELE_MOTIF } from './bosses';
+import { drawTeleMotif } from './bosses/teleMotif';
 import { screenBoostFor } from './juice';
 import { DASH_LAND } from './dashtime';
 import { CREATURE_POSE, midAura } from './creatures';
@@ -339,10 +341,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function collectTeleBoxes(state: GameState): boolean {
     teleBoxN = 0;
     for (const t of state.telegraphs) {
-      if (t.team !== 'enemy') continue;
+      if (t.team !== 'enemy' || t.self) continue; // 기획 19차 (M1): a boss's self-cast ring has no red fill
       const sq = teleSeq.info(t, seqTmp);
       if (sq && !sq.next) continue;
-      const r = (t.area.shape === 'circle' && t.area.radius > 30 ? 40 : areaReach(t.area)) + 0.3;
+      const r = (t.area.shape === 'circle' && t.area.radius > 30 ? 40 : areaReach(teleArea(t))) + 0.3;
       let x0 = Infinity;
       let y0 = Infinity;
       let x1 = -Infinity;
@@ -430,6 +432,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   }
 
   function teleArea(t: Telegraph): AreaShape {
+    // 기획 19차 review: an enemy's one-target warning is a 1-cell mark (the 0.6 ring read as a player's colour ring)
+    if (t.area.shape === 'single') return ENEMY_SINGLE;
     return t.area.shape === 'circle' && t.area.radius > 30 ? BIG_CIRCLE : t.area;
   }
 
@@ -460,8 +464,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     seqChain.length = 0;
     for (const t of state.telegraphs) {
       if (t.team !== 'enemy') continue;
+      if (t.self) {
+        drawSelfCastRing(c, t); // 기획 19차 (M1): yellow, not a danger
+        continue;
+      }
       const p = t.total > 0 ? Math.max(0, Math.min(1, 1 - t.remaining / t.total)) : 1;
-      const area = t.area.shape === 'circle' && t.area.radius > 30 ? BIG_CIRCLE : t.area;
+      const area = teleArea(t);
       const sq = teleSeq.info(t, seqTmp);
       const later = !!sq && !sq.next;
       pathArea(c, cam, t.center, t.origin, area, 1);
@@ -490,12 +498,145 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         if ((area.shape === 'rect' && !sq) || area.shape === 'cone') drawAreaDirection(c, cam, t.center, area, '#ffffff', 0.8, time, false);
         else if (area.shape === 'fan' || area.shape === 'line') drawAimedDirection(c, cam, t.center, t.origin, area, '#ffe2e2', 0.85, time);
       }
+      // 기획 19차: a new boss's warning says what it does (pull / push / linger / spawn); no classic skill has a row
+      const skill = teleSeq.skillOf(t);
+      const motif = skill != null ? BOSS_TELE_MOTIF[skill] : undefined;
+      if (motif && skill != null) drawTeleMotif(c, cam, t, area, motif, skill, time, later);
       if (sq) {
         const lp = teleLabelPoint(t, state.plan.arena);
         seqChain.push({ group: sq.group, order: sq.order, x: lp.x, y: lp.y, next: sq.next });
       }
     }
     if (seqChain.length > 1) drawSeqChains();
+    c.globalAlpha = 1;
+  }
+
+  /**
+   * 기획 19차 (rule M1): a boss's wind-up on itself (heal, shield, haste, 간주) — a yellow ring that closes in around the
+   * boss as it counts down, nothing red: it hurts nobody, and a groggy break during it cancels it. Review: drawn a cell
+   * wider than the boss body (the body-sized ring hid on the body's edge, half of it above the arena), with a soft
+   * yellow floor and a white edge so it also reads around a yellow boss (제세동기).
+   */
+  function drawSelfCastRing(c: CanvasRenderingContext2D, t: Telegraph): void {
+    const p = teleProgress(t);
+    const r = Math.max(1.5, Math.min(areaReach(t.area), 6)) + SELF_CAST_PAD;
+    const sx = cam.sx(t.center.x);
+    const sy = cam.sy(t.center.y);
+    const ring = (k: number) => {
+      c.beginPath();
+      c.ellipse(sx, sy, r * k * PX_PER_UNIT, r * k * PX_PER_UNIT_Y, 0, 0, TAU);
+    };
+    ring(1);
+    c.globalAlpha = 0.1 + 0.06 * Math.sin(time * 8);
+    c.fillStyle = SELF_CAST_COLOR;
+    c.fill();
+    c.globalAlpha = 0.5;
+    c.lineWidth = 8;
+    c.strokeStyle = '#ffffff';
+    c.stroke();
+    c.setLineDash(ZONE_DASH);
+    c.lineDashOffset = -time * 30;
+    c.globalAlpha = 0.95;
+    c.lineWidth = 5;
+    c.strokeStyle = SELF_CAST_COLOR;
+    c.stroke();
+    c.setLineDash(NO_DASH);
+    c.lineDashOffset = 0;
+    // the closing ring: full size at the start, on the boss body when it lands
+    const k = 1 - (SELF_CAST_PAD / r) * p;
+    ring(k);
+    c.globalAlpha = 0.45;
+    c.lineWidth = 9;
+    c.strokeStyle = '#ffffff';
+    c.stroke();
+    c.globalAlpha = 0.6 + 0.4 * p;
+    c.lineWidth = 6;
+    c.strokeStyle = SELF_CAST_COLOR;
+    c.stroke();
+    c.globalAlpha = 1;
+  }
+
+  /**
+   * 기획 19차 review: who an enemy's one-target attack is aimed at — corner brackets that close in around the character,
+   * a '!' over them and, for a boss's cast, a dashed aim line from the boss. Drawn over the units: the ground ring alone
+   * sat under the character and looked like a player's colour ring. Later parts of the same cast (두 번 충격) are dim.
+   */
+  function drawSingleLocks(state: GameState): void {
+    const c = ctx!;
+    const boss = state.bossId != null ? state.entities.find(e => e.id === state.bossId) : undefined;
+    for (const t of state.telegraphs) {
+      if (t.team !== 'enemy' || t.self || t.area.shape !== 'single') continue;
+      const sq = teleSeq.info(t, seqTmp);
+      const later = !!sq && !sq.next;
+      const p = teleProgress(t);
+      const sx = cam.sx(t.center.x);
+      const cy = cam.sy(t.center.y) - LOCK.mid;
+      const urgent = !later && t.remaining < 0.35;
+      // red on a white edge; the colours swap fast in the last moment
+      const swap = urgent && Math.sin(time * 40) > 0;
+      const color = swap ? '#ffffff' : COLORS.telegraphEnemy;
+      const edge = swap ? COLORS.telegraphEnemy : '#ffffff';
+      const a = later ? 0.5 : 1;
+      if (!later && boss && Math.hypot(t.origin.x - boss.pos.x, t.origin.y - boss.pos.y) < 0.5) {
+        // a boss's cast (the warning starts at the boss): the aim line from its foot line at the arena's back edge
+        c.strokeStyle = COLORS.telegraphEnemy;
+        c.globalAlpha = 0.75;
+        c.lineWidth = 3.5;
+        c.setLineDash(CAST_DASH);
+        c.lineDashOffset = -time * 70;
+        c.beginPath();
+        c.moveTo(cam.sx(boss.pos.x), cam.sy(0));
+        c.lineTo(sx, cy);
+        c.stroke();
+        c.setLineDash(NO_DASH);
+        c.lineDashOffset = 0;
+      }
+      const grow = 1 + 0.5 * (1 - p) + (later ? 0 : 0.05 * Math.sin(time * 12));
+      const hw = LOCK.halfW * grow;
+      const hh = LOCK.halfH * grow;
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+      for (let pass = 0; pass < 2; pass++) {
+        // a white edge first: the brackets stay readable on any floor and over any character
+        c.globalAlpha = a;
+        c.strokeStyle = pass === 0 ? edge : color;
+        c.lineWidth = (later ? 3 : 5) + (pass === 0 ? 4 : 0);
+        c.beginPath();
+        for (let i = 0; i < 4; i++) {
+          const kx = i % 2 === 0 ? -1 : 1;
+          const ky = i < 2 ? -1 : 1;
+          const x = sx + kx * hw;
+          const y = cy + ky * hh;
+          c.moveTo(x - kx * LOCK.arm, y);
+          c.lineTo(x, y);
+          c.lineTo(x, y - ky * LOCK.arm);
+        }
+        c.stroke();
+      }
+      if (!later) {
+        // '!' badge above the brackets (bobbing)
+        const by = cy - hh - 20 + Math.sin(time * 9) * 2;
+        c.globalAlpha = 1;
+        c.fillStyle = COLORS.telegraphEnemy;
+        c.beginPath();
+        c.arc(sx, by, 15, 0, TAU);
+        c.fill();
+        c.lineWidth = 3;
+        c.strokeStyle = '#ffffff';
+        c.stroke();
+        c.lineWidth = 5;
+        c.beginPath();
+        c.moveTo(sx, by - 8.5);
+        c.lineTo(sx, by + 2);
+        c.stroke();
+        c.fillStyle = '#ffffff';
+        c.beginPath();
+        c.arc(sx, by + 8.5, 2.8, 0, TAU);
+        c.fill();
+      }
+      c.lineCap = 'butt';
+      c.lineJoin = 'miter';
+    }
     c.globalAlpha = 1;
   }
 
@@ -1427,6 +1568,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     tagBoxes.length = 0;
     for (const e of sorted) if (e !== mine) drawUnitOverhead(e, memos.get(e.id)!, ui.localPlayer, state);
     if (mine) drawUnitOverhead(mine, memos.get(mine.id)!, ui.localPlayer, state);
+    if (state.telegraphs.length > 0) drawSingleLocks(state); // 기획 19차 review: who a one-target attack is aimed at
     fieldFx.drawOverlay(c, cam, state, time);
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     if (ui.dragPreview) drawFieldEventPreview(c, cam, state, ui.dragPreview, ui.localPlayer, time);
@@ -1568,6 +1710,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 }
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };
+/** 기획 19차 review: the ground mark of an enemy's one-target warning (display only — the hit is still one character). */
+const ENEMY_SINGLE: AreaShape = { shape: 'circle', radius: 1 };
+/** The lock-on brackets around a one-target warning's character (logical px): half size, arm length, body middle height. */
+const LOCK = { halfW: 34, halfH: 42, arm: 15, mid: 36 } as const;
+/** The self-cast ring is this many cells wider than the cast's own area (= the boss body). */
+const SELF_CAST_PAD = 1.2;
+/** 기획 19차 (rule M1): the ring of a boss's wind-up on itself. */
+const SELF_CAST_COLOR = '#ffd60a';
 const shakeOff = { x: 0, y: 0 };
 const ZERO_OFF = { x: 0, y: 0 } as const;
 const dashOff = { ox: 0, oy: 0, z: 0 };

@@ -4,6 +4,7 @@ import type { MonsterDef, Team, Vec2 } from '../types';
 import { getCharacter } from '../data';
 import { ARENA_MARGIN, CHAR_RADIUS, SKILL_START_JITTER } from './constants';
 import { benchMaxHp, effStats } from './stats';
+import { dropAnchors } from './status';
 import type { Rng } from './rng';
 import { addEntity, arena, clamp, copy, newId, type SimEntity, type SimPlayer, type World } from './world';
 
@@ -143,6 +144,7 @@ export function benchActive(w: World, p: SimPlayer): SimEntity | null {
   m.hp = Math.min(e.hp, m.maxHp);
   m.shield = e.shield;
   m.rt.shieldTime = e.rt.shieldTime;
+  dropAnchors(e); // 기획 19차: 속박 / 묶기 stay on the field
   m.statuses = e.statuses;
   e.rt.gone = true;
   return e;

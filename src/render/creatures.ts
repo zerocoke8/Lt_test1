@@ -5,6 +5,7 @@
 // Pure drawing (no state): poses come in through CREATURE_POSE, set by the renderer around each drawBody call.
 
 import { TAU, pathRoundRect } from './shapes';
+import { MINION_LOOKS } from './bosses';
 
 export type CreatureShape =
   | 'umbrella'
@@ -298,6 +299,9 @@ export function drawCreature(
     case 'sleepwalker_child':
       sleepwalkerChild(ctx, fill, fx, fy, w * 1.25, h * 1.25, s, time, phase);
       break;
+    default:
+      // 기획 19차: a new boss's summon-only unit — its look key (MonsterDef.look) draws through the boss art registry
+      MINION_LOOKS[shape as string]?.(ctx, fill, flash, fx, fy, w, h, s, time, phase, act);
   }
   ctx.lineCap = 'butt';
 }

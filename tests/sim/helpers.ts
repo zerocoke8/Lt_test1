@@ -4,7 +4,7 @@ import { createUnit } from '../../src/sim/entities';
 import { createGameWithWorld, tick } from '../../src/sim/game';
 import { applyDamage } from '../../src/sim/combat';
 import { activeEntity, type SimEntity, type World } from '../../src/sim/world';
-import type { ExpeditionSetup, Game, GameEvent, PlayerSetup, PlayerState, Tunables, UltGauge, Vec2 } from '../../src/types';
+import type { BossRaidSetup, ExpeditionSetup, Game, GameEvent, PlayerSetup, PlayerState, Tunables, UltGauge, Vec2 } from '../../src/types';
 
 export const HUMAN: PlayerSetup = {
   name: '나',
@@ -28,7 +28,16 @@ export interface TestGame {
 }
 
 export function makeGame(
-  opts: { seed?: number; players?: PlayerSetup[]; tunables?: Partial<Tunables>; startFloor?: number; expedition?: ExpeditionSetup } = {},
+  opts: {
+    seed?: number;
+    players?: PlayerSetup[];
+    tunables?: Partial<Tunables>;
+    startFloor?: number;
+    expedition?: ExpeditionSetup;
+    /** 기획 19차 보스 레이드 */
+    mode?: 'bossRaid';
+    bossRaid?: BossRaidSetup;
+  } = {},
 ): TestGame {
   const { game, world } = createGameWithWorld({
     seed: opts.seed ?? 1234,
@@ -38,6 +47,8 @@ export function makeGame(
     tunables: { ...DEFAULT_TUNABLES, goedamRoomsPerZone: 0, fieldEventChance: 0, ...(opts.tunables ?? {}) },
     startFloor: opts.startFloor,
     ...(opts.expedition ? { expedition: opts.expedition } : null), // 기획 15차 원정
+    ...(opts.mode ? { mode: opts.mode } : null), // 기획 19차 보스 레이드
+    ...(opts.bossRaid ? { bossRaid: opts.bossRaid } : null),
   });
   const tg: TestGame = { game, w: world, events: [] };
   tg.events.push(...game.drainEvents());

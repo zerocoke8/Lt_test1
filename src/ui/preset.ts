@@ -23,6 +23,8 @@ export interface PresetScreen {
   /** 기획 15차: switch variant; picks replace the selection; gearOf draws 4 slot dots + 「최저 Tn」 on character cards. */
   setVariant(v: PresetVariant, picks: PresetSave, gearOf?: (charId: string) => GearLoadout): void;
   readonly variant: PresetVariant;
+  /** 기획 19차: another title for the current variant (「보스 레이드 편성」); null = the variant's own. setVariant resets it. */
+  setTitle(text: string | null): void;
   /** Current (possibly incomplete) selection. */
   value(): PresetSave;
   setDebugNote(text: string): void;
@@ -33,6 +35,10 @@ export interface PresetScreenOpts {
   onStart(p: PresetSave): void;
   /** 기획 15차: 「← 메인」. */
   onBack?(): void;
+}
+
+function variantTitle(v: PresetVariant): string {
+  return v === 'expedition' ? '원정 편성' : '클래식 탑 편성';
 }
 
 /** Last word's first syllable = the animal ("불꽃 개구리" → "개"). */
@@ -349,10 +355,13 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       chars = [...picks.characters];
       pets = [...picks.pets];
       focus = { kind: 'char', id: chars[0] ?? CHARACTERS[0].id };
-      titleEl.textContent = v === 'expedition' ? '원정 편성' : '클래식 탑 편성';
+      titleEl.textContent = variantTitle(v);
       startBtn.textContent = v === 'expedition' ? '원정 허브로' : '출발';
       el.classList.toggle('is-expedition', v === 'expedition');
       refresh();
+    },
+    setTitle(text) {
+      titleEl.textContent = text ?? variantTitle(variant);
     },
     value: () => ({ characters: [...chars], pets: [...pets] }),
     setDebugNote(text) {

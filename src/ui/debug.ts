@@ -1,9 +1,10 @@
 // 디버그 패널 (R24): collapsible side panel that never pauses the game.
 // Sliders for every numeric Tunable, toggles, speed buttons and every DebugAction. Mutates game.tunables live.
 
-import type { CommandResult, DebugAction, Game, Tunables } from '../types';
-import { DEFAULT_TUNABLES } from '../config';
-import { FIELD_EVENTS, GOEDAM_ROOMS, RARITY_LABEL, REWARDS } from '../data';
+import type { CommandResult, DebugAction, FloorTheme, Game, Tunables } from '../types';
+import { DEFAULT_TUNABLES, ZONES } from '../config';
+import { FIELD_EVENTS, GOEDAM_ROOMS, RAID_ZONES, RARITY_LABEL, REWARDS, ZONE_BOSSES, getBoss } from '../data';
+import { hasBossData, isRaidBossOn } from '../sim';
 import { button, h } from './dom';
 import { SLIDERS, SPEEDS, TOGGLES, formatTunable, type SliderSpec } from './tunables';
 import type { ToastKind } from './toast';
@@ -14,10 +15,41 @@ import { battleGearFiles, setBattleGearFiles } from '../render/gearArt';
 import { saveGearArtFiles } from './expeditionStore';
 
 /** Render-only sliders (this device only, never sent to the server): 기획 8차 drag-landing feel. */
+/** Slider group (src/ui/tunables.ts) a raid shows right under 「보스 고르기」. */
+const BOSS_TUNE_GROUP = '보스 튜닝';
+
 const JUICE_SLIDERS: { key: keyof JuiceSettings; label: string; min: number; max: number; step: number; fmt: (v: number) => string }[] = [
   { key: 'hitStopMs', label: '타격 멈춤 길이', ...HIT_STOP_RANGE, fmt: v => (v <= 0 ? '끔' : `${Math.round(v)}ms`) },
   { key: 'shake', label: '화면 흔들림 세기', ...SHAKE_RANGE, fmt: v => (v <= 0 ? '끔' : `${v.toFixed(1)}×`) },
 ];
+
+/** 기획 19차 보스 레이드: the skip button by mode (the action is skipFloor either way). */
+export const SKIP_LABEL = { classic: '층 건너뛰기', bossRaid: '다음 보스로' } as const;
+
+/** 기획 19차 「보스 고르기」: the mark after the name of a boss that is out of the raid (BossDef.raid: false). */
+export const RAID_OFF_SUFFIX = ' (꺼짐)';
+
+export interface RaidBossGroup {
+  zone: FloorTheme;
+  /** Zone name ('사무실층'). */
+  label: string;
+  options: { id: string; label: string; off: boolean }[];
+}
+
+/**
+ * 기획 19차 debug 「보스 고르기」 (docs/boss-raid.md 7-1): every boss with data, one group per zone in the raid's table
+ * order. A boss that is off stays in the list (testing) with 「(꺼짐)」 after its name. PURE (reads the data only).
+ */
+export function raidBossGroups(): RaidBossGroup[] {
+  return RAID_ZONES.map(zone => ({
+    zone,
+    label: ZONES.find(z => z.theme === zone)?.name ?? zone,
+    options: ZONE_BOSSES[zone].filter(hasBossData).map(id => {
+      const off = !isRaidBossOn(id);
+      return { id, label: `${getBoss(id).name}${off ? RAID_OFF_SUFFIX : ''}`, off };
+    }),
+  }));
+}
 
 export interface DebugDeps {
   game(): Game | null;
@@ -106,6 +138,14 @@ export class DebugPanel {
   private collapsed = false;
   private readonly expSec: HTMLElement;
   private readonly artBtn: HTMLButtonElement;
+  /** 기획 19차 보스 레이드: 「층 건너뛰기」 reads 「다음 보스로」 in a raid (the same skipFloor action). */
+  private readonly skipBtn: HTMLButtonElement;
+  /** 기획 19차 「보스 고르기」: only in a raid — this floor again with the picked boss (DebugAction 'raidBoss'). */
+  private readonly raidSec: HTMLElement;
+  /** 기획 19차 review: the 「보스 튜닝」 sliders and their home in the slider list (a raid shows them under 「보스 고르기」). */
+  private bossTuneSec: HTMLElement | null = null;
+  private readonly bossTuneHome = document.createComment('boss-tune');
+  private readonly raidPick: HTMLSelectElement;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement, deps: DebugDeps) {
@@ -149,6 +189,21 @@ export class DebugPanel {
       this.syncExp();
     });
 
+    // 기획 19차 보스 레이드: pick the boss of this floor (the floor number stays)
+    this.raidSec = this.section('보스 고르기');
+    const raidRow = h('div', 'dbg-raid', this.raidSec);
+    this.raidPick = h('select', 'dbg-select dbg-raid-boss', raidRow);
+    this.raidPick.setAttribute('aria-label', '보스 고르기');
+    for (const g of raidBossGroups()) {
+      const og = h('optgroup', '', this.raidPick);
+      og.label = g.label;
+      for (const o of g.options) h('option', '', og, o.label).value = o.id;
+    }
+    button('dbg-btn dbg-go dbg-raid-go', '이 보스로', raidRow, () => {
+      const name = this.raidPick.selectedOptions[0]?.textContent ?? this.raidPick.value;
+      this.run({ kind: 'raidBoss', boss: this.raidPick.value }, `보스 고르기 (${name})`);
+    });
+
     // actions
     const act = this.section('명령');
     const grid = h('div', 'dbg-grid', act);
@@ -156,7 +211,7 @@ export class DebugPanel {
     action('궁극기 충전', { kind: 'chargeUlt' });
     action('쿨 초기화', { kind: 'resetCooldowns' });
     action('적 전멸', { kind: 'killAll' });
-    action('층 건너뛰기', { kind: 'skipFloor' });
+    this.skipBtn = button('dbg-btn dbg-skip', SKIP_LABEL.classic, grid, () => this.run({ kind: 'skipFloor' }, this.skipLabel()));
     action('광폭화', { kind: 'forceEnrage' });
     action('전멸 (패배)', { kind: 'wipeParty' }); // 기획 16차
     // 기획 13차: boss groggy gauge — break now / almost full
@@ -226,7 +281,9 @@ export class DebugPanel {
     for (const spec of SLIDERS) {
       if (spec.group !== group) {
         group = spec.group;
+        if (group === BOSS_TUNE_GROUP) this.body.append(this.bossTuneHome);
         sec = this.section(group);
+        if (group === BOSS_TUNE_GROUP) this.bossTuneSec = sec;
       }
       this.slider(sec, spec);
     }
@@ -275,6 +332,9 @@ export class DebugPanel {
     this.el.classList.remove('is-hidden');
     const g = this.deps.game();
     if (g) this.jumpTo = Math.min(g.tunables.maxFloor, g.state.floor + 1);
+    // 기획 19차: the picker opens on the boss of this floor
+    const bossId = g?.state.mode === 'bossRaid' ? g.state.plan.bossId : undefined;
+    if (bossId && [...this.raidPick.options].some(o => o.value === bossId)) this.raidPick.value = bossId;
     this.setCollapsed(false);
     this.sync();
   }
@@ -373,9 +433,20 @@ export class DebugPanel {
     }
   }
 
+  /** 기획 19차: the skip button's words for the running mode. */
+  private skipLabel(): string {
+    return this.deps.game()?.state.mode === 'bossRaid' ? SKIP_LABEL.bossRaid : SKIP_LABEL.classic;
+  }
+
   private syncExp(): void {
     const g = this.deps.game();
+    this.skipBtn.textContent = this.skipLabel();
     this.expSec.classList.toggle('is-hidden', !g?.state.expedition);
+    const raid = g?.state.mode === 'bossRaid';
+    this.raidSec.classList.toggle('is-hidden', !raid);
+    // the sliders the designer retunes bosses with sit right under the boss picker in a raid (else far down the list)
+    const after = raid ? this.raidSec : this.bossTuneHome;
+    if (this.bossTuneSec && after.nextSibling !== this.bossTuneSec) after.after(this.bossTuneSec);
     this.artBtn.textContent = `장비 그림: ${battleGearFiles() ? '파일' : '코드'}`;
     this.artBtn.classList.toggle('is-on', battleGearFiles());
   }

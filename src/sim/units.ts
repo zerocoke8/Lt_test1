@@ -11,7 +11,7 @@ import { charCtx, findWoundedAlly, unitCtx, usesWoundedAlly } from './ctx';
 import { clampUnit } from './entities';
 import { onMonsterDeath } from './ondeath';
 import { isGroggy } from './groggy';
-import { castSkill, startAction } from './skills';
+import { actionDelay, castSkill, startAction } from './skills';
 import { effStats } from './stats';
 import { constrainTether, hasStatus, isBossy, statusValue, tickStatusTimers } from './status';
 import { copy, dist, edgeDist, emit, getEntity, isAlive, otherTeam, type PendingHit, type SimEntity, type SimStatus, type World } from './world';
@@ -330,7 +330,9 @@ function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
     if (e.rt.skillCds[i] > 0) continue;
     if (sk.castRange != null && edgeDist(e, t) > sk.castRange) continue;
     if (pinned && movesCaster(sk)) continue;
-    e.rt.skillCds[i] = sk.cooldown * monsterCdMult(e);
+    // 기획 19차 review: a skill a boss casts on itself (회의 연장 shield, 심폐소생 heal — rule M1) keeps its cooldown under
+    // enrage; ×0.6 made the shield / heal come twice as often, so enrage stretched the fight instead of ending it
+    e.rt.skillCds[i] = sk.cooldown * (sk.action.affects === 'self' ? e.rt.phaseCdMult : monsterCdMult(e));
     e.rt.skillGap = MONSTER_SKILL_GAP;
     // a telegraphed skill is wound up until it lands: a stun in between breaks every part of it (status.ts)
     const ctx = unitCtx(w, e, sk.id, sk.name);
@@ -339,11 +341,11 @@ function tryMonsterSkills(w: World, e: SimEntity, t: SimEntity | null): void {
     for (const a of sk.extra ? [sk.action, ...sk.extra] : [sk.action]) {
       const p = startAction(w, ctx, a);
       if (p) windup.push(p);
-      delay = Math.max(delay, a.delay ?? 0);
+      delay = Math.max(delay, actionDelay(ctx, a));
     }
     e.rt.windup = windup;
     // the caster stands still until its main part lands (a charge moves it then); later parts of a sequence don't hold it
-    const hold = sk.action.delay ?? 0;
+    const hold = actionDelay(ctx, sk.action); // 기획 19차: with the boss telegraph knob, so the pose lasts as long as the warning
     e.anim = 'cast';
     e.animTime = Math.max(0.4, Math.min(delay, hold > 0 ? hold : delay));
     if (!e.rt.stationary && hold > 0) e.rt.lockTime = hold;

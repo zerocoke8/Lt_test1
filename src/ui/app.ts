@@ -2,9 +2,14 @@
 // Solo: the local sim (createGame). Multiplayer: RemoteGame (server snapshots, src/net) behind the same Game interface,
 // so the renderer, HUD, drag and overlays are shared; the only difference is localPlayer (solo 0, multi = server slot).
 // Loop: dt = min(0.1, …); if running: game.step(dt); events = game.drainEvents(); renderer.render(…); hud.update(…).
+// 기획 19차 보스 레이드: the main menu's third card sets pickedMode 'bossRaid' — the same preset → 매칭 → combat → result
+// flow as the classic tower, with GameSetup.mode (solo) / createRoom mode (multi); the result is counted in this
+// device's record (src/ui/bossRaidStore.ts). '?mode=bossRaid' picks the mode for browser automation; with '&boss=<id>'
+// the first solo raid of the page starts on that boss (the debug 「보스 고르기」 action, once).
 
 import './styles.css';
 import './expedition.css';
+import './bossRaid.css';
 import type { Command, CommandResult, DragPreview, Game, GameEvent, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../config';
 import { createGame } from '../sim';
@@ -32,7 +37,8 @@ import { Stage } from './stage';
 import { createMainMenu } from './mainMenu';
 import { ExpeditionFlow, type FlowPhase } from './expeditionSolo';
 import { DEFAULT_EXP_PARTY, type ExpCtx } from './expeditionCtx';
-import { loadGearArtFiles, loadMode, loadStash, onStashChanged, saveMode, saveStash, updateStash } from './expeditionStore';
+import { loadGearArtFiles, loadMode, loadStash, onStashChanged, saveMode, saveStash, updateStash, type GameMode } from './expeditionStore';
+import { loadBossRaidRecord, recordBossRaidResult, type BossRaidUpdate } from './bossRaidStore';
 import { RUN_LOCK_REASON, loadoutOf, maxStartStageFor, setPreset, stashLocked } from '../expedition/stash';
 import { setBattleGearFiles } from '../render/gearArt';
 import { createToaster } from './toast';
@@ -100,6 +106,8 @@ declare global {
 const RESULT_DELAY_MS = 1800;
 /** Preset 출발 while the server check is still running: wait at most this long before deciding. */
 const PROBE_WAIT_MS = 1500;
+/** 기획 19차: the preset screen's title when the 보스 레이드 card was picked (the party is the classic preset). */
+const RAID_PRESET_TITLE = '보스 레이드 편성';
 
 export function startApp(root: HTMLElement): void {
   root.replaceChildren();
@@ -135,6 +143,12 @@ export function startApp(root: HTMLElement): void {
   let lobbyStarting = false;
   let lobbyStartTimer: ReturnType<typeof setTimeout> | null = null;
   let nickname = loadNickname();
+  /** 기획 19차: the mode picked on the main menu (the preset → 매칭 → run flow of 'classic' and 'bossRaid' is shared). */
+  let pickedMode: GameMode = /[?&]mode=bossRaid\b/.test(location.search) ? 'bossRaid' : 'classic';
+  /** 기획 19차 '?mode=bossRaid&boss=<id>': the boss the first solo raid of this page starts on (then null). */
+  let queryBoss: string | null = pickedMode === 'bossRaid' ? new URLSearchParams(location.search).get('boss') : null;
+  /** 기획 19차: the game whose 보스 레이드 result is already counted (a run counts once). */
+  let raidCounted: Game | null = null;
   const uiState: RenderUiState = { localPlayer: 0, dragPreview: null, freezeCamera: false };
 
   // ─────────────────────────── network ───────────────────────────
@@ -254,7 +268,8 @@ export function startApp(root: HTMLElement): void {
     onSolo: () => startRun(),
     onPreset: () => toPreset(),
     onCreate: () => {
-      lobby.createRoom(currentPreset());
+      // 기획 19차: the room plays the mode picked on the main menu
+      lobby.createRoom(currentPreset(), pickedMode === 'bossRaid' ? 'bossRaid' : undefined);
     },
     onJoin: code => {
       lobby.joinRoom(code, currentPreset());
@@ -305,10 +320,18 @@ export function startApp(root: HTMLElement): void {
   };
   const mainMenu = createMainMenu(stage.screenLayer, {
     onClassic: () => {
+      pickedMode = 'classic';
       saveMode('classic');
       toPreset();
     },
+    onBossRaid: () => {
+      // 기획 19차: the classic flow (preset → 매칭) with the mode flag
+      pickedMode = 'bossRaid';
+      saveMode('bossRaid');
+      toPreset();
+    },
     onExpedition: () => {
+      pickedMode = 'expedition';
       saveMode('expedition');
       mainMenu.hide();
       screen = 'exp';
@@ -383,6 +406,7 @@ export function startApp(root: HTMLElement): void {
       maxStage: maxStartStageFor(stash, expCtx.party().characters),
       lastMode: loadMode(),
       run: stash.run ? { stage: stash.run.stage, bag: stash.run.bag.length, complete: stash.run.stage > 12 } : null,
+      bossRaid: loadBossRaidRecord(),
     });
   }
 
@@ -431,6 +455,7 @@ export function startApp(root: HTMLElement): void {
       myId: lobby.sessionId,
       preset: currentPreset(),
       starting: lobbyStarting || !!pendingRemote,
+      mode: pickedMode === 'bossRaid' ? 'bossRaid' : null,
     });
   }
 
@@ -554,6 +579,8 @@ export function startApp(root: HTMLElement): void {
       ],
       tunables: { ...DEFAULT_TUNABLES, ...loadTunableOverrides() },
     };
+    // 기획 19차: a run started from the 보스 레이드 card (혼자 하기 / 다시 하기); an explicit setup (원정 stage, tests) wins
+    if (pickedMode === 'bossRaid' && !setup.expedition) base.mode = 'bossRaid';
     const full: GameSetup = { ...base, ...setup, tunables: { ...base.tunables, ...(setup.tunables ?? {}) } };
     drag.cancel();
     hud?.destroy();
@@ -562,6 +589,7 @@ export function startApp(root: HTMLElement): void {
     localPlayer = 0;
     uiState.localPlayer = 0;
     game = createGame(full);
+    applyQueryBoss(game);
     sfx.scene('combat', game.state, 0);
     smoother.reset();
     hud = newHud(game);
@@ -579,6 +607,19 @@ export function startApp(root: HTMLElement): void {
     hideLobby();
     stage.canvas.classList.remove('is-hidden');
     if (debug.isOpen) debug.sync();
+  }
+
+  /**
+   * 기획 19차 '?mode=bossRaid&boss=<id>': floor 1 again with that boss, once, before anything of the first boss is shown
+   * (its start events are dropped — the HUD, the renderer and the sound only ever see the picked one).
+   */
+  function applyQueryBoss(g: Game): void {
+    if (!queryBoss || g.state.mode !== 'bossRaid') return;
+    const boss = queryBoss;
+    queryBoss = null;
+    g.drainEvents();
+    const r = g.dispatch({ type: 'debug', action: { kind: 'raidBoss', boss } });
+    if (!r.ok) console.warn(`boss=${boss}: ${r.reason ?? '?'}`);
   }
 
   function useUlt(): void {
@@ -698,6 +739,7 @@ export function startApp(root: HTMLElement): void {
       }
     } else if (!rg.isHost && rg.dispatch({ type: 'quit' }).ok) lobby.markLeft();
     else lobby.leaveRoom();
+    countRaid(rg); // 기획 19차: a member who leaves mid-run keeps the floor they reached
     teardownMulti();
     showLobby();
   }
@@ -711,6 +753,16 @@ export function startApp(root: HTMLElement): void {
   }
 
   // ─────────────────────────── shared ───────────────────────────
+
+  /**
+   * 기획 19차 보스 레이드: count this run in the device's record (once per game; solo and multiplayer alike). A run left
+   * before its end counts the floor it was on, as a defeat. Null when the game is not a raid or was already counted.
+   */
+  function countRaid(g: Game): BossRaidUpdate | null {
+    if (g.state.mode !== 'bossRaid' || raidCounted === g) return null;
+    raidCounted = g;
+    return recordBossRaidResult(g.state.runResult ?? { outcome: 'defeat', floorReached: g.state.floor });
+  }
 
   function showResult(): void {
     if (!game) return;
@@ -731,7 +783,17 @@ export function startApp(root: HTMLElement): void {
     hud?.setCovered(true);
     reward.update(game.state, { localPlayer, multi: mode === 'multi', deadline: null });
     goedam.hide();
-    result.show(game, quitWhileOut, { localPlayer, multi: mode === 'multi', isHost: !!remote?.isHost });
+    const raid = countRaid(game);
+    result.show(game, quitWhileOut, {
+      localPlayer,
+      multi: mode === 'multi',
+      isHost: !!remote?.isHost,
+      ...(raid
+        ? { raid: { best: raid.record.bestFloor, isNewBest: raid.isNewBest } }
+        : game.state.mode === 'bossRaid'
+          ? { raid: { best: loadBossRaidRecord().bestFloor, isNewBest: false } }
+          : null),
+    });
     sfx.scene('result');
     sfx.bests(stage.screenLayer.querySelectorAll('.is-best').length);
   }
@@ -754,6 +816,7 @@ export function startApp(root: HTMLElement): void {
     expFlow.hideAll();
     stage.canvas.classList.add('is-hidden');
     preset.setVariant('classic', loadPreset());
+    if (pickedMode === 'bossRaid') preset.setTitle(RAID_PRESET_TITLE); // 기획 19차: the classic preset, the raid's name
     refreshDebugNote();
     refreshNetNote();
     preset.setVisible(true);
@@ -880,6 +943,7 @@ export function startApp(root: HTMLElement): void {
   if (forceMain || !navigator.webdriver) showMain();
   else {
     preset.setVariant('classic', loadPreset());
+    if (pickedMode === 'bossRaid') preset.setTitle(RAID_PRESET_TITLE);
     preset.setVisible(true);
   }
   lobby.start();

@@ -1,4 +1,5 @@
 import type { FloorTheme, Tunables } from './types';
+import { BOSS_RAID } from './data/bossRaid';
 
 /** Draft numbers (기획서 2차 Q8: 개발 초안 + 디버그 슬라이더). */
 export const DEFAULT_TUNABLES: Tunables = {
@@ -47,6 +48,12 @@ export const DEFAULT_TUNABLES: Tunables = {
   justSwapCdCut: 0.4,
   justSwapIcd: 0,
   botJustChance: 0.03,
+  // 기획 19차 보스 튜닝 (docs/boss-raid.md 4-2): boss telegraph time × / area size × (every mode, tier 'boss' only; 1 = the
+  // data as written, so the classic tower is unchanged) and the 보스 레이드 boss HP × / attack × (read at floor start)
+  bossTelegraphMult: 1,
+  bossAreaMult: 1,
+  bossRaidHpMult: BOSS_RAID.hpMult,
+  bossRaidAtkMult: BOSS_RAID.atkMult,
 };
 
 /**

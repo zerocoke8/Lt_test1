@@ -117,6 +117,9 @@ export interface RoomMode {
   onEnd(room: Room, g: Game, why: EndReason): void;
 }
 
+/** 기획 19차: the game of a listed room ('bossRaid' = 보스 레이드, docs/boss-raid.md 6장). */
+export type RoomVariant = 'classic' | 'bossRaid';
+
 const SHARED_DEBUG_REFUSED = '다른 플레이어가 있는 원정 방에서는 디버그를 쓸 수 없어요';
 
 export type EndReason = 'over' | 'abandoned' | 'error';
@@ -173,13 +176,24 @@ export class Room {
 
   /** 기획 15차 원정 rooms (null = classic). */
   readonly mode: RoomMode | null;
+  /**
+   * 기획 19차 보스 레이드: what a listed room plays. Not a RoomMode — a raid room has the classic room's whole life cycle
+   * (listed, reconnect, host hand-over, back to 'waiting' after the run); only the game setup and a tag differ.
+   */
+  readonly variant: RoomVariant;
 
-  constructor(code: string, name: string | null, host: RoomHost, hostId: string, mode: RoomMode | null = null) {
+  constructor(code: string, name: string | null, host: RoomHost, hostId: string, mode: RoomMode | null = null, variant: RoomVariant = 'classic') {
     this.code = code;
     this.customName = name;
     this.host = host;
     this.hostId = hostId;
     this.mode = mode;
+    this.variant = variant;
+  }
+
+  /** The mode tag on the wire (room info / summary / start); none for the classic tower. */
+  private get variantTag(): { mode: 'bossRaid' } | null {
+    return this.variant === 'bossRaid' ? { mode: 'bossRaid' } : null;
   }
 
   // ─────────────────────────── membership ───────────────────────────
@@ -213,6 +227,7 @@ export class Room {
         preset: { characters: [...m.preset.characters], pets: [...m.preset.pets] },
       })),
       max: MAX_ROOM_PLAYERS,
+      ...this.variantTag,
     };
   }
 
@@ -224,6 +239,7 @@ export class Room {
       players: this.members.length,
       max: MAX_ROOM_PLAYERS,
       status: this.status,
+      ...this.variantTag,
     };
   }
 
@@ -313,7 +329,8 @@ export class Room {
       characters: [...b.characters],
       pets: [...b.pets],
     }));
-    return { seed: randomSeed(), players: [...humans, ...bots], tunables: { ...DEFAULT_TUNABLES } };
+    // 기획 19차 보스 레이드: the same seats, the sim plans 20 boss floors
+    return { seed: randomSeed(), players: [...humans, ...bots], tunables: { ...DEFAULT_TUNABLES }, ...this.variantTag };
   }
 
   private launch(game: Game): void {
@@ -353,7 +370,7 @@ export class Room {
       hostPlayerIndex: this.hostPlayerIndex,
       seed: this.game.state.seed,
       tunables: { ...this.game.tunables },
-      ...(this.mode ? { mode: this.mode.kind } : null),
+      ...(this.mode ? { mode: this.mode.kind } : this.variantTag),
     });
   }
 
