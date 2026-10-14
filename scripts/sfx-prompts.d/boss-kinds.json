@@ -1,0 +1,189 @@
+{
+  "batch": "boss-kinds",
+  "format": "mp3_44100_64",
+  "sounds": [
+    {
+      "id": "boss.windup.doors",
+      "ko": "보스 패턴 준비 — 문: 엘리베이터 차임 + 문 미끄러짐 (엘리베이터·에스컬레이터·서랍·투시 촬영기·병상)",
+      "seconds": 1,
+      "text": "A low warning buzzer drones while heavy steel sliding doors start to grind along a metal track, a rising rattling rumble, tense and building."
+    },
+    {
+      "id": "boss.impact.doors",
+      "ko": "보스 패턴 떨어짐 — 문: 철문이 쾅 닫힘",
+      "seconds": 2,
+      "text": "Heavy steel elevator doors slam shut with a deep booming clang, a hollow metallic ring that rattles the frame and fades into a short dark echo."
+    },
+    {
+      "id": "boss.windup.countdown",
+      "ko": "보스 패턴 준비 — 카운트다운: 빨라지는 삑삑 (엘리베이터 층수·동전·박자·캡슐·제세동기 소생)",
+      "seconds": 0.5,
+      "text": "A small digital timer beeps six times, each beep coming faster than the last, sharp square-wave blips that speed up into a nervous rattle."
+    },
+    {
+      "id": "boss.impact.countdown",
+      "ko": "보스 패턴 떨어짐 — 카운트다운: 철컥 + 쿵",
+      "seconds": 1.6,
+      "text": "Starts instantly, no silence at the start: at the very first moment a loud mechanical lock snaps shut with a hard metallic clack together with a short heavy low thump, then only a brief hollow tail fading out."
+    },
+    {
+      "id": "boss.windup.papers",
+      "ko": "보스 패턴 준비 — 종이: 종이 바스락 몰려듦 (야근의 군주·파쇄기·회의·병상 시트)",
+      "seconds": 0.6,
+      "text": "A flurry of many paper sheets rustling and fluttering, swelling up like a stack of documents caught in a sudden draft, crisp and dry."
+    },
+    {
+      "id": "boss.impact.papers",
+      "ko": "보스 패턴 떨어짐 — 종이: 종이 다발이 쉭 날아감",
+      "seconds": 1.6,
+      "text": "A sharp downward whoosh of a thick stack of papers flung through the air, ending in a crisp slapping flutter of sheets scattering."
+    },
+    {
+      "id": "boss.windup.stamp",
+      "ko": "보스 패턴 준비 — 도장: 낮게 우웅 차오름 (야근의 군주·에스컬레이터 멈춤·회의 호출·연필 오답)",
+      "seconds": 0.5,
+      "text": "A low heavy rumble swelling upward, like a giant rubber stamp being raised high and gathering weight, dull and ominous."
+    },
+    {
+      "id": "boss.impact.stamp",
+      "ko": "보스 패턴 떨어짐 — 도장: 커다란 도장 쿵",
+      "seconds": 1.7,
+      "text": "A giant rubber office stamp slams down onto a wooden desk, one deep dull booming thud with a soft papery smack and a short low rumble after."
+    },
+    {
+      "id": "boss.windup.summon",
+      "ko": "보스 패턴 준비 — 소환: 전화벨·호출벨 + 방송 삑 (졸개 부르기, 여러 보스)",
+      "seconds": 0.8,
+      "text": "An old telephone rings in a short shrill metal-bell trill, then a single flat intercom beep, as if something is being called out of the dark."
+    },
+    {
+      "id": "boss.impact.summon",
+      "ko": "보스 패턴 떨어짐 — 소환: 무언가 철퍽 나타남",
+      "seconds": 1.5,
+      "text": "A soft muffled whump of something small dropping out of thin air, a squishy low plop with a faint eerie breath of air after it. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "influence": 0.7
+    },
+    {
+      "id": "boss.windup.blades",
+      "ko": "보스 패턴 준비 — 칼날: 금속 칼날 세 번 챙챙 (파쇄기·수술실 원장·연필 상자)",
+      "seconds": 0.5,
+      "text": "Three quick bright metallic clicks and pings, like thin steel blades being flicked open one after another, sharp and glinting."
+    },
+    {
+      "id": "boss.impact.blades",
+      "ko": "보스 패턴 떨어짐 — 칼날: 날아가 꽂힘",
+      "seconds": 1.5,
+      "text": "A fast thin whistling whoosh of small steel blades flying past, ending in a crisp metallic thunk as they stick into a hard surface."
+    },
+    {
+      "id": "boss.windup.gas",
+      "ko": "보스 패턴 준비 — 가스: 쉬익 새어 나옴 (커피 증기·서랍 냉기·수술실 가스)",
+      "seconds": 0.7,
+      "text": "A pressurized valve starts to hiss, a thin high steam leak that swells louder, tense and airy."
+    },
+    {
+      "id": "boss.impact.gas",
+      "ko": "보스 패턴 떨어짐 — 가스: 쏴아 퍼지는 증기",
+      "seconds": 2.1,
+      "text": "A big burst of hissing gas and steam blasting out of a pipe, a wide airy whoosh that spreads out and slowly thins away."
+    },
+    {
+      "id": "boss.windup.slice",
+      "ko": "보스 패턴 준비 — 베기: 날 세우는 쓩 (파쇄기 돌진·수술 절개·연필 긋기)",
+      "seconds": 0.5,
+      "text": "A rising thin metallic shing, like a blade being drawn and sharpened, a bright tense whine that climbs quickly in pitch."
+    },
+    {
+      "id": "boss.impact.slice",
+      "ko": "보스 패턴 떨어짐 — 베기: 크게 쓸어 벰",
+      "seconds": 1.6,
+      "text": "A huge fast sweeping slash through the air, a sharp swooshing cut that drops in pitch, landing with a short low thud underneath."
+    },
+    {
+      "id": "boss.windup.burst",
+      "ko": "보스 패턴 준비 — 폭발: 빨려 들어감 (기본 종류, 여러 보스)",
+      "seconds": 0.7,
+      "text": "Air rushes inward and gets sucked into one point, a reversed swelling whoosh that grows darker and tighter right before an explosion."
+    },
+    {
+      "id": "boss.impact.burst",
+      "ko": "보스 패턴 떨어짐 — 폭발: 저음 붐",
+      "seconds": 2.1,
+      "text": "A deep heavy boom of a dark magic blast, a low thumping explosion with a short crunchy crash of debris and a rumbling tail."
+    },
+    {
+      "id": "boss.windup.beam",
+      "ko": "보스 패턴 준비 — 빛줄기: 충전 (노래방 거울·모니터 커서·투시 촬영기·회의 레이저·달·심연)",
+      "seconds": 0.7,
+      "text": "An energy beam charging up, a buzzing electric hum that rises steeply in pitch and brightness, tense and glowing."
+    },
+    {
+      "id": "boss.impact.beam",
+      "ko": "보스 패턴 떨어짐 — 빛줄기: 발사",
+      "seconds": 1.9,
+      "text": "A powerful light beam fires, a bright searing whoosh of buzzing energy that blasts out and burns for a moment before fading."
+    },
+    {
+      "id": "boss.windup.tentacle",
+      "ko": "보스 패턴 준비 — 촉수: 축축하게 꿈틀 (인형 뽑기 집게·손잡이·머리카락·손·심연)",
+      "seconds": 0.5,
+      "text": "A wet slimy wriggling sound, like something long and damp coiling and squirming in the dark, low and squelchy."
+    },
+    {
+      "id": "boss.impact.tentacle",
+      "ko": "보스 패턴 떨어짐 — 촉수: 축축한 철썩",
+      "seconds": 1.5,
+      "text": "A loud heavy wet tentacle slam: a fat rubbery smack on the floor with a deep low thud, followed by a long loud squelchy slithering drag that keeps sounding for a full second. Dense, full-bodied, loud from start to end.",
+      "influence": 0.6
+    },
+    {
+      "id": "boss.windup.ring",
+      "ko": "보스 패턴 준비 — 고리: 깊은 징 울림 (세탁기 통·안테나 접지·심연·달 그림자)",
+      "seconds": 1.2,
+      "text": "A huge low bronze gong is struck softly and starts to hum and swell, a deep ominous shimmering tone that slowly grows."
+    },
+    {
+      "id": "boss.impact.ring",
+      "ko": "보스 패턴 떨어짐 — 고리: 거대한 징 + 충격파",
+      "seconds": 2.8,
+      "text": "A massive deep gong crash with a heavy low boom, a shockwave ring that spreads outward and rolls away in a long dark resonant tail."
+    },
+    {
+      "id": "boss.windup.water",
+      "ko": "보스 패턴 준비 — 물: 쏴아 차오르는 물 (세탁기 거품·커피 붓기·물탱크)",
+      "seconds": 0.8,
+      "text": "Water rushes and rises fast inside a pipe or tank, a swelling gurgling surge with a couple of drips, building toward a splash."
+    },
+    {
+      "id": "boss.impact.water",
+      "ko": "보스 패턴 떨어짐 — 물: 철벅 덮침",
+      "seconds": 1.7,
+      "text": "A big heavy splash of water crashing down onto the floor, a deep wet slosh with a bright spray of droplets fizzing after."
+    },
+    {
+      "id": "boss.windup.static",
+      "ko": "보스 패턴 준비 — 전기: 지지직 충전 (모니터·제세동기·천둥 안테나)",
+      "seconds": 0.7,
+      "text": "Electric static crackles and builds, a buzzing hiss with snapping sparks rising in pitch like a charge about to discharge."
+    },
+    {
+      "id": "boss.impact.static",
+      "ko": "보스 패턴 떨어짐 — 전기: 빠직 방전",
+      "seconds": 1.6,
+      "text": "A sharp loud electric zap, a burst of crackling sparks and a hard snapping discharge with a short low buzz underneath."
+    },
+    {
+      "id": "boss.windup.chime",
+      "ko": "보스 패턴 준비 — 종: 올라가는 딩동 (인형 뽑기 잭팟·노래방 고음·연필 정답)",
+      "seconds": 0.8,
+      "text": "Two small glassy bells ring a rising ding-dong, slightly eerie and bright, then a thin high tone swells after them like a held breath. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "influence": 0.7
+    },
+    {
+      "id": "boss.impact.chime",
+      "ko": "보스 패턴 떨어짐 — 종: 땡 + 쿵",
+      "seconds": 2.2,
+      "text": "A loud bright metal bell strikes once with a clear piercing clang, over a short low thump, the ring shimmering slightly out of tune as it fades."
+    }
+  ]
+}

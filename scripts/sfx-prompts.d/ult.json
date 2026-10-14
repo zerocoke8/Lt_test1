@@ -1,0 +1,509 @@
+{
+  "batch": "ult",
+  "format": "mp3_44100_64",
+  "sounds": [
+    {
+      "id": "ult.guardian.cutin",
+      "ko": "가디언 궁극기 컷인 — 강철 방패 + 장조 화음 상승",
+      "seconds": 2.7,
+      "noStyle": true,
+      "text": "Heroic ultimate-skill cut-in sting for a cute ghost-story mobile game: a fast half-second rising whoosh, then the heavy clank of an iron tower shield on stone and a bold brassy major chord that swells up an octave and rings out. Punchy and clean, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.guardian.rally",
+      "ko": "가디언 궁극기 0.45 — 적 끌어당김 + 아군 보호막",
+      "seconds": 0.7,
+      "text": "A heavy iron guardian drags enemies inward: a deep sucking whoosh that sweeps down in pitch toward the center, then three quick bright metallic pings as glowing shields snap onto allies."
+    },
+    {
+      "id": "ult.guardian.citadel",
+      "ko": "가디언 궁극기 0.85 — 성채 낙하",
+      "seconds": 2.5,
+      "text": "A giant hexagonal stone-and-iron fortress slams down from the sky: a huge deep boom with a rumbling crash of stone and a low heavy iron ring that slowly decays."
+    },
+    {
+      "id": "ult.guardian.barrier",
+      "ko": "가디언 궁극기 — 결계 돔 6초 (반복)",
+      "seconds": 4,
+      "loop": true,
+      "influence": 0.35,
+      "text": "Seamless steady hum of a glowing protective energy dome over an iron shield: a low warm drone with a slow gentle pulse and a faint metallic shimmer, constant level, no start or end hit."
+    },
+    {
+      "id": "ult.paladin.cutin",
+      "ko": "팔라딘 궁극기 컷인 — 금빛 장조 화음 + 성당 종",
+      "seconds": 3.2,
+      "noStyle": true,
+      "text": "Radiant holy-knight ultimate cut-in sting for a cute mobile game: a gilded steel sword drawn with a bright ringing shing, then a big peal of cathedral bells over a bold triumphant pipe-organ major chord, glowing and grand. Clean, no speech, no vocals, no lyrics, no background noise."
+    },
+    {
+      "id": "ult.paladin.spear",
+      "ko": "팔라딘 궁극기 — 빛의 창 꽂힘 (8번)",
+      "seconds": 0.5,
+      "text": "A single spear of holy light streaks down and stabs the ground: a fast descending whistle ending in a small crisp metallic tick with a tiny golden sparkle."
+    },
+    {
+      "id": "ult.paladin.tribunal",
+      "ko": "팔라딘 궁극기 1.20 — 대심판 빛의 십자가",
+      "seconds": 2.8,
+      "text": "A colossal cross of holy light erupts from the ground: a deep earth-shaking boom and bright crash, then a cluster of ringing golden church bells with a long shimmering tail."
+    },
+    {
+      "id": "ult.warden.cutin",
+      "ko": "워든 궁극기 컷인 — 사슬 소용돌이 + 단조",
+      "seconds": 2.8,
+      "noStyle": true,
+      "text": "Grim jailer ultimate cut-in sting for a cute ghost-story mobile game: heavy iron chains whirl around in a full circle, rattling faster and faster over a dark rising swell, landing on a low ominous minor chord. Punchy, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.warden.cage",
+      "ko": "워든 궁극기 0.90 — 철창 낙하",
+      "seconds": 2.3,
+      "text": "A huge iron prison cage drops and slams shut: a massive clanging metal impact with deep bell-like resonance, a low boom and rattling chains, ringing for about a second."
+    },
+    {
+      "id": "ult.warden.prison",
+      "ko": "워든 궁극기 — 사슬 감옥 5초 (반복)",
+      "seconds": 4,
+      "loop": true,
+      "influence": 0.35,
+      "text": "Seamless steady loop of an iron chain prison holding enemies: a dense, full, loud low dark ominous drone that stays at one constant level, with soft chain rattles blended into it and no sharp clicks or spikes, no start or end hit."
+    },
+    {
+      "id": "ult.warden.release",
+      "ko": "워든 궁극기 5.90 — 감옥 해방",
+      "seconds": 2,
+      "text": "Heavy iron chains burst apart: a quick cascade of rising metallic pings as chain links snap, a fast whoosh and a deep boom."
+    },
+    {
+      "id": "ult.blade.cutin",
+      "ko": "블레이드 궁극기 컷인 — 칼 뽑는 쇳소리 + 저음 낙하",
+      "seconds": 2.3,
+      "noStyle": true,
+      "text": "Sharp swordmaster ultimate cut-in sting for a cute mobile game: a thin katana drawn from its sheath with a long bright metallic ring that grows harsher, a fast airy whoosh, then a low heavy drop. Cool and crisp, no music, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.blade.hop",
+      "ko": "블레이드 궁극기 — 순보 베기 (5번)",
+      "seconds": 0.5,
+      "text": "One lightning-fast teleport slash: a tiny click and a short bright sword 'ting', very quick."
+    },
+    {
+      "id": "ult.blade.storm",
+      "ko": "블레이드 궁극기 — 칼날 폭풍 한 타 (8번)",
+      "seconds": 0.5,
+      "text": "One quick blade in a whirling sword storm: a very short sharp air-slicing swish with a faint low whoom underneath."
+    },
+    {
+      "id": "ult.blade.issen",
+      "ko": "블레이드 궁극기 2.45 — 일섬 (화면 가르기)",
+      "seconds": 2.6,
+      "text": "One decisive sword stroke that cuts across the whole screen, starting at the very first moment with no silence: a sharp tearing 'shaaak' slash together with a deep thud, the loudest part of the sound, then a long clean high steel ring fading out."
+    },
+    {
+      "id": "ult.berserker.cutin",
+      "ko": "버서커 궁극기 컷인 — 포효 그워어",
+      "seconds": 2.3,
+      "text": "Savage warrior ultimate cut-in: a deep distorted beastly monster roar-growl, rough and powerful, not a human voice and no words, over a rumbling earth tremor, about one second then fading."
+    },
+    {
+      "id": "ult.berserker.roar",
+      "ko": "버서커 궁극기 0.45 — 포효 충격",
+      "seconds": 0.8,
+      "text": "A shockwave from a mighty roar slams outward: a deep heavy 'kwoong' impact with a rough distorted low boom and a short burst of air."
+    },
+    {
+      "id": "ult.berserker.frenzy",
+      "ko": "버서커 궁극기 — 광란 8초 심장 박동 (반복)",
+      "seconds": 3,
+      "loop": true,
+      "influence": 0.35,
+      "text": "Seamless loop of a strong steady heartbeat: four evenly spaced deep thumping beats at 80 beats per minute, low and muffled, with faint crackling embers, no start or end hit."
+    },
+    {
+      "id": "ult.berserker.finale",
+      "ko": "버서커 궁극기 7.65 준비 → 8.25 마무리 일격",
+      "seconds": 3.4,
+      "text": "A berserker's final axe blow: a quiet rising swell with a speeding heartbeat for about 0.8 seconds, then ONE huge ground-splitting crash of cracking earth and bursting lava, by far the loudest moment, then a low gong ring and a rumbling fade. No repeated hits."
+    },
+    {
+      "id": "ult.shadow.cutin",
+      "ko": "섀도우 궁극기 컷인 — 비조화 종 + 속삭임",
+      "seconds": 2.5,
+      "noStyle": true,
+      "text": "Eerie shadow-assassin ultimate cut-in sting for a cute ghost-story mobile game: a dissonant cold temple-bell clang with uneasy overtones and a faint wordless ghostly whisper swirling around it, ink-dark and mysterious, ringing out. No speech, no words, no melody, no background noise."
+    },
+    {
+      "id": "ult.shadow.dance",
+      "ko": "섀도우 궁극기 — X자 베기 (6번)",
+      "seconds": 0.5,
+      "text": "One quick shadow slash: a short dark whoosh ending in a crisp thin cut."
+    },
+    {
+      "id": "ult.shadow.moon",
+      "ko": "섀도우 궁극기 1.25 어두워짐 → 1.60 월영참",
+      "seconds": 2.3,
+      "text": "A crescent-moon slash from the shadows: one muffled heartbeat and a short eerie rising tone for a third of a second, then a sharp vertical slice, a dark boom and shattering glass shards ringing away."
+    },
+    {
+      "id": "ult.ranger.cutin",
+      "ko": "레인저 궁극기 컷인 — 역방향 바람 + 맑은 싱",
+      "seconds": 2.7,
+      "noStyle": true,
+      "text": "Bright wind-archer ultimate cut-in sting for a cute mobile game: a reversed rushing gust of wind sucking in, then three clear high crystalline 'shing' tones and an open airy suspended chord, fresh and soaring. No speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.ranger.barrage",
+      "ko": "레인저 궁극기 — 연사 한 발 (12번)",
+      "seconds": 0.5,
+      "text": "One arrow fired fast from a wooden bow: a short taut bowstring twang and a quick airy swish."
+    },
+    {
+      "id": "ult.ranger.rain",
+      "ko": "레인저 궁극기 — 하늘로 한 발 → 화살비 5발",
+      "seconds": 0.7,
+      "text": "A quiet arrow shot high into the sky with a soft rising whistle for about 0.4 seconds, then five crisp loud arrows patter down in fast succession, tick-tick-tick-tick-tick; the falling arrows are the loudest part."
+    },
+    {
+      "id": "ult.ranger.skyshot",
+      "ko": "레인저 궁극기 2.45 반짝 → 2.75 천공시",
+      "seconds": 2.3,
+      "text": "A giant arrow drops from the sky: a brief high twinkling glint, then a powerful descending boom impact with a deep thump and a bright critical-hit 'ting', followed by a soft feathery whoosh."
+    },
+    {
+      "id": "ult.mage.cutin",
+      "ko": "메이지 궁극기 컷인 — 수정 종 세 음",
+      "seconds": 3.1,
+      "noStyle": true,
+      "text": "Icy arcane ultimate cut-in sting for a cute mobile game: a quick rising magical shimmer, then three clear crystal-glass bell tones ringing one after another in a cold minor mood, with a frosty sparkle tail. No speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.mage.blizzard",
+      "ko": "메이지 궁극기 — 눈보라 4초 (반복)",
+      "seconds": 4,
+      "loop": true,
+      "influence": 0.35,
+      "text": "Seamless loop of a magical blizzard: a steady howling icy wind with swirling snow hiss and a slow gentle sweep, constant level, no start or end hit."
+    },
+    {
+      "id": "ult.mage.tick",
+      "ko": "메이지 궁극기 — 눈보라 카운트다운 틱",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "One crisp icy countdown click, like a tiny frozen clock tick, very short and dry."
+    },
+    {
+      "id": "ult.mage.freeze",
+      "ko": "메이지 궁극기 4.45 — 얼림",
+      "seconds": 0.8,
+      "text": "Enemies freeze solid: a fast crackling crunch of ice crystals forming, ending in a clear high glassy ring."
+    },
+    {
+      "id": "ult.mage.shatter",
+      "ko": "메이지 궁극기 4.85 — 얼음 깨짐",
+      "seconds": 2.1,
+      "text": "A huge block of ice shatters: a bright explosive crack with a dozen glassy ice shards tinkling and scattering, a deep thud underneath, then a soft frosty sparkle."
+    },
+    {
+      "id": "ult.gunner.cutin",
+      "ko": "거너 궁극기 컷인 — 무전 삐삐 + 신호탄",
+      "seconds": 2.6,
+      "noStyle": true,
+      "text": "Artillery-support ultimate cut-in for a cute mobile game: a radio click and two short electronic beeps, then a signal flare pops and hisses upward with a rushing whoosh over a low dark tone. Punchy, no music, no speech, no voices, no background noise."
+    },
+    {
+      "id": "ult.gunner.shells",
+      "ko": "거너 궁극기 — 포탄 한 발 (10번)",
+      "seconds": 0.5,
+      "text": "One small artillery shell: a short falling whistle then a punchy little explosion pop."
+    },
+    {
+      "id": "ult.gunner.heavy",
+      "ko": "거너 궁극기 1.94 휘파람 → 2.40 대구경 포격",
+      "seconds": 2.8,
+      "text": "Heavy-caliber artillery strike: a loud falling whistle for about half a second, then a massive deep explosion boom with a rumbling low end and a crackling debris tail."
+    },
+    {
+      "id": "ult.cleric.cutin",
+      "ko": "클레릭 궁극기 컷인 — 깃털 바람 + 성스러운 화음",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Angelic ultimate cut-in sting for a cute mobile game: soft fluttering feathers in a gentle rising breeze, a harp-like glissando sweeping up into a warm soft string-pad major chord with tiny sparkling chimes, heavenly and serene. No speech, no vocals, no lyrics, no background noise."
+    },
+    {
+      "id": "ult.cleric.grace",
+      "ko": "클레릭 궁극기 0.45 — 은총 (모든 아군 회복)",
+      "seconds": 2.5,
+      "noStyle": true,
+      "text": "A heavenly burst of healing light washes over a whole party in a cute mobile game: a soft airy whoosh blooming into a gentle harp glissando and a warm shimmering major chord with soft bronze bell sparkles, calm and radiant. No speech, no vocals, no lyrics, no background noise."
+    },
+    {
+      "id": "ult.cleric.judgement",
+      "ko": "클레릭 궁극기 — 심판 고리 (3번, 마지막 크게)",
+      "seconds": 1.5,
+      "text": "One expanding ring of holy judgement: a deep soft thump with a warm resonant bell tone ringing out."
+    },
+    {
+      "id": "ult.medic.cutin",
+      "ko": "메딕 궁극기 컷인 — 사이렌",
+      "seconds": 0.9,
+      "text": "Short emergency siren: a cute two-tone electronic siren alternating high and low twice, bright and urgent."
+    },
+    {
+      "id": "ult.medic.golden",
+      "ko": "메딕 궁극기 0.45 — 골든 아워 (두근 + 아드레날린)",
+      "seconds": 2.3,
+      "text": "Golden-hour adrenaline rush: two strong heartbeat thumps, a bright healing chime sparkle, then a quick rising energetic whoosh."
+    },
+    {
+      "id": "ult.medic.siren",
+      "ko": "메딕 궁극기 — 사이렌 회복 펄스 (3번)",
+      "seconds": 0.7,
+      "text": "One healing pulse from a medic: a short electronic monitor beep followed by a bright gentle chime."
+    },
+    {
+      "id": "ult.exorcist.cutin",
+      "ko": "퇴마사 궁극기 컷인 — 붓질 + 범종",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Korean exorcist ultimate cut-in sting for a cute ghost-story mobile game: a swift ink brush stroke swishing across rice paper, then one deep resonant temple bell bong with a long low hum, solemn and eerie. No speech, no vocals, no melody, no background noise."
+    },
+    {
+      "id": "ult.exorcist.greatseal",
+      "ko": "퇴마사 궁극기 0.45 — 대봉인 (귀신 속삭임)",
+      "seconds": 2.6,
+      "text": "Starts instantly, no silence at the start: at the very first moment a giant sealing circle of paper talismans slams down with a deep heavy thud, the loudest part of the sound; then layered faint wordless ghostly whispers and breathy hisses swirl and fade away, eerie but not scary."
+    },
+    {
+      "id": "ult.exorcist.storm",
+      "ko": "퇴마사 궁극기 — 부적 폭풍 3초 (반복)",
+      "seconds": 3,
+      "loop": true,
+      "influence": 0.35,
+      "text": "Seamless loop of a storm of paper talismans: rapid fluttering and flapping of many paper charms in a whirling wind, a steady fast trembling texture, constant level, no start or end hit."
+    },
+    {
+      "id": "ult.exorcist.destroy",
+      "ko": "퇴마사 궁극기 3.50 — 멸 (북 + 징)",
+      "seconds": 2.9,
+      "text": "Final exorcism strike, starting instantly: a big deep ceremonial drum hit with a booming low end and a dark ringing gong, followed by crackling burning paper."
+    },
+    {
+      "id": "ult.bard.cutin",
+      "ko": "바드 궁극기 컷인 — 상승 아르페지오",
+      "seconds": 2.1,
+      "noStyle": true,
+      "text": "Cheerful bard ultimate cut-in sting for a cute mobile game: a quick bright rising five-note plucked-lute arpeggio in a major key with a sweeping airy whoosh, sparkly and uplifting. No speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.bard.choir",
+      "ko": "바드 궁극기 0.45 — 대합창 (아군 버프)",
+      "seconds": 2.7,
+      "noStyle": true,
+      "text": "Grand encore for a cute mobile game: a full bright major chord strummed on many plucked lutes at once, a tambourine shake and a rising swell of bowed strings, with a twinkling chime on top, festive and uplifting. No speech, no vocals, no lyrics, no background noise."
+    },
+    {
+      "id": "ult.bard.beat",
+      "ko": "바드 궁극기 — 음파 박자 (1·2번째)",
+      "seconds": 1,
+      "noStyle": true,
+      "text": "A loud single thump of a padded mallet hitting a big wooden box, with a sharp hand-clap snap on top, dry and short. Single isolated sound effect, no music, no vocals.",
+      "influence": 0.8
+    },
+    {
+      "id": "ult.bard.beat.last",
+      "ko": "바드 궁극기 — 마지막 박자 피날레",
+      "seconds": 2.2,
+      "noStyle": true,
+      "text": "Final big finale beat for a cute mobile game: a punchy kick drum with a splashy crash cymbal and a deep low bass note ringing out, triumphant. No speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.chrono.cutin",
+      "ko": "크로노 궁극기 컷인 — 태엽 감기",
+      "seconds": 2.7,
+      "noStyle": true,
+      "text": "Time-stop ultimate cut-in sting for a cute mobile game: a clockwork mechanism winding up with a ratchet clicking faster and faster, a whoosh, then an open suspended chord ringing with a mysterious glow. No speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.chrono.stasis",
+      "ko": "크로노 궁극기 0.45 — 시간 정지 (테이프 멈춤 + 깊은 종)",
+      "seconds": 3.3,
+      "text": "Time freezes: a tape-stop effect with the pitch sliding down and slowing to a halt, then a single deep resonant clock bell tolls and rings long."
+    },
+    {
+      "id": "ult.chrono.tock",
+      "ko": "크로노 궁극기 — 정지 중 1초마다 초침",
+      "seconds": 0.5,
+      "text": "One heavy clock tock: a deep wooden-metal tick of a giant clock hand with a low thud, dry and short."
+    },
+    {
+      "id": "ult.chrono.resume",
+      "ko": "크로노 궁극기 — 정지 끝 (유리 파열)",
+      "seconds": 1.9,
+      "text": "Time resumes all at once: a loud sharp clock tick, a big shattering burst of glass, and a deep boom."
+    },
+    {
+      "id": "ult.puppeteer.cutin",
+      "ko": "퍼펫티어 궁극기 컷인 — 무대막 + 오르골",
+      "seconds": 2.1,
+      "noStyle": true,
+      "text": "Creepy-cute puppet-theater ultimate cut-in sting: a heavy velvet stage curtain swooshing, then a short five-note music box melody, slightly eerie and playful. No speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.puppeteer.open",
+      "ko": "퍼펫티어 궁극기 0.45 — 개막 + 대형 인형 4개",
+      "seconds": 2.1,
+      "noStyle": true,
+      "text": "A puppet show opens in a cute ghost-story mobile game: a velvet curtain swishes open, a short two-note brass 'ta-da' fanfare, then four quick bouncy cartoon pops as big wooden dolls appear. Playful and slightly eerie, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.puppeteer.charm",
+      "ko": "퍼펫티어 궁극기 0.45 — 조종 실 매달기",
+      "seconds": 0.5,
+      "text": "Four quick high taut puppet-string plinks, tight and bright, as control threads attach."
+    },
+    {
+      "id": "ult.puppeteer.curtaincall",
+      "ko": "퍼펫티어 궁극기 3.00 — 커튼콜",
+      "seconds": 2.6,
+      "text": "Curtain call: puppet strings snap, a deep boom shockwave, then a short soft round of distant hand clapping fading out, no cheering voices."
+    },
+    {
+      "id": "ult.ready",
+      "ko": "궁극기 게이지 가득 참",
+      "seconds": 0.8,
+      "influence": 0.6,
+      "text": "Ultimate ready notification: a quick rising sweep ending in a clear bright bell ding, exciting and sparkly."
+    },
+    {
+      "id": "ult.remind",
+      "ko": "궁극기 가득인데 10초 안 씀 (작은 알림)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A tiny single soft high 'ting' reminder ping, very short and quiet."
+    },
+    {
+      "id": "ult._role.tank",
+      "ko": "탱커 궁극기 기본 (단계 소리가 없을 때)",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Generic tank ultimate for a cute mobile game: a half-second rising whoosh, then a heavy deep boom with a stony rumble and a broad low brassy major chord ringing out. Punchy, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult._role.melee",
+      "ko": "근접딜러 궁극기 기본 (단계 소리가 없을 때)",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Generic fighter ultimate for a cute mobile game: a fast rising swish, then a sharp punchy impact with a sword-like metallic ring and a bold major chord tail. Punchy, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult._role.ranged",
+      "ko": "원거리딜러 궁극기 기본 (단계 소리가 없을 때)",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Generic marksman ultimate for a cute mobile game: a quick rising whistle, then a crisp blast impact with a deep thump and a bright airy major chord tail. Punchy, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult._role.healer",
+      "ko": "힐러 궁극기 기본 (단계 소리가 없을 때)",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Generic healer ultimate for a cute mobile game: a soft rising shimmer, then a gentle warm thump and a glowing bright major chord with sparkling chimes. Calm, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult._role.support",
+      "ko": "서포터 궁극기 기본 (단계 소리가 없을 때)",
+      "seconds": 3,
+      "noStyle": true,
+      "text": "Generic support ultimate for a cute mobile game: a bouncy rising swoop, then a round soft thump and a cheerful plucky major chord. Playful, no speech, no vocals, no background noise."
+    },
+    {
+      "id": "ult.guardian.tick",
+      "ko": "가디언 궁극기 연타 틱 — 방패 쇳소리",
+      "seconds": 1,
+      "text": "A very short metallic clank of a steel shield rim being struck, tiny and dry. One single loud, sharp, clearly audible sound right at the very beginning, then silence.",
+      "influence": 0.8
+    },
+    {
+      "id": "ult.paladin.tick",
+      "ko": "팔라딘 궁극기 연타 틱 — 작은 성스러운 종",
+      "seconds": 0.6,
+      "text": "A tiny bright clink of a gilded steel gauntlet tapping a blade, with a faint hot holy sizzle, very short. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "influence": 0.7
+    },
+    {
+      "id": "ult.warden.tick",
+      "ko": "워든 궁극기 연타 틱 — 사슬 짤랑",
+      "seconds": 0.5,
+      "text": "A quick little rattle of heavy iron chain links, very short."
+    },
+    {
+      "id": "ult.blade.tick",
+      "ko": "블레이드 궁극기 연타 틱 — 칼날 팅",
+      "seconds": 0.5,
+      "text": "A tiny bright sword-blade 'ting', thin steel, very short."
+    },
+    {
+      "id": "ult.berserker.tick",
+      "ko": "버서커 궁극기 연타 틱 — 묵직한 흙 쿵",
+      "seconds": 0.5,
+      "text": "A short dull earthy thump of an axe hitting dirt, low and gritty."
+    },
+    {
+      "id": "ult.shadow.tick",
+      "ko": "섀도우 궁극기 연타 틱 — 그림자 스윽",
+      "seconds": 0.5,
+      "text": "A soft dark swelling swish of shadow, very short."
+    },
+    {
+      "id": "ult.ranger.tick",
+      "ko": "레인저 궁극기 연타 틱 — 바람 휙",
+      "seconds": 0.5,
+      "text": "A quick airy flick of wind, like a feather-light arrow passing, very short."
+    },
+    {
+      "id": "ult.gunner.tick",
+      "ko": "거너 궁극기 연타 틱 — 화약 펑",
+      "seconds": 0.5,
+      "text": "A tiny gunpowder pop with a small low thud, very short."
+    },
+    {
+      "id": "ult.cleric.tick",
+      "ko": "클레릭 궁극기 연타 틱 — 맑은 작은 종",
+      "seconds": 0.5,
+      "text": "A tiny soft ting of a small warm bronze hand bell with an airy glow, very short."
+    },
+    {
+      "id": "ult.medic.tick",
+      "ko": "메딕 궁극기 연타 틱 — 삑삑",
+      "seconds": 0.5,
+      "text": "Two quick soft electronic medical beeps, the second slightly higher, very short."
+    },
+    {
+      "id": "ult.exorcist.tick",
+      "ko": "퇴마사 궁극기 연타 틱 — 부적 슥 + 나무 탁",
+      "seconds": 0.5,
+      "text": "A quick flick of a paper talisman followed by a small wooden click, very short."
+    },
+    {
+      "id": "ult.bard.tick",
+      "ko": "바드 궁극기 연타 틱 — 류트 퉁",
+      "seconds": 1,
+      "noStyle": true,
+      "text": "One short damped lute string pluck, a muted dull thump of a string stopped by the palm. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals. One single loud, sharp, clearly audible sound right at the very beginning, then silence.",
+      "influence": 0.8
+    },
+    {
+      "id": "ult.chrono.tick",
+      "ko": "크로노 궁극기 연타 틱 — 똑딱",
+      "seconds": 0.5,
+      "text": "A quick clockwork tick-tock pair of crisp small clicks, very short."
+    },
+    {
+      "id": "ult.puppeteer.tick",
+      "ko": "퍼펫티어 궁극기 연타 틱 — 실 튕김",
+      "seconds": 0.5,
+      "text": "A short twangy pluck of a taut puppet string with a slight wobble, very short."
+    }
+  ]
+}

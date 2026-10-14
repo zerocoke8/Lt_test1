@@ -1,0 +1,548 @@
+{
+  "batch": "combat",
+  "format": "mp3_44100_64",
+  "sounds": [
+    {
+      "id": "char.revive",
+      "ko": "내 캐릭터 부활",
+      "seconds": 2.4,
+      "noStyle": true,
+      "text": "A small cute ghost hero comes back to life: four quick rising soft chime notes and one warm clear bell that rings out with a gentle sparkle tail. Hopeful and light, slightly eerie, short mobile game sting, clean, no speech, no vocals."
+    },
+    {
+      "id": "doll.burst",
+      "ko": "퍼펫티어 종이 인형이 터짐",
+      "seconds": 0.5,
+      "text": "A paper doll bursts: a crisp papery rip and a soft pop, then three tiny wooden clacks of scraps falling."
+    },
+    {
+      "id": "atk.shot.turret",
+      "ko": "포탑 골렘의 포탑이 쏨",
+      "seconds": 0.5,
+      "text": "A tiny stone-and-brass toy turret fires: one short bright 'pew' with a small mechanical click, dropping slightly in pitch."
+    },
+    {
+      "id": "hit.multi",
+      "ko": "한 번에 여러 적이 맞음 (4마리 이상)",
+      "seconds": 0.5,
+      "text": "Many small hits land almost together on a crowd of squishy ghosts: a rapid flurry of five or six soft rubbery thwacks, bouncy and quick."
+    },
+    {
+      "id": "hit.weak",
+      "ko": "돌발 괴담 약점 맞힘 (×2)",
+      "seconds": 0.5,
+      "text": "Hitting a weak spot: a bright golden coin 'ching' with a quick sparkling ring over a small punchy tap."
+    },
+    {
+      "id": "hurt.lowhp",
+      "ko": "내 캐릭터 HP 25% 아래 (두근두근)",
+      "seconds": 0.5,
+      "text": "One soft low heartbeat, 'lub-dub', muffled and tense, warning of low health."
+    },
+    {
+      "id": "heal.big",
+      "ko": "크게 회복 (최대 HP 15% 이상)",
+      "seconds": 1.8,
+      "text": "A big healing burst: three quick rising soft bell chimes and a warm shimmering sparkle that fades gently."
+    },
+    {
+      "id": "heal.drain",
+      "ko": "흡혼 혼불 — 생명을 빨아옴",
+      "seconds": 0.5,
+      "text": "A ghostly wisp of life being sucked back in: a reversed airy breath that swells and ends abruptly, eerie and hollow."
+    },
+    {
+      "id": "bench.heal",
+      "ko": "대기 카드 회복",
+      "seconds": 0.5,
+      "text": "Two tiny soft glassy pings, low then high, like a small healing notification."
+    },
+    {
+      "id": "bench.buff",
+      "ko": "대기 카드 버프",
+      "seconds": 0.5,
+      "text": "One clear high golden bell 'ting' with a short shimmer."
+    },
+    {
+      "id": "fx.shield",
+      "ko": "보호막 생김",
+      "seconds": 0.5,
+      "text": "A magic bubble shield forms: a quick rising glassy 'vwip' then three tiny crystal glints."
+    },
+    {
+      "id": "fx.stun",
+      "ko": "기절 걸림",
+      "seconds": 0.5,
+      "text": "A cartoon bonk on the head followed by three quick high chirps of little birds circling, cute and dizzy."
+    },
+    {
+      "id": "fx.frost",
+      "ko": "둔화 (얼음)",
+      "seconds": 0.5,
+      "text": "A quick crackle of fine ice crystals forming, crisp frosty sparkle, very short."
+    },
+    {
+      "id": "fx.curse",
+      "ko": "저주 (공격력 감소·받는 피해 증가·흡혼)",
+      "seconds": 1,
+      "text": "A curse settles on a target: a low wobbling hollow tone with a ghostly echo repeating and fading, uncanny and sinking."
+    },
+    {
+      "id": "fx.buff",
+      "ko": "아군 버프",
+      "seconds": 0.5,
+      "text": "A quick power-up: three rising soft plucked tones ending bright and upbeat."
+    },
+    {
+      "id": "fx.cleanse",
+      "ko": "정화",
+      "seconds": 0.5,
+      "text": "An airy upward sweep of sparkles washing something clean, ending in one bright small ping."
+    },
+    {
+      "id": "fx.knock",
+      "ko": "밀려남",
+      "seconds": 0.5,
+      "text": "A short heavy shove impact: a low punchy thud with a small air push."
+    },
+    {
+      "id": "fx.pull",
+      "ko": "끌어당김",
+      "seconds": 0.5,
+      "text": "Something being sucked inward: a short swelling whoosh of air that narrows and darkens toward a point."
+    },
+    {
+      "id": "fx.taunt",
+      "ko": "도발 걸림",
+      "seconds": 0.5,
+      "text": "A short blunt square buzzer honk, flat and attention-grabbing, like a cartoon taunt horn."
+    },
+    {
+      "id": "fx.tether",
+      "ko": "묶임·속박",
+      "seconds": 0.5,
+      "text": "Small iron chain links rattling tight around a target: a quick metallic jingle-clank."
+    },
+    {
+      "id": "fx.charm",
+      "ko": "조종 (매혹)",
+      "seconds": 0.5,
+      "text": "A thin taut string plucked: two delicate high glassy pings, sweet but slightly eerie."
+    },
+    {
+      "id": "fx.summon",
+      "ko": "소환",
+      "seconds": 0.5,
+      "text": "Something small pops into existence: a tiny wooden click and a short soft rising 'boop'."
+    },
+    {
+      "id": "char.down",
+      "ko": "내 캐릭터 쓰러짐 — 혼이 빠져나감",
+      "seconds": 2.6,
+      "text": "A small ghost hero falls and its soul drifts away: a slow sliding downward hollow tone, a dark minor bell toll, and a faint wordless breathy whisper fading into a soft reverb tail. Sad and eerie, not violent."
+    },
+    {
+      "id": "char.down.far",
+      "ko": "다른 플레이어 캐릭터 쓰러짐",
+      "seconds": 2.2,
+      "text": "A distant muffled version of a ghost hero falling: a soft sliding downward tone and a dark minor bell toll, quieter and further away, fading gently."
+    },
+    {
+      "id": "char.revive.all",
+      "ko": "층 클리어로 모두 부활",
+      "seconds": 2.5,
+      "noStyle": true,
+      "text": "Everyone comes back to life: a warm bright major chord of soft bells and gentle pads, a second higher sparkling chord layered on top, swelling and ringing out with shimmer. Uplifting short mobile game sting, clean, no speech, no vocals."
+    },
+    {
+      "id": "pet.frog_bomb",
+      "ko": "불꽃 개구리 시전 — 개굴 + 떨어지는 휘파람",
+      "seconds": 0.6,
+      "text": "A cute little frog croaks 'ribbit', then a whistling falling bomb sound slides downward."
+    },
+    {
+      "id": "pet.frog_bomb.impact",
+      "ko": "불꽃 개구리 폭발",
+      "seconds": 0.6,
+      "text": "A cartoon firecracker frog explodes: a fat, round, full-bodied boom with a thick low thump that lasts a moment and crackling sparks scattering, punchy and loud, not a thin pop."
+    },
+    {
+      "id": "pet.fairy_heal",
+      "ko": "치유 요정 시전",
+      "seconds": 1.7,
+      "text": "A tiny fairy sprinkles healing dust: a quick rising cascade of eight delicate glass sparkle chimes with a soft airy shimmer tail."
+    },
+    {
+      "id": "pet.turtle_guard",
+      "ko": "수호 거북 시전 — 등껍질 똑 + 보호막",
+      "seconds": 0.5,
+      "text": "A small turtle taps its wooden shell 'tok', then a protective bubble rises with a glassy 'vwip' and a tiny ping."
+    },
+    {
+      "id": "pet.owl_frost",
+      "ko": "서리 부엉이 시전",
+      "seconds": 1.1,
+      "text": "A soft little owl hoots twice, 'hoo hoo', then a burst of icy chimes and crackling frost crystals."
+    },
+    {
+      "id": "pet.golem_turret",
+      "ko": "포탑 골렘 시전 — 포탑 설치",
+      "seconds": 0.5,
+      "text": "A tiny stone golem sets up a turret: two quick mechanical clicks and a short rising servo whirr."
+    },
+    {
+      "id": "pet.cat_void",
+      "ko": "블랙홀 고양이 시전",
+      "seconds": 1,
+      "text": "A small cat gives a short wobbly meow, then a dark swirling suction pulls inward and ends in a deep soft thump."
+    },
+    {
+      "id": "pet.drum_raccoon",
+      "ko": "전투북 너구리 시전 — 북 세 번",
+      "seconds": 0.5,
+      "text": "Three quick punchy hits on a small taiko-style war drum, 'dum dum dum', tight and energetic."
+    },
+    {
+      "id": "pet.rabbit_time",
+      "ko": "시간 토끼 시전",
+      "seconds": 0.5,
+      "text": "A clock tick, a springy cartoon 'boing', then a quick flurry of tiny rising sparkles like time speeding up."
+    },
+    {
+      "id": "mon.spawn",
+      "ko": "몬스터 등장",
+      "seconds": 0.5,
+      "text": "A small spooky monster appears: a short low muffled puff and a soft dull thump from below."
+    },
+    {
+      "id": "mon.impact.circle",
+      "ko": "몬스터 예고 공격 떨어짐 — 원",
+      "seconds": 0.5,
+      "text": "A monster's area attack slams down in a circle: a round low boom with a short dusty rumble."
+    },
+    {
+      "id": "mon.impact.line",
+      "ko": "몬스터 예고 공격 떨어짐 — 직선·돌진",
+      "seconds": 0.5,
+      "text": "A fast straight lunge: a sharp passing whoosh that ends in a heavy low thud."
+    },
+    {
+      "id": "mon.impact.cone",
+      "ko": "몬스터 예고 공격 떨어짐 — 부채꼴",
+      "seconds": 0.5,
+      "text": "A wide spraying swipe: a gritty scattering burst of debris and air fanning outward."
+    },
+    {
+      "id": "mon.impact.ring",
+      "ko": "몬스터 예고 공격 떨어짐 — 고리·십자",
+      "seconds": 0.5,
+      "text": "A deep hollow ground thump that rolls outward like a shockwave ring."
+    },
+    {
+      "id": "mon.interrupt",
+      "ko": "기절로 몬스터 공격이 끊김 (끊김!)",
+      "seconds": 1.7,
+      "text": "Starts instantly, no silence at the start: a monster's charged attack is broken, at the very first moment a bright glass pane shatters into tinkling shards, the loudest part, followed by a clean ringing chime that fades."
+    },
+    {
+      "id": "mon.charge",
+      "ko": "몬스터 돌진 (휠체어 등)",
+      "seconds": 0.5,
+      "text": "A rusty wheelchair bursts forward: a sharp squeal of a small wheel and a rattling clatter of loose metal."
+    },
+    {
+      "id": "mon.blink",
+      "ko": "몬스터 순간이동",
+      "seconds": 0.5,
+      "text": "A ghost blinks away: a quick reversed whoosh that sucks in and cuts off sharply."
+    },
+    {
+      "id": "mon.heal",
+      "ko": "몬스터가 회복",
+      "seconds": 0.5,
+      "text": "One tiny dull electronic beep, like a cheap hospital monitor blip."
+    },
+    {
+      "id": "mon.death.phone",
+      "ko": "울리는 전화 처치",
+      "seconds": 0.5,
+      "text": "An old landline phone ring is cut short mid-ring, followed by a small soft puff of smoke."
+    },
+    {
+      "id": "mon.death.copy",
+      "ko": "복사 인간 처치 — 종이 찢김",
+      "seconds": 0.5,
+      "text": "A sheet of photocopy paper being quickly torn apart, crisp and papery."
+    },
+    {
+      "id": "mon.death.mannequin",
+      "ko": "마네킹 처치 — 플라스틱 딱딱",
+      "seconds": 0.5,
+      "text": "A plastic mannequin falls apart: three quick hollow plastic clacks rising slightly in pitch."
+    },
+    {
+      "id": "mon.death.eye",
+      "ko": "눈알 줄기 처치 — 철퍽",
+      "seconds": 0.5,
+      "text": "A cartoon eyeball creature pops: a short soft wet squelch, goofy rather than gory."
+    },
+    {
+      "id": "mon.death.vending",
+      "ko": "자판기 미믹 처치 — 깡통",
+      "seconds": 0.5,
+      "text": "A vending machine monster breaks: a hollow tin can clang with a small metallic rattle."
+    },
+    {
+      "id": "mon.death.umbrella",
+      "ko": "외발 우산 처치 — 천 펄럭",
+      "seconds": 0.5,
+      "text": "An old umbrella collapses: a quick fluttering flap of fabric and a soft rib snap."
+    },
+    {
+      "id": "mon.death.multi",
+      "ko": "한 번에 몬스터 여러 마리 처치",
+      "seconds": 0.5,
+      "text": "Several small spooky monsters vanish at once: a ripple of overlapping soft airy smoke poofs with a light sparkle at the end."
+    },
+    {
+      "id": "mid.spawn",
+      "ko": "중형보스 등장",
+      "seconds": 2.2,
+      "noStyle": true,
+      "text": "A mid-size horror boss appears in a cute ghost-story game: a short dissonant low brass stab, a deep boom and a swelling reversed cymbal rising into it, ominous with a short reverb tail. Mobile game sound effect, no speech, no vocals."
+    },
+    {
+      "id": "mid.windup",
+      "ko": "중형보스 공격 준비",
+      "seconds": 0.6,
+      "text": "A big monster winds up: a deep wobbling rising growl and rumble that swells with tension."
+    },
+    {
+      "id": "mid.death",
+      "ko": "중형보스 처치",
+      "seconds": 1.9,
+      "text": "A mid-size monster is defeated: a deep heavy boom and collapse, then a bright golden coin 'ching' with a sparkle as the reward drops."
+    },
+    {
+      "id": "copy.pop",
+      "ko": "복사 인간이 복사본으로 분열",
+      "seconds": 0.5,
+      "text": "A paper copy splits off: a quick papery slap and a small rising 'pop'."
+    },
+    {
+      "id": "enrage.heart",
+      "ko": "보스 광폭화 중 — 쿵쿵 반복",
+      "seconds": 4,
+      "loop": true,
+      "text": "A steady seamless loop of a deep tense heartbeat, 'lub-dub' about every 0.7 seconds, low and pounding, no start or end hit."
+    },
+    {
+      "id": "groggy.fill",
+      "ko": "그로기 게이지 오름",
+      "seconds": 0.5,
+      "text": "One small clean bell 'clink', bright and short, like filling a meter."
+    },
+    {
+      "id": "groggy.break",
+      "ko": "보스 그로기 시작 (스턴!)",
+      "seconds": 3.1,
+      "text": "Starts instantly, no silence at the start: a huge boss is staggered, at the very first moment a big satisfying glass shatter and a deep resonant gong strike hit together, the loudest part; then a heavy low tone slides down into a rumble with a long ringing tail."
+    },
+    {
+      "id": "groggy.stars",
+      "ko": "보스 그로기 중 — 머리 위 별 (반복)",
+      "seconds": 4,
+      "loop": true,
+      "text": "A seamless loop of tiny cartoon stars twinkling around a dizzy head: light high sparkle pings, about four per second, steady, no start or end hit."
+    },
+    {
+      "id": "groggy.recover",
+      "ko": "보스 그로기 끝",
+      "seconds": 0.7,
+      "text": "A big monster shakes off its daze: a low gravelly growl swelling then falling, with a rush of air."
+    },
+    {
+      "id": "amb.lobby",
+      "ko": "배경 — 로비·상가",
+      "seconds": 10,
+      "loop": true,
+      "noStyle": true,
+      "influence": 0.6,
+      "text": "Loud steady rumble of big ventilation fans and an escalator motor running in an empty mall at night, a constant low mechanical drone with a hollow echo. Seamless loop, no speech, no music."
+    },
+    {
+      "id": "amb.office",
+      "ko": "배경 — 사무실",
+      "seconds": 10,
+      "loop": true,
+      "noStyle": true,
+      "influence": 0.6,
+      "text": "Loud constant buzzing hum of old fluorescent ceiling lights in an empty office at night, a steady electrical drone with a faint flicker crackle. Seamless loop, no speech, no music."
+    },
+    {
+      "id": "amb.ward",
+      "ko": "배경 — 폐병동",
+      "seconds": 8,
+      "loop": true,
+      "noStyle": true,
+      "influence": 0.3,
+      "text": "Seamless ambience loop of an abandoned hospital ward: a low slow pulsing drone and a few sparse water drips echoing in a tiled hallway, cold and eerie. Steady texture with no start or end hit, no music, no speech, no vocals."
+    },
+    {
+      "id": "amb.rooftop",
+      "ko": "배경 — 옥상·이계",
+      "seconds": 10,
+      "loop": true,
+      "noStyle": true,
+      "influence": 0.6,
+      "text": "Loud, clearly audible steady background ambience loop, recorded close to the mic. Seamless ambience loop of a high city rooftop at night: steady hollow wind gently rising and falling, a faint otherworldly airy tone underneath. Steady texture with no start or end hit, no music, no speech, no vocals."
+    },
+    {
+      "id": "amb.boss",
+      "ko": "배경 — 보스층",
+      "seconds": 8,
+      "loop": true,
+      "noStyle": true,
+      "influence": 0.3,
+      "text": "Seamless ambience loop of a deep ominous low drone with a slow throbbing undertone, heavy and menacing, like something huge breathing in the dark. Steady texture with no start or end hit, no music, no speech, no vocals."
+    },
+    {
+      "id": "amb.goedam",
+      "ko": "배경 — 보상 고르기·괴담 방",
+      "seconds": 8,
+      "loop": true,
+      "noStyle": true,
+      "influence": 0.3,
+      "text": "Seamless ambience loop of an uncanny still room: two very low close tones beating slowly against each other in a soft wavering hum, quiet and unsettling. Steady texture with no start or end hit, no music, no speech, no vocals."
+    },
+    {
+      "id": "char.appear.tank",
+      "ko": "캐릭터 등장 (탱커)",
+      "seconds": 0.6,
+      "text": "A sturdy cute ghost hero drops onto the battlefield: a low heavy rising whoosh ending in a solid weighty thump."
+    },
+    {
+      "id": "char.appear.ranged",
+      "ko": "캐릭터 등장 (원거리딜러)",
+      "seconds": 0.6,
+      "text": "A nimble cute ghost hero lands lightly on the battlefield: a quick light whoosh ending in a crisp clicky snap, like a latch catching."
+    },
+    {
+      "id": "atk.swing.ranged",
+      "ko": "원거리딜러 근접 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A quick light swish of a wooden bow swatted at close range."
+    },
+    {
+      "id": "char.appear.healer",
+      "ko": "캐릭터 등장 (힐러)",
+      "seconds": 0.6,
+      "text": "A gentle cute ghost hero floats down onto the battlefield: a soft airy rising swell ending in a gentle glassy chime sparkle."
+    },
+    {
+      "id": "atk.swing.healer",
+      "ko": "힐러 근접 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A soft swoosh of a light wooden staff through the air with a faint tinkle of a tiny bell tied to it."
+    },
+    {
+      "id": "char.appear.support",
+      "ko": "캐릭터 등장 (서포터)",
+      "seconds": 0.6,
+      "text": "A playful cute ghost hero bounces onto the battlefield: a springy cartoon boing ending in a twinkly little pop."
+    },
+    {
+      "id": "atk.swing.support",
+      "ko": "서포터 근접 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A small baton flicked through the air: a quick whip with a springy rubbery twang at the end."
+    },
+    {
+      "id": "atk.shot.guardian",
+      "ko": "가디언 원거리 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A small iron shield edge flung forward: a short low whirl with a dull metallic ring."
+    },
+    {
+      "id": "atk.shot.paladin",
+      "ko": "팔라딘 원거리 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A gilded steel gauntlet flicks a small bolt of holy fire: a bright metallic shing with a short hot crackling sizzle."
+    },
+    {
+      "id": "atk.shot.warden",
+      "ko": "워든 원거리 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A heavy iron chain lashed out: a short low rattling whip with a dark metallic clink."
+    },
+    {
+      "id": "atk.shot.blade",
+      "ko": "블레이드 원거리 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A thin steel sword wave sent flying: a very quick sharp high ringing 'shing'."
+    },
+    {
+      "id": "atk.shot.berserker",
+      "ko": "버서커 원거리 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A crude heavy axe hurled end over end: a short low thick tumbling whoosh with a rough metallic edge."
+    },
+    {
+      "id": "atk.shot.shadow",
+      "ko": "섀도우 원거리 공격 (예비 — 지금은 거의 안 남)",
+      "seconds": 0.5,
+      "text": "A small shadow dagger thrown silently: a hushed dark swish with a faint muffled tick."
+    },
+    {
+      "id": "atk.shot.ranger",
+      "ko": "레인저 기본 공격 — 화살",
+      "seconds": 0.5,
+      "text": "A wooden bow releases a feathered arrow: a tight string snap and a quick rising airy whizz."
+    },
+    {
+      "id": "atk.shot.gunner",
+      "ko": "거너 기본 공격 — 화약",
+      "seconds": 0.5,
+      "text": "A small antique flintlock pistol fires: a crisp dry powder pop with a tiny low thump, toy-like and punchy."
+    },
+    {
+      "id": "atk.shot.cleric",
+      "ko": "클레릭 기본 공격 — 빛 구슬",
+      "seconds": 0.5,
+      "text": "A small orb of holy light is cast: a soft warm bell 'ting' with a gentle glow shimmer."
+    },
+    {
+      "id": "atk.shot.medic",
+      "ko": "메딕 기본 공격 — 주사기",
+      "seconds": 0.5,
+      "text": "A small syringe dart is fired: a quick light pneumatic 'pff' and a tiny bright glass-vial click."
+    },
+    {
+      "id": "atk.shot.exorcist",
+      "ko": "퇴마사 기본 공격 — 부적",
+      "seconds": 0.5,
+      "text": "A paper talisman flicked through the air: a crisp paper flutter and one small brass bell jingle, slightly eerie."
+    },
+    {
+      "id": "atk.shot.bard",
+      "ko": "바드 기본 공격 — 음표",
+      "seconds": 0.5,
+      "noStyle": true,
+      "text": "A single bright plucked lute string note sent flying, short and cheerful. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals."
+    },
+    {
+      "id": "atk.shot.chrono",
+      "ko": "크로노 기본 공격 — 시간 구슬",
+      "seconds": 0.5,
+      "text": "A small brass clockwork tick-tock and a quick glassy ping, like a tiny pocket-watch orb being launched."
+    },
+    {
+      "id": "atk.shot.puppeteer",
+      "ko": "퍼펫티어 기본 공격 — 실",
+      "seconds": 1,
+      "text": "A sharp loud twang of a tight thin wire plucked hard, a bright metallic ping that snaps forward. Single isolated sound effect, dry, no music.",
+      "influence": 0.8,
+      "noStyle": true
+    }
+  ]
+}

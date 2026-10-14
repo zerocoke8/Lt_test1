@@ -1,0 +1,470 @@
+{
+  "batch": "drag",
+  "format": "mp3_44100_64",
+  "sounds": [
+    {
+      "id": "drag.crunch",
+      "ko": "드래그로 적 4명 이상 맞힘 — 와장창 손맛",
+      "seconds": 0.5,
+      "text": "Satisfying crunchy multi-hit impact: a grainy gravel-like crunch layered over a short deep thump, like many small ghosts squashed at once."
+    },
+    {
+      "id": "drag.guardian.slam",
+      "ko": "가디언 드래그 — 방패 내려꽂기",
+      "seconds": 1.4,
+      "text": "A heavy iron tower shield slams down into a concrete floor: a deep boomy thud with a bright metallic clang, the steel rings briefly and dies out."
+    },
+    {
+      "id": "drag.guardian.charge",
+      "ko": "가디언 드래그 — 방패벽 패널이 차례로 켜짐",
+      "seconds": 0.5,
+      "text": "Six very quick tiny electronic blips rising step by step in pitch, like glowing blue hexagonal energy panels switching on one after another in a row."
+    },
+    {
+      "id": "drag.guardian.wave",
+      "ko": "가디언 드래그 — 성벽 파동 + 도발",
+      "seconds": 1.4,
+      "text": "A wide rushing shockwave bursting out to both sides from a planted iron shield, a rising heavy whoosh, with a short buzzy low taunting honk on top. Heavy and heroic."
+    },
+    {
+      "id": "drag.guardian.wall",
+      "ko": "가디언 드래그 — 방패벽 유지 (반복)",
+      "seconds": 4,
+      "loop": true,
+      "text": "Close steady buzzing hum of a flat wall of glowing blue hexagonal energy panels, tight and slightly high, with a faint electric crackle flickering along the edges. Seamless steady texture with no start or end hit."
+    },
+    {
+      "id": "drag.guardian.shatter",
+      "ko": "가디언 드래그 — 방패벽 패널이 깨짐",
+      "seconds": 0.5,
+      "text": "Translucent blue energy shield panels break apart in a fast dense burst: five glassy cracks blended into one full, thick, loud crunching shatter with tumbling shards, bright and full-bodied, not thin clicks."
+    },
+    {
+      "id": "drag.paladin.brand",
+      "ko": "팔라딘 드래그 — 금빛 낙인이 타 들어감",
+      "seconds": 0.5,
+      "text": "A golden holy brand burns into the ground: a hot crackling sizzle with a bright rising tone, like glowing gilded metal searing stone."
+    },
+    {
+      "id": "drag.paladin.blessing",
+      "ko": "팔라딘 드래그 — 아군 축복",
+      "seconds": 0.7,
+      "text": "Two soft bright holy chime notes rising one after the other, a small golden blessing sparkle."
+    },
+    {
+      "id": "drag.paladin.charge",
+      "ko": "팔라딘 드래그 — 빛기둥 모으기 (맥박 3번)",
+      "seconds": 0.5,
+      "text": "Holy light gathering before a strike: a rising radiant swell with three quick throbbing pulses growing stronger, tense build-up."
+    },
+    {
+      "id": "drag.paladin.pillar",
+      "ko": "팔라딘 드래그 — 거대 빛기둥 폭발",
+      "seconds": 1.8,
+      "text": "A huge pillar of holy light crashes down: a deep heavy boom with a sharp crack and bright ringing church-bell tones, followed by a short shower of tiny glittering sparkles."
+    },
+    {
+      "id": "drag.warden.hook",
+      "ko": "워든 드래그 — 사슬 투척 + 감아 당김",
+      "seconds": 0.6,
+      "text": "Heavy iron chains thrown out and yanked back: a dull thud, a fast accelerating rattle of chain links, a dragging swish and a hard metal clack at the end."
+    },
+    {
+      "id": "drag.warden.crush",
+      "ko": "워든 드래그 — 사슬 고리 조이기",
+      "seconds": 0.6,
+      "text": "A ring of heavy iron chains snaps tight and crushes: a deep heavy thump with a gritty earthy crunch, slightly distorted and grim."
+    },
+    {
+      "id": "drag.warden.fence",
+      "ko": "워든 드래그 — 사슬 울타리 (틱마다, 작게)",
+      "seconds": 0.5,
+      "text": "Very soft small jingle of loose hanging iron chain links with a faint low trembling rune hum underneath. Quiet and short."
+    },
+    {
+      "id": "drag.warden.drop",
+      "ko": "워든 드래그 — 쇠말뚝이 쓰러짐",
+      "seconds": 0.5,
+      "text": "Four heavy iron stakes toppling over one after another: loud full metallic clanks with weight and body, stepping down in pitch, with a chain rattle, dense and clearly audible, not thin ticks."
+    },
+    {
+      "id": "drag.blade.dash",
+      "ko": "블레이드 드래그 — 돌진 + 연속 베기 4번",
+      "seconds": 0.65,
+      "text": "A quick footstep tap, a sharp rising sword-dash whoosh, then four rapid bright katana slash rings, each one a little higher."
+    },
+    {
+      "id": "drag.blade.return",
+      "ko": "블레이드 드래그 — 되돌아 베기",
+      "seconds": 0.5,
+      "text": "A single fast sword swish on the way back, a crisp airy thin-blade whoosh falling in pitch."
+    },
+    {
+      "id": "drag.blade.burst",
+      "ko": "블레이드 드래그 — 검흔 폭발 + 납도",
+      "seconds": 1.6,
+      "text": "All the slash marks burst at once: a sharp tearing slash-blast over a short thump, a clear ringing steel tone, then a crisp click of a katana sliding back into its sheath."
+    },
+    {
+      "id": "drag.berserker.slam",
+      "ko": "버서커 드래그 — 도약 후 낙하 쿵",
+      "seconds": 0.6,
+      "text": "A short rising whoosh of a heavy body falling from above, then after about a tenth of a second a massive ground-pounding slam: deep distorted thud with flying gravel and rock debris."
+    },
+    {
+      "id": "drag.berserker.split",
+      "ko": "버서커 드래그 — 대지 가르기",
+      "seconds": 0.8,
+      "text": "A quick airy swell like a sharp intake of breath for about 0.2 seconds, then three loud heavy rock-cracking crunches as the ground splits open, dense and powerful, over a deep rumbling earth boom that holds for a moment."
+    },
+    {
+      "id": "drag.berserker.quake",
+      "ko": "버서커 드래그 — 여진 불기둥",
+      "seconds": 1,
+      "text": "A muffled burst of fire erupting from cracks in the ground with a low thump, then a hissing sizzle of cooling lava fading out."
+    },
+    {
+      "id": "drag.shadow.clone",
+      "ko": "섀도우 드래그 — 분신 3번 터짐 + 낙인",
+      "seconds": 0.6,
+      "text": "A dark inky swell that cuts off, then three quick soft popping bursts of shadow clones rising in pitch, each with a tiny sharp click like a mark being stamped."
+    },
+    {
+      "id": "drag.shadow.execute",
+      "ko": "섀도우 드래그 — X자 처형",
+      "seconds": 2,
+      "text": "A reversed whooshing swell of dark ink sucking inward for a quarter second, cut off sharply by two fast crossing blade slashes and a brittle glassy shatter, then one low dark bell tone ringing out."
+    },
+    {
+      "id": "drag.ranger.draw",
+      "ko": "레인저 드래그 — 착지 + 활시위 당김",
+      "seconds": 0.5,
+      "text": "A light landing thud with a gust of wind, then a wooden longbow creaking as the string is drawn back tight."
+    },
+    {
+      "id": "drag.ranger.volley",
+      "ko": "레인저 드래그 — 화살 3연사 (한 발씩)",
+      "seconds": 0.5,
+      "text": "One arrow released: a short taut bowstring twang and a quick airy hiss of the arrow flying away."
+    },
+    {
+      "id": "drag.ranger.pierce",
+      "ko": "레인저 드래그 — 관통 일격 (확정 치명)",
+      "seconds": 1.6,
+      "text": "A quarter-second rising whine of power charging on a bow, then a huge arrow fired with a sharp crack and a punchy boom, a piercing bright ring and a crisp critical 'ting'."
+    },
+    {
+      "id": "drag.mage.sigil",
+      "ko": "메이지 드래그 — 바닥 마법진",
+      "seconds": 0.6,
+      "text": "A magic rune circle drawing itself on the ground: a low warm wavering arcane hum that swells and fades, with a faint glassy shimmer."
+    },
+    {
+      "id": "drag.mage.meteor",
+      "ko": "메이지 드래그 — 작은 유성 (6번)",
+      "seconds": 0.5,
+      "text": "A small fiery meteor lands: a short soft whump and a bright little pop with a tiny crackle of embers."
+    },
+    {
+      "id": "drag.mage.bigmeteor",
+      "ko": "메이지 드래그 — 대유성 휘파람 → 대폭발",
+      "seconds": 2.5,
+      "text": "A descending whistle of a giant fireball falling from the sky for about three quarters of a second, then a massive fiery explosion with a deep distorted boom and rumbling debris settling down."
+    },
+    {
+      "id": "drag.mage.lava",
+      "ko": "메이지 드래그 — 용암 웅덩이 (반복)",
+      "seconds": 3,
+      "loop": true,
+      "text": "Steady low bubbling of a small pool of hot lava, thick glooping bubbles popping now and then over a soft deep rumble. Seamless steady texture with no start or end hit."
+    },
+    {
+      "id": "drag.gunner.pump",
+      "ko": "거너 드래그 — 착지 + 펌프 장전",
+      "seconds": 0.5,
+      "text": "A light landing thump, then a pump-action shotgun racked twice: crisp mechanical clack-clack, clack-clack."
+    },
+    {
+      "id": "drag.gunner.blast",
+      "ko": "거너 드래그 — 산탄 발사 (두 번)",
+      "seconds": 0.6,
+      "text": "A punchy cartoon shotgun blast, short and boomy with a burst of buckshot, followed by two tiny brass shell casings tinkling on the floor."
+    },
+    {
+      "id": "drag.gunner.slug",
+      "ko": "거너 드래그 — 장전 → 슬러그 한 방 + 반동",
+      "seconds": 0.8,
+      "text": "A crisp metallic click and a thin rising whine of a heating barrel for about 0.3 seconds, then a huge heavy slug shot: a deep booming blast with strong recoil and a short skidding slide."
+    },
+    {
+      "id": "drag.cleric.descend",
+      "ko": "클레릭 드래그 — 하늘 빛줄기 + 회복",
+      "seconds": 2,
+      "text": "A beam of warm golden light descends from the sky: a soft falling shimmering 'shing' that blooms into a gentle sustained bright glow of harmonious tones, airy and healing."
+    },
+    {
+      "id": "drag.cleric.sanctuary",
+      "ko": "클레릭 드래그 — 성역 회복 (틱마다, 작게)",
+      "seconds": 0.6,
+      "text": "One tiny soft healing chime, a single gentle golden sparkle. Quiet and short."
+    },
+    {
+      "id": "drag.cleric.bell",
+      "ko": "클레릭 드래그 — 성역의 종이 울림 + 기절",
+      "seconds": 2.5,
+      "text": "A soft rising airy whoosh that grows for about 0.6 seconds as a great golden bell descends, then one deep resonant bronze bell strike, by far the loudest moment, ringing out warmly with a small bright 'ting' on top."
+    },
+    {
+      "id": "drag.medic.firstaid",
+      "ko": "메딕 드래그 — 응급 십자 + 대기 카드 회복",
+      "seconds": 0.5,
+      "text": "A soft thump of a first-aid kit landing, two quick rising electronic medical-device beeps, and two tiny bright pings."
+    },
+    {
+      "id": "drag.medic.syringe",
+      "ko": "메딕 드래그 — 주사기 발사",
+      "seconds": 0.5,
+      "text": "A quick soft pneumatic 'pfft' of a small syringe dart being shot, tiny and airy."
+    },
+    {
+      "id": "drag.medic.defib",
+      "ko": "메딕 드래그 — 제세동기 충전 → 방전",
+      "seconds": 0.6,
+      "text": "A defibrillator charging with a fast rising electronic whine, then a sharp crackling electric zap with a low buzzy jolt, ending in a single heart-monitor beep."
+    },
+    {
+      "id": "drag.exorcist.seal",
+      "ko": "퇴마사 드래그 — 부적 8장 + 봉인 고리",
+      "seconds": 0.8,
+      "text": "Eight paper talismans flicking out in a quick fluttering burst, a dry wooden clack, a sweeping ink-brush stroke, and a low eerie trembling hum as a seal ring binds."
+    },
+    {
+      "id": "drag.exorcist.destroy",
+      "ko": "퇴마사 드래그 — 멸 (부적 폭발 + 혼불)",
+      "seconds": 1,
+      "text": "A short rising eerie hiss, then a heavy drum-like boom as the seal bursts, paper talismans crackling as they burn, a whooshing ghost-fire flame flying off and a small soft healing chime."
+    },
+    {
+      "id": "drag.bard.beat1",
+      "ko": "바드 드래그 — 첫 박 (류트 + 킥)",
+      "seconds": 0.5,
+      "noStyle": true,
+      "text": "One cheerful plucked lute note with a soft kick drum underneath and a second higher pluck right after, a bright musical downbeat. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals."
+    },
+    {
+      "id": "drag.bard.encore",
+      "ko": "바드 드래그 — 앙코르 (대기 캐릭터 버프)",
+      "seconds": 0.7,
+      "noStyle": true,
+      "text": "Two bright rising chime notes, a sparkling little musical flourish as golden notes fly away. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals."
+    },
+    {
+      "id": "drag.bard.beat2",
+      "ko": "바드 드래그 — 둘째 박 (좌우 띠)",
+      "seconds": 0.5,
+      "noStyle": true,
+      "text": "Two quick plucked lute notes a third apart, struck almost together, a light bright musical accent. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals."
+    },
+    {
+      "id": "drag.bard.forte",
+      "ko": "바드 드래그 — 포르테 피날레",
+      "seconds": 1.8,
+      "noStyle": true,
+      "text": "A big bright strummed major chord on plucked strings with a crash cymbal and a punchy kick drum, one short triumphant fortissimo hit ringing out. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals."
+    },
+    {
+      "id": "drag.chrono.rift",
+      "ko": "크로노 드래그 — 착지 + 시간 균열",
+      "seconds": 0.5,
+      "text": "A clock tick-tock and a thin glass crack splitting with a falling shimmering tone, like a glass clock face fracturing."
+    },
+    {
+      "id": "drag.chrono.wind",
+      "ko": "크로노 드래그 — 시계 바늘 역회전",
+      "seconds": 0.5,
+      "text": "A clockwork ratchet winding faster and faster, rapid accelerating ticks of tiny gears spinning backwards."
+    },
+    {
+      "id": "drag.chrono.rewind",
+      "ko": "크로노 드래그 — 시간 역행 (끌어당김)",
+      "seconds": 0.5,
+      "text": "A reversed cymbal swell rising quickly and cutting off abruptly, like time being rewound, with a faint rising tone."
+    },
+    {
+      "id": "drag.chrono.stop",
+      "ko": "크로노 드래그 — 시간 정지 (문자판 깨짐)",
+      "seconds": 1.8,
+      "text": "A clear bell-like clock chime rings as a glass clock face shatters into tinkling pieces, followed by four quick soft ticks of a clock hand winding back."
+    },
+    {
+      "id": "drag.puppeteer.toss",
+      "ko": "퍼펫티어 드래그 — 종이 인형 던지기 (2번)",
+      "seconds": 0.5,
+      "text": "A quick whoosh of a spinning paper doll thrown on a string, a papery pop as it lands, a small wooden clack and a short wobbly twang of taut thread."
+    },
+    {
+      "id": "drag.puppeteer.thread",
+      "ko": "퍼펫티어 드래그 — 인형 사이 실이 이어짐",
+      "seconds": 0.6,
+      "text": "A single taut thread plucked: a slightly eerie wavering twang of a tight string that quivers and fades."
+    },
+    {
+      "id": "drag.puppeteer.scratch",
+      "ko": "퍼펫티어 드래그 — 실 장판 틱 (아주 작게)",
+      "seconds": 0.5,
+      "text": "A tiny faint scratch of a thin thread rubbing, very short and quiet."
+    },
+    {
+      "id": "drag._role.tank",
+      "ko": "탱커 드래그 기본 착지 (전용 소리가 없을 때)",
+      "seconds": 1.3,
+      "text": "A heavy armored character lands hard: a deep weighty thud falling in pitch with a low rumbling dust tail."
+    },
+    {
+      "id": "dash.tank",
+      "ko": "탱커 돌진",
+      "seconds": 0.5,
+      "text": "A heavy armored character charging forward: a low, slightly long whoosh of air with weight behind it."
+    },
+    {
+      "id": "drag._role.melee",
+      "ko": "근접딜러 드래그 기본 착지 (전용 소리가 없을 때)",
+      "seconds": 1.1,
+      "text": "Starts instantly, no silence at the start: a nimble fighter lands with a short punchy kick-like thump at the very first moment, the loudest part, followed by a sharp falling blade-wind swish."
+    },
+    {
+      "id": "dash.melee",
+      "ko": "근접딜러 돌진",
+      "seconds": 0.5,
+      "text": "A fast sharp dash whoosh, a high rush of air quickly falling in pitch."
+    },
+    {
+      "id": "drag._role.ranged",
+      "ko": "원거리딜러 드래그 기본 착지 (전용 소리가 없을 때)",
+      "seconds": 1,
+      "text": "A light landing: a crisp small click and a soft wooden 'tok' dropping slightly in pitch."
+    },
+    {
+      "id": "dash.ranged",
+      "ko": "원거리딜러 돌진",
+      "seconds": 0.5,
+      "text": "A light quick sidestep: a short airy whoosh with a soft rattle of arrows in a leather quiver."
+    },
+    {
+      "id": "drag._role.healer",
+      "ko": "힐러 드래그 기본 착지 (전용 소리가 없을 때)",
+      "seconds": 1.4,
+      "text": "A gentle soft landing glow: two warm smooth tones in harmony swelling softly and fading, calm and healing."
+    },
+    {
+      "id": "dash.healer",
+      "ko": "힐러 돌진",
+      "seconds": 0.5,
+      "text": "A soft airy dash whoosh with a faint gentle sparkle trailing behind."
+    },
+    {
+      "id": "drag._role.support",
+      "ko": "서포터 드래그 기본 착지 (전용 소리가 없을 때)",
+      "seconds": 1.2,
+      "text": "A bouncy cute landing: a soft round plucked 'tung' with a light higher overtone, playful."
+    },
+    {
+      "id": "dash.support",
+      "ko": "서포터 돌진",
+      "seconds": 0.5,
+      "text": "A bouncy hop forward: a quick springy cartoon boing with a short playful whoosh."
+    },
+    {
+      "id": "normal.guardian",
+      "ko": "가디언 일반스킬 — 방패 강타",
+      "seconds": 0.5,
+      "text": "A heavy iron shield bash on a monster: a deep thud with a short bright clang of steel."
+    },
+    {
+      "id": "normal.paladin",
+      "ko": "팔라딘 일반스킬 — 성스러운 일격",
+      "seconds": 0.6,
+      "text": "A gilded holy blade strike: a solid thud with a soft bright church-bell ring and a little warm healing shimmer."
+    },
+    {
+      "id": "normal.warden",
+      "ko": "워든 일반스킬 — 사슬 휘두르기",
+      "seconds": 0.5,
+      "text": "A heavy iron chain swung around and yanked in: a low thump with a quick rattling clatter of chain links."
+    },
+    {
+      "id": "normal.blade",
+      "ko": "블레이드 일반스킬 — 회전 베기",
+      "seconds": 0.5,
+      "text": "A fast spinning katana slash: a sharp circular swish with two bright ringing steel tones."
+    },
+    {
+      "id": "normal.berserker",
+      "ko": "버서커 일반스킬 — 처형",
+      "seconds": 0.5,
+      "text": "A brutal heavy axe chop into the ground: a short distorted thump with a gritty earthy crunch."
+    },
+    {
+      "id": "normal.shadow",
+      "ko": "섀도우 일반스킬 — 암습",
+      "seconds": 0.5,
+      "text": "A sneak attack from the shadows: a hushed dark inky swell ending in a quick soft stab."
+    },
+    {
+      "id": "normal.ranger",
+      "ko": "레인저 일반스킬 — 관통 사격",
+      "seconds": 0.6,
+      "text": "A powerful piercing arrow shot: a crisp bowstring snap and a long rushing wind whoosh of the arrow flying straight. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "influence": 0.7
+    },
+    {
+      "id": "normal.mage",
+      "ko": "메이지 일반스킬 — 냉기 구체",
+      "seconds": 0.5,
+      "text": "A frost orb bursts: a soft magic pop with a wobbling glassy arcane shimmer and a crackle of ice."
+    },
+    {
+      "id": "normal.gunner",
+      "ko": "거너 일반스킬 — 철갑탄",
+      "seconds": 0.5,
+      "text": "A single punchy cartoon armor-piercing shot: a crisp gunpowder crack with a short low thump."
+    },
+    {
+      "id": "normal.cleric",
+      "ko": "클레릭 일반스킬 — 축복",
+      "seconds": 0.6,
+      "text": "A warm gentle blessing: two soft glowing tones in harmony with a small golden bell shimmer, calm and uplifting."
+    },
+    {
+      "id": "normal.medic",
+      "ko": "메딕 일반스킬 — 응급 주사",
+      "seconds": 0.6,
+      "text": "A quick medical injection: a tiny syringe 'pfft' and two short rising electronic medical-device beeps over a soft healing tone."
+    },
+    {
+      "id": "normal.exorcist",
+      "ko": "퇴마사 일반스킬 — 축귀 부적",
+      "seconds": 0.6,
+      "text": "A paper talisman thrown and bursting: a crisp papery flutter-snap followed by a dry wooden clack, slightly eerie."
+    },
+    {
+      "id": "normal.bard",
+      "ko": "바드 일반스킬 — 격려의 노래",
+      "seconds": 0.5,
+      "noStyle": true,
+      "text": "A short cheerful two-note plucked lute phrase rising, bright and encouraging. Single mobile game sound effect, cute and punchy, clean and dry, no background noise, no speech, no vocals."
+    },
+    {
+      "id": "normal.chrono",
+      "ko": "크로노 일반스킬 — 초침 베기",
+      "seconds": 0.5,
+      "text": "A clock-hand slash: a crisp clock tick-tock followed by a quick thin swish, like a second hand cutting the air."
+    },
+    {
+      "id": "normal.puppeteer",
+      "ko": "퍼펫티어 일반스킬 — 실 감기",
+      "seconds": 0.5,
+      "text": "A thin thread wrapping tightly around a monster: a quick wavering string twang with a soft rubbing squeak, slightly eerie."
+    }
+  ]
+}

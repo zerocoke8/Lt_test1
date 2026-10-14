@@ -1,0 +1,4366 @@
+{
+ "note": "Sound ids without a file yet (기획 21차). Built from the synth recipes; seconds = synth length clamped to 0.5–30 (loops at least 4).",
+ "count": 436,
+ "sounds": [
+  {
+   "id": "drag.crunch",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.guardian.slam",
+   "batch": "drag",
+   "seconds": 1.8,
+   "synthSeconds": 1.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.guardian.charge",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.23,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.guardian.wave",
+   "batch": "drag",
+   "seconds": 1.8,
+   "synthSeconds": 1.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.guardian.wall",
+   "batch": "drag",
+   "seconds": 2,
+   "synthSeconds": 2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.guardian.shatter",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.32,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.guardian.cutin",
+   "batch": "ult",
+   "seconds": 2.7,
+   "synthSeconds": 2.65,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.guardian.rally",
+   "batch": "ult",
+   "seconds": 0.7,
+   "synthSeconds": 0.72,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.guardian.citadel",
+   "batch": "ult",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.guardian.barrier",
+   "batch": "ult",
+   "seconds": 2,
+   "synthSeconds": 2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.paladin.brand",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.paladin.blessing",
+   "batch": "drag",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.paladin.charge",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.paladin.pillar",
+   "batch": "drag",
+   "seconds": 2.2,
+   "synthSeconds": 2.2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.paladin.cutin",
+   "batch": "ult",
+   "seconds": 3.2,
+   "synthSeconds": 3.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.paladin.spear",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.paladin.tribunal",
+   "batch": "ult",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.warden.hook",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.45,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.warden.crush",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.warden.fence",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.warden.drop",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.41,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.warden.cutin",
+   "batch": "ult",
+   "seconds": 2.8,
+   "synthSeconds": 2.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.warden.cage",
+   "batch": "ult",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.warden.prison",
+   "batch": "ult",
+   "seconds": 2,
+   "synthSeconds": 2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.warden.release",
+   "batch": "ult",
+   "seconds": 2,
+   "synthSeconds": 2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.blade.dash",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.blade.return",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.18,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.blade.burst",
+   "batch": "drag",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.blade.cutin",
+   "batch": "ult",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.blade.hop",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.19,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.blade.storm",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.blade.issen",
+   "batch": "ult",
+   "seconds": 2.6,
+   "synthSeconds": 2.55,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.berserker.slam",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.62,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.berserker.split",
+   "batch": "drag",
+   "seconds": 0.8,
+   "synthSeconds": 0.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.berserker.quake",
+   "batch": "drag",
+   "seconds": 1,
+   "synthSeconds": 1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.berserker.cutin",
+   "batch": "ult",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.berserker.roar",
+   "batch": "ult",
+   "seconds": 0.8,
+   "synthSeconds": 0.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.berserker.frenzy",
+   "batch": "ult",
+   "seconds": 0.8,
+   "synthSeconds": 0.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.berserker.finale",
+   "batch": "ult",
+   "seconds": 3.4,
+   "synthSeconds": 3.4,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.shadow.clone",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.46,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.shadow.execute",
+   "batch": "drag",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.shadow.cutin",
+   "batch": "ult",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.shadow.dance",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.shadow.moon",
+   "batch": "ult",
+   "seconds": 2.3,
+   "synthSeconds": 2.25,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.ranger.draw",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.ranger.volley",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.14,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.ranger.pierce",
+   "batch": "drag",
+   "seconds": 2.1,
+   "synthSeconds": 2.06,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.ranger.cutin",
+   "batch": "ult",
+   "seconds": 2.7,
+   "synthSeconds": 2.65,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.ranger.barrage",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.ranger.rain",
+   "batch": "ult",
+   "seconds": 0.7,
+   "synthSeconds": 0.74,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.ranger.skyshot",
+   "batch": "ult",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.mage.sigil",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.mage.meteor",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.mage.bigmeteor",
+   "batch": "drag",
+   "seconds": 2.9,
+   "synthSeconds": 2.85,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.mage.lava",
+   "batch": "drag",
+   "seconds": 1.5,
+   "synthSeconds": 1.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.mage.cutin",
+   "batch": "ult",
+   "seconds": 3.1,
+   "synthSeconds": 3.05,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.mage.blizzard",
+   "batch": "ult",
+   "seconds": 2,
+   "synthSeconds": 2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.mage.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.mage.freeze",
+   "batch": "ult",
+   "seconds": 0.8,
+   "synthSeconds": 0.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.mage.shatter",
+   "batch": "ult",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.gunner.pump",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.46,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.gunner.blast",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.47,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.gunner.slug",
+   "batch": "drag",
+   "seconds": 0.8,
+   "synthSeconds": 0.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.gunner.cutin",
+   "batch": "ult",
+   "seconds": 2.6,
+   "synthSeconds": 2.55,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.gunner.shells",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.45,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.gunner.heavy",
+   "batch": "ult",
+   "seconds": 2.8,
+   "synthSeconds": 2.76,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.cleric.descend",
+   "batch": "drag",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.cleric.sanctuary",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.cleric.bell",
+   "batch": "drag",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.cleric.cutin",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.cleric.grace",
+   "batch": "ult",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.cleric.judgement",
+   "batch": "ult",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.medic.firstaid",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.45,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.medic.syringe",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.medic.defib",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.medic.cutin",
+   "batch": "ult",
+   "seconds": 0.9,
+   "synthSeconds": 0.88,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.medic.golden",
+   "batch": "ult",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.medic.siren",
+   "batch": "ult",
+   "seconds": 0.7,
+   "synthSeconds": 0.68,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "char.revive",
+   "batch": "combat",
+   "seconds": 2.4,
+   "synthSeconds": 2.38,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "drag.exorcist.seal",
+   "batch": "drag",
+   "seconds": 0.8,
+   "synthSeconds": 0.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.exorcist.destroy",
+   "batch": "drag",
+   "seconds": 1,
+   "synthSeconds": 1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.exorcist.cutin",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.exorcist.greatseal",
+   "batch": "ult",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.exorcist.storm",
+   "batch": "ult",
+   "seconds": 1.5,
+   "synthSeconds": 1.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.exorcist.destroy",
+   "batch": "ult",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.bard.beat1",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.bard.encore",
+   "batch": "drag",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.bard.beat2",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.33,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.bard.forte",
+   "batch": "drag",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.bard.cutin",
+   "batch": "ult",
+   "seconds": 2.1,
+   "synthSeconds": 2.12,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.bard.choir",
+   "batch": "ult",
+   "seconds": 2.7,
+   "synthSeconds": 2.7,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.bard.beat",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.29,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.bard.beat.last",
+   "batch": "ult",
+   "seconds": 2.2,
+   "synthSeconds": 2.2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.chrono.rift",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.chrono.wind",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.44,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.chrono.rewind",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.chrono.stop",
+   "batch": "drag",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.chrono.cutin",
+   "batch": "ult",
+   "seconds": 2.7,
+   "synthSeconds": 2.65,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.chrono.stasis",
+   "batch": "ult",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.chrono.tock",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.chrono.resume",
+   "batch": "ult",
+   "seconds": 1.9,
+   "synthSeconds": 1.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.puppeteer.toss",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.34,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.puppeteer.thread",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "drag.puppeteer.scratch",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "doll.burst",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.39,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.puppeteer.cutin",
+   "batch": "ult",
+   "seconds": 2.1,
+   "synthSeconds": 2.06,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.puppeteer.open",
+   "batch": "ult",
+   "seconds": 2.1,
+   "synthSeconds": 2.12,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.puppeteer.charm",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.38,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult.puppeteer.curtaincall",
+   "batch": "ult",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.turret",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "hit.multi",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.16,
+   "loop": false,
+   "bus": "sfx",
+   "group": "hit",
+   "variants": 3
+  },
+  {
+   "id": "hit.weak",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "hit",
+   "variants": 3
+  },
+  {
+   "id": "hurt.lowhp",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "bg",
+   "group": "tick",
+   "variants": 1
+  },
+  {
+   "id": "heal.big",
+   "batch": "combat",
+   "seconds": 1.8,
+   "synthSeconds": 1.82,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "heal.drain",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "bench.heal",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.26,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "bench.buff",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.shield",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.24,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.stun",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.frost",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.curse",
+   "batch": "combat",
+   "seconds": 1,
+   "synthSeconds": 0.95,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.buff",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.cleanse",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.knock",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.pull",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.taunt",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.22,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.tether",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.13,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.charm",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fx.summon",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.06,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ui.cdcut",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.13,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "char.down",
+   "batch": "combat",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "char.down.far",
+   "batch": "combat",
+   "seconds": 2.2,
+   "synthSeconds": 2.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "char.revive.all",
+   "batch": "combat",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "run.out",
+   "batch": "meta",
+   "seconds": 5.2,
+   "synthSeconds": 5.2,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "player.out",
+   "batch": "meta",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.frog_bomb",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.frog_bomb.impact",
+   "batch": "combat",
+   "seconds": 0.6,
+   "synthSeconds": 0.55,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.fairy_heal",
+   "batch": "combat",
+   "seconds": 1.7,
+   "synthSeconds": 1.73,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.turtle_guard",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.owl_frost",
+   "batch": "combat",
+   "seconds": 1.1,
+   "synthSeconds": 1.05,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.golem_turret",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.45,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.cat_void",
+   "batch": "combat",
+   "seconds": 1,
+   "synthSeconds": 1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.drum_raccoon",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.46,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "pet.rabbit_time",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.47,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.spawn",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "mon",
+   "variants": 1
+  },
+  {
+   "id": "mon.impact.circle",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.impact.line",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.impact.cone",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.impact.ring",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.interrupt",
+   "batch": "combat",
+   "seconds": 1.7,
+   "synthSeconds": 1.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.charge",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.blink",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.heal",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mon.death.phone",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.37,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mon.death.copy",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.18,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mon.death.mannequin",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.13,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mon.death.eye",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mon.death.vending",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mon.death.umbrella",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mon.death.multi",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "death",
+   "variants": 3
+  },
+  {
+   "id": "mid.spawn",
+   "batch": "combat",
+   "seconds": 2.2,
+   "synthSeconds": 2.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mid.windup",
+   "batch": "combat",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "mid.death",
+   "batch": "combat",
+   "seconds": 1.9,
+   "synthSeconds": 1.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "copy.pop",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.doors",
+   "batch": "boss-kinds",
+   "seconds": 1,
+   "synthSeconds": 1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.doors",
+   "batch": "boss-kinds",
+   "seconds": 2,
+   "synthSeconds": 1.95,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.countdown",
+   "batch": "boss-kinds",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.countdown",
+   "batch": "boss-kinds",
+   "seconds": 1.6,
+   "synthSeconds": 1.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.papers",
+   "batch": "boss-kinds",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.papers",
+   "batch": "boss-kinds",
+   "seconds": 1.6,
+   "synthSeconds": 1.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.stamp",
+   "batch": "boss-kinds",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.stamp",
+   "batch": "boss-kinds",
+   "seconds": 1.7,
+   "synthSeconds": 1.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.summon",
+   "batch": "boss-kinds",
+   "seconds": 0.8,
+   "synthSeconds": 0.77,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.summon",
+   "batch": "boss-kinds",
+   "seconds": 1.5,
+   "synthSeconds": 1.45,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.blades",
+   "batch": "boss-kinds",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.blades",
+   "batch": "boss-kinds",
+   "seconds": 1.5,
+   "synthSeconds": 1.45,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.gas",
+   "batch": "boss-kinds",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.gas",
+   "batch": "boss-kinds",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.slice",
+   "batch": "boss-kinds",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.slice",
+   "batch": "boss-kinds",
+   "seconds": 1.6,
+   "synthSeconds": 1.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.burst",
+   "batch": "boss-kinds",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.burst",
+   "batch": "boss-kinds",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.beam",
+   "batch": "boss-kinds",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.beam",
+   "batch": "boss-kinds",
+   "seconds": 1.9,
+   "synthSeconds": 1.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.tentacle",
+   "batch": "boss-kinds",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.tentacle",
+   "batch": "boss-kinds",
+   "seconds": 1.5,
+   "synthSeconds": 1.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.ring",
+   "batch": "boss-kinds",
+   "seconds": 1.2,
+   "synthSeconds": 1.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.ring",
+   "batch": "boss-kinds",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.water",
+   "batch": "boss-kinds",
+   "seconds": 0.8,
+   "synthSeconds": 0.8,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.water",
+   "batch": "boss-kinds",
+   "seconds": 1.7,
+   "synthSeconds": 1.65,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.static",
+   "batch": "boss-kinds",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.static",
+   "batch": "boss-kinds",
+   "seconds": 1.6,
+   "synthSeconds": 1.62,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.windup.chime",
+   "batch": "boss-kinds",
+   "seconds": 0.8,
+   "synthSeconds": 0.8,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.impact.chime",
+   "batch": "boss-kinds",
+   "seconds": 2.2,
+   "synthSeconds": 2.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "boss.enrage",
+   "batch": "boss-voices",
+   "seconds": 0.9,
+   "synthSeconds": 0.85,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "enrage.heart",
+   "batch": "combat",
+   "seconds": 4,
+   "synthSeconds": 0.7,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "boss.retreat",
+   "batch": "boss-voices",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "groggy.fill",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "just.swap.far",
+   "batch": "meta",
+   "seconds": 2,
+   "synthSeconds": 1.97,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "just.whiff",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.22,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "groggy.break",
+   "batch": "combat",
+   "seconds": 3.1,
+   "synthSeconds": 3.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "groggy.stars",
+   "batch": "combat",
+   "seconds": 4,
+   "synthSeconds": 1,
+   "loop": true,
+   "bus": "sfx",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "groggy.recover",
+   "batch": "combat",
+   "seconds": 0.7,
+   "synthSeconds": 0.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "floor.start.lobby",
+   "batch": "meta",
+   "seconds": 2.4,
+   "synthSeconds": 2.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "floor.start.office",
+   "batch": "meta",
+   "seconds": 2.2,
+   "synthSeconds": 2.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "floor.start.ward",
+   "batch": "meta",
+   "seconds": 2.2,
+   "synthSeconds": 2.17,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "floor.start.rooftop",
+   "batch": "meta",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "amb.lobby",
+   "batch": "combat",
+   "seconds": 8,
+   "synthSeconds": 8,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "amb.office",
+   "batch": "combat",
+   "seconds": 8,
+   "synthSeconds": 8,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "amb.ward",
+   "batch": "combat",
+   "seconds": 8,
+   "synthSeconds": 8,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "amb.rooftop",
+   "batch": "combat",
+   "seconds": 8,
+   "synthSeconds": 8,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "amb.boss",
+   "batch": "combat",
+   "seconds": 8,
+   "synthSeconds": 8,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "amb.goedam",
+   "batch": "combat",
+   "seconds": 8,
+   "synthSeconds": 8,
+   "loop": true,
+   "bus": "bg",
+   "group": "loop",
+   "variants": 1
+  },
+  {
+   "id": "zone.enter",
+   "batch": "meta",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "floor.clear.boss",
+   "batch": "meta",
+   "seconds": 2.7,
+   "synthSeconds": 2.7,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ui.timer.tick",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.05,
+   "loop": false,
+   "bus": "ui",
+   "group": "tick",
+   "variants": 1
+  },
+  {
+   "id": "ui.timer.hot",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.06,
+   "loop": false,
+   "bus": "ui",
+   "group": "tick",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.broken_vending",
+   "batch": "goedam",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.elevator_whisper",
+   "batch": "goedam",
+   "seconds": 2.7,
+   "synthSeconds": 2.7,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.ringing_phone",
+   "batch": "goedam",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.overtime_roster",
+   "batch": "goedam",
+   "seconds": 2.8,
+   "synthSeconds": 2.83,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.copier",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.endless_corridor",
+   "batch": "goedam",
+   "seconds": 2.7,
+   "synthSeconds": 2.73,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.red_blue_paper",
+   "batch": "goedam",
+   "seconds": 2,
+   "synthSeconds": 1.97,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.night_rounds",
+   "batch": "goedam",
+   "seconds": 2.7,
+   "synthSeconds": 2.7,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.iv_drip",
+   "batch": "goedam",
+   "seconds": 2.4,
+   "synthSeconds": 2.37,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.sky_eye",
+   "batch": "goedam",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.red_mask",
+   "batch": "goedam",
+   "seconds": 2.6,
+   "synthSeconds": 2.58,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.room.cursed_relic",
+   "batch": "goedam",
+   "seconds": 2.2,
+   "synthSeconds": 2.18,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.enter",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.pick",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "gd.pick.gamble",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.23,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "gd.pick.cost",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "gd.flicker",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.18,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.result.good",
+   "batch": "goedam",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.result.bad",
+   "batch": "goedam",
+   "seconds": 1.7,
+   "synthSeconds": 1.65,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.result.neutral",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.result.leave",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.28,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.trace.curse",
+   "batch": "goedam",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.trace.bless",
+   "batch": "goedam",
+   "seconds": 1.8,
+   "synthSeconds": 1.8,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.trace.mixed",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.trace.expire",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.42,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "gd.continue",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.lucky_toad",
+   "batch": "goedam",
+   "seconds": 2,
+   "synthSeconds": 1.95,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.lucky_toad",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.42,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.possessed_printer",
+   "batch": "goedam",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.possessed_printer",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.sleeping_patient",
+   "batch": "goedam",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.sleeping_patient",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.open_shaft",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.open_shaft",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.midnight_surge",
+   "batch": "goedam",
+   "seconds": 3.4,
+   "synthSeconds": 3.38,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.midnight_surge",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.dark_lamps",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.dark_lamps",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.start.sleepwalker",
+   "batch": "goedam",
+   "seconds": 2.5,
+   "synthSeconds": 2.45,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fail.sleepwalker",
+   "batch": "goedam",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.warn",
+   "batch": "goedam",
+   "seconds": 2.4,
+   "synthSeconds": 2.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.lamp",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.52,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.fall",
+   "batch": "goedam",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.tally",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.startle",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.monitor",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.toad.hop",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.print",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "fe.urgent",
+   "batch": "goedam",
+   "seconds": 0.5,
+   "synthSeconds": 0.18,
+   "loop": false,
+   "bus": "sfx",
+   "group": "tick",
+   "variants": 1
+  },
+  {
+   "id": "fe.success",
+   "batch": "goedam",
+   "seconds": 2.3,
+   "synthSeconds": 2.3,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ui.tap.soft",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.03,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.confirm",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.17,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.back",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.17,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.start",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.select",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.07,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.select.off",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.06,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.refuse",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.17,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.warn",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.toast.good",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.21,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.toast.warn",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.toast.info",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.04,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.pet.lift",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.11,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.card.cancel",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.sheet.open",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.pause.open",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.pause.close",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.ult.press",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.ult.denied",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ult.ready",
+   "batch": "ult",
+   "seconds": 0.8,
+   "synthSeconds": 0.78,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ult.remind",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.08,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.reward.pulse",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "reward.open",
+   "batch": "meta",
+   "seconds": 0.9,
+   "synthSeconds": 0.9,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.pick.common",
+   "batch": "meta",
+   "seconds": 0.6,
+   "synthSeconds": 0.63,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.pick.rare",
+   "batch": "meta",
+   "seconds": 1.9,
+   "synthSeconds": 1.9,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.pick.epic",
+   "batch": "meta",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.pick.legend",
+   "batch": "meta",
+   "seconds": 2.9,
+   "synthSeconds": 2.92,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.reroll",
+   "batch": "meta",
+   "seconds": 0.9,
+   "synthSeconds": 0.86,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.set",
+   "batch": "meta",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "reward.proc",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "relic.get",
+   "batch": "meta",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "relic.proc",
+   "batch": "meta",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "result.best",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "run.victory",
+   "batch": "meta",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "run.defeat",
+   "batch": "meta",
+   "seconds": 4.1,
+   "synthSeconds": 4.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "net.playerJoin",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.14,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "net.playerLeave",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.14,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "net.lost",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "net.reconnect",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.3,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "net.botTakeover",
+   "batch": "meta",
+   "seconds": 0.5,
+   "synthSeconds": 0.19,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "ui.equip",
+   "batch": "meta",
+   "seconds": 2,
+   "synthSeconds": 1.96,
+   "loop": false,
+   "bus": "ui",
+   "group": "ui",
+   "variants": 1
+  },
+  {
+   "id": "exp.reveal",
+   "batch": "meta",
+   "seconds": 2,
+   "synthSeconds": 2.02,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "exp.relic",
+   "batch": "meta",
+   "seconds": 2.5,
+   "synthSeconds": 2.5,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "exp.extract",
+   "batch": "meta",
+   "seconds": 1.9,
+   "synthSeconds": 1.9,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "exp.bagLost",
+   "batch": "meta",
+   "seconds": 2.1,
+   "synthSeconds": 2.1,
+   "loop": false,
+   "bus": "ui",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "char.appear.tank",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "drag._role.tank",
+   "batch": "drag",
+   "seconds": 1.8,
+   "synthSeconds": 1.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult._role.tank",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 2.95,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "dash.tank",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.35,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "drag._role.melee",
+   "batch": "drag",
+   "seconds": 1.5,
+   "synthSeconds": 1.54,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult._role.melee",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 2.95,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "dash.melee",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "char.appear.ranged",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "drag._role.ranged",
+   "batch": "drag",
+   "seconds": 1.4,
+   "synthSeconds": 1.42,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult._role.ranged",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 2.95,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "dash.ranged",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "atk.swing.ranged",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "char.appear.healer",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "drag._role.healer",
+   "batch": "drag",
+   "seconds": 1.9,
+   "synthSeconds": 1.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult._role.healer",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 2.95,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "dash.healer",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "atk.swing.healer",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "char.appear.support",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.25,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "drag._role.support",
+   "batch": "drag",
+   "seconds": 1.7,
+   "synthSeconds": 1.7,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "ult._role.support",
+   "batch": "ult",
+   "seconds": 3,
+   "synthSeconds": 2.95,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "dash.support",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.2,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "atk.swing.support",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.guardian",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.guardian.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.guardian",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.paladin",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.63,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.paladin.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.paladin",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.warden",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.5,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.warden.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.14,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.warden",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.blade",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.28,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.blade.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.blade",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.berserker",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.28,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.berserker.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.berserker",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.shadow",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.28,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.shadow.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.shadow",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.ranger",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.28,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.ranger.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.ranger",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.mage",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.38,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "normal.gunner",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.gunner.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.12,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.gunner",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.06,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.cleric",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.63,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.cleric.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.cleric",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.medic",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.medic.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.16,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.medic",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.exorcist",
+   "batch": "drag",
+   "seconds": 0.6,
+   "synthSeconds": 0.6,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.exorcist.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.exorcist",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.bard",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.43,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.bard.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.bard",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.chrono",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.4,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.chrono.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.chrono",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "normal.puppeteer",
+   "batch": "drag",
+   "seconds": 0.5,
+   "synthSeconds": 0.43,
+   "loop": false,
+   "bus": "sfx",
+   "group": "misc",
+   "variants": 1
+  },
+  {
+   "id": "ult.puppeteer.tick",
+   "batch": "ult",
+   "seconds": 0.5,
+   "synthSeconds": 0.15,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "atk.shot.puppeteer",
+   "batch": "combat",
+   "seconds": 0.5,
+   "synthSeconds": 0.1,
+   "loop": false,
+   "bus": "sfx",
+   "group": "atk",
+   "variants": 3
+  },
+  {
+   "id": "boss.intro.elevator_keeper",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.elevator_keeper",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.elevator_keeper",
+   "batch": "boss-voices",
+   "seconds": 3.1,
+   "synthSeconds": 3.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.overtime_lord",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.overtime_lord",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.overtime_lord",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.surgeon_director",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.surgeon_director",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.surgeon_director",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.abyss_watcher",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.abyss_watcher",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.abyss_watcher",
+   "batch": "boss-voices",
+   "seconds": 3.1,
+   "synthSeconds": 3.1,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.claw_machine",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.claw_machine",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.claw_machine",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.washer_drum",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.washer_drum",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.washer_drum",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.karaoke_room",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.karaoke_room",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.karaoke_room",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.reverse_escalator",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.reverse_escalator",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.reverse_escalator",
+   "batch": "boss-voices",
+   "seconds": 2.7,
+   "synthSeconds": 2.7,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.shredder_maw",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.shredder_maw",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.shredder_maw",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.coffee_machine",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.coffee_machine",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.coffee_machine",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.dead_monitor",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.dead_monitor",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.dead_monitor",
+   "batch": "boss-voices",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.endless_meeting",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.endless_meeting",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.endless_meeting",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.morgue_drawers",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.morgue_drawers",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.morgue_drawers",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.xray_machine",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.xray_machine",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.xray_machine",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.8,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.defibrillator",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.defibrillator",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.defibrillator",
+   "batch": "boss-voices",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.empty_beds",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.empty_beds",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.empty_beds",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.tank_dweller",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.tank_dweller",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.tank_dweller",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.thunder_antenna",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.thunder_antenna",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.thunder_antenna",
+   "batch": "boss-voices",
+   "seconds": 2.6,
+   "synthSeconds": 2.6,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.answering_pencil",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.answering_pencil",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.answering_pencil",
+   "batch": "boss-voices",
+   "seconds": 2.8,
+   "synthSeconds": 2.75,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.intro.inverted_moon",
+   "batch": "boss-voices",
+   "seconds": 3.3,
+   "synthSeconds": 3.3,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.phase.inverted_moon",
+   "batch": "boss-voices",
+   "seconds": 3.5,
+   "synthSeconds": 3.5,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  },
+  {
+   "id": "boss.death.inverted_moon",
+   "batch": "boss-voices",
+   "seconds": 2.9,
+   "synthSeconds": 2.9,
+   "loop": false,
+   "bus": "hero",
+   "group": "hero",
+   "variants": 1
+  }
+ ]
+}

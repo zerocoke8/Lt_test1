@@ -9,7 +9,7 @@
 
 import { dbToGain, familyDefault, GROUP_CAP, sfxRow, type Bus, type SfxRow } from './ids';
 import { Baker } from './bake';
-import { FILE_TABLE, resolveSource, type FileSource } from './manifest';
+import { FILE_TABLE, resolveSource, type FileSource, type Source } from './manifest';
 import { hasRecipe } from './synth/recipes';
 import { SR } from './synth/prims';
 import { CHAR_VOICE } from './synth/voices';
@@ -97,7 +97,39 @@ export interface EngineDeps {
   loadFile?: (ctx: AudioContext, url: string) => Promise<AudioBuffer>;
   /** Bake any missing sound on demand, even low-priority ones (tests, debug board). Default: queue them. */
   bakeInFrame?: boolean;
+  /**
+   * Decode every file at init. Default: yes for a table passed in (tests, small sets); no for the bundled table
+   * (기획 21차: 456 files ≈ 700 s — decoded all at once that is 100+ MB on a phone), whose files decode when a scene
+   * prepares them (prepare) or on their first request (played late, like a synth bake). UI files always decode at init.
+   */
+  preloadFiles?: boolean;
 }
+
+/** A playable buffer: gain on top of the row's dB, playback rate, and (files) the part of the buffer that plays. */
+interface Playable {
+  buf: AudioBuffer;
+  gain: number;
+  rate: number;
+  start: number;
+  end?: number;
+  /** Seconds a file starts later than asked (its hit would land before a stage cue's lead otherwise; levels.json). */
+  delay?: number;
+  /** Fade the first few ms in (a file whose start was moved into its build-up to meet a cue's lead). */
+  fadeIn?: boolean;
+}
+
+/**
+ * 기획 21차 리뷰: file decodes running at once. A scene's prepare queues its files in priority order (own cards first)
+ * and they decode a few at a time, so the start of floor 1 is not 200 fetch + decodeAudioData calls in one go; a
+ * sound asked for now jumps the queue.
+ */
+const FILE_JOBS = 3;
+
+/** Fade at a file's cut head when it starts inside the sound (removes the click). */
+const HEAD_FADE = 0.006;
+
+/** Fade at a file's cut tail (its last sample is already −40 dB under the peak; this removes the click). */
+const TAIL_FADE = 0.012;
 
 export function defaultMaxVoices(): number {
   const cores = globalThis.navigator?.hardwareConcurrency ?? 8;
@@ -128,6 +160,13 @@ export class AudioEngine {
   private readonly bufs = new Map<string, AudioBuffer>();
   private readonly fileBufs = new Map<string, AudioBuffer[]>();
   private readonly fileFailed = new Set<string>();
+  private readonly fileLoading = new Set<string>();
+  /** Files waiting for a decode slot (FILE_JOBS), most urgent first. */
+  private readonly fileQueue: string[] = [];
+  private fileJobs = 0;
+  private readonly preloadFiles: boolean;
+  /** Ids with a file that can still be used (known and not failed): what resolveSource treats as files. */
+  private readonly usable = { has: (id: string): boolean => this.files.has(id) && !this.fileFailed.has(id) };
   private readonly ducks: Record<'sfx' | 'bg', Duck[]> = { sfx: [], bg: [] };
   private readonly warned = new Set<string>();
   /** Ids whose last request missed the bake (playLater takes them). */
@@ -147,6 +186,7 @@ export class AudioEngine {
     this.files = deps.files ?? FILE_TABLE;
     this.loadFile = deps.loadFile ?? defaultLoadFile;
     this.bakeInFrame = deps.bakeInFrame ?? false;
+    this.preloadFiles = deps.preloadFiles ?? deps.files != null;
   }
 
   /** Build the bus graph on a (just unlocked) context and start loading override files. */
@@ -185,7 +225,44 @@ export class AudioEngine {
     farLp.connect(lp);
     this.nodes = { master, mute, inputs: { ui: vols.ui, sfx: lp, hero: vols.hero, bg: duck.bg, far }, vols, duck, lp };
     this.apply(this.settings);
-    for (const [id, f] of this.files) void this.loadFiles(id, f);
+    for (const id of this.files.keys()) if (this.preloadFiles || sfxRow(id).bus === 'ui') this.queueFile(id);
+  }
+
+  /**
+   * 기획 21차: get these ids ready before they are needed (scene start, next boss): a file decodes, a synth id bakes in
+   * idle slices. A file id never bakes its synth sound (it would sit in memory unused).
+   */
+  prepare(ids: Iterable<string>): void {
+    for (const id of ids) {
+      const src = this.resolve(id);
+      if (src?.kind === 'file') this.queueFile(src.id);
+      else this.baker.enqueue([id], sfxRow(id).variants);
+    }
+  }
+
+  /**
+   * 기획 21차 리뷰: let go of decoded files the game is done with (an earlier run's roster, a beaten boss, a past
+   * 괴담 / 돌발 괴담, another zone's ambience); a playing voice keeps its buffer until it ends, and the id decodes
+   * again if it is asked for later. UI files stay. Queued decodes of those ids are dropped too. Returns how many.
+   */
+  releaseFiles(drop: (id: string) => boolean): number {
+    let n = 0;
+    for (const id of [...this.fileBufs.keys()])
+      if (sfxRow(id).bus !== 'ui' && drop(id)) {
+        this.fileBufs.delete(id);
+        n++;
+      }
+    for (let i = this.fileQueue.length - 1; i >= 0; i--) if (drop(this.fileQueue[i])) this.fileQueue.splice(i, 1);
+    return n;
+  }
+
+  /** Files waiting for a decode slot (tests / debug). */
+  get filesQueued(): number {
+    return this.fileQueue.length;
+  }
+
+  private resolve(id: string, skill?: string): Source {
+    return resolveSource(id, { files: this.usable, hasRecipe, family: x => familyDefault(x, roleOf) }, skill);
   }
 
   /** Volumes + mute (mute ramps to 0 in 0.05 s and keeps running: un-muting is instant). */
@@ -238,7 +315,7 @@ export class AudioEngine {
     return this.startNow(id, row, buf, t0, o);
   }
 
-  private startNow(id: string, row: SfxRow, buf: { buf: AudioBuffer; gain: number; rate: number }, t0: number, o: PlayOpts): boolean {
+  private startNow(id: string, row: SfxRow, buf: Playable, t0: number, o: PlayOpts): boolean {
     this.prune();
     if (!this.makeRoom(id, row, o)) return false;
     this.last.set(id, t0);
@@ -279,8 +356,10 @@ export class AudioEngine {
     this.late = keep;
   }
 
-  private start(id: string, row: SfxRow, b: { buf: AudioBuffer; gain: number; rate: number }, t0: number, o: PlayOpts): void {
+  private start(id: string, row: SfxRow, b: Playable, asked: number, o: PlayOpts): void {
     const ctx = this.ctx!;
+    // 기획 21차 리뷰: a file whose hit comes early for its cue's lead starts that much later (levels.json delay)
+    const t0 = asked + Math.max(0, b.delay ?? 0);
     const src = ctx.createBufferSource();
     src.buffer = b.buf;
     src.loop = o.loopFor != null;
@@ -288,7 +367,10 @@ export class AudioEngine {
     const vary = row.variants > 1 ? (this.random() * 2 - 1) * 1.5 : 0;
     const gain = ctx.createGain();
     const level = dbToGain(row.db + (o.db ?? 0) + vary) * b.gain;
-    gain.gain.setValueAtTime(level, t0);
+    if (b.fadeIn) {
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(level, t0 + HEAD_FADE);
+    } else gain.gain.setValueAtTime(level, t0);
     let tail: AudioNode = src;
     if (o.pan && typeof ctx.createStereoPanner === 'function') {
       const p = ctx.createStereoPanner();
@@ -298,9 +380,24 @@ export class AudioEngine {
     }
     tail.connect(gain);
     gain.connect(this.nodes!.inputs[o.far ? 'far' : row.bus]);
-    let t1 = t0 + b.buf.duration / Math.max(0.1, src.playbackRate.value);
+    // 기획 21차: a file plays from its start offset (leading silence skipped) to its end (silent tail cut); loops loop
+    // from the offset. Synth buffers have neither and start exactly as before.
+    const off = Math.min(Math.max(0, b.start), Math.max(0, b.buf.duration - 0.01));
+    const end = b.end != null && b.end > off ? Math.min(b.end, b.buf.duration) : b.buf.duration;
+    let t1 = t0 + (end - off) / Math.max(0.1, src.playbackRate.value);
     // start before any stop (stop() on an unstarted source throws)
-    src.start(t0);
+    if (src.loop && off > 0) {
+      src.loopStart = off;
+      src.loopEnd = b.buf.duration;
+    }
+    if (off === 0 && end === b.buf.duration) src.start(t0);
+    else if (src.loop) src.start(t0, off);
+    else src.start(t0, off, end - off);
+    if (!src.loop && end < b.buf.duration) {
+      const fade = Math.min(TAIL_FADE, (t1 - t0) / 3);
+      gain.gain.setValueAtTime(level, Math.max(t0, t1 - fade));
+      gain.gain.linearRampToValueAtTime(0, t1);
+    }
     if (o.loopFor != null) {
       t1 = t0 + o.loopFor;
       if (Number.isFinite(o.loopFor)) {
@@ -396,8 +493,8 @@ export class AudioEngine {
 
   // ─────────────────────────── buffers ───────────────────────────
 
-  private buffer(id: string, row: SfxRow, skill?: string): { buf: AudioBuffer; gain: number; rate: number } | null {
-    const src = resolveSource(id, { files: this.fileBufs, hasRecipe, family: x => familyDefault(x, roleOf) }, skill);
+  private buffer(id: string, row: SfxRow, skill?: string): Playable | null {
+    const src = this.resolve(id, skill);
     if (!src) {
       if (!this.warned.has(id)) {
         this.warned.add(id);
@@ -406,10 +503,24 @@ export class AudioEngine {
       return null;
     }
     if (src.kind === 'file') {
-      const list = this.fileBufs.get(src.id)!;
+      const list = this.fileBufs.get(src.id);
+      if (!list) {
+        // 기획 21차: not decoded yet — decode next (front of the queue), play it late (flushLate) like a synth sound
+        this.queueFile(src.id, true);
+        this.missing.add(id);
+        return null;
+      }
       const f = this.files.get(src.id);
       const [lo, hi] = f?.rate ?? [1, 1];
-      return { buf: list[Math.floor(this.random() * list.length)], gain: f?.gain ?? 1, rate: lo + (hi - lo) * this.random() };
+      return {
+        buf: list[Math.floor(this.random() * list.length)],
+        gain: f?.gain ?? 1,
+        rate: lo + (hi - lo) * this.random(),
+        start: f?.start ?? 0,
+        ...(f?.end != null ? { end: f.end } : null),
+        ...(f?.delay ? { delay: f.delay } : null),
+        ...(f?.align ? { fadeIn: true } : null),
+      };
     }
     let v = row.variants > 1 ? Math.floor(this.random() * row.variants) % row.variants : 0;
     if (!this.bakeInFrame && !this.has(src.id, v)) {
@@ -437,24 +548,66 @@ export class AudioEngine {
       this.bufs.set(key, buf);
       this.baker.release(src.id, v); // the AudioBuffer holds the samples now (not twice)
     }
-    return { buf, gain: 1, rate: 1 };
+    return { buf, gain: 1, rate: 1, start: 0 };
   }
 
-  private async loadFiles(id: string, f: FileSource): Promise<void> {
+  /** Queue id's file for a decode slot (urgent = front of the queue); nothing when it is decoded, decoding or failed. */
+  private queueFile(id: string, urgent = false): void {
+    if (!this.ctx || !this.files.has(id) || this.fileBufs.has(id) || this.fileFailed.has(id) || this.fileLoading.has(id)) return;
+    const i = this.fileQueue.indexOf(id);
+    if (i >= 0) {
+      if (!urgent) return;
+      this.fileQueue.splice(i, 1);
+    }
+    if (urgent) this.fileQueue.unshift(id);
+    else this.fileQueue.push(id);
+    this.pumpFiles();
+  }
+
+  private pumpFiles(): void {
+    while (this.fileJobs < FILE_JOBS && this.fileQueue.length) {
+      const id = this.fileQueue.shift()!;
+      this.fileJobs++;
+      void this.loadFiles(id).finally(() => {
+        this.fileJobs--;
+        this.pumpFiles();
+      });
+    }
+  }
+
+  /** Decode id's file(s) once (concurrent asks share it); a sound waiting for it starts when it is ready. */
+  private async loadFiles(id: string): Promise<void> {
     const ctx = this.ctx;
-    if (!ctx) return;
+    const f = this.files.get(id);
+    if (!ctx || !f || this.fileBufs.has(id) || this.fileFailed.has(id) || this.fileLoading.has(id)) return;
+    this.fileLoading.add(id);
     try {
       const list = await Promise.all(f.urls.map(u => this.loadFile(ctx, u)));
       this.fileBufs.set(id, list);
     } catch {
       if (!this.fileFailed.has(id)) console.warn(`[sfx] file for ${id} could not be read — using the synth sound`);
       this.fileFailed.add(id);
+    } finally {
+      this.fileLoading.delete(id);
     }
+    this.flushLate();
   }
 
-  /** Ids currently playing from a file (debug board). */
+  /** Ids that play from a file (debug board): it has one and it has not failed to decode. */
   isFile(id: string): boolean {
+    return this.usable.has(id);
+  }
+
+  /** Ids whose file is decoded and held (tests / debug). */
+  isDecoded(id: string): boolean {
     return this.fileBufs.has(id);
+  }
+
+  /** Bytes of the decoded files held as AudioBuffers (debug board). */
+  fileBytes(): number {
+    let b = 0;
+    for (const list of this.fileBufs.values()) for (const x of list) b += (x.length ?? 0) * (x.numberOfChannels ?? 1) * 4;
+    return b;
   }
 
   /** Debug 다시 굽기: drop baked synth buffers. */
@@ -534,5 +687,18 @@ export class AudioEngine {
 
 async function defaultLoadFile(ctx: AudioContext, url: string): Promise<AudioBuffer> {
   const res = await fetch(url);
-  return ctx.decodeAudioData(await res.arrayBuffer());
+  return toMono(ctx, await ctx.decodeAudioData(await res.arrayBuffer()));
+}
+
+/** 기획 21차: the generated files are stereo; every sound is mono and panned by the engine — keep half the memory. */
+function toMono(ctx: AudioContext, buf: AudioBuffer): AudioBuffer {
+  if (buf.numberOfChannels < 2) return buf;
+  const out = ctx.createBuffer(1, buf.length, buf.sampleRate);
+  const o = out.getChannelData(0);
+  const k = 1 / buf.numberOfChannels;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < d.length; i++) o[i] += d[i] * k;
+  }
+  return out;
 }

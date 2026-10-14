@@ -76,6 +76,14 @@ describe('HTTP', () => {
     expect(index.headers.get('content-type')).toContain('text/html');
     expect(index.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await index.text()).toContain('스왑 타워');
+    // the page is revalidated every time; a hashed asset (a sound file) is kept a year, never gzipped
+    expect(index.headers.get('cache-control')).toBe('no-cache');
+    const mp3 = await fetch(`${base}/assets/hit.basic-DXOQkDJP.mp3`, { headers: { 'accept-encoding': 'gzip' } });
+    expect(mp3.status).toBe(200);
+    expect(mp3.headers.get('content-type')).toBe('audio/mpeg');
+    expect(mp3.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(mp3.headers.get('content-encoding')).toBeNull();
+    expect((await mp3.arrayBuffer()).byteLength).toBe(2048);
     expect((await fetch(`${base}/nope.js`)).status).toBe(404);
     expect((await fetch(`${base}/%2e%2e/package.json`)).status).toBe(404);
     expect((await fetch(`${base}/`, { method: 'POST' })).status).toBe(405);

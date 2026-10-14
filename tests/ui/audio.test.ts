@@ -12,7 +12,8 @@ import { Director, EVENT_SOUNDS, JUST_DUCK, mergeFrame, type Routed, type SoundR
 import { AudioEngine, DUCK_FLOOR_DB, duckDb } from '../../src/audio/engine';
 import { GROUP_CAP, dbToGain, familyDefault, sfxRow } from '../../src/audio/ids';
 import { BAKE_BUSY_MS, BAKE_SLICE_MS, Baker, bakeBudget, bakeSamples } from '../../src/audio/bake';
-import { buildFileTable, resolveSource } from '../../src/audio/manifest';
+import { FILE_TABLE, buildFileTable, resolveSource, type FileLevel, type FileSource } from '../../src/audio/manifest';
+import LEVELS from '../../src/audio/files/levels.json';
 import { AUDIO_DEFAULTS, forcedMute, loadAudio, sanitizeAudio } from '../../src/audio/settings';
 import { STAGE_CUES, stageCues } from '../../src/audio/stages';
 import { CHAR_VOICE } from '../../src/audio/synth/voices';
@@ -75,13 +76,18 @@ class FakeSource extends FakeNode {
   playbackRate = new FakeParam(1);
   loop = false;
   startAt: number | null = null;
+  /** 기획 21차: the offset / duration of start(t, offset, duration) (a file with a trimmed head / tail); [] = start(t). */
+  startArgs: number[] = [];
+  loopStart = 0;
+  loopEnd = 0;
   stopAt: number | null = null;
   onended: (() => void) | null = null;
   constructor() {
     super('source');
   }
-  start(t: number) {
+  start(t: number, ...rest: number[]) {
     this.startAt = t;
+    this.startArgs = rest;
   }
   stop(t: number) {
     // same rule as the browser: stop() before start() throws
@@ -690,7 +696,7 @@ describe('sfx file overrides (2-2)', () => {
 
   it('maps file names to ids and manifest entries to their files', () => {
     expect(files.get('drag.guardian.wave')!.urls).toEqual(['data:wave']);
-    expect(files.get('hit.basic')).toEqual({ urls: ['data:a', 'data:b'], gain: 0.8, rate: [0.96, 1.04] });
+    expect(files.get('hit.basic')).toEqual({ urls: ['data:a', 'data:b'], gain: 0.8, rate: [0.96, 1.04], start: 0 });
   });
 
   it('lookup order: skill file → id file → recipe → family default → none', () => {
@@ -722,14 +728,249 @@ describe('sfx file overrides (2-2)', () => {
   });
 
   // 기획 18차: real files are generated with scripts/sfx-gen.mjs — keep them few-rule safe instead of "none".
-  it('bundled sound files: each replaces a known sound id (or a whole skill), no ogg, 3 MB in all', () => {
+  // 기획 21차: every sound has a file now (456 files, 6 010 230 bytes) — the budget is that total + 20 % (never over 10 MB).
+  it('bundled sound files: each replaces a known sound id (or a whole skill), no ogg, within the 21차 budget', () => {
     const dir = join(__dirname, '../../src/audio/files');
     const audio = readdirSync(dir).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f));
     expect(audio.filter(f => /\.ogg$/i.test(f))).toEqual([]);
     const ids = audio.map(f => f.replace(/\.(mp3|m4a|wav)$/i, ''));
     expect(ids.filter(id => !id.startsWith('skill.') && !hasRecipe(id))).toEqual([]);
     const bytes = audio.reduce((a, f) => a + statSync(join(dir, f)).size, 0);
-    expect(bytes).toBeLessThanOrEqual(3 * 1024 * 1024);
+    expect(bytes).toBeLessThanOrEqual(Math.min(10 * 1024 * 1024, Math.round(6_010_230 * 1.2)));
+  });
+});
+
+// ─────────────────────────── 기획 21차: file levels (files/levels.json) · offsets · decode on demand ───────────────────────────
+
+describe('sfx file levels and offsets (기획 21차)', () => {
+  const levels: Record<string, FileLevel> = {
+    'drag.guardian.wave': { gain: 0.5, start: 0.12, end: 0.8 },
+    'hit.basic': { gain: 2, start: 0.02 },
+    'amb.lobby': { gain: 1.5, start: 0.3 },
+    'ui.tap': { gain: 1, start: 0, off: true },
+  };
+  const table = buildFileTable(
+    { './files/drag.guardian.wave.mp3': 'data:wave', './files/hit.basic.mp3': 'data:hit', './files/amb.lobby.mp3': 'data:amb', './files/ui.tap.mp3': 'data:tap' },
+    { 'hit.basic': { src: ['hit.basic.mp3'], rate: [0.94, 1.06] } },
+    levels,
+  );
+  /** An engine whose files decode to 1 s buffers. */
+  const make = (preloadFiles: boolean, files: Map<string, FileSource> = table) => {
+    const ctx = new FakeCtx();
+    const loads: string[] = [];
+    const e = new AudioEngine({
+      random: () => 0.5,
+      bakeInFrame: true,
+      maxVoices: 24,
+      files,
+      preloadFiles,
+      loadFile: async (_c, url) => {
+        loads.push(url);
+        return { duration: 1, length: 48000, numberOfChannels: 1, tag: url } as unknown as AudioBuffer;
+      },
+    });
+    e.init(ctx as unknown as AudioContext);
+    return { e, ctx, loads };
+  };
+  const tick = () => new Promise(r => setTimeout(r, 0));
+
+  it('levels.json gives each file its gain / start / end; off drops the file (synth plays); the manifest still wins on gain / rate', () => {
+    expect(table.get('drag.guardian.wave')).toEqual({ urls: ['data:wave'], gain: 0.5, rate: [1, 1], start: 0.12, end: 0.8 });
+    expect(table.get('hit.basic')).toEqual({ urls: ['data:hit'], gain: 2, rate: [0.94, 1.06], start: 0.02 });
+    expect(table.has('ui.tap')).toBe(false);
+    const withGain = buildFileTable({ './files/hit.basic.mp3': 'data:hit' }, { 'hit.basic': { src: ['hit.basic.mp3'], gain: 0.7 } }, levels);
+    expect(withGain.get('hit.basic')!.gain).toBe(0.7);
+    expect(withGain.get('hit.basic')!.start).toBe(0.02);
+  });
+
+  it('the bundled levels.json: one entry per file, small numbers, read into FILE_TABLE', () => {
+    const dir = join(__dirname, '../../src/audio/files');
+    const ids = readdirSync(dir)
+      .filter(f => /\.(mp3|m4a|wav)$/i.test(f))
+      .map(f => f.replace(/\.(mp3|m4a|wav)$/i, ''))
+      .sort();
+    const lv = LEVELS as Record<string, FileLevel>;
+    expect(Object.keys(lv).sort()).toEqual(ids);
+    for (const [id, l] of Object.entries(lv)) {
+      expect(l.gain, id).toBeGreaterThan(0);
+      expect(l.gain, id).toBeLessThanOrEqual(16);
+      expect(l.start, id).toBeGreaterThanOrEqual(0);
+      for (const v of [l.gain, l.start, l.end ?? 0]) expect(Math.abs(v * 1000 - Math.round(v * 1000)), id).toBeLessThan(1e-6);
+      if (l.end != null) expect(l.end, id).toBeGreaterThan(l.start);
+      const f = FILE_TABLE.get(id);
+      if (l.off) {
+        expect(f, id).toBeUndefined();
+        continue;
+      }
+      expect(f, id).toBeDefined();
+      expect(f!.start, id).toBe(l.start);
+      expect(f!.end, id).toBe(l.end);
+      expect(f!.gain, id).toBe(l.gain);
+    }
+    // the manifest's pitch-jittered sounds keep their rate and take the file's level
+    const jit = ['hit.skill', 'hurt.char', 'heal.tick'].filter(id => FILE_TABLE.has(id));
+    expect(jit.length).toBeGreaterThan(0);
+    for (const id of jit) expect(FILE_TABLE.get(id)!.rate, id).toEqual([0.94, 1.06]);
+  });
+
+  it('a file starts at its offset, stops at its end (with a short fade) and plays at its level', async () => {
+    const { e, ctx } = make(true);
+    await tick();
+    e.play('drag.guardian.wave');
+    const src = ctx.sources.at(-1)!;
+    expect(src.buffer!.tag).toBe('data:wave');
+    expect(src.startArgs[0]).toBeCloseTo(0.12, 9);
+    expect(src.startArgs[1]).toBeCloseTo(0.68, 9);
+    const g = (src.out[0] as FakeGain).gain;
+    expect(g.calls[0][1]).toBeCloseTo(dbToGain(sfxRow('drag.guardian.wave').db) * 0.5, 9);
+    expect(g.calls.at(-1)![0]).toBe('lin');
+    expect(g.calls.at(-1)![1]).toBe(0);
+    expect(g.calls.at(-1)![2]).toBeCloseTo(0.68, 9);
+    // a synth sound still starts the plain way
+    e.play('drag.guardian.slam');
+    expect(ctx.sources.at(-1)!.startArgs).toEqual([]);
+  });
+
+  it('a loop loops from its offset', async () => {
+    const { e, ctx } = make(true);
+    await tick();
+    e.play('amb.lobby', { loopFor: Infinity, key: 'amb' });
+    const src = ctx.sources.at(-1)!;
+    expect(src.loop).toBe(true);
+    expect(src.startArgs).toEqual([0.3]);
+    expect(src.loopStart).toBe(0.3);
+    expect(src.loopEnd).toBe(1);
+  });
+
+  it('bundled table: files decode on demand (UI at init, prepare before a scene, else on the first request, played late)', async () => {
+    const files = buildFileTable({ './files/drag.guardian.wave.mp3': 'data:wave', './files/ui.select.mp3': 'data:sel', './files/hit.crit.mp3': 'data:crit' }, {});
+    const { e, ctx, loads } = make(false, files);
+    await tick();
+    expect(loads).toEqual(['data:sel']);
+    // prepare: a file id decodes (its synth sound is not baked), a synth id bakes
+    e.prepare(['hit.crit', 'drag.guardian.slam']);
+    await tick();
+    expect(loads).toEqual(['data:sel', 'data:crit']);
+    expect(e.isDecoded('hit.crit')).toBe(true);
+    expect(e.baker.has('hit.crit')).toBe(false);
+    // the first request of a file not decoded yet: nothing now, then it starts (late) with the file once decoded
+    expect(e.play('drag.guardian.wave')).toBe(false);
+    expect(e.waiting).toBe(1);
+    await tick();
+    expect(e.waiting).toBe(0);
+    expect(ctx.sources.at(-1)!.buffer!.tag).toBe('data:wave');
+    expect(e.isFile('drag.guardian.wave')).toBe(true);
+  });
+});
+
+// ─────────────────────────── 기획 21차 리뷰: hit alignment · decode queue · letting files go ───────────────────────────
+
+describe('sfx files: hit alignment, decode queue, release (기획 21차 리뷰)', () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const buf = (url: string) => ({ duration: 1, length: 48000, numberOfChannels: 1, tag: url }) as unknown as AudioBuffer;
+
+  it('levels.json align / delay reach the file table; align fades the cut head in, delay starts the file later', async () => {
+    const levels: Record<string, FileLevel> = {
+      'ult.gunner.heavy': { gain: 1, start: 0.585, align: true },
+      'ult.berserker.finale': { gain: 1, start: 0, end: 0.9, delay: 0.5 },
+    };
+    const files = buildFileTable({ './files/ult.gunner.heavy.mp3': 'data:heavy', './files/ult.berserker.finale.mp3': 'data:finale' }, {}, levels);
+    expect(files.get('ult.gunner.heavy')).toEqual({ urls: ['data:heavy'], gain: 1, rate: [1, 1], start: 0.585, align: true });
+    expect(files.get('ult.berserker.finale')).toEqual({ urls: ['data:finale'], gain: 1, rate: [1, 1], start: 0, end: 0.9, delay: 0.5 });
+    const ctx = new FakeCtx();
+    const e = new AudioEngine({ random: () => 0.5, bakeInFrame: true, maxVoices: 24, files, loadFile: async (_c, url) => buf(url) });
+    e.init(ctx as unknown as AudioContext);
+    await tick();
+    e.play('ult.gunner.heavy');
+    let src = ctx.sources.at(-1)!;
+    expect(src.startAt).toBe(0);
+    expect(src.startArgs[0]).toBeCloseTo(0.585, 9);
+    const g = (src.out[0] as FakeGain).gain.calls;
+    expect(g[0]).toEqual(['set', 0, 0]);
+    expect(g[1][0]).toBe('lin');
+    expect(g[1][1]).toBeCloseTo(dbToGain(sfxRow('ult.gunner.heavy').db), 9);
+    expect(g[1][2]).toBeGreaterThan(0);
+    expect(g[1][2]).toBeLessThan(0.01);
+    e.play('ult.berserker.finale', { delay: 0.1 });
+    src = ctx.sources.at(-1)!;
+    expect(src.startAt).toBeCloseTo(0.6, 9);
+    expect((src.out[0] as FakeGain).gain.calls[0]).toEqual(['set', dbToGain(sfxRow('ult.berserker.finale').db), src.startAt]);
+  });
+
+  it('the bundled levels.json: align only on a moved start, delay small, both only on stage cues with a lead', () => {
+    const leads = new Set<string>();
+    for (const c of Object.values(STAGE_CUES))
+      for (const slot of [c.drag, c.ult]) for (const v of Object.values(slot)) for (const q of v == null ? [] : Array.isArray(v) ? v : [v]) if (q.lead) leads.add(q.id);
+    for (const [id, l] of Object.entries(LEVELS as Record<string, FileLevel>)) {
+      if (l.align) expect(l.start, id).toBeGreaterThan(0);
+      if (l.delay != null) {
+        expect(l.delay, id).toBeGreaterThan(0);
+        expect(l.delay, id).toBeLessThan(1);
+      }
+      if (l.align || l.delay) expect(leads.has(id), id).toBe(true);
+    }
+  });
+
+  it('files decode a few at a time in the order asked; a sound asked for now jumps the queue', async () => {
+    const ids = ['hit.crit', 'hit.skill', 'heal.tick', 'mon.death', 'drag.guardian.slam', 'drag.guardian.wave', 'ui.select'];
+    const files = buildFileTable(Object.fromEntries(ids.map(id => [`./files/${id}.mp3`, `data:${id}`])), {});
+    const pending: (() => void)[] = [];
+    const loads: string[] = [];
+    const e = new AudioEngine({
+      random: () => 0.5,
+      bakeInFrame: true,
+      maxVoices: 24,
+      files,
+      preloadFiles: false,
+      loadFile: (_c, url) => {
+        loads.push(url);
+        return new Promise(r => pending.push(() => r(buf(url))));
+      },
+    });
+    const ctx = new FakeCtx();
+    e.init(ctx as unknown as AudioContext);
+    expect(loads).toEqual(['data:ui.select']); // UI files at init
+    e.prepare(['hit.crit', 'hit.skill', 'heal.tick', 'mon.death', 'drag.guardian.slam']);
+    expect(loads).toEqual(['data:ui.select', 'data:hit.crit', 'data:hit.skill']); // 3 at once
+    expect(e.filesQueued).toBe(3);
+    expect(e.play('drag.guardian.wave')).toBe(false); // not decoded: front of the queue, played late
+    pending.shift()!(); // ui.select done → the asked-for sound is next
+    await tick();
+    expect(loads.at(-1)).toBe('data:drag.guardian.wave');
+    while (pending.length) {
+      pending.shift()!();
+      await tick();
+    }
+    expect(loads.slice(4)).toEqual(['data:heal.tick', 'data:mon.death', 'data:drag.guardian.slam']);
+    expect(e.filesQueued).toBe(0);
+    expect(ctx.sources.at(-1)!.buffer!.tag).toBe('data:drag.guardian.wave');
+    // letting go: decoded files the game is done with (never UI); asked again → decoded again
+    expect(e.releaseFiles(id => id.startsWith('hit.') || id.startsWith('ui.'))).toBe(2);
+    expect(e.isDecoded('hit.crit')).toBe(false);
+    expect(e.isDecoded('ui.select')).toBe(true);
+    expect(e.isFile('hit.crit')).toBe(true);
+    expect(e.play('hit.crit')).toBe(false);
+    expect(loads.at(-1)).toBe('data:hit.crit');
+  });
+
+  it('Sfx: a new floor lets go of past 괴담 / 돌발 괴담 files, the ambience of other zones and bosses other than this and the next', () => {
+    const released: string[][] = [];
+    const decoded = ['gd.room.copier', 'fe.success', 'amb.lobby', 'amb.office', 'amb.boss', 'boss.intro.elevator_keeper', 'boss.intro.dead_monitor', 'boss.death.washer_drum', 'hit.crit'];
+    const fakeEngine = Object.assign(new AudioEngine({ files: new Map(), loadFile: async (_c, url) => buf(url) }), {
+      releaseFiles(drop: (id: string) => boolean) {
+        released.push(decoded.filter(drop));
+        return 0;
+      },
+    });
+    const s = new Sfx({ engine: fakeEngine, makeContext: () => new FakeCtx() as unknown as AudioContext });
+    fakeEngine.init(new FakeCtx() as unknown as AudioContext);
+    const state = (floor: number) =>
+      ({ floor, phase: 'combat', plan: { theme: 'office', bossId: 'dead_monitor', nextBossId: 'washer_drum' }, players: [], entities: [], telegraphs: [] }) as unknown as GameState;
+    (s as unknown as { tidyFiles(st: GameState): void }).tidyFiles(state(3));
+    expect(released).toEqual([['gd.room.copier', 'fe.success', 'amb.lobby', 'boss.intro.elevator_keeper']]);
+    // the same floor: nothing more
+    (s as unknown as { tidyFiles(st: GameState): void }).tidyFiles(state(3));
+    expect(released.length).toBe(1);
   });
 });
 

@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { defineConfig } from '@playwright/test';
 
-// E2E against the production single-file build (dist/index.html served by `vite preview`).
+// E2E against the production single-file build (dist/index.html served by `vite preview`; 기획 21차 리뷰: its sound
+// files are separate in dist/assets). The artifact spec uses the artifact build with the sounds inlined (<E2E_OUT>-single).
 // Cloud sessions: Chromium is preinstalled at /opt/pw-browsers/chromium — never run `playwright install` there.
 // A local checkout (the designer's Windows PC) uses Playwright's own browser (`npx playwright install chromium` once).
 // Multiplayer specs (tests/e2e/multi*.spec.ts, project 'multi') start the built game server themselves on a free port.
@@ -47,7 +48,7 @@ export default defineConfig({
   ],
   webServer: {
     // vite build only (no tsc): a type error elsewhere must not block the browser tests
-    command: `npx vite build --outDir ${OUT} --emptyOutDir && npx vite preview --outDir ${OUT} --port ${PORT} --strictPort`,
+    command: `npx vite build --outDir ${OUT} --emptyOutDir && npx vite build --mode artifact --outDir ${OUT}-single --emptyOutDir && npx vite preview --outDir ${OUT} --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,
     timeout: 120_000,

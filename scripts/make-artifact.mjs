@@ -1,15 +1,19 @@
-// Turns the single-file build (dist/index.html) into a body fragment for publishing as a claude.ai Artifact.
+// Turns the single-file build into a body fragment for publishing as a claude.ai Artifact.
 // The Artifact host wraps the page in its own <!doctype>/<head>/<body>, so we keep only title, styles, app root and script.
-// Usage: node scripts/make-artifact.mjs [input = dist/index.html] [outDir = dist-artifact]  (tests pass their own paths)
+// 기획 21차 리뷰: the input must be the artifact build (`vite build --mode artifact`, sounds inlined): npm run build:artifact
+// builds it into dist-single/. The regular dist/ build keeps its sound files in dist/assets, which an Artifact cannot serve.
+// Usage: node scripts/make-artifact.mjs [input = dist-single/index.html] [outDir = dist-artifact]  (tests pass their own paths)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-const [input = 'dist/index.html', outDir = 'dist-artifact'] = process.argv.slice(2);
+const [input = 'dist-single/index.html', outDir = 'dist-artifact'] = process.argv.slice(2);
 const html = readFileSync(input, 'utf8');
 const title = html.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '스왑 타워 프로토';
 const styles = [...html.matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(m => m[0].replace(/<style[^>]*>/, '<style>'));
 const scripts = [...html.matchAll(/<script[^>]*>[\s\S]*?<\/script>/g)].map(m => m[0].replace(/<script[^>]*>/, '<script type="module">'));
-if (!scripts.length) throw new Error(`no script found in ${input} — run npm run build first`);
+if (!scripts.length) throw new Error(`no script found in ${input} — run npm run build:artifact`);
+// a sound file left outside the page would be a request the Artifact host answers with an error (no sound)
+if (/["'(]\.\/assets\/[^"')]+\.(mp3|m4a|wav)/.test(html)) throw new Error(`${input} links sound files in assets/ — use the artifact build (vite build --mode artifact)`);
 
 const out = [
   `<title>${title}</title>`,

@@ -1,0 +1,326 @@
+{
+  "batch": "goedam",
+  "format": "mp3_44100_64",
+  "note": "기획 21차: 괴담 방(gd.*) · 돌발 괴담(fe.*) 프롬프트. 방마다 고유 재료(자판기=동전·압축기, 전화=옛 벨, 병동=물방울·카트 …), 돌발 괴담 예고 fe.warn은 7개 모두 같은 금빛 차임.",
+  "sounds": [
+    {
+      "id": "gd.room.broken_vending",
+      "ko": "괴담 방: 고장 난 자판기 — 동전 + 압축기 웅웅",
+      "seconds": 2.6,
+      "text": "Two coins clink and rattle down into an old metal vending machine, then its tired compressor kicks on with a low uneven electric hum and a faint warm wheezing breath from the change slot, fading out."
+    },
+    {
+      "id": "gd.room.elevator_whisper",
+      "ko": "괴담 방: 엘리베이터 속삭임 — 어긋난 딩 + 속삭임",
+      "seconds": 2.7,
+      "text": "A slightly detuned, off-key elevator arrival ding in a small metal cabin, followed by a faint breathy wordless whisper right behind the listener that hangs in the air and fades."
+    },
+    {
+      "id": "gd.room.ringing_phone",
+      "ko": "괴담 방: 울리는 공중전화 — 옛날 따르릉 ×2",
+      "seconds": 2.6,
+      "text": "An old public payphone with a mechanical bell ringer rings twice, brrring brrring, echoing in an empty lobby, then silence."
+    },
+    {
+      "id": "gd.room.overtime_roster",
+      "ko": "괴담 방: 야근 출석부 — 펜 긁힘 + 시계 째깍",
+      "seconds": 2.8,
+      "text": "A ballpoint pen scratches a quick signature on paper, then a lonely wall clock ticks four slow ticks in a silent night office."
+    },
+    {
+      "id": "gd.room.copier",
+      "ko": "괴담 방: 복사기 — 위잉 기동 + 종이 나옴",
+      "seconds": 2.3,
+      "text": "An office photocopier whirs up by itself with a rising motor hum and a sweeping scan, then a single sheet of paper slides out with a crisp rustle."
+    },
+    {
+      "id": "gd.room.endless_corridor",
+      "ko": "괴담 방: 끝나지 않는 복도 — 발소리 4번 + 메아리",
+      "seconds": 2.7,
+      "text": "Four slow soft footsteps on a linoleum hallway floor, each one answered by a long hollow echo that comes a little too late, in an endless empty corridor."
+    },
+    {
+      "id": "gd.room.red_blue_paper",
+      "ko": "괴담 방: 빨간 휴지 파란 휴지 — 아이 킥킥 + 물방울",
+      "seconds": 2,
+      "text": "A short soft wordless childlike giggle from behind a toilet stall door, then a single water drop plinks onto wet tile in a quiet tiled bathroom."
+    },
+    {
+      "id": "gd.room.night_rounds",
+      "ko": "괴담 방: 회진 시간 — 호출 벨 삑 + 카트 바퀴",
+      "seconds": 2.7,
+      "text": "A hospital nurse-call button beeps once, then small squeaky cart wheels roll slowly closer down a dark ward corridor, rattling faintly, and a second beep."
+    },
+    {
+      "id": "gd.room.iv_drip",
+      "ko": "괴담 방: 이름이 적힌 링거 — 물방울 3번 + 긴 잔향",
+      "seconds": 2.4,
+      "text": "Three slow single drops of liquid fall into an IV drip chamber, each a clear hollow plink with a long cold reverb tail in an empty hospital room."
+    },
+    {
+      "id": "gd.room.sky_eye",
+      "ko": "괴담 방: 하늘의 눈 — 깊은 드론 + 깜빡 철퍽",
+      "seconds": 2.8,
+      "text": "A deep low swelling drone fills a red sky, then one huge wet eyelid blinks with a soft fleshy flap, and the drone sinks away."
+    },
+    {
+      "id": "gd.room.red_mask",
+      "ko": "괴담 방: 빨간 마스크 — 먹먹한 웃음 + 발소리",
+      "seconds": 2.6,
+      "text": "A muffled wordless giggle heard through a cloth face mask, wavering and slightly off, followed by three slow footsteps on a concrete rooftop."
+    },
+    {
+      "id": "gd.room.cursed_relic",
+      "ko": "괴담 방: 저주받은 유물 — 사슬 + 부적 + 똑똑",
+      "seconds": 2.2,
+      "text": "A small iron chain rattles across an old wooden box, paper talismans flutter and rustle, then two knocks come from inside the box."
+    },
+    {
+      "id": "gd.enter",
+      "ko": "괴담 방 열림 — 전기 지직 ×3 + 웅웅 + 부풂",
+      "seconds": 2.3,
+      "text": "A fluorescent light tube flickers with three sharp electric zaps, then a low trembling electrical hum and a slow eerie air swell, as if the room itself breathes in."
+    },
+    {
+      "id": "gd.pick",
+      "ko": "괴담 방 선택지 누름 (안전)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A crisp small button click with a soft low muted thump under it, dry UI tap."
+    },
+    {
+      "id": "gd.pick.gamble",
+      "ko": "괴담 방 선택지 누름 (도박) — 클릭 + 주사위",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A crisp button click followed by a few small dice rattling quickly in a cup, short and dry."
+    },
+    {
+      "id": "gd.pick.cost",
+      "ko": "괴담 방 선택지 누름 (대가·영구) — 클릭 + 낮은 징",
+      "seconds": 0.9,
+      "influence": 0.6,
+      "text": "A crisp button click, then a low dark gong strike that rings with an ominous metallic shimmer and fades."
+    },
+    {
+      "id": "gd.flicker",
+      "ko": "괴담 결과 직전 깜빡임 — 지직 3번 후 무음",
+      "seconds": 0.5,
+      "text": "Three quick crackling electric zaps of a dying light bulb, then sudden dead silence."
+    },
+    {
+      "id": "gd.result.good",
+      "ko": "괴담 결과: 좋음 — 따뜻한 부풂 + 장조 + 한숨",
+      "seconds": 2.6,
+      "noStyle": true,
+      "text": "Short relieved game result sting: a warm soft airy swell blooms into a gentle bright major chord of soft bell tones, then a quiet relieved exhale of air. Cute mobile game sound, clean and dry, no drums, no speech, no vocals."
+    },
+    {
+      "id": "gd.result.bad",
+      "ko": "괴담 결과: 나쁨 — 짧은 불협 찌름 (작게)",
+      "seconds": 1.7,
+      "noStyle": true,
+      "text": "Short soft dissonant sting: two slightly clashing buzzy synth tones a half step apart, a brief uneasy stab that fades quickly, not loud. Mobile game sound with a slightly eerie Korean ghost-story mood, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "gd.result.neutral",
+      "ko": "괴담 결과: 무난 — 낮은 종 + 바람",
+      "seconds": 2.3,
+      "text": "A single low temple bell tolls softly while a gentle breeze rises and passes by, calm and a little lonely. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "influence": 0.7
+    },
+    {
+      "id": "gd.result.leave",
+      "ko": "괴담 결과: 지나간다 — 멀어지는 발소리",
+      "seconds": 2.3,
+      "text": "Four soft footsteps walking away down a hallway, each one quieter and farther than the last."
+    },
+    {
+      "id": "gd.trace.curse",
+      "ko": "흔적 생김: 저주",
+      "seconds": 2.1,
+      "text": "A low ominous hollow tone with a dark dissonant undertone hums and lingers, like a curse settling on someone, faint ghostly air around it."
+    },
+    {
+      "id": "gd.trace.bless",
+      "ko": "흔적 생김: 축복",
+      "seconds": 1.8,
+      "text": "Three soft rising glassy chime twinkles with a gentle warm sparkle, a small blessing gently settling."
+    },
+    {
+      "id": "gd.trace.mixed",
+      "ko": "흔적 생김: 저주+축복 (둘 다 작게)",
+      "seconds": 0.5,
+      "text": "A quiet low hollow hum under two small bright chime twinkles, short and soft."
+    },
+    {
+      "id": "gd.trace.expire",
+      "ko": "흔적 사라짐 — 풀리는 거꾸로 차임",
+      "seconds": 0.5,
+      "text": "A short reversed chime that swells in and cuts off, like a spell unravelling and lifting away."
+    },
+    {
+      "id": "gd.continue",
+      "ko": "괴담 방 계속 — 문 쿵 + 걸쇠",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A heavy old door thuds shut, followed by a small metal latch clicking into place."
+    },
+    {
+      "id": "fe.start.lucky_toad",
+      "ko": "돌발 괴담 시작: 금두꺼비 — 개굴 ×2 + 동전",
+      "seconds": 2,
+      "text": "A small cute toad croaks twice, ribbit ribbit, then a bright jingle of a few gold coins spilling."
+    },
+    {
+      "id": "fe.fail.lucky_toad",
+      "ko": "돌발 괴담 실패: 금두꺼비 — 낮아지는 개굴 (비웃음)",
+      "seconds": 0.6,
+      "text": "A cute toad gives three quick croaks dropping lower in pitch each time, like a smug little mocking laugh as it escapes."
+    },
+    {
+      "id": "fe.start.possessed_printer",
+      "ko": "돌발 괴담 시작: 멈추지 않는 프린터 — 기동음 + 종이",
+      "seconds": 2.1,
+      "text": "An office laser printer jolts awake by itself with a rising grinding motor whir, then starts spitting paper with fast crisp rustling feeds."
+    },
+    {
+      "id": "fe.fail.possessed_printer",
+      "ko": "돌발 괴담 실패: 프린터",
+      "seconds": 0.9,
+      "noStyle": true,
+      "text": "A laser printer motor grinds to a jammed halt with a crunch of crumpled paper, under a sad two-note falling tone, high then low. Cute mobile game failure sound, slightly eerie, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "fe.start.sleeping_patient",
+      "ko": "돌발 괴담 시작: 잠든 환자 — 느린 삑 + 숨소리",
+      "seconds": 2.5,
+      "text": "A heart monitor beeps once slowly, then a long deep sleeping breath rises and falls, calm but weak."
+    },
+    {
+      "id": "fe.fail.sleeping_patient",
+      "ko": "돌발 괴담 실패: 잠든 환자",
+      "seconds": 0.9,
+      "noStyle": true,
+      "text": "Two slow heart monitor beeps sag down in pitch and a tired breath sighs out, under a sad two-note falling tone, high then low. Cute mobile game failure sound, slightly eerie, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "fe.start.open_shaft",
+      "ko": "돌발 괴담 시작: 열린 엘리베이터 통로 — 케이블 삐걱 + 상승 기류",
+      "seconds": 2.3,
+      "text": "Steel elevator cables creak and groan in a deep open shaft while a rushing updraft of hollow wind swells upward from below."
+    },
+    {
+      "id": "fe.fail.open_shaft",
+      "ko": "돌발 괴담 실패: 엘리베이터 통로",
+      "seconds": 0.9,
+      "noStyle": true,
+      "text": "A hollow updraft in an elevator shaft dies down with one distant cable clunk, under a sad two-note falling tone, high then low. Cute mobile game failure sound, slightly eerie, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "fe.start.midnight_surge",
+      "ko": "돌발 괴담 시작: 23:59 정각 — 시계 종 3번 + 째깍",
+      "seconds": 3.4,
+      "text": "An old wall clock strikes three slow resonant chimes, then fast ticking starts, tick tick tick tick, over an uneasy hollow room tone."
+    },
+    {
+      "id": "fe.fail.midnight_surge",
+      "ko": "돌발 괴담 실패: 23:59 정각",
+      "seconds": 0.9,
+      "noStyle": true,
+      "text": "A wall clock's ticking slows down and stops with one dull low bong, under a sad two-note falling tone, high then low. Cute mobile game failure sound, slightly eerie, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "fe.start.dark_lamps",
+      "ko": "돌발 괴담 시작: 꺼지는 비상등 — 꺼져 가는 웅웅",
+      "seconds": 2.3,
+      "text": "The electrical hum of an emergency light buzzes and stutters, sagging down in pitch as the power dies, flickering out into silence."
+    },
+    {
+      "id": "fe.fail.dark_lamps",
+      "ko": "돌발 괴담 실패: 비상등",
+      "seconds": 0.9,
+      "noStyle": true,
+      "text": "A light bulb pops and fizzles out with a small electric crackle, under a sad two-note falling tone, high then low. Cute mobile game failure sound, slightly eerie, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "fe.start.sleepwalker",
+      "ko": "돌발 괴담 시작: 깨우면 안 되는 아이 — 오르골 자장가 4음",
+      "seconds": 2.5,
+      "noStyle": true,
+      "text": "A tiny wind-up music box plays four slow falling lullaby notes, each note ringing clearly and sustained for half a second with a soft warm tail, sleepy and a little eerie, clearly audible and full, not faint. Mobile game sound effect, clean and dry, no other instruments, no speech, no vocals."
+    },
+    {
+      "id": "fe.fail.sleepwalker",
+      "ko": "돌발 괴담 실패: 깨우면 안 되는 아이",
+      "seconds": 0.9,
+      "noStyle": true,
+      "text": "A tiny music box winds down, slows and stops on a sour note, under a sad two-note falling tone, high then low. Cute mobile game failure sound, slightly eerie, clean and dry, no speech, no vocals."
+    },
+    {
+      "id": "fe.warn",
+      "ko": "돌발 괴담 예고 (금빛 표시, 7개 공통)",
+      "seconds": 2.4,
+      "text": "A quick shimmering golden chime trill of four rising sparkly notes over one low soft bell toll, an attention-grabbing magical alert."
+    },
+    {
+      "id": "fe.lamp",
+      "ko": "돌발 괴담 진행: 비상등 하나 켜짐",
+      "seconds": 1,
+      "text": "A light switch clicks and a lamp flickers on with a small clear bell ping. One single loud, sharp, clearly audible sound right at the very beginning, then silence.",
+      "influence": 0.8
+    },
+    {
+      "id": "fe.fall",
+      "ko": "돌발 괴담 진행: 적이 승강로로 떨어짐",
+      "seconds": 2.1,
+      "text": "A cartoon falling whistle sliding down in pitch, then a distant muffled thud far below at the bottom of a deep shaft."
+    },
+    {
+      "id": "fe.tally",
+      "ko": "돌발 괴담 진행: 그림자 1마리 잡음",
+      "seconds": 1,
+      "influence": 0.8,
+      "text": "A tiny soft poof of a shadow puffing away into smoke, followed by a bright little tick. One single loud, sharp, clearly audible sound right at the very beginning, then silence."
+    },
+    {
+      "id": "fe.startle",
+      "ko": "돌발 괴담 진행: 아이가 놀람 (짧고 작게)",
+      "seconds": 0.5,
+      "text": "A tiny short soft wordless whimper of a startled sleeping child, faint and wobbly, not loud."
+    },
+    {
+      "id": "fe.monitor",
+      "ko": "돌발 괴담 진행: 환자 회복 (심전도 삑)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A single short clean heart monitor beep."
+    },
+    {
+      "id": "fe.toad.hop",
+      "ko": "금두꺼비 점프",
+      "seconds": 0.5,
+      "text": "A springy cartoon boing as a small toad hops up, wobbly and rising."
+    },
+    {
+      "id": "fe.print",
+      "ko": "프린터가 졸개를 뽑아냄 — 종이 철썩",
+      "seconds": 0.5,
+      "text": "A sheet of paper shoots out of a printer and slaps flat onto the floor, crisp and quick."
+    },
+    {
+      "id": "fe.urgent",
+      "ko": "돌발 괴담 남은 5초 이하 (초마다)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Two quick bright golden ticks, tik-tik, sharp and tiny like a small metal timer."
+    },
+    {
+      "id": "fe.success",
+      "ko": "돌발 괴담 성공 — 동전 8개 + 밝은 장화음",
+      "seconds": 2.3,
+      "noStyle": true,
+      "text": "Short success sting: a rapid cascade of about eight gold coins jingling, then a bright cheerful major chord of chiptune square tones. Cute punchy mobile game reward sound, clean and dry, no drums, no speech, no vocals."
+    }
+  ]
+}

@@ -10,6 +10,8 @@ export interface SfxDebugApi {
   readonly recent: readonly RecentEntry[];
   readonly unlocked: boolean;
   readonly muted: boolean;
+  /** 기획 21차: ids that play from a file, ids whose file is decoded now, and the decoded files' memory (bytes). */
+  files(): { usable: number; decoded: number; bytes: number };
 }
 
 export const sfxDebugApi: SfxDebugApi = {
@@ -23,6 +25,10 @@ export const sfxDebugApi: SfxDebugApi = {
   },
   get muted() {
     return sfx.muted;
+  },
+  files: () => {
+    const ids = sfx.ids();
+    return { usable: ids.filter(id => sfx.engine.isFile(id)).length, decoded: ids.filter(id => sfx.engine.isDecoded(id)).length, bytes: sfx.engine.fileBytes() };
   },
 };
 
@@ -64,7 +70,8 @@ export function mountSfxBoard(sec: HTMLElement): void {
   }
   function showInfo(): void {
     const mb = ((sfx.engine.baker.bytes() + sfx.engine.bufferBytes()) / 1e6).toFixed(1);
-    info.textContent = `${sfx.unlocked ? '켜짐' : '첫 터치 전'}${sfx.muted ? ' · 음소거' : ''} · 구운 소리 ${mb}MB · 재생 중 ${sfx.engine.active}`;
+    const fileMb = (sfx.engine.fileBytes() / 1e6).toFixed(1);
+    info.textContent = `${sfx.unlocked ? '켜짐' : '첫 터치 전'}${sfx.muted ? ' · 음소거' : ''} · 구운 소리 ${mb}MB · 파일 ${fileMb}MB · 재생 중 ${sfx.engine.active}`;
   }
   setFam(0);
 }

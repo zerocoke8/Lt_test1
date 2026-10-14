@@ -58,6 +58,8 @@ export class Sfx {
   private members = -1;
   private connected = true;
   private warmedBoss = new Set<string>();
+  /** Floor whose sound files were last tidied (기획 21차 리뷰: releaseFiles on a new floor). */
+  private tidiedFloor = -1;
   private pumpTimer: ReturnType<typeof setTimeout> | null = null;
   private urgentTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly makeContext: () => AudioContext | null;
@@ -179,6 +181,7 @@ export class Sfx {
     this.lastFrameAt = view.nowMs;
     if (this.paused && events.length === 0) return;
     this.warmBoss(state);
+    this.tidyFiles(state);
     this.engine.flushLate();
     const out = this.director.route(events, state, {
       localPlayer: view.localPlayer,
@@ -296,12 +299,36 @@ export class Sfx {
     const groggy = all.filter(id => id.startsWith('groggy.'));
     const amb = [`amb.${s.plan.theme ?? 'lobby'}`, 'amb.goedam'];
     const rest = all.filter(id => [...chars].some(c => own(c, id)) || [...roles].some(r => id.endsWith(`.${r}`)) || COMMON.some(p => id.startsWith(p)));
-    this.enqueueAll([...first, ...groggy, ...amb, ...rest]);
+    const want = [...first, ...groggy, ...amb, ...rest];
+    // 기획 21차 리뷰: a new run lets go of the files of the last one that this run does not use (another roster …)
+    const keep = new Set(want);
+    this.engine.releaseFiles(id => !keep.has(id));
+    this.tidiedFloor = s.floor;
+    this.enqueueAll(want);
     this.pumpSoon();
   }
 
+  /**
+   * 기획 21차 리뷰: on each new floor, decoded files the run is done with are let go — the 괴담 room and 돌발 괴담
+   * sounds (one room / event at a time), the ambience of other zones, and the intro / phase / death of bosses other
+   * than this floor's and the next one's. They decode again if they are ever asked for (played a moment late).
+   */
+  private tidyFiles(s: GameState): void {
+    if (!this.engine.ctx || s.floor === this.tidiedFloor) return;
+    this.tidiedFloor = s.floor;
+    const bosses = new Set([s.plan.bossId, s.plan.nextBossId].filter((b): b is string => !!b));
+    const amb = new Set([`amb.${s.plan.theme ?? 'lobby'}`, 'amb.goedam', 'amb.boss']);
+    this.engine.releaseFiles(id => {
+      if (id.startsWith('gd.') || id.startsWith('fe.')) return true;
+      if (id.startsWith('amb.')) return !amb.has(id);
+      const m = /^boss\.(intro|phase|death)\.(.+)$/.exec(id);
+      return !!m && !bosses.has(m[2]);
+    });
+  }
+
+  /** 기획 21차: ids with a sound file decode it; the rest bake their synth sound (engine.prepare). */
   private enqueueAll(ids: readonly string[]): void {
-    for (const id of new Set(ids)) this.engine.baker.enqueue([id], sfxRow(id).variants);
+    this.engine.prepare(new Set(ids));
   }
 
   /** The boss's sounds bake before its floor: on the reward / 괴담 screen that leads to it (else on its first frame). */

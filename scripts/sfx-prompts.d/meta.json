@@ -1,0 +1,368 @@
+{
+  "batch": "meta",
+  "format": "mp3_44100_64",
+  "sounds": [
+    {
+      "id": "ui.cdcut",
+      "ko": "대기 시간 줄어듦 (부활·교대 쿨 감소)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Three very quick rising tiny clock ticks, like a small pocket watch being fast-forwarded, crisp and light."
+    },
+    {
+      "id": "run.out",
+      "ko": "내가 탈락 (멀티, 내 캐릭터 전멸)",
+      "seconds": 5.2,
+      "noStyle": true,
+      "text": "Sad dark game-over sting for a cute ghost-story mobile game: a slow low diminished string chord swells and sinks while a small music box melody winds down, slows and stops, fading into a cold empty reverb. Eerie and heavy but not scary. No speech, no vocals."
+    },
+    {
+      "id": "player.out",
+      "ko": "다른 플레이어 탈락 (멀티)",
+      "seconds": 2.5,
+      "text": "A single soft low bronze bell toll, gentle and somber, ringing out slowly with a long fading tail."
+    },
+    {
+      "id": "just.swap.far",
+      "ko": "다른 플레이어의 저스트 교대 (작게)",
+      "seconds": 1.4,
+      "text": "Small distant sparkling 'shing': a quick bright glassy ping followed by a tiny high chime, light and airy, much smaller than a main hit."
+    },
+    {
+      "id": "just.whiff",
+      "ko": "저스트 교대로 적 공격이 헛침",
+      "seconds": 0.5,
+      "text": "An attack swings through empty air and misses: a very fast thin high whoosh with a faint airy hiss at the start, nothing lands."
+    },
+    {
+      "id": "floor.start.lobby",
+      "ko": "로비·상가 층 시작 — 엘리베이터 딩",
+      "seconds": 2.4,
+      "text": "An old apartment elevator arrives: a clear bright 'ding' of the elevator bell, then two soft mellow chime tones, slightly hollow and lonely as if in an empty lobby."
+    },
+    {
+      "id": "floor.start.office",
+      "ko": "사무실 층 시작 — 형광등 깜빡 + 먼 전화벨",
+      "seconds": 2.2,
+      "text": "A fluorescent ceiling light flickers on with three sharp electric ticks and a low buzzing hum, then an old desk telephone rings briefly far down an empty office."
+    },
+    {
+      "id": "floor.start.ward",
+      "ko": "폐병동 층 시작 — 심전도 삑 ×2 + 물방울",
+      "seconds": 2.2,
+      "text": "Two slow clean beeps of an old hospital heart monitor in an abandoned ward, then a single water drop falls into a puddle with a hollow plink."
+    },
+    {
+      "id": "floor.start.rooftop",
+      "ko": "옥상·이계 층 시작 — 바람 + 먼 끼익",
+      "seconds": 2.5,
+      "text": "A cold gust of wind rises across a high rooftop at night, and a rusty metal door or railing creaks faintly in the distance."
+    },
+    {
+      "id": "zone.enter",
+      "ko": "새 구역 첫 층 (괴담 한 줄 앞) — 거꾸로 부풂",
+      "seconds": 2.1,
+      "text": "Eerie reversed swell: a soft breathy reverse cymbal and hollow air that grows slowly louder and cuts off suddenly at the peak, like something drawing in a breath."
+    },
+    {
+      "id": "floor.clear.boss",
+      "ko": "보스층 클리어",
+      "seconds": 2.7,
+      "noStyle": true,
+      "text": "Short bright victory jingle for beating a boss in a cute ghost-story mobile game: a quick three-note upward chiptune run landing on a bright square-wave major chord with a short snare roll and one cymbal splash. Punchy and happy, about two seconds. No speech, no vocals."
+    },
+    {
+      "id": "ui.timer.tick",
+      "ko": "남은 시간 10초 이하 — 초마다 틱",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "One short clean clock tick, a small dry wooden tock."
+    },
+    {
+      "id": "ui.timer.hot",
+      "ko": "남은 시간 5초 이하 — 더 급한 틱",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "One short sharp urgent tick, a higher brighter metallic tick of a clock, tense."
+    },
+    {
+      "id": "ui.tap.soft",
+      "ko": "가벼운 버튼 누름",
+      "seconds": 1,
+      "influence": 0.8,
+      "text": "A crisp short click of a fingernail tapping a wooden table, one single tap. Single isolated user-interface sound, dry, no music.",
+      "noStyle": true
+    },
+    {
+      "id": "ui.confirm",
+      "ko": "확인 (혼자 하기·방 만들기·참가)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Positive confirm button: two quick soft rising glassy blips, clean and friendly."
+    },
+    {
+      "id": "ui.back",
+      "ko": "뒤로 (방 나가기 등)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Back button: two quick soft falling glassy blips, gentle and neutral."
+    },
+    {
+      "id": "ui.start",
+      "ko": "출발·다시 하기·게임 시작",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Start button: a bright bouncy two-step pop going up, with a quick rising airy whoosh, eager and lively."
+    },
+    {
+      "id": "ui.select",
+      "ko": "편성 카드 고름",
+      "seconds": 0.6,
+      "influence": 0.7,
+      "text": "Selecting a card: one short soft bright wooden tock with a tiny clear ping. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it."
+    },
+    {
+      "id": "ui.select.off",
+      "ko": "편성 카드 뺌",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Deselecting a card: one short soft lower duller wooden tock."
+    },
+    {
+      "id": "ui.refuse",
+      "ko": "거절 (못 함·서버 거절·쿨 중)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Error refusal: two very short low dull buzzes in quick succession, 'bzz-bzz', soft and not harsh."
+    },
+    {
+      "id": "ui.warn",
+      "ko": "포기 첫 누름 (한 번 더 확인) · 원정 중 잠긴 장비 / 파티를 누름 (안 돼요)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A short clear 'not allowed / are you sure' warning: two quick firm low muted wooden-and-buzzer knocks, a polite error blip that is full-bodied and clearly audible, not harsh."
+    },
+    {
+      "id": "ui.toast.good",
+      "ko": "알림 (좋은 소식)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Happy notification: two quick bright bell pings going up, light and cheerful."
+    },
+    {
+      "id": "ui.toast.warn",
+      "ko": "알림 (주의)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Caution notification: one short low soft blip that dips slightly downward."
+    },
+    {
+      "id": "ui.toast.info",
+      "ko": "알림 (정보)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Info notification: one tiny short high soft blip, very small."
+    },
+    {
+      "id": "ui.pet.lift",
+      "ko": "펫 카드 들기",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Picking up a small pet card: a light paper slide with a soft click, then a tiny cute squeaky chirp on top."
+    },
+    {
+      "id": "ui.card.cancel",
+      "ko": "카드 놓기 취소",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Cancel: a paper card slides back into a hand with a soft gentle falling swish."
+    },
+    {
+      "id": "ui.sheet.open",
+      "ko": "길게 눌러 스킬 설명 열기",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "A single quick paper page flip, light and crisp."
+    },
+    {
+      "id": "ui.pause.open",
+      "ko": "일시정지 열기",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Pause: a soft short airy whoosh that becomes muffled and sinks downward, like sound going under a blanket."
+    },
+    {
+      "id": "ui.pause.close",
+      "ko": "일시정지 닫기",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Resume: a soft short airy whoosh that opens up from muffled to bright, rising upward."
+    },
+    {
+      "id": "ui.ult.press",
+      "ko": "궁극기 버튼 누름",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Pressing a big power button: a heavy solid click followed by a deep short boomy thump, weighty and satisfying."
+    },
+    {
+      "id": "ui.ult.denied",
+      "ko": "궁극기 게이지 부족",
+      "seconds": 0.5,
+      "influence": 0.7,
+      "text": "A loud short low buzzer error tone, 'bzzt', a dull square-wave buzz with a quick downward bend: clearly says 'not ready yet'. Full volume, no silence."
+    },
+    {
+      "id": "ui.reward.pulse",
+      "ko": "보상 금빛 맥박",
+      "seconds": 0.5,
+      "text": "One small bright golden bell 'ting' with a short sparkle, light and inviting."
+    },
+    {
+      "id": "reward.open",
+      "ko": "층 보상 화면 열림 — 카드 3장 뒤집기",
+      "seconds": 0.9,
+      "text": "Three paper cards flip over quickly one after another, flick flick flick, then one soft bright chime."
+    },
+    {
+      "id": "reward.pick.common",
+      "ko": "보상 고름 (일반)",
+      "seconds": 0.6,
+      "text": "Choosing a plain reward card: a crisp paper card tap and click with one small clean chime."
+    },
+    {
+      "id": "reward.pick.rare",
+      "ko": "보상 고름 (희귀) — 파란 반짝",
+      "seconds": 1.9,
+      "text": "Choosing a rare reward: a cool shimmering crystal glass sparkle chord with a quick run of high icy twinkles, clear and pleasing."
+    },
+    {
+      "id": "reward.pick.epic",
+      "ko": "보상 고름 (영웅) — 보라 바람 + 동전",
+      "seconds": 2.5,
+      "text": "Choosing an epic reward: a rising mystical airy whoosh blooming into a rich warm shimmering magical swell, then a few bright coins clink."
+    },
+    {
+      "id": "reward.pick.legend",
+      "ko": "보상 고름 (전설) — 금빛 상승 + 큰 종 + 동전 비",
+      "seconds": 2.9,
+      "text": "Choosing a legendary reward: a short rising magical riser that lands on a big golden bell strike with a soft cymbal shimmer, followed by a bright cascade of gold coins spilling and sparkling."
+    },
+    {
+      "id": "reward.reroll",
+      "ko": "보상 다시 뽑기 — 카드 섞기",
+      "seconds": 0.9,
+      "text": "A quick riffle of paper cards being shuffled, a fast rising whoosh, then one small bright chime."
+    },
+    {
+      "id": "reward.set",
+      "ko": "시너지 3세트 완성 — 도장 + 상승 반짝",
+      "seconds": 2.5,
+      "text": "A rubber stamp thumps down firmly with a solid click and low thud, then four quick rising glassy notes sparkle up into a clear ringing bell."
+    },
+    {
+      "id": "reward.proc",
+      "ko": "보상 효과 발동 (전투 중, 아주 작게)",
+      "seconds": 0.5,
+      "text": "A tiny quick double sparkle ping, high and light, very small."
+    },
+    {
+      "id": "relic.get",
+      "ko": "유물 얻음 — 무거운 금종 + 반짝",
+      "seconds": 2.8,
+      "text": "Obtaining an ancient relic: one heavy old bronze temple bell strike with a deep rich ring, then a short run of high golden sparkles over it. Precious and slightly mysterious."
+    },
+    {
+      "id": "relic.proc",
+      "ko": "유물 발동 (릴레이 깃발 등)",
+      "seconds": 0.6,
+      "text": "A single small high bronze chime, quick and clear, with a tiny shimmer."
+    },
+    {
+      "id": "result.best",
+      "ko": "결과 화면 최고 기록 칸 (여러 번 울림)",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "One tiny bright digital score blip jumping up in pitch, like a counter ticking up, quick and clean."
+    },
+    {
+      "id": "run.victory",
+      "ko": "20층 클리어 — 승리 팡파르",
+      "seconds": 3.3,
+      "noStyle": true,
+      "text": "Triumphant final victory fanfare for a cute ghost-story mobile game: a rolling snare build and bright brass playing a rising melody that opens into a big warm major chord with a cymbal crash, ringing bells and chiptune sparkles, joyful and celebratory, ending with a faint eerie twinkle. No speech, no vocals."
+    },
+    {
+      "id": "run.defeat",
+      "ko": "전멸·시간 초과 — 패배",
+      "seconds": 4.1,
+      "noStyle": true,
+      "text": "Sad defeat sting for a cute ghost-story mobile game: four soft falling minor notes on a mellow mallet, then two deep low bells toll slowly and fade into a cold hollow reverb. Melancholy and eerie, not scary. No speech, no vocals."
+    },
+    {
+      "id": "net.playerJoin",
+      "ko": "멀티 — 플레이어 들어옴",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Someone joins: two quick soft rising electronic blips, friendly."
+    },
+    {
+      "id": "net.playerLeave",
+      "ko": "멀티 — 플레이어 나감",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Someone leaves: two quick soft falling electronic blips."
+    },
+    {
+      "id": "net.lost",
+      "ko": "멀티 — 연결 끊김",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Connection lost: two short soft electronic tones stepping down, with a faint crackle of static."
+    },
+    {
+      "id": "net.reconnect",
+      "ko": "멀티 — 다시 연결됨",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Connection restored: a short burst of soft static clears into two clean electronic tones stepping up, relieved."
+    },
+    {
+      "id": "net.botTakeover",
+      "ko": "멀티 — 끊긴 플레이어를 봇이 대신함",
+      "seconds": 0.5,
+      "influence": 0.6,
+      "text": "Three quick tiny rising robotic beeps, cute little computer chirps."
+    },
+    {
+      "id": "ui.equip",
+      "ko": "원정 장비 장착 (등급 높을수록 높은 음)",
+      "seconds": 1.5,
+      "text": "Equipping gear: a crisp metal buckle snaps shut with a click, then a short resonant metallic shimmer and one bright chime ring out."
+    },
+    {
+      "id": "exp.reveal",
+      "ko": "원정 전리품 한 개씩 공개",
+      "seconds": 1.4,
+      "text": "An item pops out of a bag and is revealed: a quick rising airy swish ending in a bright sparkling chime ping."
+    },
+    {
+      "id": "exp.relic",
+      "ko": "원정 전리품에 유물이 나옴",
+      "seconds": 2.5,
+      "text": "A rare relic is revealed: a warm old bronze bell strike, a short climbing run of glittering high twinkles, and a few gold coins clinking."
+    },
+    {
+      "id": "exp.extract",
+      "ko": "원정 수령 성공 — 가방을 챙김",
+      "seconds": 1.9,
+      "text": "Safely securing the loot: a leather pouch is drawn shut with a satisfying cinch, coins jingle inside, and a bright rising sparkle swish finishes it. Relieved and happy."
+    },
+    {
+      "id": "exp.bagLost",
+      "ko": "원정 실패 — 가방을 잃음",
+      "seconds": 2.1,
+      "text": "Losing the loot bag: a cloth bag tears and falls with a muffled rustle, small glass trinkets shatter and scatter, then a sad soft tone slides downward and fades."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # 프로토 구조 (웹)
 
 - 스택: Vite + TypeScript + Canvas 2D (엔진 없음). 테스트는 Vitest, 브라우저 확인은 Playwright.
-- `npm run build` 하면 `dist/index.html` 한 파일로 나옴 (vite-plugin-singlefile).
+- `npm run build` 하면 `dist/index.html` 한 파일로 나옴 (vite-plugin-singlefile). 기획 21차 리뷰부터 소리 파일만 예외: 일반 빌드는 `dist/assets/<id>-<해시>.mp3`로 따로 두고(서버가 1년 캐시), 아티팩트 빌드(`npm run build:artifact` = `vite build --mode artifact` → `dist-single/`)만 소리까지 한 파일에 넣음 (docs/sfx.md 2-2).
 - 멀티플레이(게임 서버, 매칭, 배포)는 [`docs/multiplayer.md`](multiplayer.md).
 
 ## 모듈과 경계

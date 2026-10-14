@@ -1,0 +1,440 @@
+{
+  "batch": "boss-voices",
+  "format": "mp3_44100_64",
+  "sounds": [
+    {
+      "id": "boss.enrage",
+      "ko": "보스 광폭화 — 사이렌 두 번 (뒤에 쿵쿵 심장 반복)",
+      "seconds": 0.9,
+      "text": "Boss enrage alarm: two quick rising siren wails, a harsh buzzy warning tone that swells up and drops off twice, tense and urgent."
+    },
+    {
+      "id": "boss.retreat",
+      "ko": "보스 처치 (모든 보스 공통) — 거꾸로 부풂 + 쿵 + 긴 잔향 (보스별 처치음과 같이 남)",
+      "seconds": 2.5,
+      "text": "A huge ghost boss collapses: a dark reversed minor swell rushes inward and slams into one deep heavy low boom, then a long dark hall reverb tail fading away. Mobile game boss defeat stinger, eerie Korean ghost-story mood, no melody, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.elevator_keeper",
+      "ko": "닫히지 않는 엘리베이터 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "An old apartment elevator arrives wrong: an out-of-tune two-note ding-dong chime, steel cables creaking and groaning in a deep shaft, over a low dark minor chord that swells slowly under a three-note sinking motif. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.elevator_keeper",
+      "ko": "닫히지 않는 엘리베이터 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "An elevator cable snaps with a sharp metallic crash and the cabin lurches down with a reversed whoosh, a lower detuned ding-dong sinks beneath it, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.elevator_keeper",
+      "ko": "닫히지 않는 엘리베이터 처치 (공통 처치음과 같이)",
+      "seconds": 3.1,
+      "text": "A haunted elevator breaking down: creaking cables and a warped falling ding-dong are sucked backwards in a reversed rush, ending in a deep heavy low boom as steel doors close for good. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.overtime_lord",
+      "ko": "야근의 군주 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "The overtime office lord appears: a buzzing, flickering fluorescent tube hum, a low dark minor chord swelling, a slow creeping four-note motif, then one heavy rubber stamp thud on a wooden desk. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.overtime_lord",
+      "ko": "야근의 군주 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "A fluorescent tube bursts with a glass and metal crash, a reversed swell of rustling paper, a lower slower creeping motif, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.overtime_lord",
+      "ko": "야근의 군주 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "The overtime lord falls: a reversed fluorescent buzz flickering and a stamp thud sucked backwards, ending in a deep low boom, then silence. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.surgeon_director",
+      "ko": "수술실 원장 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "The director of a ruined operating room appears: a long steady heart monitor beep tone, a thin scalpel scraping across a steel tray, over a low dark minor chord with a tense three-note motif. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.surgeon_director",
+      "ko": "수술실 원장 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "noStyle": true,
+      "text": "A steel instrument tray crashes onto a tiled floor, scattering clattering metal tools, a reversed hiss swells up, a lower tense motif, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals."
+    },
+    {
+      "id": "boss.death.surgeon_director",
+      "ko": "수술실 원장 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "The surgeon boss falls: a reversed flatline beep and a scalpel scrape pulled backwards into one deep heavy low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.abyss_watcher",
+      "ko": "심연의 감시자 (20층 최종 보스) 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "The final boss, a giant eye of the abyss, opens: a deep slow beating low drone, a wet heavy eyelid opening squelch, a faint wordless ghostly whisper, a dark minor chord and a slow wavering four-note motif. Vast and dreadful. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.abyss_watcher",
+      "ko": "심연의 감시자 (20층 최종 보스) 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "noStyle": true,
+      "text": "The abyss splits open: a deep wet tearing rumble, a reversed dark swell sucking the air in, a lower wavering drone motif, then two deep heartbeats. Slimy and vast. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals."
+    },
+    {
+      "id": "boss.death.abyss_watcher",
+      "ko": "심연의 감시자 (20층 최종 보스) 처치 (공통 처치음과 같이)",
+      "seconds": 3.1,
+      "text": "The giant abyss eye closes forever: a wavering beating drone, a wet squelch and a faint wordless whisper rush inward in reverse into a deep heavy low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.claw_machine",
+      "ko": "인형 뽑기 기계 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A possessed arcade claw machine wakes up: a tinny bright three-note prize jingle rising, loose plastic toys and coins rattling inside a glass cabinet, the metal claw clacking open, over a low eerie minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.claw_machine",
+      "ko": "인형 뽑기 기계 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Jackpot gone wrong: the glass cabinet cracks and coins burst out rattling, a reversed swell, the toy prize jingle played lower and out of tune, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.claw_machine",
+      "ko": "인형 뽑기 기계 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "A claw machine breaking down: a reversed rattle of plastic prizes and a slowing tinny jingle sucked backwards into a dull heavy thud and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.washer_drum",
+      "ko": "혼자 도는 세탁기 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A washing machine that spins by itself: a heavy steel drum thumps twice, water sloshing and gurgling inside, a round door latch clunks, over a low dark minor chord swelling. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.washer_drum",
+      "ko": "혼자 도는 세탁기 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Rinse failure: a heavy metal bang as the drum jams, a reversed rush of water swelling up, the double thump lower and wobbly, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.washer_drum",
+      "ko": "혼자 도는 세탁기 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "A washing machine dying: a reversed drain gurgle and a wobbling drum spin-down sucked inward, ending in a heavy hollow thud and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.karaoke_room",
+      "ko": "지하 7번 노래방 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A haunted underground karaoke room switches on: a tinny cheesy score fanfare on out-of-tune bells, a spinning mirror ball shimmer, a soft buzzing speaker hum, over a low minor chord. Instrumental only. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.karaoke_room",
+      "ko": "지하 7번 노래방 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "noStyle": true,
+      "text": "Encore gone wrong: a speaker feedback squeal cut off by a cymbal crash, a reversed swell, the bell fanfare slowed down and lower, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals."
+    },
+    {
+      "id": "boss.death.karaoke_room",
+      "ko": "지하 7번 노래방 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "A karaoke machine dying: a reversed out-of-tune bell fanfare and speaker hum pulled backwards with a tape-stop slowdown, into a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.reverse_escalator",
+      "ko": "거꾸로 가는 에스컬레이터 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "An escalator running backwards: a grinding motor and metal steps clanking downward, four slow descending footsteps on metal treads, a rubber handrail squeal, over a low dark minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.reverse_escalator",
+      "ko": "거꾸로 가는 에스컬레이터 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "The steps collapse: a metal crash and a heavy lurch as the escalator drops, a reversed grinding swell, four descending steps lower, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.reverse_escalator",
+      "ko": "거꾸로 가는 에스컬레이터 처치 (공통 처치음과 같이)",
+      "seconds": 2.7,
+      "text": "An escalator grinding to a stop: reversed clanking steps and a motor whine sucked backwards into a hard emergency-stop clunk and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.shredder_maw",
+      "ko": "문서 파쇄기 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A monstrous paper shredder wakes up: its motor bites down with a grinding whir, paper fed in and torn into strips, one heavy thump, over a low dark minor chord with a falling-then-rising motif. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.shredder_maw",
+      "ko": "문서 파쇄기 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Paper jam cleared: the blades screech free with a metal crash, a reversed swell of rustling paper, the motor growl lower, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.shredder_maw",
+      "ko": "문서 파쇄기 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "A shredder jamming to death: a reversed shredding grind and paper rustle sucked inward, ending in a choked motor clunk and a deep low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.coffee_machine",
+      "ko": "식지 않는 커피 머신 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A coffee machine that never cools down: a low pump hum rising one tone and settling back, a hissing steam burst, hot coffee gurgling, a relay click, over a low minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.coffee_machine",
+      "ko": "식지 않는 커피 머신 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Overflow: a ceramic cup smashes, a reversed swell of scalding steam hiss, the pump hum lower and straining, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.coffee_machine",
+      "ko": "식지 않는 커피 머신 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "A coffee machine dying: a reversed sputtering pump, steam hiss and drips sucked backwards into a dull metallic thud and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.dead_monitor",
+      "ko": "퇴근 못 한 모니터 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "An old CRT monitor that never logs off: a thin high tube whine, a deep degauss thoom jumping up an octave and back, dead-channel static crackling, over a low dark minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.dead_monitor",
+      "ko": "퇴근 못 한 모니터 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Reboot failed: a glass screen crackles and crashes, a reversed static swell, a lower degauss thoom, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.dead_monitor",
+      "ko": "퇴근 못 한 모니터 처치 (공통 처치음과 같이)",
+      "seconds": 2.6,
+      "text": "A CRT monitor switching off: reversed static and a collapsing high whine sucked inward into a tube power-off pop and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.endless_meeting",
+      "ko": "끝나지 않는 회의 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A meeting that never ends: a dull desk bell struck out of tune, office chair wheels rolling and creaking, a projector fan hum, over a low minor chord with a slow creeping four-note motif. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.endless_meeting",
+      "ko": "끝나지 않는 회의 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "noStyle": true,
+      "text": "The meeting is extended: a gavel slams on a long table and a stack of binders topples over, a reversed swell, the out-of-tune bell motif lower, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals."
+    },
+    {
+      "id": "boss.death.endless_meeting",
+      "ko": "끝나지 않는 회의 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "The meeting adjourns forever: a reversed out-of-tune desk bell and a creaking chair sucked inward, ending in a heavy gavel thud and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.morgue_drawers",
+      "ko": "번호 없는 서랍 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "Morgue drawers with no numbers: a cold draught moaning through a freezing room, a far thin whistle, heavy steel drawers sliding open on runners, over a low minor chord sinking a half step. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.morgue_drawers",
+      "ko": "번호 없는 서랍 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "All drawers burst open at once: steel drawers slam and frost cracks, a reversed icy wind swell, a lower sinking tone, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.morgue_drawers",
+      "ko": "번호 없는 서랍 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "The morgue drawers shut for good: a reversed icy draught and the squeal of steel drawer runners pulled inward into one heavy steel drawer slam and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.xray_machine",
+      "ko": "투시 촬영기 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A ceiling-rail x-ray machine powers up: an electric hum charging and jumping up a fifth, a relay click, the C-arm rolling along a metal rail, a bright camera shutter flash clack, over a low minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.xray_machine",
+      "ko": "투시 촬영기 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "noStyle": true,
+      "text": "Overexposure: a bright electric flash crack and a buzzing surge of overloaded current, a reversed charging swell, the hum lower and strained, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals."
+    },
+    {
+      "id": "boss.death.xray_machine",
+      "ko": "투시 촬영기 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "An x-ray machine powering down: a reversed falling hum and shutter clack sucked inward into a heavy clunk on the rail and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.defibrillator",
+      "ko": "멈추지 않는 제세동기 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A defibrillator cart that will not stop: two flat monitor beeps, then a rising high-pitched capacitor charging whine, electric crackle, rattling cart wheels, over a low minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.defibrillator",
+      "ko": "멈추지 않는 제세동기 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Recharge: a loud electric shock zap and crash, a reversed charging whine swell, two lower flat beeps, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.defibrillator",
+      "ko": "멈추지 않는 제세동기 처치 (공통 처치음과 같이)",
+      "seconds": 2.6,
+      "text": "A defibrillator dying: a reversed falling charge whine and crackle sucked inward into a dull electric thump and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.empty_beds",
+      "ko": "빈 병상 행렬 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A procession of empty hospital beds: rattling steel bed frames and squeaking casters rolling downhill, sheets flapping, one heavy dull thud, over a low minor chord with a falling motif. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.empty_beds",
+      "ko": "빈 병상 행렬 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "A chain pile-up: metal beds crash into each other, a reversed rattling swell, a lower falling motif, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.empty_beds",
+      "ko": "빈 병상 행렬 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "The bed procession stops: a reversed rattle of loose metal and caster squeaks sucked inward into one heavy steel frame thud and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.tank_dweller",
+      "ko": "물탱크의 주인 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "The thing living in the rooftop water tank: water sloshing inside a hollow steel drum, three slow drips, wet hair dragging over concrete, a deep hollow knock, over a very low minor chord. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "noStyle": true,
+      "influence": 0.7
+    },
+    {
+      "id": "boss.phase.tank_dweller",
+      "ko": "물탱크의 주인 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Backflow: the steel tank bursts with a hollow metal crash and gushing water, a reversed water rush swell, a lower sagging tone, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.tank_dweller",
+      "ko": "물탱크의 주인 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "The tank dweller sinks away: reversed gurgling water and drips sucked inward into a deep hollow splash and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.thunder_antenna",
+      "ko": "천둥 안테나 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "An old TV antenna creature on a stormy rooftop: dead-channel static hiss, a low mains buzz, two sharp electric crackles, far thunder rumbling, over a very low minor chord with an octave jump. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.thunder_antenna",
+      "ko": "천둥 안테나 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Channel locked: a sharp lightning crack and a thunder crash, a reversed static swell, a lower buzz, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.thunder_antenna",
+      "ko": "천둥 안테나 처치 (공통 처치음과 같이)",
+      "seconds": 2.6,
+      "text": "The antenna short-circuits: reversed static and crackles sucked inward into a fizzling electric pop, a distant thunder thud and a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.answering_pencil",
+      "ko": "대답하는 연필 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "A pencil that answers by itself: graphite scratching slowly across rough paper, a sheet rustling, one hard tap of the pencil point, over a very low minor chord with a slow creeping chromatic motif. Unsettling. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.answering_pencil",
+      "ko": "대답하는 연필 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "Wrong answer: the pencil lead snaps with a sharp crack and paper tears, a reversed scribble swell, a lower creeping tone, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.answering_pencil",
+      "ko": "대답하는 연필 처치 (공통 처치음과 같이)",
+      "seconds": 2.8,
+      "text": "The pencil boss breaks: reversed graphite scribbling pulled inward into a sharp pencil-lead snap, the pencil clattering onto a wooden desk, then a low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.intro.inverted_moon",
+      "ko": "거꾸로 뜬 달 등장 — 보스층 시작",
+      "seconds": 3.3,
+      "text": "An upside-down moon rises over an empty rooftop at night: cold wind sweeping across, a far thin wavering whistle, a faint wordless whisper, a glassy shimmer, over a very low minor chord with a slow wavering motif. Short ominous boss entrance sting for a cute but creepy Korean ghost-story mobile game, ending in a dark reverb tail. No speech, no vocals, no lyrics.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.phase.inverted_moon",
+      "ko": "거꾸로 뜬 달 페이즈 전환 (2페이즈 시작)",
+      "seconds": 3.5,
+      "text": "The moon turns red: a cold glassy shatter, a reversed wind swell, a lower wavering whistle, then two heavy heartbeats. Dramatic boss phase-change stinger for a cute but creepy Korean ghost-story mobile game, the feeling that things just got worse. No speech, no vocals.",
+      "noStyle": true
+    },
+    {
+      "id": "boss.death.inverted_moon",
+      "ko": "거꾸로 뜬 달 처치 (공통 처치음과 같이)",
+      "seconds": 2.9,
+      "text": "The inverted moon sets: reversed cold wind and a faint wordless whisper sucked inward into a soft glassy chime and a deep low boom. Boss defeat sound effect for a cute but creepy Korean ghost-story mobile game, with a short dark reverb tail. No music, no speech, no vocals.",
+      "noStyle": true
+    }
+  ]
+}

@@ -2,25 +2,128 @@
   "style": "Mobile game sound effect, cute and punchy with a slightly eerie Korean ghost-story mood. Clean and dry, no background noise, no music, no speech.",
   "influence": 0.45,
   "sounds": [
-    { "id": "hit.basic", "ko": "적이 맞음 (기본 공격)", "seconds": 0.5, "text": "Short soft punchy thud of a small hit landing on a squishy cartoon ghost, quick and dry." },
-    { "id": "hit.skill", "ko": "적이 맞음 (스킬·펫)", "seconds": 0.5, "text": "Heavier punchy impact thud with a little magical sparkle on top, cartoon game hit." },
-    { "id": "hit.crit", "ko": "치명타", "seconds": 0.5, "text": "Critical hit: a sharp bright metallic 'ting' over a crisp punchy impact." },
-    { "id": "hit.boss", "ko": "보스가 맞음", "seconds": 0.6, "text": "Deep dull heavy thump of hitting a huge monster, low and weighty." },
-    { "id": "hurt.char", "ko": "내 캐릭터가 맞음", "seconds": 0.5, "text": "Dull soft thud of a small cute character getting hit, with a tiny squeak." },
-    { "id": "hurt.shield", "ko": "보호막이 막음", "seconds": 0.5, "text": "Bright glassy 'clink' of an attack bouncing off a magic shield." },
-    { "id": "atk.swing.melee", "ko": "근접딜러 기본 공격", "seconds": 0.5, "text": "Quick light sword swing whoosh." },
-    { "id": "atk.swing.tank", "ko": "탱커 기본 공격", "seconds": 0.5, "text": "Low heavy swing whoosh of a big shield." },
-    { "id": "atk.shot.mage", "ko": "메이지 기본 공격", "seconds": 0.5, "text": "Small magic bolt being cast: a soft airy 'fwoom' with a little sparkle." },
-    { "id": "heal.tick", "ko": "회복", "seconds": 0.5, "text": "Tiny gentle healing chime, one soft bell sparkle." },
-    { "id": "char.appear.melee", "ko": "캐릭터 등장 (근접딜러)", "seconds": 0.7, "text": "A cute ghost hero pops onto the battlefield: a quick rising whoosh ending in a bouncy 'pop'." },
-    { "id": "char.leave", "ko": "캐릭터 퇴장", "seconds": 0.5, "text": "A small character quickly vanishing: a short soft downward whip and a puff of air." },
-    { "id": "ui.card.lift", "ko": "카드 집기", "seconds": 0.5, "text": "Picking up a paper card: a light paper slide with a soft click." },
-    { "id": "ui.cardReady", "ko": "카드 준비됨", "seconds": 0.6, "text": "Soft bright notification that a card is ready: two quick rising bell notes." },
-    { "id": "just.swap", "ko": "저스트 교대 성공", "seconds": 1, "text": "Perfect dodge success: a sharp sparkling 'shing', a bright rising chime and a short slow-motion whoosh. Satisfying and heroic." },
-    { "id": "mon.spawnWarn", "ko": "몬스터 등장 경고", "seconds": 0.8, "text": "Eerie short warning that a monster is about to appear: a low ghostly whisper swell with one tiny spooky bell." },
-    { "id": "mon.death", "ko": "몬스터 처치", "seconds": 0.6, "text": "A small spooky monster is defeated: a quick soft puff of smoke with a tiny ghostly squeal fading away." },
-    { "id": "mon.windup", "ko": "몬스터 공격 준비", "seconds": 0.6, "text": "A monster winding up an attack: a short tense rising growl and whoosh." },
-    { "id": "ui.tap", "ko": "버튼 누름", "seconds": 0.5, "text": "Soft clean button tap, a tiny wooden click." },
-    { "id": "floor.clear", "ko": "층 클리어", "seconds": 1.5, "noStyle": true, "text": "Short victory sting for clearing a floor in a cute ghost-story mobile game: a bright cheerful chime flourish with a faint eerie twinkle at the end. No speech." }
+    {
+      "id": "hit.basic",
+      "ko": "적이 맞음 (기본 공격)",
+      "seconds": 0.6,
+      "text": "Short soft punchy thud of a small hit landing on a squishy cartoon ghost, quick and dry. Loud, close-up and clearly audible, the sound starts immediately at full volume with no silence before it.",
+      "influence": 0.7
+    },
+    {
+      "id": "hit.skill",
+      "ko": "적이 맞음 (스킬·펫)",
+      "seconds": 0.5,
+      "text": "Heavier punchy impact thud with a little magical sparkle on top, cartoon game hit."
+    },
+    {
+      "id": "hit.crit",
+      "ko": "치명타",
+      "seconds": 0.5,
+      "text": "Critical hit: a sharp bright metallic 'ting' over a crisp punchy impact."
+    },
+    {
+      "id": "hit.boss",
+      "ko": "보스가 맞음",
+      "seconds": 0.6,
+      "text": "Deep dull heavy thump of hitting a huge monster, low and weighty."
+    },
+    {
+      "id": "hurt.char",
+      "ko": "내 캐릭터가 맞음",
+      "seconds": 0.5,
+      "text": "Dull soft thud of a small cute character getting hit, with a tiny squeak."
+    },
+    {
+      "id": "hurt.shield",
+      "ko": "보호막이 막음",
+      "seconds": 0.5,
+      "text": "Bright glassy 'clink' of an attack bouncing off a magic shield."
+    },
+    {
+      "id": "atk.swing.melee",
+      "ko": "근접딜러 기본 공격",
+      "seconds": 0.5,
+      "text": "Quick light sword swing whoosh."
+    },
+    {
+      "id": "atk.swing.tank",
+      "ko": "탱커 기본 공격",
+      "seconds": 0.5,
+      "text": "Low heavy swing whoosh of a big shield."
+    },
+    {
+      "id": "atk.shot.mage",
+      "ko": "메이지 기본 공격",
+      "seconds": 0.5,
+      "text": "Small magic bolt being cast: a soft airy 'fwoom' with a little sparkle."
+    },
+    {
+      "id": "heal.tick",
+      "ko": "회복",
+      "seconds": 0.5,
+      "text": "Tiny gentle healing chime, one soft bell sparkle."
+    },
+    {
+      "id": "char.appear.melee",
+      "ko": "캐릭터 등장 (근접딜러)",
+      "seconds": 0.7,
+      "text": "A cute ghost hero pops onto the battlefield: a quick rising whoosh ending in a bouncy 'pop'."
+    },
+    {
+      "id": "char.leave",
+      "ko": "캐릭터 퇴장",
+      "seconds": 0.5,
+      "text": "A small character quickly vanishing: a short soft downward whip and a puff of air."
+    },
+    {
+      "id": "ui.card.lift",
+      "ko": "카드 집기",
+      "seconds": 0.5,
+      "text": "Picking up a paper card: a light paper slide with a soft click."
+    },
+    {
+      "id": "ui.cardReady",
+      "ko": "카드 준비됨",
+      "seconds": 0.6,
+      "text": "Soft bright notification that a card is ready: two quick rising bell notes."
+    },
+    {
+      "id": "just.swap",
+      "ko": "저스트 교대 성공",
+      "seconds": 1,
+      "text": "Perfect dodge success: a sharp sparkling 'shing', a bright rising chime and a short slow-motion whoosh. Satisfying and heroic."
+    },
+    {
+      "id": "mon.spawnWarn",
+      "ko": "몬스터 등장 경고",
+      "seconds": 0.8,
+      "text": "Eerie short warning that a monster is about to appear: a low ghostly whisper swell with one tiny spooky bell."
+    },
+    {
+      "id": "mon.death",
+      "ko": "몬스터 처치",
+      "seconds": 0.6,
+      "text": "A small spooky monster is defeated: a quick soft puff of smoke with a tiny ghostly squeal fading away."
+    },
+    {
+      "id": "mon.windup",
+      "ko": "몬스터 공격 준비",
+      "seconds": 0.6,
+      "text": "A monster winding up an attack: a short tense rising growl and whoosh."
+    },
+    {
+      "id": "ui.tap",
+      "ko": "버튼 누름",
+      "seconds": 1,
+      "text": "Soft clean button tap, a tiny wooden click. One single loud, sharp, clearly audible sound right at the very beginning, then silence.",
+      "influence": 0.8
+    },
+    {
+      "id": "floor.clear",
+      "ko": "층 클리어",
+      "seconds": 1.5,
+      "noStyle": true,
+      "text": "Short victory sting for clearing a floor in a cute ghost-story mobile game: a bright cheerful chime flourish with a faint eerie twinkle at the end. No speech."
+    }
   ]
 }

@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const OUT = process.env.E2E_OUT || 'dist';
+// 기획 21차 리뷰: the artifact is made from the artifact build (sounds inlined), which playwright.config builds next to OUT
+const SINGLE = `${OUT}-single`;
 let server: Server | null = null;
 let base = '';
 let artifactHtml = '';
@@ -22,7 +24,7 @@ const served: string[] = [];
 
 test.beforeAll(async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'swap-tower-artifact-'));
-  execFileSync(process.execPath, ['scripts/make-artifact.mjs', path.join(OUT, 'index.html'), dir], { stdio: 'ignore' });
+  execFileSync(process.execPath, ['scripts/make-artifact.mjs', path.join(SINGLE, 'index.html'), dir], { stdio: 'ignore' });
   const fragment = readFileSync(path.join(dir, 'index.html'), 'utf8');
   artifactHtml =
     '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +

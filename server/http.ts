@@ -27,6 +27,12 @@ const TYPES: Record<string, string> = {
   '.wav': 'audio/wav',
 };
 const COMPRESSIBLE = /^(text\/|application\/(json|manifest)|image\/svg)/;
+/**
+ * 기획 21차 리뷰: files vite emits under assets/ carry a content hash in their name (`hit.basic-DXOQkDJP.mp3`): a new
+ * file gets a new name, so the browser may keep them for a year without asking (the sound files, ≈ 6 MB). The page
+ * itself has no hash and is always revalidated.
+ */
+const HASHED_ASSET = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/;
 
 interface Cached {
   mtimeMs: number;
@@ -98,8 +104,8 @@ export function createStaticHandler(staticDir: string): (req: IncomingMessage, r
         const type = TYPES[ext] ?? 'application/octet-stream';
         const headers: Record<string, string> = {
           'Content-Type': type,
-          // the single-file build has no hashed names: always revalidate (ETag makes it cheap)
-          'Cache-Control': 'no-cache',
+          // the page (index.html) has no hashed name: always revalidate (ETag makes it cheap); hashed assets never change
+          'Cache-Control': HASHED_ASSET.test(pathname) ? 'public, max-age=31536000, immutable' : 'no-cache',
           ETag: entry.etag,
           'X-Content-Type-Options': 'nosniff',
           'Referrer-Policy': 'no-referrer',

@@ -1,5 +1,5 @@
 // In-process game server + raw ws test clients (tests/net).
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
@@ -15,6 +15,9 @@ function testStaticDir(): string {
   if (!staticDir) {
     staticDir = mkdtempSync(path.join(tmpdir(), 'swap-tower-static-'));
     writeFileSync(path.join(staticDir, 'index.html'), '<!doctype html><title>스왑 타워 테스트</title>' + 'x'.repeat(4000));
+    // 기획 21차 리뷰: a hashed sound file in assets/ (the regular build keeps the sounds out of the page)
+    mkdirSync(path.join(staticDir, 'assets'));
+    writeFileSync(path.join(staticDir, 'assets', 'hit.basic-DXOQkDJP.mp3'), Buffer.alloc(2048, 1));
   }
   return staticDir;
 }
