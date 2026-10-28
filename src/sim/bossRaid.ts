@@ -2,7 +2,7 @@
 // the boss order comes from the run seed on its own streams (never the run rng), so the server, the HUD and the result
 // screen can all compute it again. floor.ts picks planBossRaidFloor when World.bossRaid is set; planFloor is untouched.
 
-import type { BossDef, BossRaidSetup, FloorPlan, FloorTheme, Tunables } from '../types';
+import type { BossDef, BossRaidSetup, FloorPlan, FloorTheme, RaidMode, Tunables } from '../types';
 import { ARENA_BOSS, ZONES, floorStatMult } from '../config';
 import { BOSSES, BOSS_RAID, BOSS_RAID_BAND, RAID_ZONES, ZONE_BOSSES, ZONE_CLASSIC_BOSS } from '../data';
 import { Rng, mixSeed } from './rng';
@@ -152,9 +152,9 @@ export function isBossRaidRelicFloor(floor: number): boolean {
   return floor % BOSS_RAID.relicEvery === 0;
 }
 
-/** World.bossRaid for a setup (undefined = not a raid). 원정 wins over the mode flag. */
-export function bossRaidRt(setup: { seed: number; mode?: 'bossRaid'; bossRaid?: BossRaidSetup; expedition?: unknown }): BossRaidRt | undefined {
-  if (setup.mode !== 'bossRaid' || setup.expedition) return undefined;
+/** World.bossRaid for a setup (undefined = not a raid). 원정 wins over the mode flag. 기획 22차: 궁극기 테스트 is a raid too. */
+export function bossRaidRt(setup: { seed: number; mode?: RaidMode; bossRaid?: BossRaidSetup; expedition?: unknown }): BossRaidRt | undefined {
+  if ((setup.mode !== 'bossRaid' && setup.mode !== 'ultTest') || setup.expedition) return undefined;
   const hp = setup.bossRaid?.hpMult;
   return { order: bossRaidOrder(setup.seed, setup.bossRaid), ...(hp != null && hp > 0 ? { hpMult: hp } : null) };
 }

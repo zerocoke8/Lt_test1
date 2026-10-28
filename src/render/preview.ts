@@ -59,7 +59,7 @@ export function previewDashEnd(dp: Pick<DragPreview, 'pos' | 'area' | 'parts'>, 
   for (const p of dp.parts ?? []) {
     if (!p.dash) continue;
     const from = { x: dp.pos.x + p.offset.x, y: dp.pos.y + p.offset.y };
-    return { from, to: dashEnd(from, p.dash.dir, p.dash.distance, arena) };
+    return { from, to: dashEnd(from, p.dash.dir, p.dash.distance, arena, undefined, p.dash.rot) };
   }
   return null;
 }

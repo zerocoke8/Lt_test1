@@ -1,7 +1,7 @@
 // Bot controller (R23). Same rules as a human: it only issues Commands that go through dispatch validation.
 // Uses the sim Rng so runs stay deterministic.
 
-import type { BossDef, Command, CommandResult, PreviewPart, Telegraph, Vec2 } from '../types';
+import type { BossDef, Command, CommandResult, PreviewPart, Telegraph, UltAim, Vec2 } from '../types';
 import { VIEW_WIDTH_UNITS } from '../config';
 import type { SkillDef } from '../types';
 import { getCharacter, getPet } from '../data';
@@ -11,6 +11,7 @@ import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botE
 import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
 import { fieldUltGauge, memberUltGauge } from './ultMode';
+import { botUltAim, planUlt } from './ultTest';
 import { previewPartsFor } from './preview';
 import { findJustThreats } from './justSwap';
 import { activeEntity, clamp, clampToArena, copy, dist, getEntity, isAlive, type SimEntity, type SimPlayer, type World } from './world';
@@ -177,6 +178,34 @@ export function raidDropScore(w: World, c: Vec2): number {
   return n;
 }
 
+/** 기획 22차 드래그: seconds (from its planned ult time) a bot waits for a safe landing before it drags anyway. */
+export const BOT_ULT_HOLD = 3;
+
+/**
+ * 기획 22차 궁극기 테스트: does a bot's 드래그 ult wait? Its landing (the plan's) would leave a safe hole, sit in an
+ * enemy zone or under a warning about to land (the swap's raid score < 0) — it waits until that is over, at most
+ * BOT_ULT_HOLD s past `since` (warnings and safe rings are over by then; a zone that lingers longer is jumped into and
+ * walked out of). 조준, a tap and every other mode never wait. Exported for tests/sim/ult-test.test.ts.
+ */
+export function dragUltWaits(w: World, pi: number, aim: UltAim | null, since: number): boolean {
+  if (aim?.mode !== 'drag' || !w.bossRaid || w.state.time >= since + BOT_ULT_HOLD) return false;
+  const landing = planUlt(w.state, pi, aim)?.point;
+  return !!landing && raidDropScore(w, landing) < 0;
+}
+
+/**
+ * 기획 22차 드래그: when this bot's wait for a safe landing began — this think, or the first of an unbroken run of
+ * waiting thinks by the same field character. A card swapped in, a floor / a pause in between start a new wait. Not
+ * from ultAt: for a card that was already full on the bench that is long past, and the bot would drag at once.
+ */
+function dragHoldSince(w: World, p: SimPlayer): number {
+  const now = w.state.time;
+  const h = p.rt.bot.ultHold;
+  if (!h || now - h.last > BOT.thinkInterval * 1.5) return now;
+  const appeared = activeEntity(w, p)?.rt.appearedAt;
+  return appeared != null && appeared > h.from ? now : h.from;
+}
+
 /** How far inside the rim of a safe hole a bot aims (cells): the whole body is in, with a little room. */
 const HOLE_MARGIN = CHAR_RADIUS + 0.15;
 
@@ -291,7 +320,16 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
     // 기획 13차: a full ult goes into a groggy boss soon (never saved up for one)
     if (groggyDown(w)) b.ultAt = Math.min(b.ultAt, s.time + BOT.ultGroggy);
     if (s.time >= b.ultAt && enemies.length > 0 && p.activeIndex != null) {
-      if (dispatch({ type: 'ult', player: p.id }).ok) b.ultAt = null;
+      // 기획 22차 궁극기 테스트: a bot in 조준 / 드래그 aims it (src/sim/ultTest.ts botUltAim); every other mode taps.
+      // 드래그 waits (tried again every think) while its landing is not safe (dragUltWaits), at most BOT_ULT_HOLD s from
+      // the first think it waited (dragHoldSince)
+      const aim = s.mode === 'ultTest' ? botUltAim(s, p.id) : null;
+      const since = aim?.mode === 'drag' ? dragHoldSince(w, p) : s.time;
+      if (dragUltWaits(w, p.id, aim, since)) b.ultHold = { from: since, last: s.time };
+      else if (dispatch(aim ? { type: 'ult', player: p.id, aim } : { type: 'ult', player: p.id }).ok) {
+        b.ultAt = null;
+        if (b.ultHold) b.ultHold = null;
+      }
     }
   } else {
     b.ultAt = null;

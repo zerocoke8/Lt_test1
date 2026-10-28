@@ -6,11 +6,17 @@
 // flow as the classic tower, with GameSetup.mode (solo) / createRoom mode (multi); the result is counted in this
 // device's record (src/ui/bossRaidStore.ts). '?mode=bossRaid' picks the mode for browser automation; with '&boss=<id>'
 // the first solo raid of the page starts on that boss (the debug 「보스 고르기」 action, once).
+// 기획 22차 궁극기 테스트 (docs/ult-test.md): the fourth card sets pickedMode 'ultTest' — the raid's flow plus the
+// 「궁극기 방식」 choice on the preset (sent as PlayerSetup.ultMode / PresetChoice.ultMode) and the ult button's 조준 /
+// 드래그 gestures (src/ui/ultAim.ts); its own record. '?mode=ultTest' (+ '&ult=aim|drag|now', '&boss=<id>',
+// '&chars=<id>,<id>,<id>' = the first solo run's party) for testing one character.
 
 import './styles.css';
 import './expedition.css';
 import './bossRaid.css';
-import type { Command, CommandResult, DragPreview, Game, GameEvent, GameSetup, GameState, RenderUiState, Renderer, Tunables, Vec2 } from '../types';
+import './ultTest.css'; // 기획 22차 (after the raid's: the four-card menu)
+import type { Command, CommandResult, DragPreview, Game, GameEvent, GameSetup, GameState, RenderUiState, Renderer, Tunables, UltAim, UltAimMode, UltAimView, Vec2 } from '../types';
+import type { PresetChoice } from '../net/protocol';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../config';
 import { createGame } from '../sim';
 import { fieldUltGauge } from '../sim/ultMode';
@@ -26,6 +32,9 @@ import { sfxDebugApi, type SfxDebugApi } from '../audio/devboard';
 import { DebugPanel } from './debug';
 import { h } from './dom';
 import { DragController, LIFT, type DragKind } from './drag';
+import { UltAimController } from './ultAim';
+import { isRaidMode, isUltAimMode } from '../sim/ultTest';
+import { CHARACTERS } from '../data';
 import { GoedamScreen } from './goedam';
 import { Hud, type HudCallbacks } from './hud';
 import { LobbyScreen, OFFLINE_TEXT, SOLO_BUILD_TEXT } from './lobby';
@@ -38,7 +47,7 @@ import { createMainMenu } from './mainMenu';
 import { ExpeditionFlow, type FlowPhase } from './expeditionSolo';
 import { DEFAULT_EXP_PARTY, type ExpCtx } from './expeditionCtx';
 import { loadGearArtFiles, loadMode, loadStash, onStashChanged, saveMode, saveStash, updateStash, type GameMode } from './expeditionStore';
-import { loadBossRaidRecord, recordBossRaidResult, type BossRaidUpdate } from './bossRaidStore';
+import { ULT_TEST_KEY, loadBossRaidRecord, recordBossRaidResult, recordKeyFor, type BossRaidUpdate } from './bossRaidStore';
 import { RUN_LOCK_REASON, loadoutOf, maxStartStageFor, setPreset, stashLocked } from '../expedition/stash';
 import { setBattleGearFiles } from '../render/gearArt';
 import { createToaster } from './toast';
@@ -46,6 +55,8 @@ import { FEEL, loadFeel } from './storage';
 import {
   loadNickname,
   loadPreset,
+  loadUltMode,
+  saveUltMode,
   loadTunableOverrides,
   saveNickname,
   savePreset,
@@ -91,6 +102,8 @@ export interface ProtoApi {
     /** Test hook (기획 17차): the last 「저스트!」 stamps this screen drew, and this device's game-clock scale now (solo slow). */
     readonly justStamps: readonly JustStampLog[];
     readonly clockScale: number;
+    /** Test hook (기획 22차): the ult button's live 조준 / 드래그 preview while the finger is down (null otherwise). */
+    readonly ultAim: UltAimView | null;
   };
   /** 기획 13차 효과음: play / ids / recent (last 64 requests, kept even when muted). */
   readonly sfx: SfxDebugApi;
@@ -108,6 +121,8 @@ const RESULT_DELAY_MS = 1800;
 const PROBE_WAIT_MS = 1500;
 /** 기획 19차: the preset screen's title when the 보스 레이드 card was picked (the party is the classic preset). */
 const RAID_PRESET_TITLE = '보스 레이드 편성';
+/** 기획 22차: the same for the 궁극기 테스트 card (its preset also shows the 「궁극기 방식」 choice). */
+const ULT_PRESET_TITLE = '궁극기 테스트 편성';
 
 export function startApp(root: HTMLElement): void {
   root.replaceChildren();
@@ -144,9 +159,16 @@ export function startApp(root: HTMLElement): void {
   let lobbyStartTimer: ReturnType<typeof setTimeout> | null = null;
   let nickname = loadNickname();
   /** 기획 19차: the mode picked on the main menu (the preset → 매칭 → run flow of 'classic' and 'bossRaid' is shared). */
-  let pickedMode: GameMode = /[?&]mode=bossRaid\b/.test(location.search) ? 'bossRaid' : 'classic';
-  /** 기획 19차 '?mode=bossRaid&boss=<id>': the boss the first solo raid of this page starts on (then null). */
-  let queryBoss: string | null = pickedMode === 'bossRaid' ? new URLSearchParams(location.search).get('boss') : null;
+  const query = new URLSearchParams(location.search);
+  const queryMode = query.get('mode');
+  let pickedMode: GameMode = queryMode === 'bossRaid' || queryMode === 'ultTest' ? queryMode : 'classic';
+  /** 기획 19차 '?mode=bossRaid&boss=<id>': the boss the first solo raid of this page starts on (then null). 22차: ultTest too. */
+  let queryBoss: string | null = pickedMode === 'bossRaid' || pickedMode === 'ultTest' ? query.get('boss') : null;
+  /** 기획 22차 '?mode=ultTest&chars=a,b,c': the party of the first solo run of this page (testing one character; then null). */
+  let queryChars: string[] | null = pickedMode === 'ultTest' ? parseQueryChars(query.get('chars')) : null;
+  /** 기획 22차 궁극기 테스트: the 「궁극기 방식」 of my next run / room ('?ult=aim|drag|now' wins over the saved one). */
+  const queryUlt = query.get('ult');
+  let ultChoice: UltAimMode = isUltAimMode(queryUlt) ? queryUlt : loadUltMode();
   /** 기획 19차: the game whose 보스 레이드 result is already counted (a run counts once). */
   let raidCounted: Game | null = null;
   const uiState: RenderUiState = { localPlayer: 0, dragPreview: null, freezeCamera: false };
@@ -185,6 +207,8 @@ export function startApp(root: HTMLElement): void {
   // ─────────────────────────── screens ───────────────────────────
 
   const drag = new DragController({ stage, game: () => game, renderer: () => renderer, hud: () => hud, localPlayer: () => localPlayer });
+  // 기획 22차 궁극기 테스트: the ult button's 조준 / 드래그 gestures (a tap still casts today's ult)
+  const ultAim = new UltAimController({ stage, game: () => game, renderer: () => renderer, hud: () => hud, localPlayer: () => localPlayer, cast: aim => useUlt(aim) });
   const reward = new RewardOverlay(stage.screenLayer, {
     onChoose: (i, member) => {
       const offer = game?.state.rewardOffersByPlayer[localPlayer]?.[i];
@@ -208,6 +232,7 @@ export function startApp(root: HTMLElement): void {
   });
   const debug = new DebugPanel(stage.screenLayer, {
     game: () => game,
+    localPlayer: () => localPlayer,
     // multiplayer tuning belongs to the room (sent to the server), not to this device's solo overrides
     onTunablesChanged: t => {
       if (mode === 'solo') saveTunableOverrides(t);
@@ -242,6 +267,11 @@ export function startApp(root: HTMLElement): void {
   const preset = createPresetScreen(stage.screenLayer, {
     initial: loadPreset(),
     onBack: () => showMain(),
+    onUltChoice: m => {
+      // 기획 22차: remembered for the next time; a room gets it with the preset (출발 → lobby.setPreset)
+      ultChoice = m;
+      saveUltMode(m);
+    },
     onStart: p => {
       if (preset.variant === 'expedition') {
         // 기획 15차: the expedition party is kept apart from the classic preset (기획 16차: refused while a run exists)
@@ -255,7 +285,7 @@ export function startApp(root: HTMLElement): void {
       savePreset(p);
       if (lobby.room) {
         // 프리셋 변경 from the room: back to the room with the new picks
-        lobby.setPreset(p);
+        lobby.setPreset(withUltMode(p));
         showLobby();
         return;
       }
@@ -269,10 +299,10 @@ export function startApp(root: HTMLElement): void {
     onPreset: () => toPreset(),
     onCreate: () => {
       // 기획 19차: the room plays the mode picked on the main menu
-      lobby.createRoom(currentPreset(), pickedMode === 'bossRaid' ? 'bossRaid' : undefined);
+      lobby.createRoom(withUltMode(currentPreset()), pickedMode === 'bossRaid' || pickedMode === 'ultTest' ? pickedMode : undefined);
     },
     onJoin: code => {
-      lobby.joinRoom(code, currentPreset());
+      lobby.joinRoom(code, withUltMode(currentPreset()));
     },
     onLeave: () => {
       lobby.leaveRoom();
@@ -330,6 +360,12 @@ export function startApp(root: HTMLElement): void {
       saveMode('bossRaid');
       toPreset();
     },
+    onUltTest: () => {
+      // 기획 22차 궁극기 테스트: the raid's flow with the 「궁극기 방식」 choice on the preset
+      pickedMode = 'ultTest';
+      saveMode('ultTest');
+      toPreset();
+    },
     onExpedition: () => {
       pickedMode = 'expedition';
       saveMode('expedition');
@@ -348,6 +384,7 @@ export function startApp(root: HTMLElement): void {
       stopGame: () => {
         if (mode === 'multi' || pendingRemote) teardownMulti();
         drag.cancel();
+        ultAim.cancel();
         hud?.destroy();
         hud = null;
         game = null;
@@ -388,6 +425,7 @@ export function startApp(root: HTMLElement): void {
   function showMain(): void {
     if (mode === 'multi' || pendingRemote) teardownMulti();
     drag.cancel();
+    ultAim.cancel();
     hud?.destroy();
     hud = null;
     game = null;
@@ -407,6 +445,8 @@ export function startApp(root: HTMLElement): void {
       lastMode: loadMode(),
       run: stash.run ? { stage: stash.run.stage, bag: stash.run.bag.length, complete: stash.run.stage > 12 } : null,
       bossRaid: loadBossRaidRecord(),
+      ultTest: loadBossRaidRecord(undefined, ULT_TEST_KEY),
+      ultMode: ultChoice,
     });
   }
 
@@ -420,6 +460,7 @@ export function startApp(root: HTMLElement): void {
   const hudCallbacks: HudCallbacks = {
     onCardDown: (kind, index, ev, el) => drag.begin(kind, index, ev, el),
     onUlt: () => useUlt(),
+    onUltDown: (ev, el) => ultAim.begin(ev, el),
     onPause: () => openMenu(),
     onDebug: () => {
       if (canDebug()) debug.toggle();
@@ -444,6 +485,14 @@ export function startApp(root: HTMLElement): void {
     return v.characters.length === 3 && v.pets.length === 3 ? v : loadPreset();
   }
 
+  /**
+   * 기획 22차: the preset a 궁극기 테스트 room gets carries my 「궁극기 방식」 (the server reads it in such a room only).
+   * In a room the room's mode decides (presetMode); creating / joining one, the card picked on the main menu.
+   */
+  function withUltMode(p: PresetSave): PresetChoice {
+    return presetMode() === 'ultTest' ? { ...p, ultMode: ultChoice } : p;
+  }
+
   function refreshLobby(): void {
     lobbyScreen.update({
       status: lobby.status,
@@ -455,7 +504,7 @@ export function startApp(root: HTMLElement): void {
       myId: lobby.sessionId,
       preset: currentPreset(),
       starting: lobbyStarting || !!pendingRemote,
-      mode: pickedMode === 'bossRaid' ? 'bossRaid' : null,
+      mode: pickedMode === 'bossRaid' || pickedMode === 'ultTest' ? pickedMode : null,
     });
   }
 
@@ -497,6 +546,7 @@ export function startApp(root: HTMLElement): void {
 
   function showLobby(): void {
     drag.cancel();
+    ultAim.cancel();
     screen = 'lobby';
     sfx.scene('lobby');
     preset.setVisible(false);
@@ -530,6 +580,7 @@ export function startApp(root: HTMLElement): void {
     paused = on;
     if (on) {
       drag.cancel();
+      ultAim.cancel();
       pause.show(game?.state ?? null, { multi: false, isHost: true, localPlayer });
     } else pause.hide();
   }
@@ -543,6 +594,7 @@ export function startApp(root: HTMLElement): void {
     if (!menuOpen) sfx.ui('ui.pause.open');
     menuOpen = true;
     drag.cancel();
+    ultAim.cancel();
     pause.show(game.state, { multi: true, isHost: !!remote?.isHost, localPlayer, expedition: remoteExp });
   }
 
@@ -580,9 +632,16 @@ export function startApp(root: HTMLElement): void {
       tunables: { ...DEFAULT_TUNABLES, ...loadTunableOverrides() },
     };
     // 기획 19차: a run started from the 보스 레이드 card (혼자 하기 / 다시 하기); an explicit setup (원정 stage, tests) wins
-    if (pickedMode === 'bossRaid' && !setup.expedition) base.mode = 'bossRaid';
+    if ((pickedMode === 'bossRaid' || pickedMode === 'ultTest') && !setup.expedition) base.mode = pickedMode;
+    // 기획 22차 궁극기 테스트: my 「궁극기 방식」 (the bots play the same — the sim); '?chars=' = the first run's party
+    if (base.mode === 'ultTest') {
+      base.players[0].ultMode = ultChoice;
+      if (queryChars) base.players[0].characters = queryChars;
+      queryChars = null;
+    }
     const full: GameSetup = { ...base, ...setup, tunables: { ...base.tunables, ...(setup.tunables ?? {}) } };
     drag.cancel();
+    ultAim.cancel();
     hud?.destroy();
     hud = null;
     mode = 'solo';
@@ -614,7 +673,7 @@ export function startApp(root: HTMLElement): void {
    * (its start events are dropped — the HUD, the renderer and the sound only ever see the picked one).
    */
   function applyQueryBoss(g: Game): void {
-    if (!queryBoss || g.state.mode !== 'bossRaid') return;
+    if (!queryBoss || !isRaidMode(g.state.mode)) return;
     const boss = queryBoss;
     queryBoss = null;
     g.drainEvents();
@@ -622,12 +681,13 @@ export function startApp(root: HTMLElement): void {
     if (!r.ok) console.warn(`boss=${boss}: ${r.reason ?? '?'}`);
   }
 
-  function useUlt(): void {
+  /** The ult: a tap (aim absent = today's ult) or 기획 22차 an aimed / dragged one from the ult button's gesture. */
+  function useUlt(aim?: UltAim | null): CommandResult {
     // multiplayer menu open (R35: no pause, but the HUD is covered): no ult from the keyboard either
-    if (!game || screen !== 'combat' || paused || menuOpen) return;
-    const r = game.dispatch({ type: 'ult', player: localPlayer });
+    if (!game || screen !== 'combat' || paused || menuOpen) return { ok: false, reason: '전투 중이 아님' };
+    const r = game.dispatch(aim ? { type: 'ult', player: localPlayer, aim } : { type: 'ult', player: localPlayer });
     sfx.ui(r.ok ? 'ui.ult.press' : 'ui.ult.denied');
-    if (r.ok) return;
+    if (r.ok) return r;
     const me = game.state.players[localPlayer];
     const text =
       r.reason === '게이지 부족'
@@ -636,10 +696,11 @@ export function startApp(root: HTMLElement): void {
           ? '필드에 캐릭터가 없어요 · 카드를 먼저 끌어 놓으세요'
           : r.reason === '관전 중'
             ? '사망 — 관전 중이에요'
-            : r.reason === '서버와 연결이 끊겼어요' || r.reason === '연결이 불안정해요'
+            : r.reason === '서버와 연결이 끊겼어요' || r.reason === '연결이 불안정해요' || r.reason === '궁극기 방식이 바뀌었어요'
               ? r.reason
               : '지금은 쓸 수 없어요';
     hud?.toast(text, 'warn');
+    return r;
   }
 
   /** 포기 / 관전 중 결과 보기 (solo): end the run now and show the result without the delay. */
@@ -662,6 +723,7 @@ export function startApp(root: HTMLElement): void {
   function enterMulti(rg: RemoteGame): void {
     pendingRemote = null;
     drag.cancel();
+    ultAim.cancel();
     if (remote && remote !== rg) remote.dispose();
     remote = rg;
     remoteExp = pendingExp;
@@ -695,6 +757,7 @@ export function startApp(root: HTMLElement): void {
 
   function teardownMulti(): void {
     drag.cancel();
+    ultAim.cancel();
     pendingRemote?.dispose();
     pendingRemote = null;
     if (mode === 'multi') {
@@ -759,9 +822,10 @@ export function startApp(root: HTMLElement): void {
    * before its end counts the floor it was on, as a defeat. Null when the game is not a raid or was already counted.
    */
   function countRaid(g: Game): BossRaidUpdate | null {
-    if (g.state.mode !== 'bossRaid' || raidCounted === g) return null;
+    if (!isRaidMode(g.state.mode) || raidCounted === g) return null;
     raidCounted = g;
-    return recordBossRaidResult(g.state.runResult ?? { outcome: 'defeat', floorReached: g.state.floor });
+    // 기획 22차: 궁극기 테스트 keeps its own record (never mixed with the raid's)
+    return recordBossRaidResult(g.state.runResult ?? { outcome: 'defeat', floorReached: g.state.floor }, undefined, recordKeyFor(g.state.mode));
   }
 
   function showResult(): void {
@@ -776,6 +840,7 @@ export function startApp(root: HTMLElement): void {
     resultAt = null;
     quitRequested = false;
     drag.cancel();
+    ultAim.cancel();
     debug.close();
     pause.hide();
     menuOpen = false;
@@ -790,8 +855,8 @@ export function startApp(root: HTMLElement): void {
       isHost: !!remote?.isHost,
       ...(raid
         ? { raid: { best: raid.record.bestFloor, isNewBest: raid.isNewBest } }
-        : game.state.mode === 'bossRaid'
-          ? { raid: { best: loadBossRaidRecord().bestFloor, isNewBest: false } }
+        : isRaidMode(game.state.mode)
+          ? { raid: { best: loadBossRaidRecord(undefined, recordKeyFor(game.state.mode)).bestFloor, isNewBest: false } }
           : null),
     });
     sfx.scene('result');
@@ -801,6 +866,7 @@ export function startApp(root: HTMLElement): void {
   function toPreset(): void {
     if (mode === 'multi' || pendingRemote) teardownMulti();
     drag.cancel();
+    ultAim.cancel();
     hud?.destroy();
     hud = null;
     game = null;
@@ -816,10 +882,26 @@ export function startApp(root: HTMLElement): void {
     expFlow.hideAll();
     stage.canvas.classList.add('is-hidden');
     preset.setVariant('classic', loadPreset());
-    if (pickedMode === 'bossRaid') preset.setTitle(RAID_PRESET_TITLE); // 기획 19차: the classic preset, the raid's name
+    if (presetMode() === 'bossRaid') preset.setTitle(RAID_PRESET_TITLE); // 기획 19차: the classic preset, the raid's name
+    raidPresetExtras();
     refreshDebugNote();
     refreshNetNote();
     preset.setVisible(true);
+  }
+
+  /**
+   * 기획 22차: the mode the preset is for — in a room the ROOM's mode (a member who came in through another card, or
+   * back after a reload, still edits a 궁극기 테스트 room's 「궁극기 방식」), else the card picked on the main menu.
+   */
+  function presetMode(): GameMode {
+    return lobby.room ? (lobby.room.mode ?? 'classic') : pickedMode;
+  }
+
+  /** 기획 22차: the 궁극기 테스트 preset — its title and the 「궁극기 방식」 choice (hidden for every other mode). */
+  function raidPresetExtras(): void {
+    if (presetMode() !== 'ultTest') return;
+    preset.setTitle(ULT_PRESET_TITLE);
+    preset.setUltChoice(ultChoice);
   }
 
   function appPhase(): AppPhase {
@@ -907,8 +989,10 @@ export function startApp(root: HTMLElement): void {
     onMyJust(events, now);
     reward.onEvents(events, localPlayer); // 기획 17차: 「#퇴장 3개 모음!」 stamp
     drag.frame();
+    ultAim.frame(); // 기획 22차
     uiState.dragPreview = drag.dragPreview;
-    uiState.freezeCamera = drag.active;
+    uiState.ultAim = ultAim.preview;
+    uiState.freezeCamera = drag.active || ultAim.active;
     const drawState = mode === 'solo' ? smoother.view(game.state, now, game.tunables.gameSpeed * slow) : game.state;
     lastDrawState = drawState;
     renderer.render(drawState, events, running ? dt : 0, uiState);
@@ -944,6 +1028,7 @@ export function startApp(root: HTMLElement): void {
   else {
     preset.setVariant('classic', loadPreset());
     if (pickedMode === 'bossRaid') preset.setTitle(RAID_PRESET_TITLE);
+    raidPresetExtras();
     preset.setVisible(true);
   }
   lobby.start();
@@ -1014,6 +1099,17 @@ export function startApp(root: HTMLElement): void {
       get clockScale() {
         return mode === 'solo' && FEEL.justSlow ? justSlow.scale(performance.now()) : 1;
       },
+      get ultAim() {
+        return ultAim.preview;
+      },
     },
   };
+}
+
+/** 기획 22차 '?chars=a,b,c': three different known character ids, else null. */
+function parseQueryChars(raw: string | null): string[] | null {
+  if (!raw) return null;
+  const ids = raw.split(',').map(x => x.trim());
+  const known = new Set(CHARACTERS.map(c => c.id));
+  return ids.length === 3 && new Set(ids).size === 3 && ids.every(id => known.has(id)) ? ids : null;
 }

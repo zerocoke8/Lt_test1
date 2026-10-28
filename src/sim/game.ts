@@ -19,6 +19,7 @@ import { Rng } from './rng';
 import { emptyUltGauge, fillUlts } from './ultMode';
 import { canDebugClearStage, expeditionRt, expeditionWon, initExpedition, planExpeditionFloor, seatGear } from './expedition';
 import { bossRaidRt, hasBossData, planBossRaidFloor } from './bossRaid';
+import { isUltAimMode } from './ultTest';
 import { scaleArea, tickPending, tickZones } from './skills';
 import { benchMaxHp } from './stats';
 import { applyTunablesPatch, computeTelemetry, emptyContribution } from './telemetry';
@@ -96,8 +97,10 @@ export function createWorld(setup: GameSetup): World {
   if (raid) {
     // 기획 19차: the mode rides on the state (HUD / result / snapshots); absent in the classic tower → its JSON is unchanged
     w.bossRaid = raid;
-    state.mode = 'bossRaid';
+    state.mode = setup.mode === 'ultTest' ? 'ultTest' : 'bossRaid'; // 기획 22차 궁극기 테스트 = a raid with ult modes
   }
+  // 기획 22차: each seat's ult mode (a bot seat without one plays the first human's — solo: mine; a room: the host's)
+  const leadUlt = setup.players.find(ps => !ps.isBot)?.ultMode;
 
   const n = setup.players.length;
   setup.players.forEach((ps, i) => {
@@ -155,6 +158,10 @@ export function createWorld(setup: GameSetup): World {
       m.maxHp = benchMaxHp(p, idx);
       m.hp = m.maxHp;
     });
+    if (state.mode === 'ultTest') {
+      const um = ps.ultMode ?? (ps.isBot ? leadUlt : undefined);
+      p.ultMode = isUltAimMode(um) ? um : 'now';
+    }
     state.players.push(p);
   });
 
@@ -224,7 +231,7 @@ export function dispatch(w: World, cmd: Command): CommandResult {
       r = usePet(w, cmd.player, cmd.petIndex, cmd.pos);
       break;
     case 'ult':
-      r = useUlt(w, cmd.player);
+      r = useUlt(w, cmd.player, cmd.aim); // 기획 22차: aim is read in 궁극기 테스트 only
       break;
     case 'chooseReward':
       r = chooseReward(w, cmd.player, cmd.offerIndex, cmd.member);
@@ -355,6 +362,14 @@ function debug(w: World, a: DebugAction): CommandResult {
       return { ok: true };
     case 'raidBoss':
       return raidBoss(w, a.boss);
+    case 'ultMode': {
+      // 기획 22차 「궁극기 방식」: every player's (player given = that one only); 궁극기 테스트 only
+      if (s.mode !== 'ultTest') return { ok: false, reason: '궁극기 테스트 전용' };
+      if (!isUltAimMode(a.mode)) return { ok: false, reason: '알 수 없는 방식' };
+      if (a.player != null && !p0) return { ok: false, reason: '플레이어 없음' };
+      for (const p of a.player != null ? [p0!] : s.players) p.ultMode = a.mode;
+      return { ok: true };
+    }
   }
   return { ok: false, reason: '알 수 없는 디버그 명령' };
 }

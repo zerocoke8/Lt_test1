@@ -188,8 +188,11 @@ export interface SkillAction {
    * 기획 20차 (rule N2): with center 'arena' the offset is an absolute arena coordinate. rel 'facing': the offset and a
    * rect / cone direction are written as if the caster faced +x (ahead = +x, its left = −y) and are turned to its facing
    * when the part resolves (a relocating boss faces the way its spot says).
+   * 기획 22차 rel 'aim' (궁극기 테스트 alt ults only, src/data/ultTest): the offset, a rect / cone direction and a dash
+   * direction are written as if the aim pointed at +x (ahead = +x) and are turned toward the aimed point when the ult is
+   * cast (src/sim/ultTest.ts turns them before the cast, so the executor never sees 'aim').
    */
-  rel?: 'facing';
+  rel?: 'facing' | 'aim';
   /** 기획 20차 (rule N3): the `once` parts of one cast hit a unit at most once between them (beam / scan-line steps). */
   once?: true;
   /**
@@ -274,6 +277,8 @@ export interface SkillAction {
   dash?: {
     dir: Dir;
     distance: number;
+    /** 기획 22차: degrees clockwise from +x on screen; replaces `dir` when present (an aimed ult's dash). */
+    rot?: number;
     duration?: number;
     /** 기획 13차 (거너 반동, 섀도우 질주): the caster moves from where it stands when the action lands, not at cast. */
     atFire?: boolean;
@@ -1016,6 +1021,8 @@ export interface PlayerState {
   rewardState?: Record<string, number>;
   /** 기획 17차 욕심쟁이 계약서: picks left on the open reward screen (absent / 1 = one pick). */
   rewardPicksLeft?: number;
+  /** 기획 22차 궁극기 테스트: how this player's ult is used (only in mode 'ultTest'; absent elsewhere). */
+  ultMode?: UltAimMode;
 }
 
 export interface GoedamTraceSlot {
@@ -1210,8 +1217,33 @@ export interface GameState {
   runResult: RunResult | null;
   /** 기획 15차 원정: this stage's progress, loot and choices. Absent in the classic tower. */
   expedition?: ExpeditionState;
-  /** 기획 19차 보스 레이드 (docs/boss-raid.md): every floor is a boss floor. Absent in the classic tower / 원정. */
-  mode?: 'bossRaid';
+  /**
+   * 기획 19차 보스 레이드 (docs/boss-raid.md): every floor is a boss floor. Absent in the classic tower / 원정.
+   * 기획 22차 'ultTest' = 궁극기 테스트 (docs/ult-test.md): a 보스 레이드 run where each player picks how the ult is used.
+   */
+  mode?: RaidMode;
+}
+
+/** 기획 19차 / 22차: the boss-raid-shaped modes (the raid's plan, rewards, HUD and result). */
+export type RaidMode = 'bossRaid' | 'ultTest';
+
+/**
+ * 기획 22차 궁극기 테스트 (docs/ult-test.md): how a player uses the ult — 'now' = today's tap, 'aim' = hold the button and
+ * drag to aim (release casts the 조준 ult there), 'drag' = drag the button onto the field (the field character goes there
+ * and casts its 드래그 ult).
+ */
+export type UltAimMode = 'now' | 'aim' | 'drag';
+
+/** 기획 22차: what an aimed / dragged ult command carries (world point; the sim clamps it to the arena). */
+export interface UltAim {
+  mode: 'aim' | 'drag';
+  point: Vec2;
+  /**
+   * Where the sender's screen showed the field character (its preview's origin). The aim direction and the reach are
+   * measured from it (kept within ULT_TEST.fromSlack cells of the real spot), so a room casts the way the preview
+   * pointed; 'self' parts and the move still start at the real spot. Absent (bots, a tap) = the real spot.
+   */
+  from?: Vec2;
 }
 
 // ─────────────────────────── 원정 (기획 15차, docs/expedition.md) ───────────────────────────
@@ -1289,12 +1321,15 @@ export type DebugAction =
   /** 기획 17차: the player's next normal reward screen has a legendary card (if one is left). */
   | { kind: 'offerFixture'; player?: number }
   /** 기획 19차 보스 레이드 「보스 고르기」: restart this floor with that boss (raid only; the later floors keep the order). */
-  | { kind: 'raidBoss'; boss: string };
+  | { kind: 'raidBoss'; boss: string }
+  /** 기획 22차 궁극기 테스트 「궁극기 방식」: every player's ult mode (player = only that one). 궁극기 테스트 only. */
+  | { kind: 'ultMode'; mode: UltAimMode; player?: number };
 
 export type Command =
   | { type: 'swap'; player: number; partyIndex: number; pos: Vec2 }
   | { type: 'pet'; player: number; petIndex: number; pos: Vec2 }
-  | { type: 'ult'; player: number }
+  /** aim (기획 22차 궁극기 테스트 only; ignored in every other mode): the aimed / dragged point. Absent = today's tap. */
+  | { type: 'ult'; player: number; aim?: UltAim }
   /** member (기획 17차 지명권): the party index a member / role card goes to (absent = the card's default). */
   | { type: 'chooseReward'; player: number; offerIndex: number; member?: number }
   /** 기획 17차 다시 뽑기: new cards for this screen (one reroll spent). */
@@ -1384,9 +1419,23 @@ export type GameEvent =
       hit: number;
       hits: number;
       targets: number;
+      /** 기획 22차 궁극기 테스트 only: where a line / fan part started (the cast-time caster spot; absent elsewhere). */
+      origin?: Vec2;
     }
   /** 기획 13차: an ult was tapped — the cut-in starts (before its skillCast events). Effects land ≥ 0.45 s later. */
-  | { type: 'ultCast'; player: number; entityId: number; defId: string; skillId: string; name: string }
+  | {
+      type: 'ultCast';
+      player: number;
+      entityId: number;
+      defId: string;
+      skillId: string;
+      name: string;
+      /**
+       * 기획 22차 궁극기 테스트: an aimed ('aim': the aimed point) or dragged ('drag': where the caster landed) ult; alt =
+       * the character's own 조준 / 드래그 design (else the fallback). Absent = today's ult.
+       */
+      aim?: { mode: 'aim' | 'drag'; x: number; y: number; alt?: true };
+    }
   /** 기획 13차: a control status landed on a unit (head icon / sound). source = the caster entity, if any. */
   | { type: 'statusApplied'; targetId: number; status: StatusId; duration: number; player: number | null; sourceId: number | null }
   /** 기획 13차: a stasis ended; the unit took `amount` (the stored-damage rebound). */
@@ -1549,6 +1598,8 @@ export interface PlayerSetup {
   pets: string[];
   /** 기획 15차 원정: equipped gear per party index (length = characters). Absent = none (classic). */
   gear?: GearLoadout[];
+  /** 기획 22차 궁극기 테스트: this seat's ult mode (mode 'ultTest' only; absent = 'now'). */
+  ultMode?: UltAimMode;
 }
 
 export interface GameSetup {
@@ -1559,9 +1610,9 @@ export interface GameSetup {
   startFloor?: number;
   /** 기획 15차 원정: play one stage (기획 16차: one floor) instead of the classic tower. */
   expedition?: ExpeditionSetup;
-  /** 기획 19차 보스 레이드: 20 boss floors (docs/boss-raid.md). Absent = the classic tower. */
-  mode?: 'bossRaid';
-  /** 기획 19차: bench / test knobs of a boss raid (ignored without mode 'bossRaid'). */
+  /** 기획 19차 보스 레이드: 20 boss floors (docs/boss-raid.md). 기획 22차 'ultTest' = 궁극기 테스트. Absent = the classic tower. */
+  mode?: RaidMode;
+  /** 기획 19차: bench / test knobs of a boss raid (ignored without a raid mode). */
   bossRaid?: BossRaidSetup;
 }
 
@@ -1623,7 +1674,7 @@ export interface PreviewPart {
   /** Seconds after the drop when this part lands (0 = instantly). */
   delay: number;
   affects: Affects;
-  dash?: { dir: Dir; distance: number };
+  dash?: { dir: Dir; distance: number; rot?: number };
 }
 
 export interface DragPreview {
@@ -1639,11 +1690,43 @@ export interface DragPreview {
   index?: number;
 }
 
+/** 기획 22차 궁극기 테스트: one part of an aimed / dragged ult's live preview, in world space (src/sim/ultTest.ts). */
+export interface UltPreviewPart {
+  area: AreaShape;
+  center: Vec2;
+  /** Where 'line' / 'fan' shapes start (the caster). */
+  origin: Vec2;
+  affects: Affects;
+  delay: number;
+  /** The part moves its caster (a dash): from → to. */
+  dash?: { from: Vec2; to: Vec2 };
+}
+
+/** 기획 22차: the ult button's live 조준 / 드래그 preview (my screen only; RenderUiState.ultAim). */
+export interface UltAimView {
+  mode: 'aim' | 'drag';
+  /** Where the field character stands now. */
+  from: Vec2;
+  /** The aimed point (조준) / the landing spot (드래그), clamped like the cast. */
+  point: Vec2;
+  parts: UltPreviewPart[];
+  move: { kind: 'dash' | 'blink'; from: Vec2; to: Vec2; pathWidth?: number } | null;
+  /** The enemy the ult's 'target' parts would hit (a ring on it), null = none. */
+  targetId: number | null;
+  /** Over the field and castable: releasing casts. */
+  valid: boolean;
+  /** The finger is back on the ult button: releasing cancels. */
+  cancel: boolean;
+  color: string;
+}
+
 export interface RenderUiState {
   localPlayer: number;
   dragPreview: DragPreview | null;
   /** Freeze camera while dragging. */
   freezeCamera: boolean;
+  /** 기획 22차 궁극기 테스트: the ult button's 조준 / 드래그 preview while the finger is down (absent / null = none). */
+  ultAim?: UltAimView | null;
 }
 
 /** Implemented by src/render (createRenderer). Canvas is a fixed 1280×720 logical surface. */

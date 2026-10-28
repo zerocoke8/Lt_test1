@@ -8,8 +8,8 @@ import { botPickIndex } from '../../src/sim';
 import { PRESET_A, PRESET_B, startTestServer, TestClient } from './helpers';
 
 describe('protocol 5: parsing', () => {
-  it('version 7 today (the 17차 messages came with 5; 6 = 기획 19차 보스 레이드 방 태그; 7 = 기획 20차 보스 형태), reward timeout 30 s', () => {
-    expect(PROTOCOL_VERSION).toBe(7); // 기획 20차: 7 (보스 형태)
+  it('version 8 today (the 17차 messages came with 5; 6 = 기획 19차 보스 레이드 방 태그; 7 = 기획 20차 보스 형태; 8 = 기획 22차 궁극기 테스트), reward timeout 30 s', () => {
+    expect(PROTOCOL_VERSION).toBe(8); // 기획 20차: 7 (보스 형태); 기획 22차: 8 (궁극기 테스트)
     expect(REWARD_TIMEOUT_SEC).toBe(30);
   });
 

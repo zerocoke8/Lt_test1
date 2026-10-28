@@ -149,6 +149,7 @@ export interface FxHost {
 
 const NO_AREA: AreaShape = { shape: 'single' };
 const TMP = { x: 0, y: 0 };
+const TMP2 = { x: 0, y: 0 };
 
 function ease(t: number): number {
   return 1 - (1 - t) * (1 - t);
@@ -456,7 +457,12 @@ export class SkillFx {
     TMP.y = f.y;
     const grow = ease(clamp01(t / 0.45));
     const fade = 1 - clamp01((t - 0.35) / 0.65);
-    pathArea(ctx, cam, TMP, null, f.area, Math.max(0.02, grow));
+    // 기획 22차: n 1 = a line / fan drawn from its start (x2, y2), not centred on the point
+    if (f.n === 1) {
+      TMP2.x = f.x2;
+      TMP2.y = f.y2;
+    }
+    pathArea(ctx, cam, TMP, f.n === 1 ? TMP2 : null, f.area, Math.max(0.02, grow));
     ctx.globalAlpha = 0.32 * fade * f.k;
     ctx.fillStyle = f.color;
     ctx.fill();

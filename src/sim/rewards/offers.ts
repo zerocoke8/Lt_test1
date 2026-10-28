@@ -36,6 +36,8 @@ import { mixSeed, Rng } from '../rng';
 import { emit, getEntity, type OfferMods, type SimPlayer, type World } from '../world';
 import { rwOfferMods, rwOnGrant } from './hooks';
 import { invalidateRewards, rewardCount, tagCounts } from './query';
+import { isRaidMode } from '../ultTest';
+import { ULT_TEST } from '../../data/ultTest';
 
 export { rewardFamily };
 
@@ -159,7 +161,8 @@ export function familyEligible(s: GameState, ps: PlayerState, f: RewardFamilyDef
   if (f.unique && rewardCount(ps, f.key) > 0) return false;
   if (f.key === 'relay_blast' && ps.relics.includes('relay_flag')) return false;
   if (!s.expedition && NOT_BEFORE_BOSS.has(f.key) && (s.floor + 1) % 5 === 0) return false;
-  if (s.mode === 'bossRaid' && BOSS_RAID.rewardsOff.includes(f.key)) return false; // 기획 19차: dead cards in a boss-only run
+  if (isRaidMode(s.mode) && BOSS_RAID.rewardsOff.includes(f.key)) return false; // 기획 19차: dead cards in a boss-only run (22차: 궁극기 테스트 too)
+  if (s.mode === 'ultTest' && ULT_TEST.rewardsOff.includes(f.key)) return false; // 기획 22차: replays of today's ult
   if (f.flag === 'economy' && economyActive(ps, f.key)) return false;
   if (f.key === 'incense' && ps.rerolls >= MAX_REROLLS) return false;
   if (f.key === 'petcd' && petCooldownReduction(ps) >= MAX_PET_COOLDOWN_REDUCTION - 1e-9) return false; // at its cap

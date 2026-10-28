@@ -8,10 +8,12 @@
 import type { NetStatus, OfflineReason } from '../net/connection';
 import type { RoomInfo, RoomMember, RoomSummary, RoomVariantMode } from '../net/protocol';
 import { MAX_ROOM_PLAYERS, ROOM_CODE_ALPHABET } from '../net/protocol';
+import type { UltAimMode } from '../types';
 import { BOT_PRESETS } from '../config';
+import { ULT_MODE_LABEL } from '../sim/ultTest';
 import { CHARACTERS, PETS, getCharacter, getPet } from '../data';
 import { button, h, replayClass, setClass, setText, show } from './dom';
-import { RAID_LABEL } from './format';
+import { RAID_LABEL, raidModeLabel } from './format';
 import { petIcon, portrait } from './preset';
 import type { PresetSave } from './storage';
 import { NICKNAME_MAX } from './storage';
@@ -77,10 +79,11 @@ function statusText(st: NetStatus, latency: number | null): string {
 
 /** 기획 19차: header texts by view and mode. PURE. */
 export function lobbyHeader(inRoom: boolean, mode: RoomVariantMode | null | undefined): { title: string; sub: string; chip: string } {
-  const raid = mode === 'bossRaid';
+  const raid = mode === 'bossRaid' || mode === 'ultTest'; // 기획 22차: 궁극기 테스트 = the raid with ult modes
   const fill = '빈자리는 시작할 때 봇이 채워요';
-  if (inRoom) return { title: '방', sub: raid ? `20층 · 층마다 보스 · ${fill}` : `최대 3명 · ${fill}`, chip: raid ? RAID_LABEL : '' };
-  return { title: '매칭', sub: raid ? `20층 · 층마다 보스 · 최대 3명 협동 · ${fill}` : `최대 3명 협동 · ${fill}`, chip: raid ? RAID_LABEL : '' };
+  const chip = raid ? raidModeLabel(mode) : '';
+  if (inRoom) return { title: '방', sub: raid ? `20층 · 층마다 보스 · ${fill}` : `최대 3명 · ${fill}`, chip };
+  return { title: '매칭', sub: raid ? `20층 · 층마다 보스 · 최대 3명 협동 · ${fill}` : `최대 3명 협동 · ${fill}`, chip };
 }
 
 function cleanCode(raw: string): string {
@@ -306,8 +309,10 @@ export class LobbyScreen {
     setText(this.title, head.title);
     setText(this.sub, head.sub);
     show(this.modeChip, !!head.chip);
-    show(this.createSub, m.mode === 'bossRaid');
-    setClass(this.createBtn, 'is-raid', m.mode === 'bossRaid');
+    setText(this.modeChip, head.chip);
+    show(this.createSub, !!m.mode);
+    setText(this.createSub, raidModeLabel(m.mode));
+    setClass(this.createBtn, 'is-raid', !!m.mode);
     show(this.starting, m.starting);
     if (document.activeElement !== this.nameInput && this.nameInput.value !== m.name) this.nameInput.value = m.name;
     setClass(this.createBtn, 'is-disabled', !online);
@@ -368,9 +373,9 @@ export class LobbyScreen {
       const main = h('div', 'lb-room-main', row);
       const nameRow = h('div', 'lb-room-name-row', main);
       h('div', 'lb-room-name', nameRow, r.name);
-      if (r.mode === 'bossRaid') {
+      if (r.mode === 'bossRaid' || r.mode === 'ultTest') {
         row.dataset.mode = r.mode;
-        h('span', 'lb-mode lb-row-mode', nameRow, RAID_LABEL);
+        h('span', 'lb-mode lb-row-mode', nameRow, raidModeLabel(r.mode));
       }
       h('div', 'lb-room-host', main, `방장 ${r.hostName} · 코드 ${r.code}`);
       const count = h('div', 'lb-room-count', row);
@@ -383,7 +388,8 @@ export class LobbyScreen {
   private renderRoom(m: LobbyModel, room: RoomInfo): void {
     setText(this.roomCode, room.code);
     setText(this.roomName, room.name);
-    show(this.roomTag, room.mode === 'bossRaid');
+    show(this.roomTag, !!room.mode);
+    setText(this.roomTag, raidModeLabel(room.mode));
     const me = room.members.find(x => x.id === m.myId);
     const iAmHost = !!me?.isHost;
     show(this.startBtn, iAmHost);
@@ -391,6 +397,12 @@ export class LobbyScreen {
     setText(this.waitText, room.status === 'playing' ? '게임 중이에요' : '방장이 시작하기를 기다리는 중…');
     setClass(this.startBtn, 'is-disabled', room.status !== 'waiting' || m.status !== 'online');
     this.slots.replaceChildren();
+    // 기획 22차: a 궁극기 테스트 room shows each seat's 「궁극기 방식」 (a bot seat plays the host's)
+    const ultRoom = room.mode === 'ultTest';
+    const hostUlt = room.members.find(x => x.isHost)?.preset.ultMode ?? 'now';
+    const ultBadge = (top: HTMLElement, mode: UltAimMode, bot: boolean): void => {
+      if (ultRoom) h('span', `lb-badge lb-badge-ult is-${mode}`, top, `${bot ? '봇 ' : ''}궁극기 ${ULT_MODE_LABEL[mode]}`);
+    };
     let botN = 0;
     for (let i = 0; i < MAX_ROOM_PLAYERS; i++) {
       const mem: RoomMember | undefined = room.members[i];
@@ -400,6 +412,7 @@ export class LobbyScreen {
         const top = h('div', 'lb-slot-top', slot);
         h('span', 'lb-slot-n', top, String(i + 1));
         h('span', 'lb-slot-name', top, '빈자리 → 봇');
+        ultBadge(top, hostUlt, true);
         if (bot) {
           h('div', 'lb-slot-botnote', slot, `시작하면 봇이 들어와요 · ${bot.name} 편성`);
           partyChips(slot, bot.characters, bot.pets, 'is-ghost');
@@ -414,6 +427,7 @@ export class LobbyScreen {
       if (isMe) h('span', 'lb-badge lb-badge-me', top, '나');
       if (mem.isHost) h('span', 'lb-badge lb-badge-host', top, '방장');
       if (!mem.connected) h('span', 'lb-badge lb-badge-away', top, '연결 끊김');
+      ultBadge(top, mem.preset.ultMode ?? 'now', false);
       partyChips(slot, mem.preset.characters, mem.preset.pets);
     }
   }

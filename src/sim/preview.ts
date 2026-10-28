@@ -3,7 +3,7 @@
 
 import type { AreaShape, Dir, GameState, PreviewPart, SkillAction, Vec2 } from '../types';
 import { getCharacter, getPet } from '../data';
-import { scaleArea, scaleDash } from './geometry';
+import { dashDir, scaleArea, scaleDash } from './geometry';
 import { skillMod } from './modifiers';
 import { rwDragRadiusAdd, rwPetRadiusAdd } from './rewards/hooks';
 
@@ -43,9 +43,9 @@ export function partsForActions(actions: readonly SkillAction[], radiusMult: num
       // 기획 13차 atFire (반동, 질주): the caster moves but the move is not a hit path
       if (!a.dash.atFire) part.dash = d;
       const from = a.dash.atFire ? caster : offset;
-      const u = d.dir;
-      caster.x = from.x + (u === 'right' ? 1 : u === 'left' ? -1 : 0) * d.distance;
-      caster.y = from.y + (u === 'down' ? 1 : u === 'up' ? -1 : 0) * d.distance;
+      const u = dashDir(d); // 기획 22차: an aimed dash has a rot
+      caster.x = from.x + u.x * d.distance;
+      caster.y = from.y + u.y * d.distance;
     }
     parts.push(part);
     if (a.charge?.stopAtCenter) {

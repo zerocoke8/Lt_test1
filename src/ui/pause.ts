@@ -6,7 +6,7 @@
 import type { GameState, PlayerState } from '../types';
 import { getBoss, getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, goedamTraceKind } from '../data';
 import { button, h } from './dom';
-import { RAID_LABEL, formatClock } from './format';
+import { formatClock, raidModeLabel } from './format';
 import { stageTitle } from './expeditionFormat';
 import { toggleFullscreen } from './stage';
 import { createSoundPanel, type SoundPanel } from './soundPanel';
@@ -14,6 +14,7 @@ import { CUTIN } from '../render/cutin';
 import { FEEL, loadCutIn, loadFeel, saveCutIn, saveFeel, type FeelSettings } from './storage';
 import { buildSummary, renderBuild } from './buildPanel';
 import { bossFormLine, bossPatternTips } from './bossFormHud';
+import { isRaidMode } from '../sim/ultTest';
 
 /** 기획 20차: pattern tips listed on the pause screen (3 patterns + the phase one). */
 const PAUSE_TIPS = 4;
@@ -145,7 +146,7 @@ export class PauseMenu {
    * tip, the signature first (the tip slot of the HUD shows each one for a few seconds; here they can be read again). Returns whether it drew any.
    */
   private renderBoss(s: GameState | null): boolean {
-    const bossId = s && s.mode === 'bossRaid' ? s.plan.bossId : undefined;
+    const bossId = s && isRaidMode(s.mode) ? s.plan.bossId : undefined;
     const form = bossFormLine(bossId);
     if (!form) return false;
     h('div', 'pl-title pl-boss-title', this.lists, '이 보스');
@@ -207,7 +208,7 @@ function cutInLabel(): string {
 
 /** 기획 19차: '문서 파쇄기 — 서류를 넣으면 …' for the boss of a raid floor, '' elsewhere. */
 export function raidLoreLine(s: Pick<GameState, 'plan' | 'mode'>): string {
-  if (s.mode !== 'bossRaid' || !s.plan.bossId) return '';
+  if (!isRaidMode(s.mode) || !s.plan.bossId) return '';
   try {
     const b = getBoss(s.plan.bossId);
     return b.lore ? `${b.name} — ${b.lore}` : '';
@@ -220,6 +221,6 @@ export function raidLoreLine(s: Pick<GameState, 'plan' | 'mode'>): string {
 export function placeLabel(s: Pick<GameState, 'floor' | 'plan' | 'expedition' | 'mode'>): string {
   const boss = s.plan.kind === 'boss';
   if (s.expedition) return `${stageTitle(s.expedition.stage)}${boss ? ' · 보스 단계' : ''}`;
-  if (s.mode === 'bossRaid') return `${s.floor}층 · ${RAID_LABEL}`;
+  if (isRaidMode(s.mode)) return `${s.floor}층 · ${raidModeLabel(s.mode)}`;
   return `${s.floor}층 · ${boss ? '보스층' : '일반층'}`;
 }

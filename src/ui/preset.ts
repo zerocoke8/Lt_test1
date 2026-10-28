@@ -1,7 +1,9 @@
 // 프리셋 화면: 캐릭터 15명 중 3명(고른 순서 = 슬롯 1/2/3) + 펫 8마리 중 3마리. 마지막 편성 기억.
 // 캐릭터는 역할별 5열 × 3행 카드 (기획 12차: 탱커 / 근접딜러 / 원거리딜러 / 힐러 / 서포터). 카드와 상세 패널에 드래그스킬 형태 미니 도형(모양·방향)을 그림 (3차 1·2).
 
-import type { CharacterDef, PetDef, Role, SkillDef } from '../types';
+import type { CharacterDef, PetDef, Role, SkillDef, UltAimMode } from '../types';
+import { ULT_MODES, ULT_MODE_LABEL } from '../sim/ultTest';
+import { ultAlt } from '../data/ultTest';
 import { CHARACTERS, PETS, ROLE_LABEL, getCharacter, getPet } from '../data';
 import { drawShapeIcon } from '../render/shapeIcon';
 import { partsForActions } from '../sim/preview';
@@ -25,6 +27,13 @@ export interface PresetScreen {
   readonly variant: PresetVariant;
   /** 기획 19차: another title for the current variant (「보스 레이드 편성」); null = the variant's own. setVariant resets it. */
   setTitle(text: string | null): void;
+  /**
+   * 기획 22차 궁극기 테스트: show the 「궁극기 방식」 choice (현재 / 조준 / 드래그) with this mode picked; null hides it.
+   * setVariant hides it.
+   */
+  setUltChoice(mode: UltAimMode | null): void;
+  /** The 「궁극기 방식」 picked now ('now' while hidden). */
+  readonly ultChoice: UltAimMode;
   /** Current (possibly incomplete) selection. */
   value(): PresetSave;
   setDebugNote(text: string): void;
@@ -35,7 +44,22 @@ export interface PresetScreenOpts {
   onStart(p: PresetSave): void;
   /** 기획 15차: 「← 메인」. */
   onBack?(): void;
+  /** 기획 22차: a 「궁극기 방식」 button was picked (saved by the app). */
+  onUltChoice?(mode: UltAimMode): void;
 }
+
+/** 기획 22차: the 궁극기 row of a character without its own design yet (the fallback, src/sim/ultTest.ts). */
+export const ULT_FALLBACK_LINE: Readonly<Record<'aim' | 'drag', string>> = {
+  aim: '(전용 조준 궁극기 준비 중) 지금 궁극기를 겨눈 곳에 써요 — 범위형은 그 자리에, 방향형은 그쪽으로.',
+  drag: '(전용 드래그 궁극기 준비 중) 그 자리로 순간이동해 지금 궁극기를 써요.',
+};
+
+/** 기획 22차: one line under the 「궁극기 방식」 buttons — how the ult button is used in that mode. */
+export const ULT_CHOICE_HINT: Readonly<Record<UltAimMode, string>> = {
+  now: '궁극기 버튼을 탭하면 지금처럼 바로 써요',
+  aim: '버튼을 누른 채 끌어 겨누고, 떼면 그곳에 써요 · 짧게 탭하면 지금처럼',
+  drag: '버튼을 필드로 끌어 놓으면 캐릭터가 그 자리로 가서 써요',
+};
 
 function variantTitle(v: PresetVariant): string {
   return v === 'expedition' ? '원정 편성' : '클래식 탑 편성';
@@ -128,6 +152,34 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
   h('span', 'ps-sec-hint', secP, '8마리 중 3마리 · 필드로 끌어 놓으면 발동');
   const petGrid = h('div', 'ps-grid ps-grid-pets', left);
   const detail = h('div', 'ps-detail', main);
+
+  // 기획 22차 궁극기 테스트: 「궁극기 방식」 — 현재 / 조준 / 드래그, a box above the detail panel (this mode's preset only)
+  let ultMode: UltAimMode = 'now';
+  const ultBox = h('div', 'ps-ult is-hidden', main);
+  h('div', 'ps-ult-label', ultBox, '궁극기 방식');
+  const ultSeg = h('div', 'ps-ult-seg', ultBox);
+  const ultBtns = ULT_MODES.map(m => {
+    const b = button('ps-ult-btn', ULT_MODE_LABEL[m], ultSeg, () => {
+      ultMode = m;
+      renderUlt();
+      renderDetail(); // the 궁극기 row shows that mode's ult
+      opts.onUltChoice?.(m);
+    });
+    b.dataset.mode = m;
+    return b;
+  });
+  const ultHint = h('div', 'ps-ult-hint', ultBox);
+  function renderUlt(): void {
+    for (const b of ultBtns) {
+      const on = b.dataset.mode === ultMode;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    ultHint.textContent = ULT_CHOICE_HINT[ultMode];
+  }
+  renderUlt();
+  /** The 「궁극기 방식」 shown (null = hidden: every other mode). */
+  const ultShown = (): UltAimMode | null => (ultBox.classList.contains('is-hidden') ? null : ultMode);
 
   // footer
   const foot = h('div', 'ps-foot', el);
@@ -248,7 +300,16 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       skillRow(list, '패시브', 'passive', def.passive.name, def.passive.description, '필드에서만');
       const n: SkillDef = def.normal;
       skillRow(list, '일반스킬', 'normal', n.name, n.description, `자동 · 쿨 ${n.cooldown ?? 0}초`);
-      skillRow(list, '궁극기', 'ult', def.ult.name, def.ult.description, '캐릭터별 게이지 · 탭');
+      const um = ultShown();
+      let ultRow: HTMLElement;
+      if (um === 'aim' || um === 'drag') {
+        // 기획 22차: the ult of the chosen mode — the character's own design, else what the fallback does
+        const alt = ultAlt(def.id, um);
+        ultRow = skillRow(list, `궁극기 · ${ULT_MODE_LABEL[um]}`, 'ult', alt?.name ?? def.ult.name, alt?.description ?? `${ULT_FALLBACK_LINE[um]} ${def.ult.description}`, um === 'aim' ? '버튼을 끌어 겨누기' : '버튼을 필드로 끌기');
+      } else ultRow = skillRow(list, '궁극기', 'ult', def.ult.name, def.ult.description, '캐릭터별 게이지 · 탭');
+      // 기획 22차: with the 「궁극기 방식」 box up (궁극기 테스트) the ult is what is compared — its row comes first, so it is
+      // in view on a phone (the box leaves the detail panel half its height) and changes as a mode is tapped
+      if (um != null) list.insertBefore(ultRow, list.firstChild);
     } else {
       const def = getPet(focus.id);
       const hd = h('div', 'dt-head', detail);
@@ -356,12 +417,24 @@ export function createPresetScreen(parent: HTMLElement, opts: PresetScreenOpts):
       pets = [...picks.pets];
       focus = { kind: 'char', id: chars[0] ?? CHARACTERS[0].id };
       titleEl.textContent = variantTitle(v);
+      ultBox.classList.add('is-hidden');
+      el.classList.remove('has-ult');
       startBtn.textContent = v === 'expedition' ? '원정 허브로' : '출발';
       el.classList.toggle('is-expedition', v === 'expedition');
       refresh();
     },
     setTitle(text) {
       titleEl.textContent = text ?? variantTitle(variant);
+    },
+    setUltChoice(mode) {
+      ultBox.classList.toggle('is-hidden', mode == null);
+      el.classList.toggle('has-ult', mode != null);
+      if (mode != null) ultMode = mode;
+      renderUlt();
+      renderDetail();
+    },
+    get ultChoice() {
+      return ultBox.classList.contains('is-hidden') ? 'now' : ultMode;
     },
     value: () => ({ characters: [...chars], pets: [...pets] }),
     setDebugNote(text) {

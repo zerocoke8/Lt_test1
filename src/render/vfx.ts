@@ -5,6 +5,8 @@ import { PLAYER_COLORS } from '../config';
 import { CHARACTERS, getCharacter, getMonster, getPet } from '../data';
 import { GUARD_HIT_COLOR, GUARD_HIT_TEXT } from '../data/bosses/forms';
 import { drawRewardFx, rewardFxEvent } from './rewardFx';
+import { drawUltFx, ultFxEvent } from './ultTest';
+import { ULT_TEST, ultAltBySkill } from '../data/ultTest';
 import { JUST_GOLD, JustFx, type JustFxHost } from './justFx';
 import { RewardPills, type PillAvoid } from './rewardPills';
 import { JUST_STOP_SEC } from './juice';
@@ -332,7 +334,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   /** Impact lines (my drag landings). */
   private readonly streaks: { x: number; y: number; r: number; n: number; age: number; seed: number }[] = [];
   /** Blink trails (from → to), fading. */
-  private readonly blinks: { fx: number; fy: number; tx: number; ty: number; age: number }[] = [];
+  private readonly blinks: { fx: number; fy: number; tx: number; ty: number; age: number; color?: string }[] = [];
   private readonly partHits: PartHit[] = [];
   /** Persistent skill fields that should not wear the generic tint (블리자드 is ice, not fire): centre → colour. */
   private readonly zoneTints: { x: number; y: number; color: string; until: number }[] = [];
@@ -450,6 +452,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     this.localPlayer = c.localPlayer;
     this.rewardState = c.state;
     rewardFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 17차 reward visuals
+    ultFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 22차 궁극기 테스트
     if (ev.type === 'justSwap' || ev.type === 'interrupt') this.just.handle(ev, c.state, c.localPlayer, c.memos, this);
     else if (ev.type === 'rewardProc') this.pills.handle(ev, c.state, c.localPlayer, id => this.just.stampOn(id));
     switch (ev.type) {
@@ -637,14 +640,17 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
           this.burst(ev.to.x, ev.to.y, 0.5, 6, '#ffc2d1', 2.2, 1.5, 0.3);
           break;
         }
-        // 기획 8차: vanish in a puff of shadow, reappear next to the target with a ring (a thin trail says where it went)
+        // 기획 8차: vanish in a puff of shadow, reappear next to the target with a ring (a thin trail says where it went).
+        // 기획 22차 드래그: a character's blink (궁극기 테스트) is drawn in its own colour, not the shadow's purple
+        const own = m && m.kind === 'character' && c.state.mode === 'ultTest' ? unitLook('character', m.defId).color : null;
+        const hue = own ?? '#c77dff';
         if (m) this.ghost(m, 1, 0.3, ev.from.x, ev.from.y);
-        this.burst(ev.from.x, ev.from.y, 0.5, 12, '#2a1f3d', 2.2, 2, 0.45, -1);
-        this.burst(ev.from.x, ev.from.y, 0.5, 6, '#c77dff', 1.6, 1.5, 0.35, -1);
-        this.ring(ev.to.x, ev.to.y, 0.2, 1.3, 0.3, '#c77dff', 3, 0.2);
-        this.burst(ev.to.x, ev.to.y, 0.4, 10, '#e0c3ff', 2.4, 2, 0.4);
+        this.burst(ev.from.x, ev.from.y, 0.5, 12, own ? mix(own, '#000000', 0.6) : '#2a1f3d', 2.2, 2, 0.45, -1);
+        this.burst(ev.from.x, ev.from.y, 0.5, 6, hue, 1.6, 1.5, 0.35, -1);
+        this.ring(ev.to.x, ev.to.y, 0.2, 1.3, 0.3, hue, 3, 0.2);
+        this.burst(ev.to.x, ev.to.y, 0.4, 10, own ? lighten(own, 0.5) : '#e0c3ff', 2.4, 2, 0.4);
         if (this.blinks.length > 8) this.blinks.shift();
-        this.blinks.push({ fx: ev.from.x, fy: ev.from.y, tx: ev.to.x, ty: ev.to.y, age: 0 });
+        this.blinks.push({ fx: ev.from.x, fy: ev.from.y, tx: ev.to.x, ty: ev.to.y, age: 0, ...(own ? { color: own } : null) });
         break;
       }
       case 'bossPhase': {
@@ -853,13 +859,20 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
       if (ev.slot === 'ult') src.ultT = 0;
       else if (ev.slot === 'normal' || ev.slot === 'drag') src.skillT = 0;
     }
-    // my ult's name is in the cut-in band (a callout would say it twice); "컷인 짧게" keeps the callout
-    if (idx === 0 && !(local && ev.slot === 'ult' && this.screen.cutin.active && !this.screen.cutin.short)) this.callout(ev, c, src, local, color);
+    // my ult's name is in the cut-in band (a callout would say it twice); "컷인 짧게" keeps the callout. 기획 22차: the
+    // small banner a 드래그 ult forces (cutin.forced) names it too — no callout
+    const cut = this.screen.cutin;
+    if (idx === 0 && !(local && ev.slot === 'ult' && cut.active && (!cut.short || cut.forced))) this.callout(ev, c, src, local, color);
     if (local && ev.slot === 'drag' && action) this.buffText(ev, c, action, src);
     if (ev.slot === 'drag') this.armLanding(ev, local, selfOnlyAction(action));
     if (staged) {
       this.prepStage(ev, c, action, color, k, local, src, ox, oy);
       return;
+    }
+    // 기획 22차 통합: a stage-less delayed part of a 조준 / 드래그 ult (바드 드래그's right band, the twin of a staged left
+    // one) warns in the character's colour like its twin — not in the generic blue of an unstyled ally warning
+    if (ev.slot === 'ult' && !ev.stage && charColor !== null && (ev.delay ?? 0) > 0 && ultAltBySkill(ev.skillId)) {
+      this.marks.hint(ev, `${ev.skillId}:`, color, k);
     }
 
     const selfOnly = action?.affects === 'self';
@@ -942,9 +955,11 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     const local = ev.player === c.localPlayer;
     const k = ev.player !== null && !local ? OTHER_PLAYER_FX : 1;
     const action = ev.slot === 'drag' || ev.slot === 'ult' ? actionFor(ev.skillId, ev.slot, ev.actionIndex) : null;
-    const ox = srcEnt ? srcEnt.pos.x : src ? src.x : ev.center.x;
-    const oy = srcEnt ? srcEnt.pos.y : src ? src.y : ev.center.y;
+    // 기획 22차: a line / fan beat of the 궁극기 테스트 says where it started (a 드래그 path: where the caster stood)
+    const ox = ev.origin ? ev.origin.x : srcEnt ? srcEnt.pos.x : src ? src.x : ev.center.x;
+    const oy = ev.origin ? ev.origin.y : srcEnt ? srcEnt.pos.y : src ? src.y : ev.center.y;
     const s = this.fillStage(key, ev.skillId, ev.stage, ev.slot, ev.center.x, ev.center.y, ev.area, action, color, k, local, src, ox, oy, ev.sourceId, c);
+    s.lineFrom = !!ev.origin;
     s.hit = ev.hit;
     s.hits = ev.hits;
     s.targets = ev.targets;
@@ -955,7 +970,9 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     const fn = LAND[key];
     STAGE_DETAIL.low = !s.local;
     if (fn) fn(this.sfx, this, s);
-    else genericLand(this.sfx, s);
+    // 기획 22차: a 조준 / 드래그 ult's whole-field ally part (every ally on the field) gets no wave — an arena-wide tint
+    // would bury the beats landing with it (the aim preview leaves it out too)
+    else if (!(action?.affects === 'allies' && ev.area.shape === 'circle' && ev.area.radius >= ULT_TEST.wholeField && ultAltBySkill(ev.skillId))) genericLand(this.sfx, s);
     STAGE_DETAIL.low = false;
     this.stageImpact(ev, key, s, action, c);
   }
@@ -1035,6 +1052,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     s.face = src ? (Math.cos(src.facing) >= 0 ? 1 : -1) : 1;
     s.dashTravel = this.dashTravel(sourceId);
     s.action = action;
+    s.lineFrom = false;
     // a follow beat rides its caster (self-centred) or the enemy nearest its spot (target-centred)
     s.follow = !action?.follow ? -1 : action.center === 'self' ? s.src : this.nearestEnemy(x, y, c.memos);
     void key;
@@ -1073,7 +1091,8 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     const local = ev.player === c.localPlayer;
     const k = local ? 1 : OTHER_PLAYER_FX;
     if (local) {
-      this.screen.cutin.start(ev.defId, ev.name, look.color, look, ev.entityId);
+      // 기획 22차: a 드래그 ult gets the small banner — the full band would hide the move and the landing (at 0 s)
+      this.screen.cutin.start(ev.defId, ev.name, look.color, look, ev.entityId, ev.aim?.mode === 'drag');
       this.banner.title = ev.name;
     } else this.screen.cutin.mini(look, look.color, c.state.players[ev.player]?.name ?? '', ev.name);
     const x = m ? m.x : 0;
@@ -1998,6 +2017,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   drawGround(ctx: CanvasRenderingContext2D, cam: Camera, time: number): void {
     // 기획 17차: the content tracks' reward visuals (src/render/rewardFx/), under everything else on the ground
     if (this.rewardState) drawRewardFx(ctx, { cam, localPlayer: this.localPlayer, host: this, state: this.rewardState }, time);
+    if (this.rewardState) drawUltFx(ctx, { cam, localPlayer: this.localPlayer, host: this, state: this.rewardState }, time); // 기획 22차
     // spawn warnings
     const ws = this.warns;
     for (let i = 0; i < ws.count; i++) {
@@ -2058,7 +2078,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     for (const b of this.blinks) {
       const k = 1 - b.age / 0.35;
       ctx.globalAlpha = 0.7 * k;
-      ctx.strokeStyle = '#c77dff';
+      ctx.strokeStyle = b.color ?? '#c77dff';
       ctx.lineWidth = 3;
       ctx.setLineDash(BLINK_DASH);
       ctx.beginPath();
@@ -2474,6 +2494,7 @@ export function actionFor(skillId: string, slot: string, idx: number): SkillActi
     list = null;
     try {
       if (slot === 'pet') list = [getPet(skillId).action];
+      else if (ultAltBySkill(skillId)) list = ultAltBySkill(skillId)!.def.actions; // 기획 22차: a character's own 조준 / 드래그 ult
       else {
         const cut = skillId.lastIndexOf('_');
         const key = SLOT_KEY[skillId.slice(cut + 1) as keyof typeof SLOT_KEY];

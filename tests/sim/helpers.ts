@@ -4,7 +4,7 @@ import { createUnit } from '../../src/sim/entities';
 import { createGameWithWorld, tick } from '../../src/sim/game';
 import { applyDamage } from '../../src/sim/combat';
 import { activeEntity, type SimEntity, type World } from '../../src/sim/world';
-import type { BossRaidSetup, ExpeditionSetup, Game, GameEvent, PlayerSetup, PlayerState, Tunables, UltGauge, Vec2 } from '../../src/types';
+import type { BossRaidSetup, ExpeditionSetup, Game, GameEvent, PlayerSetup, PlayerState, RaidMode, Tunables, UltGauge, Vec2 } from '../../src/types';
 
 export const HUMAN: PlayerSetup = {
   name: '나',
@@ -34,8 +34,8 @@ export function makeGame(
     tunables?: Partial<Tunables>;
     startFloor?: number;
     expedition?: ExpeditionSetup;
-    /** 기획 19차 보스 레이드 */
-    mode?: 'bossRaid';
+    /** 기획 19차 보스 레이드 (기획 22차: 'ultTest' = 궁극기 테스트) */
+    mode?: RaidMode;
     bossRaid?: BossRaidSetup;
   } = {},
 ): TestGame {

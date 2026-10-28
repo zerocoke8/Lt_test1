@@ -169,6 +169,11 @@ export interface BotBrain {
   groggySeen?: number;
   /** 기획 17차 저스트: telegraph ids this bot already rolled its just chance for (newest last, ≤ 16). */
   justRolled?: number[];
+  /**
+   * 기획 22차 드래그: this bot's wait for a safe landing — the first and the latest think it waited (sim time). Set only
+   * in 궁극기 테스트 드래그 (bot.ts dragHoldSince).
+   */
+  ultHold?: { from: number; last: number } | null;
 }
 export interface PlayerRt {
   bot: BotBrain;

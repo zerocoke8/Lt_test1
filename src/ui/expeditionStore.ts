@@ -8,8 +8,8 @@
 import { MODE_KEY, STASH_KEY, parseStash, serializeStash, type StashData } from '../expedition/stash';
 import type { ExpeditionRun } from '../expedition/run';
 
-/** 기획 19차: 'bossRaid' = 보스 레이드 (the classic flow with a boss on every floor). */
-export type GameMode = 'classic' | 'expedition' | 'bossRaid';
+/** 기획 19차: 'bossRaid' = 보스 레이드 (the classic flow with a boss on every floor). 기획 22차: 'ultTest' = 궁극기 테스트. */
+export type GameMode = 'classic' | 'expedition' | 'bossRaid' | 'ultTest';
 
 /** Client-only debug setting 「장비 그림: 코드 / 파일」 (battle hand). Not a sim tunable. */
 export const GEAR_ART_KEY = 'swapTower.gearArt.v1';
@@ -149,7 +149,7 @@ export function reconcileDecision(run: ExpeditionRun | null, c: ReconcileCtx): '
 
 export function loadMode(st: KeyValueStore | null = storage()): GameMode | null {
   const v = readRaw(MODE_KEY, st);
-  return v === 'classic' || v === 'expedition' || v === 'bossRaid' ? v : null;
+  return v === 'classic' || v === 'expedition' || v === 'bossRaid' || v === 'ultTest' ? v : null;
 }
 
 export function saveMode(m: GameMode, st: KeyValueStore | null = storage()): void {

@@ -6,6 +6,13 @@ import type { RunResult } from '../types';
 import type { KeyValueStore } from './expeditionStore';
 
 export const BOSS_RAID_KEY = 'swap-tower.bossRaid.v1';
+/** 기획 22차 궁극기 테스트: its own record (the same shape), never mixed with the raid's. */
+export const ULT_TEST_KEY = 'swap-tower.ultTest.v1';
+
+/** 기획 22차: the record key of a raid-shaped mode. */
+export function recordKeyFor(mode: string | null | undefined): string {
+  return mode === 'ultTest' ? ULT_TEST_KEY : BOSS_RAID_KEY;
+}
 
 export interface BossRaidRecord {
   /** Highest floor reached (0 = never played). */
@@ -66,23 +73,23 @@ export function applyBossRaidResult(rec: BossRaidRecord, result: Pick<RunResult,
   };
 }
 
-/** This device's record. Never throws. */
-export function loadBossRaidRecord(st: KeyValueStore | null = storage()): BossRaidRecord {
+/** This device's record (key: 기획 22차 ULT_TEST_KEY for 궁극기 테스트). Never throws. */
+export function loadBossRaidRecord(st: KeyValueStore | null = storage(), key = BOSS_RAID_KEY): BossRaidRecord {
   try {
-    return parseBossRaidRecord(st?.getItem(BOSS_RAID_KEY) ?? null);
+    return parseBossRaidRecord(st?.getItem(key) ?? null);
   } catch {
     return emptyBossRaidRecord();
   }
 }
 
 /** Count one finished run (read → change → save: another tab may have played meanwhile). Never throws. */
-export function recordBossRaidResult(result: Pick<RunResult, 'outcome' | 'floorReached'>, st: KeyValueStore | null = storage()): BossRaidUpdate {
-  const before = loadBossRaidRecord(st);
+export function recordBossRaidResult(result: Pick<RunResult, 'outcome' | 'floorReached'>, st: KeyValueStore | null = storage(), key = BOSS_RAID_KEY): BossRaidUpdate {
+  const before = loadBossRaidRecord(st, key);
   const record = applyBossRaidResult(before, result);
   let saved = false;
   try {
     if (st) {
-      st.setItem(BOSS_RAID_KEY, JSON.stringify(record));
+      st.setItem(key, JSON.stringify(record));
       saved = true;
     }
   } catch {

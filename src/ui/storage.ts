@@ -1,6 +1,6 @@
 // localStorage persistence (every access wrapped: private mode / blocked storage must not break the game).
 
-import type { Tunables } from '../types';
+import type { Tunables, UltAimMode } from '../types';
 import { type JuiceSettings, sanitizeJuice } from '../render/juice';
 import { type CutInSettings, sanitizeCutIn } from '../render/cutin';
 import { CHARACTERS, PETS } from '../data';
@@ -71,6 +71,18 @@ export function loadPreset(): PresetSave {
 
 export function savePreset(p: PresetSave): void {
   write(PRESET_KEY, p);
+}
+
+/** 기획 22차 궁극기 테스트: the 「궁극기 방식」 last picked on its preset screen. */
+const ULT_MODE_KEY = 'swapTower.ultTestMode.v1';
+
+export function loadUltMode(): UltAimMode {
+  const v = read(ULT_MODE_KEY);
+  return v === 'aim' || v === 'drag' || v === 'now' ? v : 'aim';
+}
+
+export function saveUltMode(m: UltAimMode): void {
+  write(ULT_MODE_KEY, m);
 }
 
 export function loadTunableOverrides(): Partial<Tunables> {

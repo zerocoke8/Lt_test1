@@ -152,6 +152,13 @@ export function resultReason(r: RunResult, quitWhileOut: boolean, bossFloor = fa
 
 /** The mode's name on chips and tags. */
 export const RAID_LABEL = '보스 레이드';
+/** 기획 22차 궁극기 테스트: its name on the same chips and tags. */
+export const ULT_TEST_LABEL = '궁극기 테스트';
+
+/** 기획 22차: the chip / tag text of a raid-shaped mode ('보스 레이드' / '궁극기 테스트'). */
+export function raidModeLabel(mode: string | null | undefined): string {
+  return mode === 'ultTest' ? ULT_TEST_LABEL : RAID_LABEL;
+}
 
 /** Progress pill: '보스 7/20' (floor n = the n-th boss; `total` = Tunables.maxFloor). */
 export function raidProgress(floor: number, total: number): string {

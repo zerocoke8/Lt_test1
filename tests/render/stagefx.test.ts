@@ -233,6 +233,27 @@ describe('ult cut-in', () => {
     }
   });
 
+  it('기획 22차 드래그: my dragged ult gets the small banner and no callout (its name once); "컷인 짧게" keeps the callout', () => {
+    const cast: GameEvent = { type: 'skillCast', sourceId: 1, player: 0, slot: 'ult', skillId: 'berserker_u', name: '혈귀 강림', center: { x: 10, y: 6 }, area: { shape: 'circle', radius: 3 }, team: 'ally' };
+    const dragged: GameEvent = { ...ULT, aim: { mode: 'drag', x: 10, y: 6 } } as GameEvent;
+    const callouts = (v: Vfx) => v.labels.items.slice(0, v.labels.count).filter(l => l.text === '혈귀 강림').length;
+    const v = new Vfx();
+    v.handle(dragged, ultCtx(0));
+    v.handle(cast, ultCtx(0));
+    expect(v.screen.cutin.short && v.screen.cutin.forced).toBe(true);
+    expect(callouts(v)).toBe(0);
+    CUTIN.short = true;
+    try {
+      const s = new Vfx();
+      s.handle(dragged, ultCtx(0));
+      s.handle(cast, ultCtx(0));
+      expect(s.screen.cutin.forced).toBe(false);
+      expect(callouts(s)).toBe(1);
+    } finally {
+      CUTIN.short = false;
+    }
+  });
+
   it("another player's ult: only the corner banner (no dim, no band), gone after 0.9 s", () => {
     const v = new Vfx();
     v.handle(ULT, ultCtx(1));

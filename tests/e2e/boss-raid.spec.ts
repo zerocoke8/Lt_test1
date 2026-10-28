@@ -90,20 +90,21 @@ test('보스 레이드: 메인 카드 → 1층 보스 배너 → 다음 보스�
   await waitPhase(page, 'main');
 
   // ── main menu: the third card ──
-  await expect(page.locator('.main-menu .mm-card')).toHaveCount(3);
+  await expect(page.locator('.main-menu .mm-card')).toHaveCount(4); // 기획 22차: + 궁극기 테스트
   await expect(page.locator('.mm-raid .mm-card-title')).toHaveText('보스 레이드');
   await expect(page.locator('.mm-raid .mm-card-sub')).toHaveText('20층 · 층마다 보스 · 보스 20종');
   await expect(page.locator('.mm-raid-foot')).toHaveText('첫 도전');
   await expect(page.locator('.mm-raid-lamp')).toHaveCount(20);
   await expect(page.locator('.mm-raid-lamp.is-on')).toHaveCount(0);
-  // the three cards fit side by side on the stage
+  // the cards fit side by side on the stage (기획 22차: four)
   const boxes = await page.locator('.main-menu .mm-card').evaluateAll(els => els.map(e => e.getBoundingClientRect()).map(r => ({ l: r.left, r: r.right, t: r.top })));
   const vw = page.viewportSize()!.width;
   expect(boxes[0].l).toBeGreaterThanOrEqual(0);
-  expect(boxes[2].r).toBeLessThanOrEqual(vw + 0.5);
+  expect(boxes[3].r).toBeLessThanOrEqual(vw + 0.5);
   expect(boxes[1].l).toBeGreaterThan(boxes[0].r);
   expect(boxes[2].l).toBeGreaterThan(boxes[1].r);
-  expect(Math.abs(boxes[0].t - boxes[2].t)).toBeLessThan(1);
+  expect(boxes[3].l).toBeGreaterThan(boxes[2].r);
+  expect(Math.abs(boxes[0].t - boxes[3].t)).toBeLessThan(1);
   if (mobile) {
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${SHOTS}/boss-raid-main.png` });

@@ -98,6 +98,11 @@ export class CutIn {
   age = 0;
   dur = CUTIN_SEC;
   short = false;
+  /**
+   * 기획 22차: the small banner was forced by a 드래그 ult (not chosen with 「컷인 짧게」) — it names the ult, so vfx.ts
+   * keeps the caster's callout off (the name is said once).
+   */
+  forced = false;
   defId = '';
   name = '';
   sub = '';
@@ -121,11 +126,15 @@ export class CutIn {
     this.casterId = -1;
   }
 
-  /** My ult was tapped (ultCast). */
-  start(defId: string, name: string, color: string, look: UnitLook | null, casterId: number): void {
+  /**
+   * My ult was tapped (ultCast). 기획 22차: `short` forces the small banner (a 드래그 ult: the full band would hide the
+   * character's move and its landing, which happen right away).
+   */
+  start(defId: string, name: string, color: string, look: UnitLook | null, casterId: number, short = false): void {
     this.active = true;
     this.age = 0;
-    this.short = CUTIN.short;
+    this.short = CUTIN.short || short;
+    this.forced = short && !CUTIN.short;
     this.dur = this.short ? CUTIN_SHORT_SEC : CUTIN_SEC;
     this.defId = defId;
     this.name = name;
@@ -471,6 +480,10 @@ function drawMini(ctx: CanvasRenderingContext2D, m: Mini, slot: number, time: nu
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = boldFont(25);
+  // 기획 22차: the longer 조준 / 드래그 ult names are fitted into the band (down to 18 px)
+  const room = w - 58 - 16;
+  const tw = ctx.measureText(m.name).width;
+  if (tw > room) ctx.font = boldFont(Math.max(18, Math.floor((25 * room) / tw)));
   ctx.lineWidth = 5;
   ctx.strokeStyle = '#05060a';
   ctx.strokeText(m.name, L + 58, y + 1);

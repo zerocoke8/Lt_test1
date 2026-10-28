@@ -2,7 +2,7 @@
 // real-time loop. Snapshots go out at SNAPSHOT_HZ; commands come in from the hub with the sender's slot forced.
 
 import type { WebSocket } from 'ws';
-import type { PresetChoice, RoomInfo, RoomSummary, ServerMsg } from '../src/net/protocol';
+import type { PresetChoice, RoomInfo, RoomSummary, RoomVariantMode, ServerMsg } from '../src/net/protocol';
 import { MAX_COMMAND_AGE_MS, MAX_ROOM_PLAYERS, REROLL_MIN_LEFT_SEC } from '../src/net/protocol';
 import type { Command, CommandResult, DebugAction, Game, GameEvent, GameSetup, PlayerSetup } from '../src/types';
 import { BOT_PRESETS, DEFAULT_TUNABLES } from '../src/config';
@@ -118,7 +118,7 @@ export interface RoomMode {
 }
 
 /** 기획 19차: the game of a listed room ('bossRaid' = 보스 레이드, docs/boss-raid.md 6장). */
-export type RoomVariant = 'classic' | 'bossRaid';
+export type RoomVariant = 'classic' | 'bossRaid' | 'ultTest';
 
 const SHARED_DEBUG_REFUSED = '다른 플레이어가 있는 원정 방에서는 디버그를 쓸 수 없어요';
 
@@ -192,8 +192,8 @@ export class Room {
   }
 
   /** The mode tag on the wire (room info / summary / start); none for the classic tower. */
-  private get variantTag(): { mode: 'bossRaid' } | null {
-    return this.variant === 'bossRaid' ? { mode: 'bossRaid' } : null;
+  private get variantTag(): { mode: RoomVariantMode } | null {
+    return this.variant === 'classic' ? null : { mode: this.variant };
   }
 
   // ─────────────────────────── membership ───────────────────────────
@@ -224,7 +224,12 @@ export class Room {
         name: m.session.name,
         isHost: m.session.id === this.hostId,
         connected: !!m.session.conn,
-        preset: { characters: [...m.preset.characters], pets: [...m.preset.pets] },
+        preset: {
+          characters: [...m.preset.characters],
+          pets: [...m.preset.pets],
+          // 기획 22차: a 궁극기 테스트 room shows each member's 「궁극기 방식」 (the bot seats play the host's)
+          ...(this.variant === 'ultTest' && m.preset.ultMode ? { ultMode: m.preset.ultMode } : null),
+        },
       })),
       max: MAX_ROOM_PLAYERS,
       ...this.variantTag,
@@ -317,17 +322,21 @@ export class Room {
   }
 
   private classicSetup(): GameSetup {
+    const ult = this.variant === 'ultTest'; // 기획 22차: each member's ult mode; the bot seats play the host's
     const humans: PlayerSetup[] = this.members.map(m => ({
       name: m.session.name,
       isBot: false,
       characters: [...m.preset.characters],
       pets: [...m.preset.pets],
+      ...(ult && m.preset.ultMode ? { ultMode: m.preset.ultMode } : null),
     }));
+    const hostUlt = ult ? this.hostMember?.preset.ultMode : undefined;
     const bots: PlayerSetup[] = BOT_PRESETS.slice(0, Math.max(0, MAX_ROOM_PLAYERS - humans.length)).map(b => ({
       name: b.name,
       isBot: true,
       characters: [...b.characters],
       pets: [...b.pets],
+      ...(hostUlt ? { ultMode: hostUlt } : null),
     }));
     // 기획 19차 보스 레이드: the same seats, the sim plans 20 boss floors
     return { seed: randomSeed(), players: [...humans, ...bots], tunables: { ...DEFAULT_TUNABLES }, ...this.variantTag };
@@ -392,11 +401,15 @@ export class Room {
         if (atTick != null && this.commandAgeMs(atTick) > this.host.opts.maxCommandAgeMs) return fail('연결이 늦어 취소됐어요');
         c = { ...cmd, player: pi };
         break;
+      case 'ult':
+        // 기획 22차: an aimed / dragged ult is positional like a drop — refused when aimed at a picture that old
+        if (cmd.aim && atTick != null && this.commandAgeMs(atTick) > this.host.opts.maxCommandAgeMs) return fail('연결이 늦어 취소됐어요');
+        c = { ...cmd, player: pi };
+        break;
       case 'rerollReward': // 기획 17차: not in the last 3 s before the auto-pick (the client greys the button too)
         if (this.rerollTooLate()) return fail('시간이 얼마 안 남아 다시 뽑을 수 없어요');
         c = { ...cmd, player: pi };
         break;
-      case 'ult':
       case 'chooseReward':
       case 'goedam':
         c = { ...cmd, player: pi };

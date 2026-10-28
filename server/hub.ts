@@ -216,7 +216,8 @@ export class Hub implements RoomHost {
         const code = randomRoomCode(c => this.rooms.has(c));
         // no custom name → "<방장>의 방", following the host (also after a host handoff or rename)
         // 기획 19차: a 보스 레이드 room is a classic room with a variant (listed, joinable by code whatever the mode)
-        const room = new Room(code, sanitizeName(msg.roomName, ROOM_NAME_MAX) || null, this, s.id, null, msg.mode === 'bossRaid' ? 'bossRaid' : 'classic');
+        // 기획 22차: a 궁극기 테스트 room is the raid room with ult modes
+        const room = new Room(code, sanitizeName(msg.roomName, ROOM_NAME_MAX) || null, this, s.id, null, msg.mode === 'bossRaid' || msg.mode === 'ultTest' ? msg.mode : 'classic');
         this.rooms.set(code, room);
         room.add(s, msg.preset);
         return;

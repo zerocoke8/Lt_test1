@@ -62,6 +62,8 @@ export interface StageInfo {
   face: number;
   dashTravel: number;
   action: SkillAction | null;
+  /** 기획 22차: a line / fan beat that knows where it started (ox, oy = that spot): its wave is drawn from there. */
+  lineFrom?: boolean;
 }
 
 type Story = (fx: SkillFx, h: StageHost, s: StageInfo) => void;
@@ -940,8 +942,16 @@ function dollBurst(fx: SkillFx, h: StageHost, s: StageInfo): void {
   void fx;
 }
 
-/** Fallback for a stage without its own storyboard: a footprint wave. */
+/**
+ * Fallback for a stage without its own storyboard: a footprint wave. 기획 22차 (궁극기 테스트): a line / fan that knows
+ * where it started is drawn from there (an aimed band, a 드래그 path), not as a flat band centred on the point.
+ */
 export function genericLand(fx: SkillFx, s: StageInfo): void {
   if (s.action?.affects === 'self') return;
-  wave(fx, s.x, s.y, s.area, 0.45, s.color, s.k, s.wait);
+  const f = wave(fx, s.x, s.y, s.area, 0.45, s.color, s.k, s.wait);
+  if (s.lineFrom && (s.area.shape === 'line' || s.area.shape === 'fan')) {
+    f.x2 = s.ox;
+    f.y2 = s.oy;
+    f.n = 1;
+  }
 }

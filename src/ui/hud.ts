@@ -28,10 +28,11 @@ import { ZONES } from '../config';
 import { ICON_GEAR, button, h, replayClass, setAttr, setClass, setStyle, setText, show } from './dom';
 import { ROLE_GLYPH, STATUS_GLYPH, STATUS_LABEL, countdown, formatClock, raidBanner, raidClearSub, raidProgress, refusalText } from './format';
 import { stageBannerSub } from './expeditionFormat';
-import { petIcon, portrait } from './preset';
+import { ULT_FALLBACK_LINE, petIcon, portrait } from './preset';
 import { normalCooldownFor, swapCooldownOf } from '../sim/cooldowns';
 import { fieldUltGauge, memberUltGauge, ultFillTimes, ultSecondsLeft } from '../sim/ultMode';
-import { type SkillRowKind, cdText, secs, skillRows } from './skillinfo';
+import { type SkillRowKind, cdText, secs, skillRows, skillSummary } from './skillinfo';
+import { ultAlt } from '../data/ultTest';
 import { markTipSeen, tipSeen } from './storage';
 import { createToaster, type ToastKind } from './toast';
 import { GroggyHud, groggyDown } from './groggyHud';
@@ -43,6 +44,7 @@ import { BOSS_FORM_TIP } from '../data/bosses/forms';
 import { justParams } from '../sim/justSwap';
 import { rwGaugeCap } from '../sim/rewards/hooks';
 import { sfx } from '../audio';
+import { ULT_MODE_LABEL, isRaidMode, ultModeOf, ultNameFor } from '../sim/ultTest';
 
 /** Solo runs: the human is player 0. Multiplayer passes the server slot as HudOptions.localPlayer. */
 export const LOCAL_PLAYER = 0;
@@ -101,6 +103,11 @@ export function showsBotTag(p: PlayerState): boolean {
 export interface HudCallbacks {
   onCardDown(kind: 'swap' | 'pet', index: number, ev: PointerEvent, el: HTMLElement): void;
   onUlt(): void;
+  /**
+   * 기획 22차 궁극기 테스트: the ult button was pressed. True = the 조준 / 드래그 gesture took it (src/ui/ultAim.ts; the
+   * click that follows its release is ignored); false / absent = a plain button (the click casts today's ult).
+   */
+  onUltDown?(ev: PointerEvent, el: HTMLElement): boolean;
   onPause(): void;
   onDebug(): void;
   onShowResult(): void;
@@ -287,6 +294,11 @@ export class Hud {
   private readonly ultPct: HTMLElement;
   private readonly ultSub: HTMLElement;
   private readonly ultName: HTMLElement;
+  /** 기획 22차 궁극기 테스트: 「조준」 / 「드래그」 on the ult button (hidden in 현재 and in every other mode). */
+  private readonly ultMode: HTMLElement;
+  /** 기획 22차: when a gesture-owned press ended (its click is ignored for a moment). */
+  private ultGestureUpAt = -Infinity;
+  private ultGestureOwned = false;
   // center
   private readonly bannerBox: HTMLElement;
   private readonly hint: HTMLElement;
@@ -336,7 +348,7 @@ export class Hud {
     const me = s.players[this.localPlayer];
     this.root = h('div', 'hud', layer);
     setClass(this.root, 'is-multi', this.multi);
-    setClass(this.root, 'is-raid', s.mode === 'bossRaid'); // 기획 19차 (styles: bossRaid.css)
+    setClass(this.root, 'is-raid', isRaidMode(s.mode)); // 기획 19차 (styles: bossRaid.css); 22차 궁극기 테스트 too
     // 기획 8차 리뷰: the enrage vignette is a compositor-animated overlay (under every HUD widget) instead of a
     // full-screen canvas gradient redrawn each frame (that cost ~15 fps on a phone-sized software raster)
     this.enrageVignette = h('div', 'enrage-vignette is-hidden', this.root);
@@ -494,7 +506,21 @@ export class Hud {
     this.ultPct = h('div', 'ult-pct', core);
     this.ultSub = h('div', 'ult-sub', core, '궁극기');
     this.ultName = h('div', 'ult-name', bc);
-    this.ult.addEventListener('click', () => cb.onUlt());
+    this.ultMode = h('div', 'ult-mode is-hidden', this.ult);
+    // 기획 22차 궁극기 테스트: 조준 / 드래그 take the press (a tap still casts today's ult — the gesture does it)
+    this.ult.addEventListener('pointerdown', ev => {
+      this.ultGestureOwned = !!cb.onUltDown?.(ev, this.ult);
+    });
+    const upped = () => {
+      if (this.ultGestureOwned) this.ultGestureUpAt = performance.now();
+      this.ultGestureOwned = false;
+    };
+    this.ult.addEventListener('pointerup', upped);
+    this.ult.addEventListener('pointercancel', upped);
+    this.ult.addEventListener('click', () => {
+      if (this.ultGestureOwned || performance.now() - this.ultGestureUpAt < 600) return;
+      cb.onUlt();
+    });
 
     // ── bottom-right: pets ──
     const br = h('div', 'hud-br', this.root);
@@ -659,6 +685,15 @@ export class Hud {
     // per-character gauges (기획 15차) → this card's field / bench fill times
     const fill = ultFillTimes(this.game.tunables, me);
     const rows = skillRows(def, { normal: this.normalTotal(i), drag: dragCd, ult: fill.field, ultBench: fill.bench });
+    // 기획 22차 궁극기 테스트: in 조준 / 드래그 the ult row is that mode's ult (like the button's name and the preset)
+    const um = ultModeOf(s, this.localPlayer);
+    const ultRow = um !== 'now' ? rows.find(r => r.kind === 'ult') : undefined;
+    if (ultRow && um !== 'now') {
+      const alt = ultAlt(def.id, um);
+      ultRow.type = `${ultRow.type} · ${ULT_MODE_LABEL[um]}`;
+      ultRow.name = alt?.name ?? def.ult.name;
+      ultRow.summary = alt ? skillSummary(alt) : `${ULT_FALLBACK_LINE[um]} ${skillSummary(def.ult)}`;
+    }
     // two lines per skill: type · name · trigger · live, then the whole effect line (wraps, never cut off)
     this.sheetRows = rows.map(r => {
       const row = h('div', `ss-row ss-${r.kind}`, this.sheet);
@@ -832,7 +867,7 @@ export class Hud {
             // 기획 16차 원정: one floor per stage — '4단계 · 사무실 / 깨면 장비 1개'
             const t = expeditionBanner(s);
             this.banner(t.big, t.sub, e.kind === 'boss' ? 'boss' : 'floor', '', traceBannerLine(s.players[this.localPlayer]));
-          } else if (s.mode === 'bossRaid') {
+          } else if (isRaidMode(s.mode)) {
             // 기획 19차: '7층 · 문서 파쇄기' + one short 괴담 sentence (review: the whole line could not be read in 2 s — it
             // is on the pause screen); a little longer than the classic banner (two things to read)
             const t = raidBanner(s.floor, { name: bossName(s.plan.bossId), ...bossLore(s.plan.bossId) }, this.game.tunables.maxFloor);
@@ -866,7 +901,7 @@ export class Hud {
             // 기획 16차: a normal stage picks its floor reward next; a boss stage goes straight back to the lobby
             const sub = s.expedition.boss ? `${retreat ? '보스 퇴각 · ' : ''}전리품은 원정 로비에서 공개` : '층 보상 1장을 고르면 원정 로비로';
             this.banner(`${s.expedition.stage}단계 클리어!`, sub, 'clear');
-          } else if (s.mode === 'bossRaid') this.banner(retreat ? '보스 퇴각!' : '클리어!', raidClearSub(e.floor, this.game.tunables.maxFloor), 'clear');
+          } else if (isRaidMode(s.mode)) this.banner(retreat ? '보스 퇴각!' : '클리어!', raidClearSub(e.floor, this.game.tunables.maxFloor), 'clear');
           else this.banner(retreat ? '보스 퇴각!' : '클리어!', `${e.floor}층 돌파 · 살아 있는 캐릭터 HP 회복`, 'clear');
           break;
         case 'spawn':
@@ -898,7 +933,7 @@ export class Hud {
             // 기획 20차: in a raid once per RUN (every boss is met once a run, and its patterns are new each time)
             const hint = bossSkillHint(s.plan.bossId, e.skillId);
             // 기획 20차 점검: … in its own slot under the boss box, on the first two casts (ui/bossFormHud.ts)
-            if (hint && s.mode === 'bossRaid') this.bossForm.patternTip(e.skillId, e.name, hint, e.delay ?? 0, s.time);
+            if (hint && isRaidMode(s.mode)) this.bossForm.patternTip(e.skillId, e.name, hint, e.delay ?? 0, s.time);
             else if (hint && !tipSeen(`hint:${e.skillId}`)) {
               markTipSeen(`hint:${e.skillId}`);
               this.toast(`ⓘ ${hint}`, 'warn');
@@ -1056,7 +1091,7 @@ export class Hud {
       const name = bossName(s.plan.bossId);
       setText(this.bossName, name);
       setClass(this.bossName, 'is-long', name.length > 8);
-      const raid = s.mode === 'bossRaid';
+      const raid = isRaidMode(s.mode);
       // 기획 19차 보스 레이드: the level slot is the floor; 「보스 N/20」 hangs beside the box
       setText(this.bossLv, s.expedition ? `${s.expedition.stage}단계` : raid ? `${s.floor}층` : `Lv.${s.floor}`);
       setClass(this.bossBox, 'is-raid', raid);
@@ -1291,11 +1326,16 @@ export class Hud {
     setClass(this.ult, 'is-charged', full);
     setClass(this.ult, 'is-disabled', !activeDef || me.out);
     const pct = Math.floor((gauge?.charge ?? 0) * 100);
-    setText(this.ultPct, me.out ? '—' : full ? (usable ? '탭!' : `${pct}%`) : `${Math.floor(charge * 100)}%`);
+    // 기획 22차 궁극기 테스트: 조준 / 드래그 — the button is dragged, and says so
+    const um = ultModeOf(s, this.localPlayer);
+    setText(this.ultPct, me.out ? '—' : full ? (usable ? (um === 'now' ? '탭!' : '끌기!') : `${pct}%`) : `${Math.floor(charge * 100)}%`);
+    show(this.ultMode, um !== 'now');
+    setText(this.ultMode, ULT_MODE_LABEL[um]);
+    setClass(this.ult, 'is-aim-mode', um !== 'now');
     // charge is time-only (R9): seconds until full = what's left × charge time (기획 10차: traces change its speed)
     const left = ultSecondsLeft(this.game.tunables, me);
     setText(this.ultSub, me.out ? '관전 중' : full ? (activeDef ? (over > 0 ? `${pct}%` : '준비 완료') : '필드 비었음') : !gauge ? '필드 비었음' : `${countdown(left)}초 후`);
-    setText(this.ultName, activeDef ? activeDef.ult.name : '—');
+    setText(this.ultName, activeDef ? ultNameFor(s, this.localPlayer, activeDef.id) : '—');
     setStyle(this.ultName, 'color', activeDef ? activeDef.color : '');
   }
 

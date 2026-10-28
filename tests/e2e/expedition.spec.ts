@@ -71,7 +71,7 @@ test('원정: 1단계 → 클리어 → 층 보상 → 로비(런 진행 중, �
   const tap = tapper(page, mobile);
   const errors: string[] = [];
   await boot(page, errors);
-  await expect(page.locator('.main-menu .mm-card')).toHaveCount(3); // 기획 19차: + 보스 레이드
+  await expect(page.locator('.main-menu .mm-card')).toHaveCount(4); // 기획 19차: + 보스 레이드; 기획 22차: + 궁극기 테스트
   await expect(page.locator('.mm-exp .mm-card-sub')).toHaveText('12단계 · 단계마다 로비 · 나가면 장비를 지켜요');
   if (shots) await page.screenshot({ path: `${SHOTS}/expedition-main.png` });
 

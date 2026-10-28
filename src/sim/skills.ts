@@ -147,11 +147,11 @@ function doDash(w: World, ctx: CastCtx, from: Vec2 | null, dash: NonNullable<Ski
   const start = from ?? copy(caster.pos);
   const d = scaleDash(dash, ctx.radiusMult);
   const mg = Math.max(ARENA_MARGIN, Math.min(caster.radius, 1));
-  const to = dashEnd(start, d.dir, d.distance, arena(w), mg);
+  const to = dashEnd(start, d.dir, d.distance, arena(w), mg, d.rot);
   caster.pos.x = to.x;
   caster.pos.y = to.y;
-  // 기획 13차 atFire (거너 반동): the caster is shoved, it keeps facing where it fired
-  if (!dash.atFire) caster.facing = facingOf(d.dir);
+  // 기획 13차 atFire (거너 반동): the caster is shoved, it keeps facing where it fired. 기획 22차: an aimed dash (rot)
+  if (!dash.atFire) caster.facing = d.rot != null ? (d.rot * Math.PI) / 180 : facingOf(d.dir);
   constrainTether(caster);
   emit(w, { type: 'dash', entityId: caster.id, from: copy(start), to: copy(caster.pos), duration: dash.duration ?? DASH_DEFAULT_DURATION });
 }
@@ -422,7 +422,7 @@ function fireHit(w: World, p: PendingHit): void {
     if (a.summon) spawnSummons(w, p.ctx, a.summon, p.center);
     if (a.zone) {
       const n = createZone(w, p.ctx, a, p.center, p.area, p.actionIndex);
-      emitStage(w, p.ctx, a, p.actionIndex, p.center, p.area, 0, zoneTicks(a), n);
+      emitStage(w, p.ctx, a, p.actionIndex, p.center, p.area, 0, zoneTicks(a), n, p.origin);
       p.hitsLeft = 0;
       return;
     }
@@ -440,7 +440,7 @@ function fireHit(w: World, p: PendingHit): void {
   }
   if (!a.blinkChain || blinkHop(w, p, a.blinkChain)) {
     const n = applyEffects(w, p.ctx, a, p.center, p.origin, p.area);
-    emitStage(w, p.ctx, a, p.actionIndex, p.center, p.area, p.hitNo, hitCount(a), n);
+    emitStage(w, p.ctx, a, p.actionIndex, p.center, p.area, p.hitNo, hitCount(a), n, p.origin);
   }
   p.hitNo++;
   p.hitsLeft--;
@@ -517,8 +517,12 @@ function zoneTicks(a: SkillAction): number {
   return Math.max(1, Math.ceil(z.duration / Math.max(0.05, z.tickInterval) - 1e-9));
 }
 
-/** 기획 13차: 'skillStage' for an action with a stage (each hit / zone tick); render and sound key on skillId + stage. */
-function emitStage(w: World, ctx: CastCtx, a: SkillAction, index: number, center: Vec2, area: AreaShape, hit: number, hits: number, targets: number): void {
+/**
+ * 기획 13차: 'skillStage' for an action with a stage (each hit / zone tick); render and sound key on skillId + stage.
+ * 기획 22차 궁극기 테스트: a line / fan part also says where it started (the renderer draws it from there — an aimed band
+ * or a 드래그 path no longer shows as a flat band on the point); every other mode's events are unchanged.
+ */
+function emitStage(w: World, ctx: CastCtx, a: SkillAction, index: number, center: Vec2, area: AreaShape, hit: number, hits: number, targets: number, origin?: Vec2): void {
   if (!a.stage) return;
   emit(w, {
     type: 'skillStage',
@@ -534,6 +538,7 @@ function emitStage(w: World, ctx: CastCtx, a: SkillAction, index: number, center
     hit,
     hits,
     targets,
+    ...(origin && w.state.mode === 'ultTest' && isAimed(area) ? { origin: copy(origin) } : null),
   });
 }
 
