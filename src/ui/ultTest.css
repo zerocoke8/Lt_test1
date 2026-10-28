@@ -1,0 +1,255 @@
+/* 기획 22차 궁극기 테스트 (docs/ult-test.md): the fourth main-menu card, the preset's 「궁극기 방식」 choice, the ult
+   button's mode chip and aim gesture, the debug 「궁극기 방식」 buttons. LOGICAL px on the 1280×720 stage (phone ≈ 0.54×):
+   touch targets ≥ 52 px, info text ≥ 18 px. The mode's colour: violet (#b49cff on dark). */
+
+/* ───────────── main menu: four cards (the three arts keep their 356 px layout, drawn at 0.78×) ───────────── */
+
+.mm-cards {
+  gap: 14px;
+}
+
+.mm-card {
+  width: 298px;
+  padding: 16px 12px 20px;
+}
+
+.mm-card .mm-art {
+  width: 356px;
+  flex: none;
+  transform: scale(0.78);
+  transform-origin: top center;
+  margin: 0 -41px -66px;
+}
+
+.mm-card-title {
+  font-size: 34px;
+}
+
+.mm-card-sub {
+  font-size: 19px;
+}
+
+.mm-card-foot {
+  font-size: 18px;
+}
+
+.mm-ult {
+  background: linear-gradient(180deg, #221a3a, #121024);
+}
+
+.mm-ult-art {
+  overflow: visible;
+}
+
+/* the ult button (bottom left), a dashed aim line, the reticle it points at (top right) */
+.mm-ult-btn {
+  position: absolute;
+  left: 52px;
+  bottom: 30px;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 36% 30%, #3b2f6b, #171230 70%);
+  border: 6px solid #b49cff;
+  box-shadow: 0 0 22px rgba(180, 156, 255, 0.55), 0 8px 18px rgba(0, 0, 0, 0.6);
+  font-size: 46px;
+  font-weight: 900;
+  color: #f1ebff;
+}
+
+.mm-ult-path {
+  position: absolute;
+  left: 112px;
+  bottom: 140px;
+  width: 170px;
+  height: 0;
+  border-top: 6px dashed rgba(241, 235, 255, 0.85);
+  transform-origin: left center;
+  transform: rotate(-38deg);
+  filter: drop-shadow(0 0 4px rgba(180, 156, 255, 0.8));
+}
+
+.mm-ult-target {
+  position: absolute;
+  right: 44px;
+  top: 26px;
+  width: 112px;
+  height: 112px;
+}
+
+.mm-ult-ring,
+.mm-ult-dot {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.mm-ult-ring {
+  inset: 0;
+  border: 5px solid #ffd166;
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.6);
+  animation: mmUltAim 1.8s ease-in-out infinite;
+}
+
+.mm-ult-dot {
+  left: 44px;
+  top: 44px;
+  width: 24px;
+  height: 24px;
+  background: #ffd166;
+  box-shadow: 0 0 12px #ffd166;
+}
+
+@keyframes mmUltAim {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.72); opacity: 0.75; }
+}
+
+.mm-ult-foot {
+  color: #cbb8ff;
+  font-weight: 800;
+}
+
+/* ───────────── preset: 「궁극기 방식」 (a box above the detail panel, 궁극기 테스트 only) ───────────── */
+
+/* the longer title leaves no room for the subtitle beside the offline note */
+.preset.has-ult .ps-sub {
+  display: none;
+}
+
+.preset.has-ult .ps-main {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.preset.has-ult .ps-left {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.preset.has-ult .ps-detail {
+  grid-column: 2;
+  grid-row: 2;
+  margin-top: 8px;
+}
+
+.ps-ult {
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 22px;
+  padding: 10px 14px 10px;
+  border-radius: 18px;
+  background: rgba(30, 22, 58, 0.92);
+  border: 2px solid rgba(180, 156, 255, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ps-ult-label {
+  font-size: 19px;
+  font-weight: 900;
+  color: #cbb8ff;
+}
+
+.ps-ult-seg {
+  display: flex;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 2px solid rgba(180, 156, 255, 0.6);
+}
+
+.ps-ult-btn {
+  flex: 1;
+  height: 52px;
+  font-size: 23px;
+  font-weight: 900;
+  color: #d9d2f0;
+  background: rgba(20, 16, 40, 0.9);
+  border: none;
+}
+
+.ps-ult-btn + .ps-ult-btn {
+  border-left: 2px solid rgba(180, 156, 255, 0.35);
+}
+
+.ps-ult-btn.is-on {
+  color: #160f2e;
+  background: #b49cff;
+}
+
+.ps-ult-hint {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #c9c2e0;
+  word-break: keep-all;
+}
+
+.stage.is-small .ps-ult-hint {
+  font-size: 18px;
+}
+
+/* ───────────── HUD: the ult button in 조준 / 드래그 ───────────── */
+
+.ult-mode {
+  position: absolute;
+  left: 50%;
+  top: -16px;
+  transform: translateX(-50%);
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 900;
+  white-space: nowrap;
+  color: #160f2e;
+  background: #b49cff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.ult.is-aim-mode {
+  touch-action: none;
+}
+
+.ult.is-aiming {
+  transform: scale(0.92);
+  box-shadow: 0 0 0 5px rgba(180, 156, 255, 0.7), 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+.ult.is-aiming.is-cancel {
+  box-shadow: 0 0 0 6px #ef4444, 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+/* the word at the finger while aiming: 「놓으면 발사」 / 「놓으면 취소」 */
+.ult-aim-tag {
+  --vc: #ffffff;
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  pointer-events: none;
+  white-space: nowrap;
+  translate: -50% 0;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 20px;
+  font-weight: 900;
+  color: #ffffff;
+  background: rgba(5, 6, 10, 0.85);
+  border: 2px solid var(--vc);
+}
+
+/* ───────────── debug: 「궁극기 방식」 ───────────── */
+
+.dbg-ult-mode.is-on {
+  color: #160f2e;
+  background: #b49cff;
+  border-color: #b49cff;
+}
+
+.dbg-hint {
+  font-size: 15px;
+  color: var(--dim);
+  margin-top: 4px;
+}

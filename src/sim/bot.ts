@@ -11,6 +11,7 @@ import { TARGET_WEIGHT, eventDropBonus, eventPetPoint, eventThink } from './botE
 import { aimSamples, containsPoint, hitsArea } from './geometry';
 import { canSwap, canUsePet } from './players';
 import { fieldUltGauge, memberUltGauge } from './ultMode';
+import { botUltAim } from './ultTest';
 import { previewPartsFor } from './preview';
 import { findJustThreats } from './justSwap';
 import { activeEntity, clamp, clampToArena, copy, dist, getEntity, isAlive, type SimEntity, type SimPlayer, type World } from './world';
@@ -291,7 +292,9 @@ function think(w: World, p: SimPlayer, dispatch: Dispatch): void {
     // 기획 13차: a full ult goes into a groggy boss soon (never saved up for one)
     if (groggyDown(w)) b.ultAt = Math.min(b.ultAt, s.time + BOT.ultGroggy);
     if (s.time >= b.ultAt && enemies.length > 0 && p.activeIndex != null) {
-      if (dispatch({ type: 'ult', player: p.id }).ok) b.ultAt = null;
+      // 기획 22차 궁극기 테스트: a bot in 조준 / 드래그 aims it (src/sim/ultTest.ts botUltAim); every other mode taps
+      const aim = s.mode === 'ultTest' ? botUltAim(s, p.id) : null;
+      if (dispatch(aim ? { type: 'ult', player: p.id, aim } : { type: 'ult', player: p.id }).ok) b.ultAt = null;
     }
   } else {
     b.ultAt = null;

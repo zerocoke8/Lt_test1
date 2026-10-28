@@ -58,6 +58,8 @@ import { CREATURE_POSE, midAura } from './creatures';
 import { drawStyledTelegraph, drawZoneDecor } from './marks';
 import { governScale, newGovernor } from './quality';
 import { isStopped } from './statusfx';
+import { isRaidMode } from '../sim/ultTest';
+import { drawUltAimGround, drawUltAimOverlay } from './ultTest/preview';
 
 export { Camera } from './camera';
 
@@ -1260,7 +1262,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const k = ult ? 1 - m.ultT / 0.9 : e.anim === 'cast' ? 1 : 1 - m.skillT / 0.45;
       // 기획 20차 점검: a boss's big summon (빈 침대, radius 1.3) winding up in a raid — three of them laid three pale
       // 4-cell discs over the party and the lanes' start. Its ring hugs the body and has no fill.
-      const bulky = state.mode === 'bossRaid' && e.team === 'enemy' && e.radius >= 1;
+      const bulky = isRaidMode(state.mode) && e.team === 'enemy' && e.radius >= 1;
       const r = bulky ? e.radius * 1.1 : e.radius * (ult ? 2.3 : 1.7) + (ult ? 0.6 : 0.25) * (1 - k);
       c.globalAlpha = (ult ? 0.4 : 0.3) * k;
       c.fillStyle = m.look.light;
@@ -1329,7 +1331,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     let alpha = 1;
     if (e.expiresIn !== null && e.expiresIn < 2 && e.kind === 'summon') alpha = Math.sin(time * 20) > 0 ? 1 : 0.45;
     // 기획 20차 점검: no pale halo behind a boss's big summon in a raid (three 빈 침대 hid the party and the lanes' start)
-    const bulky = vc.state.mode === 'bossRaid' && e.team === 'enemy' && e.radius >= 1;
+    const bulky = isRaidMode(vc.state.mode) && e.team === 'enemy' && e.radius >= 1;
     if ((e.anim === 'cast' && !bulky) || m.ultT < 0.6) {
       const k = 0.5 + 0.5 * Math.sin(time * 14);
       const ult = m.ultT < 0.6;
@@ -1707,7 +1709,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const juice = vfx.juice;
     juice.update(realStep);
     vfx.updateReal(realStep);
-    if (ui.dragPreview) juice.cancelFreeze();
+    if (ui.dragPreview || ui.ultAim) juice.cancelFreeze(); // 기획 22차: an aimed ult's preview is live too
     const dt = juice.frozen && freezeOk ? 0 : realStep;
     time += dt;
     frameDt = dt;
@@ -1840,7 +1842,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     c.lineJoin = 'round';
     // camera shake: the world layer moves, the screen overlays below do not. A freeze that starts this frame captures
     // this frame unshaken (the frozen frames then shake it).
-    const startsFreeze = juice.frozen && !ui.dragPreview;
+    const startsFreeze = juice.frozen && !ui.dragPreview && !ui.ultAim;
     const sh = startsFreeze ? ZERO_OFF : juice.offset(shakeOff);
     if (sh.x !== 0 || sh.y !== 0) {
       c.fillStyle = '#05060a';
@@ -1865,6 +1867,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     fieldFx.drawGround(c, cam, state, time);
     c.restore();
     if (ui.dragPreview) drawPreviewGround(ui.dragPreview, state);
+    if (ui.ultAim) drawUltAimGround(c, cam, ui.ultAim, state, time); // 기획 22차 궁극기 테스트: the aimed ult's preview
     for (const e of sorted) drawUnitGround(e, memos.get(e.id)!, ui.localPlayer, state);
     drawMoverRetreat(state, true);
     drawBosses(state, false);
@@ -1900,6 +1903,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     fieldFx.drawOverlay(c, cam, state, time);
     if (ui.dragPreview) drawPreviewGhost(ui.dragPreview, state);
     if (ui.dragPreview) drawFieldEventPreview(c, cam, state, ui.dragPreview, ui.localPlayer, time);
+    if (ui.ultAim) drawUltAimOverlay(c, cam, ui.ultAim);
     vfx.drawOverlay(c, cam);
     groggyFx.drawStamp(c, cam, state);
     c.setTransform(dpr, 0, 0, dpr, 0, 0);

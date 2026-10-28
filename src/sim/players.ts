@@ -1,21 +1,23 @@
 // Player-level rules: swap (R1–R4, R12), ult (R9), pets (R14), revive (R10), bench timers.
 
-import type { CommandResult, GameState, PlayerState, SkillAction, Tunables, Vec2 } from '../types';
+import type { CommandResult, GameState, PlayerState, SkillAction, SkillDef, Tunables, UltAim, Vec2 } from '../types';
 import { ULT_CUTIN } from '../config';
 import { getCharacter, getPet } from '../data';
 import { tickBenchRegen } from './bench';
 import { APPEAR_SHIELD_DURATION, MIN_SWAP_COOLDOWN } from './constants';
 import { addShield, hitDamage } from './combat';
 import { petCooldownFor, swapCooldownFor } from './cooldowns';
-import { charCtx, petCtx } from './ctx';
-import { benchActive, createCharacterEntity } from './entities';
+import { charCtx, findWoundedAlly, petCtx } from './ctx';
+import { benchActive, clampUnit, createCharacterEntity } from './entities';
 import { fieldEventOnDrop } from './fieldEvents';
 import { gearOnAppear, gearOnLand, gearOnLeave, tickGearBench } from './expeditionOptions';
 import { appearShieldFrac, hasRelic, relicParam, relicScale } from './modifiers';
 import { partsForActions } from './preview';
 import { addTelegraph, castSkill } from './skills';
 import { benchMaxHp, effStats } from './stats';
-import { applyStatus, tickStatusTimers } from './status';
+import { applyStatus, constrainTether, tickStatusTimers } from './status';
+import { ULT_TEST } from '../data/ultTest';
+import { planUlt, ultAimProblem, type UltPlan } from './ultTest';
 import { fieldUltGauge, refundUlt, tickUlt, ultCastableSince } from './ultMode';
 import { creditJust, findJustThreats, justCooldown, justParams, type JustThreat } from './justSwap';
 import {
@@ -349,13 +351,19 @@ export function canUlt(w: World, pi: number): CommandResult {
   return ok;
 }
 
-export function useUlt(w: World, pi: number): CommandResult {
+export function useUlt(w: World, pi: number, aim?: UltAim): CommandResult {
   const r = canUlt(w, pi);
   if (!r.ok) return r;
+  // 기획 22차 궁극기 테스트: an aimed / dragged ult (src/sim/ultTest.ts). Every other mode ignores `aim` — today's tap.
+  const aimed = aim && w.state.mode === 'ultTest' ? aim : undefined;
+  const bad = ultAimProblem(w.state, pi, aimed);
+  if (!bad.ok) return bad;
+  const plan = aimed ? planUlt(w.state, pi, aimed) : null;
+  if (aimed && !plan) return fail('필드에 캐릭터 없음');
   const p = w.state.players[pi];
   const e = activeEntity(w, p)!;
   const def = e.rt.charDef!;
-  const sk = def.ult;
+  const sk: SkillDef = plan ? plan.skill : def.ult;
   const g = fieldUltGauge(p)!; // the field character's own gauge (기획 15차)
   // a gauge that filled on the bench counts from the swap-in (ultCastableSince)
   const fullSince = ultCastableSince(g, w.state.time, e.rt.appearedAt);
@@ -365,19 +373,35 @@ export function useUlt(w: World, pi: number): CommandResult {
   const spent = g.charge; // 기획 17차: > 1 with 두 번 차는 게이지
   g.charge = 0;
   g.fullSince = null;
+  const idx = p.activeIndex!;
+  const um = rwUltMult(p, idx); // 기획 17차 floor rewards
+  const withUm = (ctx: CastCtx): CastCtx => {
+    if (um !== 1) {
+      ctx.dmgMult *= um;
+      ctx.healMult *= um;
+      ctx.shieldMult *= um;
+    }
+    return ctx;
+  };
+  // one cast = one refund record (기획 13차), shared by every part — 기획 22차: the drag's path hit too
+  const ultCast = { landed: false, member: idx };
+  // 기획 22차 드래그: the hit along the way (from where it stands) is cast first, then the character moves (at 0 s)
+  if (plan?.move) ultMove(w, e, plan, sk, withUm({ ...charCtx(w, e, 'ult', sk), ultCast }));
   // 기획 13차 컷인 (docs/skill-renewal.md 2-3): the cut-in starts on every screen; the sim keeps running, the caster is
   // invulnerable for the guard and stands still for castTime, and the effects land from ULT_CUTIN.firstHit s on
-  emit(w, { type: 'ultCast', player: p.id, entityId: e.id, defId: def.id, skillId: sk.id, name: sk.name });
+  emit(w, {
+    type: 'ultCast',
+    player: p.id,
+    entityId: e.id,
+    defId: def.id,
+    skillId: sk.id,
+    name: sk.name,
+    ...(plan ? { aim: { mode: plan.mode, x: plan.point.x, y: plan.point.y, ...(plan.alt ? { alt: true as const } : null) } } : null),
+  });
   e.invulnTime = Math.max(e.invulnTime, ULT_CUTIN.guard);
-  const idx = p.activeIndex!;
-  const ctx: CastCtx = { ...charCtx(w, e, 'ult', sk), ultCast: { landed: false, member: idx } };
-  const um = rwUltMult(p, idx); // 기획 17차 floor rewards
-  if (um !== 1) {
-    ctx.dmgMult *= um;
-    ctx.healMult *= um;
-    ctx.shieldMult *= um;
-  }
-  castSkill(w, ctx, sk.actions);
+  const ctx = withUm({ ...charCtx(w, e, 'ult', sk), ultCast });
+  if (plan) aimCtx(w, e, ctx, plan);
+  castSkill(w, ctx, plan ? plan.actions : sk.actions);
   if (sk.castTime && sk.castTime > 0) {
     e.rt.lockTime = Math.max(e.rt.lockTime, sk.castTime);
     e.anim = 'cast';
@@ -385,6 +409,56 @@ export function useUlt(w: World, pi: number): CommandResult {
   }
   rwOnUlt(w, p, idx, e, ctx, spent);
   return ok;
+}
+
+/**
+ * 기획 22차 드래그: the field character goes to the plan's landing spot at once — a 'dash' streak or a 'blink' — after
+ * its optional hit along the way (a delayed line from where it stood to where it lands, part of the ult).
+ */
+function ultMove(w: World, e: SimEntity, plan: UltPlan, sk: SkillDef, pc: CastCtx): void {
+  const mv = plan.move!;
+  if (mv.path) {
+    const len = Math.hypot(mv.to.x - mv.from.x, mv.to.y - mv.from.y);
+    if (len > 1e-6) {
+      pc.point = copy(mv.to);
+      // its own skill id: render / sound look a cast's parts up by (skillId, actionIndex) — the path is not one of them
+      pc.skillId = `${sk.id}_path`;
+      const part: SkillAction = {
+        stage: mv.path.stage ?? 'path',
+        center: 'point',
+        delay: mv.path.delay ?? ULT_TEST.firstHit,
+        telegraphLead: 0,
+        area: { shape: 'line', length: len + e.radius, width: mv.path.width },
+        affects: mv.path.affects,
+        effects: mv.path.effects,
+      };
+      castSkill(w, pc, [part]);
+    }
+  }
+  const from = copy(e.pos);
+  e.pos.x = mv.to.x;
+  e.pos.y = mv.to.y;
+  clampUnit(w, e);
+  constrainTether(e);
+  e.facing = (plan.aimDeg * Math.PI) / 180;
+  if (mv.kind === 'dash') emit(w, { type: 'dash', entityId: e.id, from, to: copy(e.pos), duration: ULT_TEST.dashDuration });
+  else emit(w, { type: 'blink', entityId: e.id, from, to: copy(e.pos) });
+}
+
+/** 기획 22차: the plan into the cast — the point, the facing, the snapped target, a woundedAlly pick near the point. */
+function aimCtx(w: World, e: SimEntity, ctx: CastCtx, plan: UltPlan): void {
+  ctx.point = copy(plan.point);
+  e.facing = (plan.aimDeg * Math.PI) / 180;
+  const t = plan.targetId != null ? getEntity(w, plan.targetId) : null;
+  if (t) {
+    ctx.targetId = t.id;
+    ctx.targetPos = copy(t.pos);
+  } else if (plan.targetPoint) {
+    ctx.targetId = null;
+    ctx.targetPos = copy(plan.targetPoint);
+  }
+  const wa = plan.actions.find(a => a.center === 'woundedAlly');
+  if (wa) ctx.allyTargetId = findWoundedAlly(w, { ...e, pos: copy(plan.point) } as SimEntity, wa.allyRange ?? 99, Infinity)?.id ?? null;
 }
 
 /**

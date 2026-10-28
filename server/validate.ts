@@ -1,9 +1,9 @@
 // Strict parsing of client messages (src/net/protocol.ts). Anything malformed → null (ignored by the server).
 // Returned objects are rebuilt from scratch: no extra fields, no prototype tricks reach the sim.
 
-import type { ClientMsg, ExpRunInfo, PresetChoice } from '../src/net/protocol';
+import type { ClientMsg, ExpRunInfo, PresetChoice, RoomVariantMode } from '../src/net/protocol';
 import { GOEDAM_OPTION_RE } from '../src/net/protocol';
-import type { Command, DebugAction, ExpeditionCarry, Vec2 } from '../src/types';
+import type { Command, DebugAction, ExpeditionCarry, UltAim, UltAimMode, Vec2 } from '../src/types';
 import type { GearLoadout, GearSpec } from '../src/data/gear';
 import { BOSSES, CHARACTERS, PETS, REWARDS, isFieldEventId } from '../src/data';
 import { EXPEDITION_STAGES } from '../src/data/stages';
@@ -33,7 +33,23 @@ export function parsePreset(v: unknown): PresetChoice | null {
   // one party = 3 different characters and 3 different pets (the preset screen enforces it; a modified client must not
   // bypass it). Different players may still pick the same character (기획 3차).
   if (new Set(characters).size !== 3 || new Set(pets).size !== 3) return null;
-  return { characters: [...(characters as string[])], pets: [...(pets as string[])] };
+  // 기획 22차 궁극기 테스트: the ult mode picked on the preset (optional; anything but a known mode is a bad request)
+  if (v.ultMode !== undefined && !isUltMode(v.ultMode)) return null;
+  const preset: PresetChoice = { characters: [...(characters as string[])], pets: [...(pets as string[])] };
+  return v.ultMode !== undefined ? { ...preset, ultMode: v.ultMode as UltAimMode } : preset;
+}
+
+const isUltMode = (v: unknown): v is UltAimMode => v === 'now' || v === 'aim' || v === 'drag';
+
+/**
+ * 기획 22차: the aim of an ult command — mode 'aim' | 'drag' and a finite point (|x|, |y| ≤ 1e4, like a drop point;
+ * the sim clamps it to the arena). undefined = none (today's tap); null = malformed (the whole command is dropped).
+ */
+function parseUltAim(v: unknown): UltAim | null | undefined {
+  if (v === undefined) return undefined;
+  if (!isObj(v) || (v.mode !== 'aim' && v.mode !== 'drag')) return null;
+  const point = parseVec(v.point);
+  return point ? { mode: v.mode, point } : null;
 }
 
 function parseVec(v: unknown): Vec2 | null {
@@ -77,6 +93,9 @@ function parseDebug(v: unknown): DebugAction | null {
       if (v.member === undefined || v.member === null) return { kind: 'grantReward', rewardId: v.rewardId };
       return isInt(v.member, 0, 2) ? { kind: 'grantReward', rewardId: v.rewardId, member: v.member } : null;
     }
+    case 'ultMode':
+      // 기획 22차 「궁극기 방식」 (host only, every player's; the sim refuses it outside 궁극기 테스트)
+      return isUltMode(v.mode) ? { kind: 'ultMode', mode: v.mode } : null;
     case 'raidBoss': {
       // 기획 19차 「보스 고르기」: a known boss id (host only — it is not a per-player action; the sim refuses it outside a raid)
       bossIds ??= new Set(BOSSES.map(b => b.id));
@@ -99,8 +118,11 @@ export function parseCommand(v: unknown): Command | null {
       const pos = parseVec(v.pos);
       return pos && isInt(v.petIndex, 0, 9) ? { type: 'pet', player: 0, petIndex: v.petIndex, pos } : null;
     }
-    case 'ult':
-      return { type: 'ult', player: 0 };
+    case 'ult': {
+      const aim = parseUltAim(v.aim);
+      if (aim === null) return null;
+      return aim ? { type: 'ult', player: 0, aim } : { type: 'ult', player: 0 };
+    }
     case 'chooseReward':
       // 기획 17차 지명권: member (optional) = the party index a member / role card goes to
       if (!isInt(v.offerIndex, 0, 9)) return null;
@@ -230,8 +252,9 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       const roomName = v.roomName === undefined ? undefined : str(v.roomName, 200);
       if (roomName === null) return null;
       // 기획 19차: the room's game (absent = classic); anything but a known mode is a bad request
-      if (v.mode !== undefined && v.mode !== 'bossRaid') return null;
-      const mode = v.mode === 'bossRaid' ? ({ mode: 'bossRaid' } as const) : null;
+      // 기획 22차: 'ultTest' = 궁극기 테스트 (a raid room whose players pick their ult mode)
+      if (v.mode !== undefined && v.mode !== 'bossRaid' && v.mode !== 'ultTest') return null;
+      const mode = v.mode === 'bossRaid' || v.mode === 'ultTest' ? { mode: v.mode as RoomVariantMode } : null;
       return roomName === undefined ? { t: 'createRoom', preset, ...mode } : { t: 'createRoom', preset, roomName, ...mode };
     }
     case 'joinRoom': {

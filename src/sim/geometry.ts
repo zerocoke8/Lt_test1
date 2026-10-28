@@ -229,16 +229,21 @@ export function scaleArea(a: AreaShape, mult: number): AreaShape {
   }
 }
 
-/** Dash distance scales with the same radius bonus so the path keeps matching its rect. */
-export function scaleDash(d: NonNullable<SkillAction['dash']>, mult: number): { dir: Dir; distance: number } {
-  return { dir: d.dir, distance: d.distance * mult };
+/** Dash distance scales with the same radius bonus so the path keeps matching its rect. 기획 22차: `rot` rides along. */
+export function scaleDash(d: NonNullable<SkillAction['dash']>, mult: number): { dir: Dir; distance: number; rot?: number } {
+  return d.rot != null ? { dir: d.dir, distance: d.distance * mult, rot: d.rot } : { dir: d.dir, distance: d.distance * mult };
+}
+
+/** 기획 22차: a dash's direction — its `rot` (an aimed ult) when present, else its fixed `dir`. */
+export function dashDir(d: { dir: Dir; rot?: number }): Readonly<Vec2> {
+  return d.rot != null ? rotVec(d.rot) : DIR_VEC[d.dir];
 }
 
 export const DASH_DEFAULT_DURATION = 0.18;
 
-/** Dash end point: start + dir × distance, kept `margin` inside the arena. */
-export function dashEnd(start: Vec2, dir: Dir, distance: number, arena: { width: number; height: number }, margin = 0.5): Vec2 {
-  const u = DIR_VEC[dir];
+/** Dash end point: start + dir × distance, kept `margin` inside the arena. rot (기획 22차): replaces dir when given. */
+export function dashEnd(start: Vec2, dir: Dir, distance: number, arena: { width: number; height: number }, margin = 0.5, rot?: number): Vec2 {
+  const u = rot != null ? rotVec(rot) : DIR_VEC[dir];
   const x = start.x + u.x * distance;
   const y = start.y + u.y * distance;
   return {

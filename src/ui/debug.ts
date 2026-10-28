@@ -1,7 +1,7 @@
 // 디버그 패널 (R24): collapsible side panel that never pauses the game.
 // Sliders for every numeric Tunable, toggles, speed buttons and every DebugAction. Mutates game.tunables live.
 
-import type { BossForm, CommandResult, DebugAction, FloorTheme, Game, Tunables } from '../types';
+import type { BossForm, CommandResult, DebugAction, FloorTheme, Game, Tunables, UltAimMode } from '../types';
 import { DEFAULT_TUNABLES, ZONES } from '../config';
 import { FIELD_EVENTS, GOEDAM_ROOMS, RAID_ZONES, RARITY_LABEL, REWARDS, ZONE_BOSSES, getBoss } from '../data';
 import { hasBossData, isRaidBossOn } from '../sim';
@@ -14,6 +14,7 @@ import { loadJuice, saveJuice } from './storage';
 import { mountSfxBoard } from '../audio/devboard';
 import { battleGearFiles, setBattleGearFiles } from '../render/gearArt';
 import { saveGearArtFiles } from './expeditionStore';
+import { ULT_MODES, ULT_MODE_LABEL, isRaidMode, ultModeOf } from '../sim/ultTest';
 
 /** Render-only sliders (this device only, never sent to the server): 기획 8차 drag-landing feel. */
 /** Slider group (src/ui/tunables.ts) a raid shows right under 「보스 고르기」. */
@@ -66,6 +67,8 @@ export function raidBossGroups(): RaidBossGroup[] {
 
 export interface DebugDeps {
   game(): Game | null;
+  /** 기획 22차: my player index (solo 0, multi = my slot) — the 「궁극기 방식」 buttons show my mode. Absent = 0. */
+  localPlayer?(): number;
   onTunablesChanged(t: Tunables): void;
   toast(text: string, kind?: ToastKind): void;
 }
@@ -159,6 +162,9 @@ export class DebugPanel {
   private bossTuneSec: HTMLElement | null = null;
   private readonly bossTuneHome = document.createComment('boss-tune');
   private readonly raidPick: HTMLSelectElement;
+  /** 기획 22차 궁극기 테스트 「궁극기 방식」: only in that mode — every player's ult mode (DebugAction 'ultMode'). */
+  private readonly ultSec: HTMLElement;
+  private readonly ultBtns: { mode: UltAimMode; b: HTMLButtonElement }[] = [];
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement, deps: DebugDeps) {
@@ -190,6 +196,21 @@ export class DebugPanel {
       const b = button('dbg-btn dbg-speed', `${v}×`, spRow, () => this.set('gameSpeed', v));
       this.speedBtns.push({ v, b });
     }
+
+    // 기획 22차 궁극기 테스트: switch every player's ult mode mid-run (host only in multiplayer) + a full gauge to try it
+    this.ultSec = this.section('궁극기 방식');
+    const ultRow = h('div', 'dbg-btnrow dbg-ult-modes', this.ultSec);
+    for (const mode of ULT_MODES) {
+      const b = button('dbg-btn dbg-ult-mode', ULT_MODE_LABEL[mode], ultRow, () => {
+        this.run({ kind: 'ultMode', mode }, `궁극기 방식: ${ULT_MODE_LABEL[mode]}`);
+        // lit at once (multiplayer: the snapshot with the new mode comes a moment later)
+        for (const x of this.ultBtns) x.b.classList.toggle('is-on', x.mode === mode);
+      });
+      b.dataset.mode = mode;
+      this.ultBtns.push({ mode, b });
+    }
+    button('dbg-btn dbg-ult-charge', '궁극기 충전', h('div', 'dbg-btnrow', this.ultSec), () => this.run({ kind: 'chargeUlt' }, '궁극기 충전'));
+    h('div', 'dbg-hint', this.ultSec, '모든 플레이어(봇 포함)의 방식이 바뀌어요');
 
     // 기획 15차 원정: only while an expedition stage runs
     this.expSec = this.section('원정');
@@ -351,7 +372,7 @@ export class DebugPanel {
     const g = this.deps.game();
     if (g) this.jumpTo = Math.min(g.tunables.maxFloor, g.state.floor + 1);
     // 기획 19차: the picker opens on the boss of this floor
-    const bossId = g?.state.mode === 'bossRaid' ? g.state.plan.bossId : undefined;
+    const bossId = isRaidMode(g?.state.mode) ? g!.state.plan.bossId : undefined;
     if (bossId && [...this.raidPick.options].some(o => o.value === bossId)) this.raidPick.value = bossId;
     this.setCollapsed(false);
     this.sync();
@@ -453,15 +474,20 @@ export class DebugPanel {
 
   /** 기획 19차: the skip button's words for the running mode. */
   private skipLabel(): string {
-    return this.deps.game()?.state.mode === 'bossRaid' ? SKIP_LABEL.bossRaid : SKIP_LABEL.classic;
+    return isRaidMode(this.deps.game()?.state.mode) ? SKIP_LABEL.bossRaid : SKIP_LABEL.classic;
   }
 
   private syncExp(): void {
     const g = this.deps.game();
     this.skipBtn.textContent = this.skipLabel();
     this.expSec.classList.toggle('is-hidden', !g?.state.expedition);
-    const raid = g?.state.mode === 'bossRaid';
+    const raid = isRaidMode(g?.state.mode);
     this.raidSec.classList.toggle('is-hidden', !raid);
+    // 기획 22차: 「궁극기 방식」 in 궁극기 테스트 only, my mode lit
+    const ult = g?.state.mode === 'ultTest';
+    this.ultSec.classList.toggle('is-hidden', !ult);
+    const mine = g ? ultModeOf(g.state, this.deps.localPlayer?.() ?? 0) : 'now';
+    for (const { mode, b } of this.ultBtns) b.classList.toggle('is-on', ult && mode === mine);
     // the sliders the designer retunes bosses with sit right under the boss picker in a raid (else far down the list)
     const after = raid ? this.raidSec : this.bossTuneHome;
     if (this.bossTuneSec && after.nextSibling !== this.bossTuneSec) after.after(this.bossTuneSec);

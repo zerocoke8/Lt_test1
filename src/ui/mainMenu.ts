@@ -3,6 +3,8 @@
 // 기획 16차: with a run in progress the 원정 card's foot says so (orange): 「진행 중: N단계 대기 · 가방 M」.
 // 기획 19차: a third card 「보스 레이드」 (docs/boss-raid.md 7장) — 20 floor lamps in the four zone colours (lit up to my best
 // floor) under a watching eye; the foot says 「최고 기록 N층 · 클리어 N회」 or 「첫 도전」.
+// 기획 22차: a fourth card 「궁극기 테스트」 (docs/ult-test.md) — the raid with a choice of how the ult is used; its own
+// record (never mixed with the raid's) and the ult mode last picked on its preset screen. Four narrower cards (ultTest.css).
 
 import type { GearLoadout } from '../data/gear';
 import { BOSS_RAID } from '../data';
@@ -11,6 +13,8 @@ import { bossRaidFoot, type BossRaidRecord } from './bossRaidStore';
 import { button, h, ICON_FULLSCREEN } from './dom';
 import { createDoll } from './expeditionDoll';
 import type { GameMode } from './expeditionStore';
+import type { UltAimMode } from '../types';
+import { ULT_MODE_LABEL } from '../sim/ultTest';
 import { createSoundToggle } from './soundPanel';
 import { toggleFullscreen } from './stage';
 
@@ -22,6 +26,9 @@ export interface MainMenuInfo {
   run: { stage: number; bag: number; complete: boolean } | null;
   /** 기획 19차: this device's 보스 레이드 record (absent = never played). */
   bossRaid?: BossRaidRecord;
+  /** 기획 22차: this device's 궁극기 테스트 record and the ult mode last picked for it. */
+  ultTest?: BossRaidRecord;
+  ultMode?: UltAimMode;
 }
 
 export interface MainMenu {
@@ -52,7 +59,16 @@ export function raidCardSub(): string {
   return `${BOSS_RAID.floors}층 · 층마다 보스 · 보스 ${raidRosterIds().length}종`;
 }
 
-export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onExpedition(): void; onBossRaid(): void }): MainMenu {
+/** 기획 22차: the 궁극기 테스트 card's line. PURE. */
+export const ULT_TEST_CARD_SUB = '보스 레이드 · 궁극기 조작 실험';
+
+/** 기획 22차: the 궁극기 테스트 card's foot — the record, then the mode last picked ('최고 기록 3층 · 방식 조준'). PURE. */
+export function ultTestFoot(rec: BossRaidRecord, mode: UltAimMode): string {
+  const head = rec.runs > 0 || rec.bestFloor > 0 ? `최고 기록 ${rec.bestFloor}층` : '첫 도전';
+  return `${head} · 방식 ${ULT_MODE_LABEL[mode]}`;
+}
+
+export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onExpedition(): void; onBossRaid(): void; onUltTest(): void }): MainMenu {
   const el = h('div', 'screen main-menu is-hidden', parent);
   const head = h('div', 'mm-head', el);
   h('div', 'mm-logo', head, '스왑 타워');
@@ -105,6 +121,21 @@ export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onE
   h('div', 'mm-card-sub', raid, raidCardSub());
   const raidFoot = h('div', 'mm-card-foot mm-raid-foot', raid);
 
+  // 기획 22차 궁극기 테스트: the ult button, a dashed aim line and a target reticle
+  const ult = button('mm-card mm-ult', '', cards, () => cb.onUltTest());
+  ult.dataset.sfx = 'ui.start';
+  h('span', 'mm-chip', ult, '실험');
+  const ultArt = h('div', 'mm-art mm-ult-art', ult);
+  h('div', 'mm-ult-path', ultArt);
+  const target = h('div', 'mm-ult-target', ultArt);
+  h('i', 'mm-ult-ring', target);
+  h('i', 'mm-ult-dot', target);
+  const ultBtn = h('div', 'mm-ult-btn', ultArt);
+  h('span', '', ultBtn, '궁');
+  h('div', 'mm-card-title', ult, '궁극기 테스트');
+  h('div', 'mm-card-sub', ult, ULT_TEST_CARD_SUB);
+  const ultFoot = h('div', 'mm-card-foot mm-ult-foot', ult);
+
   let visible = false;
   return {
     el,
@@ -128,6 +159,8 @@ export function createMainMenu(parent: HTMLElement, cb: { onClassic(): void; onE
       raidFoot.textContent = bossRaidFoot(rec);
       raidFoot.classList.toggle('is-record', rec.bestFloor > 0);
       lamps.forEach((lamp, i) => lamp.classList.toggle('is-on', i < rec.bestFloor));
+      ult.classList.toggle('is-last', info.lastMode === 'ultTest');
+      ultFoot.textContent = ultTestFoot(info.ultTest ?? { bestFloor: 0, clears: 0, runs: 0 }, info.ultMode ?? 'now');
     },
     hide() {
       visible = false;

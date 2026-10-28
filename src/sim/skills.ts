@@ -147,11 +147,11 @@ function doDash(w: World, ctx: CastCtx, from: Vec2 | null, dash: NonNullable<Ski
   const start = from ?? copy(caster.pos);
   const d = scaleDash(dash, ctx.radiusMult);
   const mg = Math.max(ARENA_MARGIN, Math.min(caster.radius, 1));
-  const to = dashEnd(start, d.dir, d.distance, arena(w), mg);
+  const to = dashEnd(start, d.dir, d.distance, arena(w), mg, d.rot);
   caster.pos.x = to.x;
   caster.pos.y = to.y;
-  // 기획 13차 atFire (거너 반동): the caster is shoved, it keeps facing where it fired
-  if (!dash.atFire) caster.facing = facingOf(d.dir);
+  // 기획 13차 atFire (거너 반동): the caster is shoved, it keeps facing where it fired. 기획 22차: an aimed dash (rot)
+  if (!dash.atFire) caster.facing = d.rot != null ? (d.rot * Math.PI) / 180 : facingOf(d.dir);
   constrainTether(caster);
   emit(w, { type: 'dash', entityId: caster.id, from: copy(start), to: copy(caster.pos), duration: dash.duration ?? DASH_DEFAULT_DURATION });
 }

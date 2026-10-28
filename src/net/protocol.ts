@@ -2,7 +2,7 @@
 // Server-authoritative: the Node server runs the same src/sim, clients send Commands and render snapshots.
 // Transport: one WebSocket per client at `/ws` on the same origin that served the page. JSON messages.
 
-import type { Command, ExpeditionCarry, GameEvent, GameState, Telemetry, Tunables } from '../types';
+import type { Command, ExpeditionCarry, GameEvent, GameState, Telemetry, Tunables, UltAimMode } from '../types';
 import type { GearLoadout, GearSpec } from '../data/gear';
 
 /**
@@ -23,7 +23,10 @@ import type { GearLoadout, GearSpec } from '../data/gear';
 /*     7 = 기획 20차 보스 형태: BossDef form / spawn / move / spots / stage / guard / trail (the boss data both sides run),
  *     Telegraph.motif · mark, Zone.look, the damage event's `guard`, the 'markClear' event and the tunable bossMoveMult
  *     (all optional on the wire — JSON omits them). */
-export const PROTOCOL_VERSION = 7;
+/*     8 = 기획 22차 궁극기 테스트: createRoom.mode / RoomInfo.mode / RoomSummary.mode / start.mode 'ultTest', GameState.mode
+ *     'ultTest', PresetChoice.ultMode, PlayerState.ultMode, the ult command's `aim` ({ mode, point }), ultCast.aim, the
+ *     debug action 'ultMode' (host only, every player) and SkillAction.rel 'aim' / dash.rot in the content data. */
+export const PROTOCOL_VERSION = 8;
 export const MAX_ROOM_PLAYERS = 3;
 /** Snapshot broadcast rate (Hz). The server sim still ticks at 30 Hz. */
 export const SNAPSHOT_HZ = 15;
@@ -49,6 +52,8 @@ export interface PresetChoice {
   characters: string[];
   /** 3 PetDef ids. */
   pets: string[];
+  /** 기획 22차 궁극기 테스트: this player's ult mode (read in an 'ultTest' room only; absent = 'now'). */
+  ultMode?: UltAimMode;
 }
 
 export interface RoomMember {
@@ -67,12 +72,12 @@ export interface RoomInfo {
   /** Join order = player slot order in the game. Empty slots are filled with bots on start. */
   members: RoomMember[];
   max: number;
-  /** 기획 19차: a 보스 레이드 room (absent = the classic tower). */
+  /** 기획 19차: a 보스 레이드 room (기획 22차: 'ultTest' = 궁극기 테스트; absent = the classic tower). */
   mode?: RoomVariantMode;
 }
 
-/** 기획 19차: the game a listed room plays, when it is not the classic tower. */
-export type RoomVariantMode = 'bossRaid';
+/** 기획 19차: the game a listed room plays, when it is not the classic tower (기획 22차: 'ultTest' = 궁극기 테스트). */
+export type RoomVariantMode = 'bossRaid' | 'ultTest';
 
 export interface RoomSummary {
   code: string;

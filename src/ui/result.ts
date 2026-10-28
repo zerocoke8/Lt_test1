@@ -9,7 +9,7 @@ import { getBoss, getCharacter, goedamLogText } from '../data';
 import { bossRaidOrder, raidRosterIds } from '../sim';
 import { button, h } from './dom';
 import {
-  RAID_LABEL,
+  raidModeLabel,
   SOURCE_COLOR,
   SOURCE_LABEL,
   formatClock,
@@ -21,6 +21,7 @@ import {
   resultTitle,
 } from './format';
 import { showsBotTag } from './hud';
+import { isRaidMode } from '../sim/ultTest';
 
 export interface ResultCallbacks {
   onRetry(): void;
@@ -67,7 +68,7 @@ export function createResultScreen(
     const s = game.state;
     const r: RunResult = s.runResult ?? { outcome: 'defeat', reason: 'quit', floorReached: s.floor, duration: s.time };
     el.classList.toggle('is-victory', r.outcome === 'victory');
-    const raid = s.mode === 'bossRaid';
+    const raid = isRaidMode(s.mode); // 기획 22차: 궁극기 테스트 has the raid's result too
     const total = game.tunables.maxFloor;
     // 기획 19차: the bosses that are on (20 unless some are switched off in the data)
     const roster = raid ? raidRosterIds().length : 0;
@@ -75,7 +76,7 @@ export function createResultScreen(
 
     const head = h('div', 'rs-head', el);
     h('div', 'rs-title', head, resultTitle(r));
-    if (raid) h('span', 'rs-mode', head, RAID_LABEL);
+    if (raid) h('span', 'rs-mode', head, raidModeLabel(s.mode));
     const hostEnded = view.multi && !view.isHost && r.reason === 'quit';
     h('div', 'rs-reason', head, hostEnded ? '방장이 런을 끝냈어요' : raid ? raidResultReason(r, quitWhileOut, total, roster) : resultReason(r, quitWhileOut, s.plan.kind === 'boss'));
     const facts = h('div', 'rs-facts', head);

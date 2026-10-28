@@ -13,3 +13,5 @@ export { rerollProblem } from './rewards/offers';
 export { bossRaidBossId, bossRaidOrder, bossRaidSlots, bossRaidTheme, hasBossData, isBossRaidRelicFloor, planBossRaidFloor } from './bossRaid';
 // the bosses that are on (BossDef.raid / BossRaidSetup.off): the main card's count, the debug 「보스 고르기」 list
 export { isRaidBossOn, raidRoster, raidRosterIds } from './bossRaid';
+// 기획 22차 궁극기 테스트: the pure ult plan (the client's preview, the HUD's name) and the mode helpers
+export { ULT_MODES, ULT_MODE_LABEL, botUltAim, isRaidMode, isUltAimMode, planUlt, ultAimProblem, ultModeOf, ultNameFor, type UltPlan } from './ultTest';

@@ -5,6 +5,8 @@ import { PLAYER_COLORS } from '../config';
 import { CHARACTERS, getCharacter, getMonster, getPet } from '../data';
 import { GUARD_HIT_COLOR, GUARD_HIT_TEXT } from '../data/bosses/forms';
 import { drawRewardFx, rewardFxEvent } from './rewardFx';
+import { drawUltFx, ultFxEvent } from './ultTest';
+import { ultAltBySkill } from '../data/ultTest';
 import { JUST_GOLD, JustFx, type JustFxHost } from './justFx';
 import { RewardPills, type PillAvoid } from './rewardPills';
 import { JUST_STOP_SEC } from './juice';
@@ -450,6 +452,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     this.localPlayer = c.localPlayer;
     this.rewardState = c.state;
     rewardFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 17차 reward visuals
+    ultFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 22차 궁극기 테스트
     if (ev.type === 'justSwap' || ev.type === 'interrupt') this.just.handle(ev, c.state, c.localPlayer, c.memos, this);
     else if (ev.type === 'rewardProc') this.pills.handle(ev, c.state, c.localPlayer, id => this.just.stampOn(id));
     switch (ev.type) {
@@ -1998,6 +2001,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   drawGround(ctx: CanvasRenderingContext2D, cam: Camera, time: number): void {
     // 기획 17차: the content tracks' reward visuals (src/render/rewardFx/), under everything else on the ground
     if (this.rewardState) drawRewardFx(ctx, { cam, localPlayer: this.localPlayer, host: this, state: this.rewardState }, time);
+    if (this.rewardState) drawUltFx(ctx, { cam, localPlayer: this.localPlayer, host: this, state: this.rewardState }, time); // 기획 22차
     // spawn warnings
     const ws = this.warns;
     for (let i = 0; i < ws.count; i++) {
@@ -2474,6 +2478,7 @@ export function actionFor(skillId: string, slot: string, idx: number): SkillActi
     list = null;
     try {
       if (slot === 'pet') list = [getPet(skillId).action];
+      else if (ultAltBySkill(skillId)) list = ultAltBySkill(skillId)!.def.actions; // 기획 22차: a character's own 조준 / 드래그 ult
       else {
         const cut = skillId.lastIndexOf('_');
         const key = SLOT_KEY[skillId.slice(cut + 1) as keyof typeof SLOT_KEY];

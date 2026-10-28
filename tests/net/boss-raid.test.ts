@@ -27,8 +27,8 @@ afterEach(async () => {
 });
 
 describe('protocol 6', () => {
-  it('is version 7 today (the raid messages came with 6); createRoom takes mode bossRaid and refuses any other mode', () => {
-    expect(PROTOCOL_VERSION).toBe(7); // 기획 20차: 7 (보스 형태)
+  it('is version 8 today (the raid messages came with 6); createRoom takes mode bossRaid (22차: or ultTest) and refuses any other mode', () => {
+    expect(PROTOCOL_VERSION).toBe(8); // 기획 20차: 7 (보스 형태); 기획 22차: 8 (궁극기 테스트)
     const raw = (o: object) => parseClientMsg(JSON.stringify(o));
     expect(raw({ t: 'createRoom', preset: PRESET_A, mode: 'bossRaid' })).toEqual({ t: 'createRoom', preset: PRESET_A, mode: 'bossRaid' });
     expect(raw({ t: 'createRoom', preset: PRESET_A, roomName: '레이드', mode: 'bossRaid' })).toEqual({ t: 'createRoom', preset: PRESET_A, roomName: '레이드', mode: 'bossRaid' });

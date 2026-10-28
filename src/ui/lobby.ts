@@ -11,7 +11,7 @@ import { MAX_ROOM_PLAYERS, ROOM_CODE_ALPHABET } from '../net/protocol';
 import { BOT_PRESETS } from '../config';
 import { CHARACTERS, PETS, getCharacter, getPet } from '../data';
 import { button, h, replayClass, setClass, setText, show } from './dom';
-import { RAID_LABEL } from './format';
+import { RAID_LABEL, raidModeLabel } from './format';
 import { petIcon, portrait } from './preset';
 import type { PresetSave } from './storage';
 import { NICKNAME_MAX } from './storage';
@@ -77,10 +77,11 @@ function statusText(st: NetStatus, latency: number | null): string {
 
 /** 기획 19차: header texts by view and mode. PURE. */
 export function lobbyHeader(inRoom: boolean, mode: RoomVariantMode | null | undefined): { title: string; sub: string; chip: string } {
-  const raid = mode === 'bossRaid';
+  const raid = mode === 'bossRaid' || mode === 'ultTest'; // 기획 22차: 궁극기 테스트 = the raid with ult modes
   const fill = '빈자리는 시작할 때 봇이 채워요';
-  if (inRoom) return { title: '방', sub: raid ? `20층 · 층마다 보스 · ${fill}` : `최대 3명 · ${fill}`, chip: raid ? RAID_LABEL : '' };
-  return { title: '매칭', sub: raid ? `20층 · 층마다 보스 · 최대 3명 협동 · ${fill}` : `최대 3명 협동 · ${fill}`, chip: raid ? RAID_LABEL : '' };
+  const chip = raid ? raidModeLabel(mode) : '';
+  if (inRoom) return { title: '방', sub: raid ? `20층 · 층마다 보스 · ${fill}` : `최대 3명 · ${fill}`, chip };
+  return { title: '매칭', sub: raid ? `20층 · 층마다 보스 · 최대 3명 협동 · ${fill}` : `최대 3명 협동 · ${fill}`, chip };
 }
 
 function cleanCode(raw: string): string {
@@ -306,8 +307,10 @@ export class LobbyScreen {
     setText(this.title, head.title);
     setText(this.sub, head.sub);
     show(this.modeChip, !!head.chip);
-    show(this.createSub, m.mode === 'bossRaid');
-    setClass(this.createBtn, 'is-raid', m.mode === 'bossRaid');
+    setText(this.modeChip, head.chip);
+    show(this.createSub, !!m.mode);
+    setText(this.createSub, raidModeLabel(m.mode));
+    setClass(this.createBtn, 'is-raid', !!m.mode);
     show(this.starting, m.starting);
     if (document.activeElement !== this.nameInput && this.nameInput.value !== m.name) this.nameInput.value = m.name;
     setClass(this.createBtn, 'is-disabled', !online);
@@ -368,9 +371,9 @@ export class LobbyScreen {
       const main = h('div', 'lb-room-main', row);
       const nameRow = h('div', 'lb-room-name-row', main);
       h('div', 'lb-room-name', nameRow, r.name);
-      if (r.mode === 'bossRaid') {
+      if (r.mode === 'bossRaid' || r.mode === 'ultTest') {
         row.dataset.mode = r.mode;
-        h('span', 'lb-mode lb-row-mode', nameRow, RAID_LABEL);
+        h('span', 'lb-mode lb-row-mode', nameRow, raidModeLabel(r.mode));
       }
       h('div', 'lb-room-host', main, `방장 ${r.hostName} · 코드 ${r.code}`);
       const count = h('div', 'lb-room-count', row);
@@ -383,7 +386,8 @@ export class LobbyScreen {
   private renderRoom(m: LobbyModel, room: RoomInfo): void {
     setText(this.roomCode, room.code);
     setText(this.roomName, room.name);
-    show(this.roomTag, room.mode === 'bossRaid');
+    show(this.roomTag, !!room.mode);
+    setText(this.roomTag, raidModeLabel(room.mode));
     const me = room.members.find(x => x.id === m.myId);
     const iAmHost = !!me?.isHost;
     show(this.startBtn, iAmHost);

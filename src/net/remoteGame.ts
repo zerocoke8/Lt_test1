@@ -28,6 +28,7 @@ import type {
 import { DEFAULT_TUNABLES } from '../config';
 import { ARENA_MARGIN } from '../sim/constants';
 import { canSwapState, canUltState, canUsePetState } from '../sim/players';
+import { ultAimProblem } from '../sim/ultTest';
 import { previewPartsFor } from '../sim/preview';
 import { canGoedamState } from '../sim/goedam';
 import { rerollProblem } from '../sim/rewards/offers';
@@ -234,6 +235,7 @@ export class RemoteGame implements Game {
         break;
       case 'ult':
         r = canUltState(s, me);
+        if (r.ok) r = ultAimProblem(s, me, cmd.aim); // 기획 22차 궁극기 테스트: the aim's mode is mine now
         if (r.ok && this.hasPending('ult')) r = fail('게이지 부족');
         wire = { ...cmd, player: me };
         break;

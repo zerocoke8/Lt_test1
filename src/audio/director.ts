@@ -3,13 +3,14 @@
 // so tests check routing without an AudioContext. Client only — it reads server snapshots / the local sim's state,
 // never src/sim. Every GameEvent type has a row in EVENT_SOUNDS (a new event type is a type error until routed).
 
-import type { AreaShape, Entity, GameEvent, GameState, Role, Vec2 } from '../types';
+import type { AreaShape, Entity, GameEvent, GameState, Role, SkillAction, Vec2 } from '../types';
 import { LOGICAL_H, LOGICAL_W } from '../types';
 import { CHARACTERS, PETS, getGoedamTrace, getMonster, goedamTraceKind } from '../data';
 import { DASH_LAND } from '../render/dashtime';
 import { stageCues, type Cue } from './stages';
 import { bossSkillKind } from './synth/bossVoices';
 import { fieldUltGauge } from '../sim/ultMode';
+import { ultAltEntries } from '../data/ultTest';
 
 export interface SoundReq {
   id: string;
@@ -128,9 +129,16 @@ interface SkillInfo {
   char: string;
   role: Role;
   slot: 'normal' | 'drag' | 'ult';
+  /** 기획 22차: a character's own 조준 / 드래그 ult — its own actions (stage names shared with the ult get its cues). */
+  actions?: readonly SkillAction[];
 }
 const SKILLS = new Map<string, SkillInfo>();
 for (const c of CHARACTERS) for (const slot of ['normal', 'drag', 'ult'] as const) SKILLS.set(c[slot].id, { char: c.id, role: c.role, slot });
+for (const [charId, set] of ultAltEntries()) {
+  const role = CHARACTERS.find(c => c.id === charId)?.role;
+  if (!role) continue;
+  for (const def of [set.aim, set.drag]) if (def && !SKILLS.has(def.id)) SKILLS.set(def.id, { char: charId, role, slot: 'ult', actions: def.actions });
+}
 const CHAR_ROLE = new Map<string, Role>(CHARACTERS.map(c => [c.id, c.role]));
 const RANGED_CHARS = new Set(CHARACTERS.filter(c => c.basic.kind !== 'melee').map(c => c.id));
 const PET_IDS = new Set(PETS.map(p => p.id));
@@ -1011,6 +1019,7 @@ class FrameCtx {
 
   action(skillId: string, slot: 'drag' | 'ult', index: number) {
     const info = SKILLS.get(skillId);
+    if (info?.actions) return info.actions[index];
     const c = info ? CHARACTERS.find(x => x.id === info.char) : undefined;
     return c?.[slot].actions[index];
   }

@@ -132,7 +132,7 @@ describe('expedition queues', () => {
     const wa = a.last('welcome')!;
     expect(wa.bootId).toMatch(/^[0-9a-f]{16}$/);
     expect(b.last('welcome')!.bootId).toBe(wa.bootId);
-    expect(wa.v).toBe(7); // 기획 19차: protocol 6 (보스 레이드 방 태그); 기획 20차: 7 (보스 형태)
+    expect(wa.v).toBe(8); // 기획 19차: protocol 6 (보스 레이드 방 태그); 기획 20차: 7 (보스 형태); 기획 22차: 8 (궁극기 테스트)
   });
 
   it('rejects impossible gear and a start stage above what the gear allows', async () => {
