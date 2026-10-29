@@ -1,4 +1,4 @@
-# 궁극기 연출 강화 (기획 23차)
+# 궁극기 연출 강화 (기획 23차 · 24차 → 8장)
 
 > 디자이너 요청(그대로): "현재 궁극기 모드가 추가되어있는데, 조준형이던 드래그형이던 새로 추가된 궁극기가 좀 연출이 약해.
 > 궁극기를 좀더 화려하게 만들어줘. 궁극기라는게 체감되게. 화려하게 만드는 작업중 기존 궁극기가 너무 단순하다고 판단되면 아예 바꿔도 좋아.
@@ -16,13 +16,14 @@
 3. **드래그 이동**: 돌진은 잔상 4개 · 흙먼지 · 속도선, 순간이동은 빛 기둥 + 번개 줄로 어디서 어디로 갔는지 보임. 착지하면 바닥이 갈라지고 쿵.
 4. **착지 컷**: 드래그의 작은 띠 대신, 착지 직후 화면 반대쪽 절반에 비스듬한 띠(초상 + 궁극기 이름)가 0.25초 지나감. 착지 자리는 밝게 남음.
 5. **마무리 직전**: 0.35초 전 화면 가장자리가 캐릭터 색으로 물들고, 빛이 한 점으로 모이고, 0.12초 전 공격 자리만 남기고 세상이 어두워짐(숨 고르기).
-6. **마무리 순간**: 0.13초 멈춤 + 화면 번쩍 + 5% 확대 + 큰 흔들림 + 한자 한 글자(城 · 斬 · 凍 · 滅 …)가 화면에 쾅. 이어서 여진 흔들림과 불씨.
+6. **마무리 순간**: 0.13초 멈춤 + 화면 번쩍 + 5% 확대 + 큰 흔들림 + 한자 한 글자(城 · 斬 · 凍 · 滅 …)가 화면에 쾅. 이어서 여진 흔들림과 불씨. (**→ 8장**: 24차에 한자는 없앰, 대신 글자 없는 충격 프레임)
 7. **여운**: 바닥에 3초쯤 자국(금 간 바닥 · 베인 자국 · 서리 · 먹물 · 꽃잎 · 문양). 적의 경고처럼 보이지 않게 아주 옅게(빨강 금지).
 8. **캐릭터 그림**: 오늘 궁극기의 전용 그림(떨어지는 방패 · 철창 · 초승달 · 종 · 滅 글자 …)을 30개에도 쓰고, 캐릭터마다 새 그림을 더함.
 9. **설계도 바꾼 것 15개**: 늦거나 한 방이 없던 것. 메이지 조준 4.85초 → 2.45초, 클레릭 드래그 종 4.5초 → 2초, 퇴마사 · 퍼펫티어 3~3.5초 → 2초 안팎, 메딕 · 크로노 조준에 마무리 추가 등(3장).
 10. **소리**: 새 파일 없음. 지금 소리(456개)를 겹치고 이어 붙임 — 돌진 · 순간이동 소리, 착지 쿵, 마무리 직전 다른 소리를 잠깐 줄였다가 쾅.
 11. **다른 사람 · 봇의 궁극기**는 지금처럼 흐리게(멈춤 · 흔들림 · 확대 · 큰 글자 없음). 클래식 · 원정 · 보스 레이드는 그대로.
 12. 일시정지 설정 줄에 **「궁극기 연출 강화 (궁극기 테스트)」** 켜기/끄기 — 끄면 22차 연출로 비교 가능(기본: 켬).
+13. **24차 (8장)**: 큰 글자는 없앰 → 글자 없는 「충격 프레임」(어둠 컷 + 캐릭터 모양 흰 별 + 빛줄기 + 충격파). 약하던 다섯 개(섀도우 드래그 · 레인저 조준 · 드래그 · 바드 드래그 · 크로노 드래그)는 새로 짬. 궁극기 버튼 옆에 「충전」 버튼.
 
 ---
 
@@ -58,7 +59,7 @@
 | 범위 번쩍 (모양 안만) | 마무리 1.0 · 접촉 0.6~0.9 · 쌓기 0.45 | ×0.55 |
 | 숨 고르기 | 마무리 0.35초 전 가장자리 물듦(캐릭터 비네트), 0.12초 전 공격 자리(+0.4칸)만 남기고 35% 어둡게. 모양이 6칸보다 크면 어둡게는 빼고 물듦만 | 없음 |
 | 확대 | 마무리 5% (멈춤 동안 그대로 → 0.28초 동안 돌아옴) | 없음 |
-| 큰 글자 | 마무리에 한자 한 글자 150px, 0.35초 머묾 | 땅 위 작은 글자 60px, 흐리게 |
+| 큰 글자 (**→ 8장**: 24차에 없앰 — 대신 충격 프레임 8-2-2, 남의 것은 없음) | ~~마무리에 한자 한 글자 150px, 0.35초 머묾~~ | ~~땅 위 작은 글자 60px, 흐리게~~ |
 | 속도선 | 마무리 28줄 방사(0.22초) · 돌진 12줄(0.2초) | 없음 |
 | 바닥 자국 | 마무리 · 착지 · 돌진 길. 2.5~4초, 알파 ≤ 0.32, 테두리 ≤ 0.35, 빨강 · 깜빡임 금지 | 2개까지 |
 | 입자 | 시전 한 번 최대 약 120 (테스트 상한 150) | ×0.55, 낮은 세부 |
@@ -73,15 +74,15 @@
 | t − 0.35초 | 가장자리 비네트(캐릭터 비네트 색 · 세기) 0.35초 |
 | t − 0.3초 | 빛 모으기: 고리 3개가 R×1.8 → 0.3으로 조여듦, 불꽃 14개가 빨려 들어감, 가운데 빛기둥(폭 0.5, 높이 7) 솟음, 낮은 진동 1.5 |
 | t − 0.12초 | 숨 고르기: 공격 자리만 남기고 35% 어둡게 (적 경고는 어둠 위에 다시 그림) |
-| **t** | 어둠 끊김 → 화면 번쩍 0.42 + 멈춤 0.13초 + 흔들림 12 + 5% 확대 + 방사 속도선 28 + 범위 번쩍 1.0 + 흰 별 70px + 고리 3겹(캐릭터 색 0.5R→1.0R 굵게 · 흰 0.3R→1.15R · 가는 흰 0.8R→1.35R) + 빛기둥(폭 1.1, 높이 9) + 맞은 적마다 별 · 불꽃(최대 10) + 불꽃 40 · 파편 10 + 큰 글자 + 바닥 자국. **멈춘 첫 화면에 이미 다 보여야 함**(나이 0에서 꽉 찬 모습) |
+| **t** | 어둠 끊김 → 화면 번쩍 0.42 + 멈춤 0.13초 + 흔들림 12 + 5% 확대 + 방사 속도선 28 + 범위 번쩍 1.0 + 흰 별 70px + 고리 3겹(캐릭터 색 0.5R→1.0R 굵게 · 흰 0.3R→1.15R · 가는 흰 0.8R→1.35R) + 빛기둥(폭 1.1, 높이 9) + 맞은 적마다 별 · 불꽃(최대 10) + 불꽃 40 · 파편 10 + 큰 글자(**→ 8장**: 24차 충격 프레임) + 바닥 자국. **멈춘 첫 화면에 이미 다 보여야 함**(나이 0에서 꽉 찬 모습) |
 | t + 0.12초 (멈춤 뒤) | 여진 흔들림 4 (0.6초) + 가장자리 비네트 0.4 (0.6초) |
 | t + 0.2 ~ 2.0초 | 불씨 14개가 천천히 떠오름 |
 
-**큰 글자**: 공격 자리 화면 위치에서 70px 위(가로 90~1190, 세로 170~460 안으로), 150px 굵게, 캐릭터 화면색 + 10px 어두운 테두리, 0.05초 흰 속빛. 1.9배 → 1배로 0.09초에 쾅(원 + 먹물 방울 6개) → 0.35초 머묾 → 0.3초 동안 12px 떠오르며 사라짐. 실제 시계로 움직임(멈춤 중에도 쾅).
+**큰 글자** (**→ 8장**: 24차에 없앰 — 아래는 23차 기록, 지금은 충격 프레임 8-2-2): 공격 자리 화면 위치에서 70px 위(가로 90~1190, 세로 170~460 안으로), 150px 굵게, 캐릭터 화면색 + 10px 어두운 테두리, 0.05초 흰 속빛. 1.9배 → 1배로 0.09초에 쾅(원 + 먹물 방울 6개) → 0.35초 머묾 → 0.3초 동안 12px 떠오르며 사라짐. 실제 시계로 움직임(멈춤 중에도 쾅).
 
 **캐릭터 표** (`theme.ts` 기본값; 궁극기별로 바꿀 수 있음):
 
-| 캐릭터 | 글자 | 화면색 | 비네트 색 · 세기 | 불꽃 | 바닥 자국 · 색 |
+| 캐릭터 | 글자 (**→ 8장**: 24차에 없앰, 대신 별 모양 8-2-2 표) | 화면색 | 비네트 색 · 세기 | 불꽃 | 바닥 자국 · 색 |
 |---|---|---|---|---|---|
 | 가디언 | 城 | #dbe9ff | #cfe8ff · 0.3 | Glass | crater · #cfe0ff |
 | 팔라딘 | 審 | #fff3b0 | #fff3b0 · 0.3 | Gold | sigil · #ffd166 |
@@ -99,7 +100,7 @@
 | 크로노 | 止 | #eef0ff | #eef0ff · 0.35 | Glass | sigil · #cfd5ff |
 | 퍼펫티어 | 幕 | #ffd6ea | #2a0a1a · 0.45 | Petal | petals · #ffb3d9 |
 
-(한자는 지금도 퇴마사 滅 · 印에 쓰는 것처럼 기기 글꼴로 그려짐. 아군만 회복하는 마무리가 생기면 「축복」 판: 멈춤 · 흔들림 없이 번쩍 0.28, 확대 2%, 아군 빛기둥(최대 6) + 가루 20 + 문양 자국 — 지금 30개에는 없음.)
+(23차: 한자는 지금도 퇴마사 滅 · 印에 쓰는 것처럼 기기 글꼴로 그려짐 — 24차에 없앰, → 8장. 아군만 회복하는 마무리가 생기면 「축복」 판: 멈춤 · 흔들림 없이 번쩍 0.28, 확대 2%, 아군 빛기둥(최대 6) + 가루 20 + 문양 자국 — 지금 30개에는 없음.)
 
 ### 2-4. 조준 발사 순간 (놓은 뒤 0 → 0.45초)
 
@@ -411,7 +412,7 @@ sfx: { quake: { id: 'drag.berserker.slam', on: 'hit', step: 2, max: 3, last: 'dr
 
 구현: look `{ lock: 'point' }` (23차 검토: 전에는 `'small'`) · `dance` prep (the rect part only) scorchFx(ink, r 1.2) at the caster · land rect: beamAlong(#1b1c3d, w 2) + beamAlong(white, w 0.5) + 4 afterimages along + Ink 10 · land circles: alias `shadow_u:dance` (`seqAsHit`) · impact `(s) => s.area.shape === 'rect' ? { stop: 45, shake: 4, flash: 0.7 } : { shake: 1.5, flash: 0.4 }` · `moon` alias `shadow_u:moon` (prep + land) + Ink 10 · finisher `{ glyph: '影' }` · motif `reticle`. `finale: 'moon'`.
 
-#### A12. 섀도우 드래그 「그림자 대처형진」 — 연출만 (이름 바꿈) · finale `moon`
+#### A12. 섀도우 드래그 「그림자 대처형진」 — 연출만 (이름 바꿈) · finale `moon` (**→ 8장 A12′**: 24차에 「흑월 대처형진」으로 새로 짬, 아래는 23차 기록)
 
 | 시각 | 박자 | 그림 | 손맛 | 소리 |
 |---|---|---|---|---|
@@ -425,7 +426,7 @@ sfx: { quake: { id: 'drag.berserker.slam', on: 'hit', step: 2, max: 3, last: 'dr
 
 구현: look move = alias PREP `shadow_d:clone` (the ink pool) at the landing · `clone` alias `shadow_d:clone` (`seqAsHit`) · impact `(s) => s.seq === 0 ? { stop: 40, shake: 4 } : { shake: 1.5 }` · `vanish` alias `shadow_u:vanish` + 3 afterimages along the slide · `execute` alias `shadow_d:execute` (prep + land) · impact `{ shake: 6, flash: 0.9 }` · `moon` alias `shadow_u:moon` · finisher `{ glyph: '影' }` · motif `reticle`.
 
-#### A13. 레인저 조준 「매의 화살비」 — 연출만 · finale `skyshot`
+#### A13. 레인저 조준 「매의 화살비」 — 연출만 · finale `skyshot` (**→ 8장 A13′**: 24차에 「매의 화살비 · 천공 강하」로 새로 짬, 아래는 23차 기록)
 
 | 시각 | 박자 | 그림 | 손맛 | 소리 |
 |---|---|---|---|---|
@@ -435,7 +436,7 @@ sfx: { quake: { id: 'drag.berserker.slam', on: 'hit', step: 2, max: 3, last: 'dr
 
 구현: `barrage` prep aimLine(caster→point, #c9ffe9, w 0.8, 0.45 s) + star on the bow · land `runStory('ranger_u:barrage', 'land', …, { x, y } = randomIn(s))` + every 3rd hit Smoke puff · impact `(s) => s.hit === s.hits - 1 ? { shake: 1, flash: 0.3 } : { shake: 0.8 }` · `rain` alias `ranger_u:rain` · impact `{ shake: 2, flash: 0.4 }` · `skyshot` alias `ranger_u:skyshot` + scorchFx(r 1.2) · charge `{ vignetteColor: '#000000', vignette: 0.35 }` · finisher `{ glyph: '穿' }` · motif `reticle` (rain, skyshot). `finale: 'skyshot'`.
 
-#### A14. 레인저 드래그 「매의 대일격」 — 연출만 (이름 바꿈) · finale `pierce`
+#### A14. 레인저 드래그 「매의 대일격」 — 연출만 (이름 바꿈) · finale `pierce` (**→ 8장 A14′**: 24차에 새로 짬, 아래는 23차 기록)
 
 | 시각 | 박자 | 그림 | 손맛 | 소리 |
 |---|---|---|---|---|
@@ -703,7 +704,7 @@ sfx: { beat: { id: 'ult.bard.beat', on: 'hit', max: 3 }, forte: [{ id: 'drag.bar
 
 구현: `choir` prep Staff along the band (`lineAsRect` frame, 1.8 s) · land alias `bard_u:choir` · `encore` alias `bard_u:encore` · `beat` land role path-style beam from the bard + Note 4–6 at 3 `footAlong` points (grow per hit) + (mine) vignette #e056fd 0.25 for 0.2 s · impact `{ shake: 2.5, flash: 0.5 }` · `forte` prep later(delay−0.3, hop(bard, 0.6, 0.3)) · land beamAlong(white, w 5, 0.4 s) + beamAlong(#e056fd, w 2.5) + Note 20 + rings at the bard 0.5→6 + star 56 mid-band · charge `{ vignette: 0.35 }` · finisher `{ glyph: '響' }`.
 
-#### B10. 바드 드래그 「공명 삼중주 · 피날레」 — 연출만 (이름 바꿈) · finale `forte`
+#### B10. 바드 드래그 「공명 삼중주 · 피날레」 — 연출만 (이름 바꿈) · finale `forte` (**→ 8장 B10′**: 24차에 「공명 무대 · 피날레」로 새로 짬, 아래는 23차 기록)
 
 | 시각 | 박자 | 그림 | 손맛 | 소리 |
 |---|---|---|---|---|
@@ -744,7 +745,7 @@ sfx: { rift: { id: 'drag.chrono.rift', on: 'hit', step: 2, max: 3 }, stop: [{ id
 
 구현: `stasis` (enemy part) prep clock(point, r 4.5, 0.3 s, hands forward) · land alias `chrono_u:stasis` `@point` + (mine) `h.screen.desaturate(0.6)` · impact `{ stop: 50, shake: 4, flash: 0.6, screen: 0.3, screenColor: '#eef0ff' }` · `mire` (hit 0 of the enemy zone only) clock(r 5, 5 s, k 0.35, backward) · `rift` areaFx(Brand, cross / X, 0.5 s, #cfd5ff) + xslash 50 white + Glass 6 (grow by seq) · impact `{ shake: 2.5, flash: 0.5 }` · motif `clock` · `stop` alias `chrono_d:stop` (k 1.5) + white rings 0.5→6 ×3 + Glass 20 · charge `{ vignette: 0.35 }` · finisher `{ glyph: '止' }` · motif `clock`.
 
-#### B12. 크로노 드래그 「시간 균열 · 영겁의 역행」 — 연출만 (이름 바꿈) · finale `stop`
+#### B12. 크로노 드래그 「시간 균열 · 영겁의 역행」 — 연출만 (이름 바꿈) · finale `stop` (**→ 8장 B12′**: 24차에 새로 짬, 아래는 23차 기록)
 
 | 시각 | 박자 | 그림 | 손맛 | 소리 |
 |---|---|---|---|---|
@@ -923,6 +924,7 @@ export function sanitizeUltFx(raw: unknown): { boost: boolean };
 export const FX_LOAD: { low: boolean };                  // render/index.ts sets it each frame: governor cap ≤ 1.25
 
 // ── theme.ts ──
+// → 8장 (24차): `glyph` is gone — `burst: UltBurst` (8-5-2)
 export interface UltTheme { glyph: string; screenColor: string; vignetteColor: string; vignette: number; spark: Pk; decal: DecalKind; decalColor: string; ember: Pk }
 export function ultTheme(charId: string): UltTheme;     // the 2-3 table
 
@@ -949,7 +951,7 @@ export interface FinisherSpec {
   screen: number; screenColor: string;                   // '' = theme
   breath: number;                                        // focus-dim alpha at t − 0.12 (0 = none; skipped when breathReach > 6 — 23차 검토: a band by its half diagonal)
   zoom: number; speedLines: boolean;
-  glyph: string | null; glyphPx: number;                 // null = no stamp ('' = theme glyph)
+  glyph: string | null; glyphPx: number;                 // null = no stamp ('' = theme glyph) — → 8장 (24차): removed, `impact` · `burst` · `tailColor` instead
   flash: number; star: number; rings: number; pillar: boolean;
   sparks: number; debris: number; embers: number; hitMarks: number;
 }
@@ -1052,7 +1054,7 @@ export function beamAlong(fx: SkillFx, s: StageInfo, w: number, color: string, d
 **CORE part 2 — the shell** (built after part 1; not re-exported by `kit.ts`, the groups never need them):
 - `cutin.ts`: `CutIn.focus: CutInFocus | null`, `CutIn.landAt`, `CutIn.landing(fromSec, focus, fromRight)`, `CutIn.placeStrip(cam)`, the `STRIP` number table (96 px, slide 0.06 s, wipe 0.39–0.45, portrait at x 480 — clear of the HUD tip pill).
 - `stories.ts`: `TOUCHDOWN` / `touchdownAt(look)` (blink 0.18, dash `ULT_TEST.dashDuration`, ≥ 0.4 = no shared touchdown) — shared by core.ts and the sound director (which never imports the renderer).
-- `core.ts`: `ultLockRadius(b, …)` (the lock-on / 조준 hole size), `ultScreenBusy()` (my glyph or speed lines are up → enemy warnings are drawn again over them).
+- `core.ts`: `ultLockRadius(b, …)` (the lock-on / 조준 hole size), `ultScreenBusy()` (my glyph or speed lines are up → enemy warnings are drawn again over them; → 8장: 24차 the impact frame instead of the glyph).
 - `preview.ts`: `finisherPart()` (which live preview part is the finisher's: double rim + blinking centre dot); `drawUltAimGround(…, lp?)`.
 - `director.ts`: `ALT_SOUND` (every 2-7 number). `ui/storage.ts`: `loadUltFx` / `saveUltFx` / `ULT_FX_KEY`.
 - Tests: `tests/visual/ult-test-sheet.mjs` reads `ultBeats` through the dev server's own modules (a build without source modules falls back to 0.25 / 0.5 / 1.35 / 2.1 s); `tests/visual/ult-fx-video.mjs` (options `only=` `port=` `url=` `boss=` `point=` `lead=` `tail=`; cuts each clip to [release − 0.6, finisher + 1.2] only when an `ffmpeg` is on the PATH — Playwright's bundled one cannot read webm).
@@ -1117,7 +1119,7 @@ const guardianAim: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.6, Math.round(14 * s.k), Pk.Glass, STEEL_LIGHT, 4, 3, 0.7);
       h.spray(s.x, s.y, 0.4, Math.round(6 * s.k), Pk.Square, '#ffffff', 3, 2, 0.5);
     },
-    finisher: { glyph: '城' },                                       // the rest (stop, shake, flash, zoom, decal) = FINISH_STRIKE + theme
+    finisher: { glyph: '城' },  /* → 8장: 24차 no glyph key */      // the rest (stop, shake, flash, zoom, decal) = FINISH_STRIKE + theme
     charge: { vignette: 0.3 },
     motif: 'countdown',
   },
@@ -1145,7 +1147,7 @@ registerUltLooks({
 - **Zoom**: never while aiming / dragging; not captured into pick math (toWorld unchanged).
 - **Description tests**: every new / changed description must pass the group tests' 「every effect phrase, only numbers from the data」 rules (3장 lines were written to them; adjust wording, never the data, if a phrase is missing).
 - **Sounds by stage name**: renames change which existing cue plays — check every changed ult in `npm run sfx:preview` / by ear in game; `ult._role.ranged` may need +3 dB as a layer.
-- **Hanja glyph fonts** on the designer's phone (system CJK fallback): check on the phone sheet.
+- **Hanja glyph fonts** on the designer's phone (system CJK fallback): check on the phone sheet. (→ 8장: 24차 no glyphs any more.)
 - **Particles with 3 seats** in multi: others at k 0.55 + low detail; the 220 soft cap turns extra sparks into squares (acceptable).
 
 ---
@@ -1263,3 +1265,769 @@ Unchanged and must stay green: goldens / determinism (classic, 원정, 보스 �
 - 섀도우 조준 ★초승달: 8칸 돌진이 멈춘 자리 → **겨눈 곳(8칸 안, `aimRange: 8`)**. 붙어 싸우던 보스를 돌진이 지나쳐 초승달이 보스 뒤 빈 바닥에 떨어졌음(48번 중 23번만 맞음). 돌진은 그대로 겨눈 쪽 8칸, 미리보기 = 떨어지는 곳도 그대로. 잠금 표시는 큰 잠금(겨눈 곳에서 ★까지 기다림). 22차 결정(§35-4 「초승달 = 멈춘 자리」)을 바꾼 것.
 - 소리: 앞에 「올라가는 소리」가 붙은 파일(`drag.medic.defib` · `drag.berserker.slam`)을 그냥 틀어 0.1초쯤 늦게 터지던 것 → 메딕 조준 · 드래그 충전 두 번은 각각 0.15초 먼저, 버서커 드래그 분출 쿵 두 번은 각각 0.12초 먼저 요청(lead), 마지막 ★ `drag.berserker.quake`는 쾅 순간에(전에는 두 번째 쿵이 ★ 위에 겹쳤음). 같은 단계의 lead 소리는 박자 시각마다 하나씩(전에는 첫 것만). 강화 끔은 22차 그대로.
 - 그룹 B 그림: 폰이 버거울 때(2-8) 그룹 B가 직접 뿌리는 불꽃 · 불씨 · 깃털 · 음표 …도 절반(전에는 코어 몫만 줄었음). 강화 끔의 22차 그림은 그대로.
+
+---
+
+## 8. 24차 — 큰 글자 없애기 · 약한 다섯 개 강화 · 궁극기 충전 버튼
+
+> 기획자 답(그대로): 「1. 글자가 나오는거 별로야. 10. 지금 다섯개 모두 더 화려하게. 나머지는 다 추천대로. 그리고 궁극기테스트 모드는 궁극기버튼 옆에 궁극기게이지 채워주는 버튼좀 넣어줘. 매번 디버그 가기 귀찮아.」
+
+세 설계안(① 궁극기별 이야기 · ② 손맛과 폰 안전 · ③ 장르 문법)을 비교해서 고르고 섞은 결과(근거는 8-7). 지키는 것은 23차와 같음.
+- 클래식 · 원정 · 보스 레이드는 숫자 · 그림 · 소리 그대로(골든 다시 녹화 안 함, `classic-look` 그림 해시 · `TABLES_22` 그대로).
+- 「궁극기 연출 강화」 끔 = 22차 연출. 시전 한 번에 입자 150 · 효과 40 · 바닥 자국 6 이하. 새 소리 파일 없음(있는 456개만).
+- 게임 규칙 변화는 `src/data/ultTest`의 데이터뿐(프로토콜 8 그대로). 다른 사람 · 봇의 궁극기는 흐리게(멈춤 · 흔들림 · 확대 · 어둡게 없음).
+
+### 8-1. 한눈에
+
+1. **큰 글자는 모두 없앰.** ★마무리의 한자(城 · 斬 · 凍 …), 다른 사람 궁극기 위의 작은 한자, 퇴마사 그림 속 封 · 印 · 滅, 퇴마사 조준 컷인 띠의 붉은 낙관 封(궁극기 테스트에서만)까지.
+2. **대신 글자 없는 「충격 프레임」.**
+   - 내 마무리 순간 0.05초 동안 화면이 그 캐릭터의 어둠색으로 확 덮이고, 맞는 자리에 흰 별 모양 섬광이 쾅.
+   - 별 모양은 캐릭터마다 다름(블레이드는 비스듬한 한 줄, 크로노는 12갈래 시계 눈금, 메이지는 눈꽃 …).
+   - 이어서 가로 · 세로 빛줄기와 충격파 고리 둘이 화면 밖으로 퍼짐.
+   - 다른 사람 · 봇의 궁극기에는 없음.
+3. **약하던 다섯 개는 새로 짬.** 다섯 모두 게임 데이터도 바뀜. 위력은 나머지 25개와 비슷하게 눈대중.
+   - 섀도우 드래그 「흑월 대처형진」: 분신 여섯이 점점 빠르게 대상을 가로질러 벰 → 벤 자리에 보라 줄이 남음 → 0.5초 정적, 큰 초승달 → 달이 떨어지는 순간 줄 여섯이 한꺼번에 터짐(1.5초).
+   - 레인저 조준 「매의 화살비 · 천공 강하」: 굵은 표적 화살 → 화살비 세 겹이 표적으로 좁혀 옴 → 빛의 매가 날개를 펴고 내리꽂히며 큰 화살이 됨(1.9초).
+   - 레인저 드래그 「매의 대일격」: 굵은 세 줄 연사 → 하늘에서 화살 셋이 대상을 묶음 → 쏠 줄만 밝게 남는 저격의 숨 → 매와 함께 날아가는 관통(1.5초).
+   - 바드 드래그 「공명 무대 · 피날레」: 음파가 박자마다 커지고 조명이 하나씩 켜짐(하나 · 둘 · 셋) → 한 박자 쉼(조명 꺼짐) → 드롭(1.65초).
+   - 크로노 드래그 「시간 균열 · 영겁의 역행」: 균열 → 필름 되감기 → 세상이 회색으로 멈추고 같은 균열이 두 번 되풀이 → 시계판이 깨지며 색이 돌아옴(1.65초).
+4. **「충전」 버튼**: 궁극기 버튼 오른쪽의 작은 둥근 버튼. 궁극기 테스트에서만 보임(혼자 · 멀티). 누르면 내 세 캐릭터 게이지가 모두 참(디버그 「궁극기 충전」과 같음). 멀티에서는 방장이 아니어도 자기 게이지만 채움.
+5. **그대로**(2~9번 추천대로): 착지 컷 띠, 마무리 세기(멈춤 0.13초 · 흔들림 12 · 확대 5%), 힐러 · 서포터도 같은 세기, 크로노 조준 정지 1.9초, 「궁극기 연출 강화」 켜기/끄기 칸, 긴 설명 글, 퇴마사 조준의 붉은 먹 고리, 섀도우 조준 초승달 = 겨눈 곳(8칸 안).
+
+**정해 주실 것** (답이 없으면 (추천)대로):
+1. 큰 글자 대신: **(추천) 충격 프레임** / 아무것도 없음(빛 고리만).
+2. 퇴마사 조준 컷인 띠의 붉은 낙관 封: **(추천) 궁극기 테스트의 조준 궁극기에서는 지움** / 그대로(띠 장식).
+3. 충전 버튼: **(추천) 멀티에서 누구나 자기 게이지** / 방장만.
+4. 이름: **(추천) 섀도우 드래그 「흑월 대처형진」, 레인저 조준 「매의 화살비 · 천공 강하」, 바드 드래그 「공명 무대 · 피날레」**(나머지 둘은 지금 이름) / 다섯 모두 지금 이름.
+
+### 8-2. 큰 글자 없애기
+
+#### 8-2-1. 지울 곳 (코드에서 찾은 전부)
+
+| 파일 · 자리 | 무엇 | 처리 |
+|---|---|---|
+| `src/render/ultTest/grammar.ts` L78–80 `FinisherSpec.glyph / glyphPx`, L117–118 `FINISH_STRIKE`, **L473** `ultGlyph(...)` 호출, L505–511 `ultGlyph()`, L20 `pushGlyph` import, 주석 L5 · L7 | 마무리 150px 도장(내 것), 땅 위 60px 글자(남의 것) | `glyph · glyphPx` 대신 `impact · burst · tailColor`(8-5-2). L473 → 내 것만 `pushImpact(...)`. `ultGlyph` 삭제 |
+| `src/render/ultTest/core.ts` `Stamp` L98–110, `stamp · smallStamps` L137–138, reset L161–162, `ultCoreCounts` L174–176, `ultScreenBusy` L182–184, `ultStampText` L186–189, `pushGlyph` L426–435, 그리기 L618–621, `GLYPH` · `drawStamp` L733–800, 주석 L15 | 글자 도장의 상태와 그리기 | 삭제. 충격 프레임(`IMPACT`, `pushImpact`, `drawImpact`, `ultImpactOf`, `ultImpactCut`)으로 바꿈 |
+| `src/render/ultTest/theme.ts` `UltTheme.glyph` L9–10, `T()` 첫 인자, 표의 한자 L37–51, FALLBACK `'極'` L54, 주석 L1 | 캐릭터별 한자 | `glyph` → `burst`(별 모양, 8-2-2 표) |
+| `src/render/ultTest/kit.ts` L26 `ultGlyph`, L74 `glyphFx` 다시 내보내기 | 그룹 파일이 글자를 다시 쓸 통로 | 둘 다 뺌(`glyphFx` 자체는 `stagefx.ts`에 남음 — 오늘 궁극기용) |
+| `src/render/ultTest/groupA.ts` `finisher: { glyph }` 15곳: L237 · 314 · 347 · 386 · 404(워든 둘 공용) · 552 · 583 · 645 · 698 · 742 · 775 · 829 · 856 · 937 · 967 | 마무리 한자 지정 | `glyph` 키만 지움(`...OFF_ANCHOR`, `flash: 0` 등은 남김. 빈 `finisher: {}`가 되면 줄째 지움) |
+| `src/render/ultTest/groupB.ts` `finisher: { glyph }` 14곳: L240 · 283 · 337 · 384 · 464 · 501 · 582 · 622 · 680 · 719 · 780 · 812 · 899 · 939 | 같음 | 같음(`sparks: 30`, `screenColor`는 남김) |
+| `groupB.ts` **L519** `glyphFx('封', 60)`, **L553** `glyphFx('印', 50)`, **L610** `glyphFx('滅', 120)`, import L43 | 퇴마사 조준 · 드래그 그림 속 한자 | 8-2-3 |
+| `groupB.ts` **L565** `runStory('exorcist_u:destroy', 'prep')` | 오늘 PREP이 滅 96px를 그림(`stagefx.ts` L381) | 부르지 않음(8-2-3) |
+| `groupB.ts` **L612** 별칭 `{ key: 'exorcist_d:destroy' }` | 오늘 LAND가 印 70px를 그림(`stagefx.ts` L823) | 별칭을 빼고 글자 아닌 부분만 직접(8-2-3) |
+| `src/render/cutin.ts` L447 · L744–757 `sealStamp` | 퇴마사 큰 컷인 띠의 붉은 낙관 封(퇴마사 조준 대체 궁극기에서 보임) | `CutIn.noSeal`(기본 false, `start()`마다 false). `vfx.ts`의 `ultCutIn`(내 것 · 강화 켬 · 대체 궁극기)에서만 true. 클래식 그림은 그대로 |
+| 주석: `settings.ts` L19, `render/ultTest/index.ts` L61, `render/index.ts` L1943–1951 · L2079, `groupA.ts` L6, `groupB.ts` L6 | 「big glyph」 설명 | 「impact frame」으로 고침 |
+
+#### 8-2-2. 대신 넣는 것: 충격 프레임 (내 ★마무리만, 화면 층, 실제 시계 — 멈춘 화면에도 그림)
+
+| 때 (★부터) | 내 화면 |
+|---|---|
+| 0 ~ 0.05초 | **어둠 컷**: 화면 전체를 그 캐릭터의 어둠색(`burst.ink`)으로 65% 덮음. 1초에 한 번까지(충전 버튼으로 연달아 써도 번쩍임이 1초에 한 번을 넘지 않음). 적 경고는 그 위에 다시 그림(멈춘 화면 포함) |
+| 0.05 ~ 0.11초 | 어둠 0.65 → 0. 밑에 있던 화면 번쩍(0.42, 지금 그대로)이 드러남 |
+| 0 ~ 0.06초 | **흰 별 섬광 쾅**: 맞는 자리(`ultFocus`, 몸 높이 0.6)에 캐릭터 모양 별이 1.6배 → 1배. 흰 채움 0.95 + 화면색 테 6px + 어두운 밑줄 3px. 바깥 반지름 R = 모양 크기 × 1.1(화면 px, 120 ~ 220), 안쪽 0.42R(갈래 4개 이하는 0.18R). 별 가운데는 화면 x 100 ~ 1180, y 160 ~ 620 안으로 |
+| 0.06 ~ 0.18초 | 별이 머묾 |
+| 0.18 ~ 0.38초 | 가시가 1.35배로 늘며 사라짐 |
+| 0.02 ~ 0.22초 | **빛줄기**: 별 가운데를 지나는 가로 1100 × 10px(흰 심 + 화면색 테) + 세로 280 × 6px, 가늘어지며 사라짐 |
+| 0.03 ~ 0.35초 | **충격파 고리 둘**: 화면색 60 → 480px(굵기 22 → 2), 0.06초 뒤 흰 고리 40 → 360px(굵기 10 → 1) |
+| ~ 0.74초 | 그림은 끝, 기록만 남음 — `ultScreenBusy()`가 참이라 마무리 뒤 여운 비네트(0.12 ~ 0.72초)가 끝날 때까지 적 경고를 위에 다시 그림(큰 글자 때와 같은 창). **24차 검토**: 비네트는 게임 시계로 돌아 마무리 멈춤(0.13 ~ 0.16초)만큼 늦게 끝남 → 기록은 0.74초 + 그 멈춤(`extendImpact`) |
+
+캐릭터마다 별 모양만 다름(글자도 문양도 아님):
+
+| 캐릭터 | 갈래 | 들쭉날쭉 | 기울기(rad) | 어둠색 | 느낌 |
+|---|---|---|---|---|---|
+| 가디언 | 6 | 0.05 | 0 | #070a14 | 고른 육각 별 |
+| 팔라딘 | 4 | 0.05 | 0 | #0d0a02 | 십자(+) |
+| 워든 | 8 | 0.1 | 0.39 | #080a05 | 여덟 갈래 |
+| 블레이드 | 2 | 0 | −0.5 | #000000 | 비스듬한 한 줄(일섬) |
+| 버서커 | 12 | 0.3 | 0 | #140402 | 거칠게 깨진 별 |
+| 섀도우 | 5 | 0.15 | 0 | #05030f | 다섯 갈래 |
+| 레인저 | 4 | 0.05 | 0.785 | #000000 | 길고 가는 X(화살 끝) |
+| 메이지 | 6 | 0 | 0.52 | #03080c | 눈꽃 |
+| 거너 | 10 | 0.3 | 0 | #0c0703 | 폭발 |
+| 클레릭 | 8 | 0.05 | 0 | #0c0a02 | 빛살 |
+| 메딕 | 4 | 0 | 0 | #020a0b | + |
+| 퇴마사 | 8 | 0.2 | 0.39 | #0c0203 | 부적 불꽃 |
+| 바드 | 10 | 0.15 | 0 | #0c020d | 터지는 음 |
+| 크로노 | 12 | 0 | 0 | #04050c | 시계 눈금 |
+| 퍼펫티어 | 6 | 0.2 | 0.52 | #0c0208 | 꽃잎 |
+| (표에 없는 캐릭터) | 8 | 0.1 | 0 | #05060a | — |
+
+화면색 · 비네트 · 불꽃 · 바닥 자국 칸은 2-3 표 그대로.
+
+사람별 · 설정별:
+- 다른 사람 · 봇: **없음**. 전의 땅 위 작은 글자(60px)도 없앰. 땅 위 그림(k 0.55)과 화면 안일 때 번쩍 절반은 지금처럼.
+- 「연출」 멈춤 0 → 어둠 컷 없음(별 · 빛줄기 · 고리는 있음). 흔들림 0 → 지금처럼 속도선 · 확대만 꺼짐.
+- 기기 「동작 줄이기」 → 어둠 컷 · 빛줄기 없음, 별은 쾅 없이 나타남, 고리 절반 밝기.
+- 폰이 버거울 때(`FX_LOAD.low`) → 빛줄기 · 둘째 고리 없음.
+- 축복 마무리(아군만 — 지금 30개에는 없음) → 어둠 컷 없이 별 0.8배.
+
+그리는 자리:
+- `drawUltScreen` 안에서 맨 먼저(그 위에 조준선 · 속도선).
+- 살아 있는 화면의 경고 다시 그리기는 지금 코드(`ultScreenBusy`) 그대로.
+- **멈춘 화면**(`drawFrozen`)에서는 지금 경고를 다시 그리지 않으므로 새로 넣음: 어둠 컷이 켜진 동안(`ultImpactCut()`) 같은 흔들림 + 5% 확대 변환으로 `drawEnemyDanger`. 궁극기 테스트 · 강화 켬일 때만이라 클래식 경로는 그대로. **24차 검토**: 어둠 컷 동안만이 아니라 살아 있는 화면과 같은 창(`ultScreenBusy()`) 동안 — 컷이 끝난 뒤의 별(멈춤 설정 150ms), 컷이 없는 별(동작 줄이기 · 1초 안 두 번째 마무리)이 경고를 가리던 것. 그리기 전에 `teleSeq.track`으로 멈춤 중 새로 뜬 경고를 묶음(안 묶으면 여러 칸 패턴이 전부 「다음 칸」 빨강으로 번쩍).
+
+#### 8-2-3. 퇴마사 그림 속 글자 대신 (그림만)
+
+| 곳 | 지금 | 바꿈 |
+|---|---|---|
+| 조준 `exorcist_ua:greatseal` land (L519) | 封 60px | 벽 위 세 곳(`footAlong` 0.2 · 0.5 · 0.8)에 부적빛 기둥 `lightPillar(0.45 × 4, TALISMAN, 0.6초)` + 가운데 금빛 별 56(`#ffe8a3`) |
+| 조준 `exorcist_ua:seal` land (L553) | 印 50px 빨강 | 봉인 띠 위 먹 낙인 `areaFx(Fx.Brand, 띠, 0.55초, INK)` + 붉은 먹물 8(`Pk.Ink`, `#a4161a`) + 금빛 별 40 |
+| 조준 `exorcist_ua:destroy` ★ prep (L565, 오늘 PREP의 滅 96px) | `runStory('exorcist_u:destroy', 'prep', …)` | 부르지 않음. ★ 0.6초 전 부적 8장이 벽 양 끝에서 겨눈 곳 위 고리(반경 1.4, 높이 2.6)로 날아가 꽂힘(비공개 `talisman()`에 높이 인자 추가) + 0.55초 전 먹 룬(반경 2.4) + 0.5초 전 금빛 가는 고리가 3.2 → 0.5로 조여듦. land는 지금 그대로(붉은 먹 고리 = 8번 답 「그대로」) |
+| 드래그 `exorcist_ud:destroy` ★ prep (L610) | 滅 120px(높이 3.2) | 여덟 문 자리(`spots(gateKey)`)에서 가운데로 부적 실 8줄(`tetherFx` Thread, TALISMAN, 0.6초) + 금빛 가는 고리 5.5 → 0.8 |
+| 드래그 `exorcist_ud:destroy` 별칭 (L612, 오늘 LAND의 印 70px) | `{ key: 'exorcist_d:destroy' }` | 별칭에서 빼고 글자 아닌 나머지를 직접: 먹 고리 0.4 → R × 1.1 두 겹(굵기 6) + 종이 10 + 불씨 8(`stagefx.ts` L824–826과 같은 값). `{ key: 'exorcist_u:destroy', prep: false }`는 그대로 |
+| 퇴마사 조준 컷인 띠의 낙관 封 | 붉은 도장 | 그리지 않음(`CutIn.noSeal`, 8-2-1). 띠의 궁극기 이름 글자는 UI라 그대로 |
+
+#### 8-2-4. 그대로 두는 글자 (범위 밖)
+
+- 오늘 퇴마사 궁극기의 滅(`stagefx.ts` L381) · 印(L823): 클래식 · 원정 · 레이드, 그리고 궁극기 테스트에서 **짧게 탭**한 오늘 궁극기에 나옴. 바꾸면 클래식 그림 해시가 깨짐 — 보고 때 미리 말씀드림.
+- 바드 조준 오선지 끝의 ♬(`fxparts.ts` L604–606, `Fx.Staff`): 글자가 아니라 음표 그림이고 오늘 바드 그림과 공용. 바드 드래그는 이번에 오선지를 안 씀.
+- UI 글자: 컷인 · 착지 컷 띠의 궁극기 이름(2번 답 그대로), 피해 숫자, 다른 사람 궁극기 이름 알림, 캐릭터 몸의 역할 글자(방 · 근 …).
+
+#### 8-2-5. 「궁극기 연출 강화」 끔 (22차)
+
+바꿀 것 없음.
+- 끄면 이야기 · 마무리 문법이 안 돌아서(`vfx.ts`의 `ULT_FX.boost` 조건) 충격 프레임도 없음.
+- 22차 강조 그림(`STAGES22` · `STAGES`)에는 글자가 없음.
+- 22차 경로는 PREP/LAND를 대체 궁극기 열쇠(`exorcist_ua:destroy` …)로 찾는데 오늘 표에는 그런 열쇠가 없어서 滅 · 印도 원래 안 나옴.
+- 컷인 낙관 封은 끔에서는 22차처럼 보임(비교용).
+
+### 8-3. 다섯 궁극기
+
+공통:
+- 다섯 모두 **설계 변경**(데이터 + 그림). 데이터는 `src/data/ultTest/group{A,B}.ts`만. 오늘 표(PREP/LAND/IMPACT/TELE_MOTIF/ZONE_DECOR/STAGE_CUES)에 새 열쇠 없음. 새 단계 이름(`mark` · `pin` · `beat3` · `echo`)의 소리는 그 궁극기 데이터의 `sfx`로 정함(있는 id만).
+- ★ = 2-3 공통 마무리(멈춤 0.13 · 흔들 12+4 · 화면 0.42 · 숨 고르기 · 확대 5% · **충격 프레임** · 바닥 자국)에 그 궁극기 그림을 더함. ★는 0.8 ~ 2.45초 안.
+- 중간 멈춤은 접촉 박자 하나, ★보다 0.5초 이상 앞, 55ms 이하. 그게 착지 0.8초 안이면 look `touchdownStop: 0`.
+- 화면 효과(비네트 · 색 빠짐 · 저격 어둠 · 속도선)는 `s.local`일 때만. 남의 것은 k 0.55 + 낮은 세부(빛기둥 자동 생략). 이퀄라이저 막대 · 날개 같은 추가 그림도 남의 것은 절반 이하.
+- 하늘에 뜨는 그림(초승달 · 매 날개)의 높이: 위 끝이 화면 y 110 아래(보스 막대 아래)가 되게, 그룹 A 비공개 함수 `skyZ(y, 위로 솟는 px) = clamp(0.687·y + 0.94 − px / 42.7, 하한, 상한)`(화면 y = 150 + 29.3·y − 42.7·z). 섀도우 달(r 60, 빛무리 90px)은 `clamp(0.687·y − 1.17, 0.6, 3.4)` = 달 가운데가 화면 y 200 근처. 매 날개(2.4칸, 위로 약 100px)는 `clamp(0.687·y − 1.4, 0.6, 3)`. 위쪽 줄에 선 고정 보스(y ≈ 3)면 하한에 걸려 조금 높아질 수 있음 — 폰 그림으로 확인.
+- 예산 숫자는 어림. 시전마다 예산 테스트로 확인하고, 넘치면 ★의 `sparks` · 먹물 수부터 줄임.
+- 설명 글은 그룹 테스트 규칙(효과마다 「공격력 N% 피해」 같은 문구가 그대로 들어가고, 숫자는 데이터에 있는 것만)에 맞춰 씀. 문구가 빠지면 데이터가 아니라 말을 고침.
+
+#### A12′. 섀도우 드래그 「흑월 대처형진」 (전: 그림자 대처형진) — 설계 변경 · finale `moon` · ★ 1.5초 (그대로)
+
+먹물 진에서 솟은 분신 여섯이 점점 빠르게 대상을 가로질러 벰 → 벤 자리에 보라 낙인 줄이 남아 맥박 → 0.5초 정적, 대상 위 낮은 곳에 큰 초승달 → 달이 떨어지는 순간 줄 여섯이 한꺼번에 흰 빛으로 터짐(「이미 베었다」). 23차의 길 위 분신 넷 · 미끄러짐 · X 처형은 없앰.
+
+| 시각 | 박자 | 그림 | 손맛 | 소리 |
+|---|---|---|---|---|
+| 0~0.18 | 이동(순간이동 9) | 공통 + 착지 먹물 웅덩이(1.2, 지금) | (착지 흔들만) | `mon.blink` |
+| 0~0.45 | (먹물 번짐) | 대상 둘레로 먹 고리가 0.5 → 3.5로 번짐 + 0.3초부터 먹물 웅덩이(반경 3.5, 1.2초) | — | — |
+| 0.45 | `clone` 첫 타 (대상 둘레 반경 3.5) | 대상 둘레 여섯 곳(각 베기의 시작 끝)에서 분신이 먹물에서 솟아 자기 차례까지 서 있음 + 오늘 드래그 「분신」 X 하나 + 먹 고리 3.5 + 먹물 12 | **멈춤 .04** · 흔들 4 · 범위 .7 | 행 `drag.shadow.clone` |
+| 0.55~1.15 | (본체 숨음) | 섀도우 몸 0.6초 숨김(분신이 곧 본체) → 1.15초에 높이 0.8에서 떨어져 나타남 | — | — |
+| 0.6 / 0.7 / 0.79 / 0.87 / 0.94 / 1.0 | `dance` ×6 쌓기 (길이 7, 폭 1.4; 이동 방향 기준 0° · 60° · 120° · 30° · 90° · 150°) | 분신이 대상을 가로질러 돌진(잔상 3, 번갈아 반대쪽에서) + 검보라 빛줄기(0.9) + 흰 심(0.3) + 대상 위 초승달 베기 56px × (1 + 0.12 · 순번) + 먹물 3. **벤 자리에 보라 낙인 줄이 ★까지 남아 맥박.** 여섯째에 흰 X 80px. 다 그으면 대상 위에 열두 갈래 별 | 흔들 1.5 → 3 (번째마다 +0.3), 여섯째 범위 .35 | 행 `ult.shadow.dance` 베기마다 +1음 |
+| 1.0~1.5 | (정적) | 분신은 사라지고 낙인 줄 여섯만 맥박. 0.6초 전 세상이 보랏빛(0.5). 대상 위에 큰 초승달(60px, 지금 34px)이 ★ 1초 전부터 차오름 — 달 가운데가 화면 y 200 근처 | 물듦 · 빛 모으기 · 숨 고르기 (공통) | — |
+| 1.5 | `moon` ★ (반경 3) | 달이 떨어져 닿음 → 오늘 「초승달 베기」(호 90 + X 70 + 고리 + 유리) + 사방 분신 4가 베어 들어옴 + 넓은 초승달 베기 170px + **낙인 줄 여섯이 한꺼번에 흰 빛줄기(1.0, 0.3초)로 터짐** + 먹 금(반경 3, 6줄) + 먹물 14 | ★ (충격 프레임 · 먹물 자국) | sfx `ult.shadow.moon` lead 0.35(줄이기) + `drag.shadow.execute` lead 0.25 −6dB |
+
+데이터 (전체 교체, `SHADOW_RUN` 지움):
+```ts
+/** 섀도우 드래그 (기획 24차): six clones cut through its target, faster and faster — [rot° from the way it moved, delay]. */
+const SHADOW_CUTS: readonly (readonly [number, number])[] = [[0, 0.6], [60, 0.7], [120, 0.79], [30, 0.87], [90, 0.94], [150, 1]];
+// shadow.drag:
+id: 'shadow_ud', name: '흑월 대처형진', slot: 'ult', castTime: ULT_CAST_TIME, move: { kind: 'blink', maxRange: 9 }, finale: 'moon',
+// 'clone' and 'dance' keep their rows (drag.shadow.clone; ult.shadow.dance on every cut, +1 step) — also right with the switch off.
+// The moon restates its row cue (an override replaces the row) and lays the X-cut under it.
+sfx: { moon: [{ id: 'ult.shadow.moon', lead: 0.35, duck: [-10, 0.35] }, { id: 'drag.shadow.execute', lead: 0.25, db: -6 }] },
+actions: [
+  // 드래그 'target' = the enemy nearest the landing spot, else its own target (the preview shows the same one); follow
+  { stage: 'clone', center: 'target', follow: true, delay: 0.45, telegraphLead: 0.3, area: { shape: 'circle', radius: 3.5 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 0.6 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.2 }] },
+  ...SHADOW_CUTS.map(([rot, delay]): SkillAction => ({
+    stage: 'dance', rel: 'aim', center: 'target', follow: true, delay, telegraphLead: 0,
+    area: { shape: 'rect', dir: 'right', anchor: 'center', length: 7, width: 1.4, rot }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.5 }],
+  })),
+  { stage: 'moon', center: 'target', follow: true, delay: 1.5, telegraphLead: 0.4, area: { shape: 'circle', radius: 3 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 2.8, crit: 'always' }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }] },
+],
+// REMOVED: the four 'clone' circles along the run, the 'vanish' slide (it stays where it landed), the 'execute' X
+```
+위력: 전 850%(분신 넷 각 100% — 길 위라 보스엔 보통 1~2개 — + X 200% + 달 250%) → 640%(60% + 50% × 6 + 280% 치명타, 모두 대상에) + 4초간 받는 피해 +20% + 0.6초 기절.
+
+새 설명: 「끌어 놓은 곳에 나타나(최대 9칸) 대상 둘레 반경 3.5에 먹물 진: 공격력 60% 피해 + 4초간 받는 피해 +20%. 0.6초부터 1초까지 분신 여섯이 점점 빠르게 대상을 가로질러 벰(길이 7, 폭 1.4): 각각 공격력 50% 피해. 1.5초에 흑월: 대상에게 초승달 베기(반경 3): 공격력 280% 피해(치명타 확정) + 0.6초 기절.」
+
+구현 (그룹 A):
+- look `shadow_ud` 그대로(`touchdownStop: 0`, 착지 먹물). `slideFrom` Map, `shadow_ud:vanish` · `shadow_ud:execute` 이야기는 지움.
+- `clone`: prep `rings(fx, x, y, 0.5, 3.5, 1, s.delay, INK_DARK, k, follow)` + `scorchFx(fx, x, y, 3.5, 1.2, true, INK_DARK, k, 0.3)` · land alias `{ key: 'shadow_d:clone', prep: false }` + 분신 6 × `h.afterimage(src, E_i, 자기 베기까지)`(E_i = 가운데 ∓ dir(ultAngle + rot_i) · 3.5, 짝수 −, 홀수 +) + `h.ring(x, y, 0.3, 3.5, 0.35, …)` + Ink 12 + `h.later(0.1, () => h.hideFor(src, 0.6))` + `h.later(0.7, () => h.drop(src, 0.8, 0.2))` · impact `{ stop: 40, shake: 4, flash: 0.7 }`.
+- `dance`: land 시작 · 끝 = `footAlong(s, seq % 2 ? 1 : 0)` → 반대 끝, `ghostsAlong(h, src, A, B, 3, 0.25, 0.02)` + `beamAlong(fx, s, 0.9, '#5e60ce', 0.3)` + `beamAlong(fx, s, 0.3, '#ffffff', 0.22, 0.02)` + `slash(fx, x, y, BODY_Z, 화면 각 + π/2, 56 · (1 + 0.12 · seq), MOONLIGHT, k)` + **`areaFx(fx, Fx.Brand, s.x, s.y, s.area, s.toFinish + 0.08, MOONLIGHT, k · 0.7, 0, 3)`**(남는 낙인 줄) + Ink 3. 줄 {x, y, ang}을 비공개 `cutLines` Map(`${src}|${skillId}`, seq 0에서 비움)에 기억. seq 5면 `xslash(80, '#ffffff')` · impact `s => ({ shake: 1.5 + 0.3 * s.seq, flash: s.seq === 5 ? 0.35 : 0 })`.
+- `moon`: alias `{ key: 'shadow_u:moon', prep: false }`(오늘 PREP은 달을 높이 3.4에 걸어 보스 막대에 가려짐) · prep `fx.add(Fx.Moon, x, y, 1.0, '#5e60ce', k)` r 60, z = 위 공식, follow, wait delay − 1.0 · land `moonCut(fx, h, s, 14, 170)`(베기 px 인자 추가) + 기억한 줄마다 `beam(…, 1.0, 0.3, '#ffffff', k)` + `crackFx(fx, x, y, 3, 6, INK_DARK, k)` · charge `{ vignette: 0.5, vignetteLead: 0.6 }` · finisher `{ sparks: 30 }` · motif `reticle`.
+- 예산 어림: 입자 ≈ 125, SkillFx ≈ 30.
+- 끔(22차): `shadow_ud:moon` 강조 그대로, `clone` · `dance`는 기본 물결. 세 단계 소리가 모두 오늘 행이라 22차 소리 경로에서도 맞음.
+
+#### A13′. 레인저 조준 「매의 화살비 · 천공 강하」 (전: 매의 화살비) — 설계 변경 · finale `skyshot` · ★ 2.3 → 1.9초
+
+굵은 표적 화살이 꽂힘 → 화살비 세 겹이 표적으로 좁혀 옴 → 빛의 매가 날개를 펴고 내리꽂히며 큰 화살이 됨. 23차의 가는 화살 12발 연사와 5번 화살비는 없앰.
+
+| 시각 | 박자 | 그림 | 손맛 | 소리 |
+|---|---|---|---|---|
+| 0~0.45 | (활 당김) | 레인저 → 겨눈 곳 굵은 금빛 조준선(폭 1.0) + 깃털 10이 활로 빨려 듦 + 0.35초 활에 별 36 | — | 컷인 그대로 |
+| 0.45 | `mark` 첫 타 (반경 2) | 흰 빛줄기(0.9) + 흰 속줄기 → 큰 화살(2.2, 지금 1.05)이 꽂힘 → 금빛 조준 표시(반경 2)가 ★까지 남음 + 고리 0.2 → 2 + 깃털 8 · 흙먼지 5 | **멈춤 .045** · 흔들 4 · 범위 .7 | sfx `normal.ranger` |
+| 0.8 / 1.05 / 1.3 | `rain` ×3 쌓기 (반경 3.6 → 2.8 → 2) | 0.35초 전 활에서 하늘로 빛 화살(오늘 PREP) → 굵은 화살 6개(0.65, 지금 0.35)가 높이 6에서 고리 안에 꽂힘 + 흰 가는 고리가 r + 0.5 → r로 조여듦 + 꽂힌 곳마다 별 18 · 깃털. 셋째는 가운데 별 50 | 흔들 2 / 3 / 4 · 범위 .45 | sfx `ult.ranger.rain` 고리마다 +2음(lead 0.3) |
+| 1.3~1.9 | (매) | 0.6초 전 **빛의 매**: 날개(`Fx.Wings` 2.4, #eafff6)가 겨눈 곳 위에 펼쳐지고 0.07초 간격으로 둘 더(레인저 쪽 위에서 겨눈 곳 쪽 아래로) = 내리꽂는 매의 잔상. 0.45초 전 금빛 날개 한 번 퍼덕(2.0) + 깃털 10이 빨려 듦 + 금빛 기둥(1.2 × 11) | 물듦(검정 0.35) · 빛 모으기 · 숨 고르기 (공통) | sfx `dash.melee` lead 0.45 +4dB (바람 휙 — **24차 검토**: 처음 고른 `ult.ranger.tick` 파일은 40Hz 아래 덩어리라 리미터를 치는 가장 큰 소리였음) |
+| 1.9 | `skyshot` ★ (반경 2) | 큰 화살(1.8, 지금 1.1)이 높이 11에서 0.26초 + 화살 8개 왕관(0.5, 반경 1.6)이 0.012초씩 따라 꽂힘 → 오늘 「하늘 화살」(금빛 고리, 별 64, 돌, 깃털) + 금빛 금(반경 3, 10줄) + 흰 고리 0.3 → 4 + 그을림(1.5) + 깃털 분수 16 | ★ (충격 프레임 · 구덩이 자국) | 행 `ult.ranger.skyshot` (lead 0.3) |
+
+데이터 (전체 교체):
+```ts
+/** 레인저 조준 (기획 24차): the arrow rain closes in on the mark — [radius, delay, damage]; the innermost = the sky arrow's size. */
+const HAWK_RAIN: readonly (readonly [number, number, number])[] = [[3.6, 0.8, 1.6], [2.8, 1.05, 1.8], [2, 1.3, 2]];
+// ranger.aim:
+id: 'ranger_ua', name: '매의 화살비 · 천공 강하', slot: 'ult', castTime: ULT_CAST_TIME, finale: 'skyshot',
+sfx: {
+  mark: { id: 'normal.ranger' },
+  rain: { id: 'ult.ranger.rain', on: 'hit', step: 2, max: 3, lead: 0.3 },                     // a shot-up + pour per ring, rising
+  skyshot: [{ id: 'ult.ranger.skyshot', lead: 0.3 }, { id: 'dash.melee', lead: 0.45, db: 4 }], // the row + the hawk's swoop (24차 검토: was ult.ranger.tick −2)
+},
+actions: [
+  { stage: 'mark', center: 'point', delay: 0.45, area: { shape: 'circle', radius: 2 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 1 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.15 }] },
+  ...HAWK_RAIN.map(([radius, delay, amount], i): SkillAction => ({
+    stage: 'rain', center: 'point', delay, telegraphLead: 0.25, area: { shape: 'circle', radius }, affects: 'enemies',
+    effects: i === 0 ? [{ kind: 'damage', amount }, { kind: 'status', status: 'slow', duration: 2, value: 0.3 }] : [{ kind: 'damage', amount }],
+  })),
+  { stage: 'skyshot', center: 'point', delay: 1.9, telegraphLead: 0.45, area: { shape: 'circle', radius: 2 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 6, crit: 'always' }, { kind: 'status', status: 'stun', duration: 0.5, value: 0 }] },
+],
+// REMOVED: the 12-arrow 'barrage' (0.5–1.38 s) and the 5-hit 'rain' (1.6–2 s)
+```
+위력: 전 1490%(70% × 12 + 40% × 5 + 450%) → 1240%(100% + 160% + 180% + 200% + 600% 치명타) + 4초간 받는 피해 +15% + 둔화 + 0.5초 기절. 흩어진 연사 대신 큰 한 방.
+
+새 설명: 「겨눈 곳에 표적 화살(반경 2): 공격력 100% 피해 + 4초간 받는 피해 +15%. 화살비가 표적으로 좁혀 옴: 0.8초에 반경 3.6 공격력 160% 피해 + 2초간 30% 둔화, 1.05초에 반경 2.8 공격력 180% 피해, 1.3초에 반경 2 공격력 200% 피해. 1.9초에 빛의 매가 하늘 화살이 되어 내리꽂힘(반경 2): 공격력 600% 피해(치명타 확정) + 0.5초 기절.」
+
+구현 (그룹 A):
+- look 기본 — 잠금 표시 = `mark` 반경 2(= ★ 반경), ★까지 남음.
+- `mark`: prep `aimLine(fx, ox, oy, x, y, 1.0, '#ffd23f', k, 0, 0.45)` + `h.implode(ox, oy, BODY_Z, 1.6, cnt(10), FEATHER, 0.4, Pk.Feather)` + `star(fx, ox, oy, BODY_Z, 36, '#ffffff', k, 0.35)` · land `beam(ox, oy, x, y, 0.9, 0.2, ARROW, k)` + `beam(…, 0.3, 0.16, '#ffffff', k, 0.02)` + `arrow(ox, oy, x, y, 0.16, 2.2, ARROW, k)` + `crosshairFx(x, y, 2, s.toFinish + 0.1, '#ffd23f', k, −1)` + `h.ring(x, y, 0.2, 2, 0.3, '#ffffff', 3, 0)` + Feather 8 + Smoke 5 · impact `{ stop: 45, shake: 4, flash: 0.7 }`.
+- `rain`: alias `{ key: 'ranger_u:rain', land: false }`(오늘 PREP = 활에서 하늘로 쏘는 빛기둥) · prep: `randomIn(s)` 여섯 곳을 비공개 Map(`${src}|${skillId}|${seq}`)에 기억하고 `h.laterSim(s.delay − 0.18, …)`에서 `fallAt(Arrow, 0.65, 6, 0, 0.18, ARROW, k)` × 6(기다리는 효과를 미리 쌓지 않음 — 예산) · land: 그 자리마다 별 18 + 깃털 1, `h.ring(x, y, r + 0.5, r, 0.25, '#ffffff', 2, 0)`, seq 2면 가운데 별 50 · impact `s => ({ shake: 2 + s.seq, flash: 0.45 })` · motif `reticle`.
+- `skyshot`: alias `{ key: 'ranger_u:skyshot', prep: false }`(오늘 PREP의 화살 1.1은 작음. LAND의 금빛 고리 · 별 64 · 돌 · 깃털은 씀).
+  - prep: 빛의 매 = `fx.add(Fx.Wings, …)` 셋(r 2.4 · 2.3 · 2.2, `#eafff6`, 0.5초, wait delay − 0.6 + 0.07·i, 자리는 레인저 쪽 1.2칸 → 겨눈 곳 위, z = `skyZ` − 0.6·i, 하한 0.6). `h.laterSim(delay − 0.45, …)`에 금빛 날개(r 2, `#ffd23f`, 0.3초) + `h.implode(x, y, z, 2, cnt(10), '#ffd23f', 0.3, Pk.Feather)`. `lightPillar(x, y, 1.2, 11, '#ffd23f', k, 0.45, −1, delay − 0.45)` + `fallAt(Arrow, 1.8, 11, delay − 0.26, 0.26, '#fff6d0', k)` + 왕관 8 × `fallAt(Arrow, 0.5, 9, delay − 0.24 + 0.012·i, 0.24, ARROW, k, −1, cos·1.6, sin·1.6·0.8)`.
+  - land: `crackFx(x, y, 3, 10, '#ffd23f', k)` + `h.ring(x, y, 0.3, 4, 0.35, '#ffffff', 3, 0)` + `scorchFx(x, y, 1.5, 2.5, false, '#3a2e26', k)` + Feather 16.
+  - charge `{ vignetteColor: '#000000', vignette: 0.35 }` · finisher `{ sparks: 24 }` · motif `reticle`.
+- 예산 어림: 입자 ≈ 120, SkillFx ≈ 30.
+- 끔(22차): `ranger_ua:skyshot` 강조 그대로, `mark` · `rain`은 기본 물결. 소리는 `rain` · `skyshot` 오늘 행, `mark`는 22차 역할 소리.
+
+#### A14′. 레인저 드래그 「매의 대일격」 — 설계 변경 · finale `pierce` · ★ 1.25 → 1.5초
+
+착지 앞구르기 · 활 당김 → 굵은 세 줄 연사 → 하늘에서 화살 셋이 대상을 묶음 → 쏠 줄만 밝게 남는 저격의 숨 → 매와 함께 날아가는 관통.
+
+| 시각 | 박자 | 그림 | 손맛 | 소리 |
+|---|---|---|---|---|
+| 0~0.16 | 이동(돌진 9) | 공통 + 길 위 깃털 8(지금) | 착지 **멈춤 .05** · 흔들 7 | `dash.ranged` |
+| 0.16~0.5 | (착지 · 활 당김) | 앞구르기(1.2, 0.35초, 지금) + 활 둘레 고리 1.8 → 0.3 + 깃털 8이 빨려 듦 + 띠 따라 조준선(오늘 PREP) | — | sfx `drag.ranger.draw` (시전, 지금) |
+| 0.5~0.98 | `volley` ×7 첫 타 → 쌓기 (16 × 2) | 굵은 화살(1.8, 한 발마다 × 1.05, 지금 1.2) + 흰 꼬리(0.35, 0.12초). 왼 줄 → 오른 줄 → 세 줄 한꺼번에가 되풀이. 대상에 별 14(세 줄 때 30 + 깃털 3) | 흔들 1, 세 줄 때 1.8, 마지막 2 · 범위 .4 | sfx `drag.ranger.volley` 두 발마다 +2음(지금) |
+| 1.1 | `pin` 쌓기 (대상 둘레 반경 1.8) | 0.15초 전 화살 셋이 하늘(높이 6)에서 대상 둘레 삼각형(1.6)에 꽂힘 → 세 화살에서 대상으로 전기 줄(★까지) + 대상에 금빛 조준(1.2) + 깃털 6 | 흔들 4 · 범위 .7 | sfx `fx.tether` + `normal.ranger` −4dB |
+| 1.1~1.5 | (저격의 숨) | **내 화면: 쏠 줄(띠 + 0.3)만 남기고 세상 40% 어둡게**(0.08초에 들어와 ★에 끊김) + 띠 따라 금빛 조준선(폭 2.2) + 활에 렌즈 빛(오늘 PREP) | 물듦(검정 0.4) · 빛 모으기 | sfx `dash.melee` lead 0.35 +4dB (매가 날아드는 바람 — **24차 검토**: 전 `ult.ranger.tick` −2dB, 위와 같은 까닭) |
+| 1.5 | `pierce` ★ (16 × 2.2) | 오늘 「관통」(빛줄기 둘 + 큰 화살 2.4 + 깃털) + **빛의 매 셋이 띠를 따라 날아감**(날개 1.6, 띠의 0.25 · 0.55 · 0.85 자리, 0.04초 간격) + 띠 안 가는 흰 줄 넷(옆으로 ±0.5 · ±0.9, 0.015초 간격 = 충격 터널) + 거대 화살(3.2) + 대상 별 70 + 활 둘레 고리 0.3 → 2.6 + 레인저 0.7칸 뒤 잔상(반동) + 띠 따라 깃털 12 + 내 화면 띠 방향 속도선 16 | ★ (충격 프레임 · 띠를 따라 베인 자국) | sfx `drag.ranger.pierce` lead 0.25 (행과 같음) |
+
+데이터 (이름 · 이동 · `botAim: 'self'`는 그대로):
+```ts
+finale: 'pierce',
+sfx: {
+  volley: [{ id: 'drag.ranger.draw', on: 'cast' }, { id: 'drag.ranger.volley', on: 'hit', step: 2, max: 6 }],   // unchanged
+  pin: [{ id: 'fx.tether' }, { id: 'normal.ranger', db: -4 }],
+  pierce: [{ id: 'drag.ranger.pierce', lead: 0.25 }, { id: 'dash.melee', lead: 0.35, db: 4 }],         // the row + the hawk's whoosh (24차 검토: was ult.ranger.tick −2)
+},
+actions: [
+  { stage: 'volley', center: 'target', follow: true, delay: 0.5, area: { shape: 'line', length: 16, width: 2 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 0.7 }], hits: 7, hitInterval: 0.08 },                                     // was 10 hits
+  // a slow, not a root: bosses are immune to root
+  { stage: 'pin', center: 'target', follow: true, delay: 1.1, telegraphLead: 0, area: { shape: 'circle', radius: 1.8 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 0.8 }, { kind: 'status', status: 'slow', duration: 1.5, value: 0.6 }] },
+  { stage: 'pierce', center: 'target', follow: true, delay: 1.5, telegraphLead: 0.4, area: { shape: 'line', length: 16, width: 2.2 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 6, crit: 'always' }, { kind: 'knockback', distance: 1.5 }] },            // was 1.25 s, width 1.6
+],
+```
+위력: 전 1300%(70% × 10 + 600%) → 1170%(70% × 7 + 80% + 600% 치명타) + 1.5초간 60% 둔화 + 1.5칸 넉백.
+
+새 설명: 「끌어 놓은 곳으로 몸을 날려(최대 9칸) 대상 쪽 직선(길이 16, 폭 2)으로 0.5초부터 0.08초마다 화살 연사: 공격력 70% 피해 ×7. 1.1초에 화살 셋이 대상 둘레(반경 1.8)에 꽂혀 공격력 80% 피해 + 1.5초간 60% 둔화. 1.5초에 매와 함께 대상을 꿰뚫는 관통 일격(길이 16, 폭 2.2): 공격력 600% 피해(치명타 확정) + 1.5칸 넉백.」
+
+구현 (그룹 A):
+- look `ranger_ud`: move 그대로(깃털), touchdown = 지금 앞구르기 `h.hop(1.2, 0.35)` + `rings(fx, to, 1.8, 0.3, 2, 0.3, FEATHER, k)` + `h.implode(to.x, to.y, 0.7, 1.6, cnt(8), FEATHER, 0.3, Pk.Feather)`. `touchdownStop` 기본 50(접촉 멈춤 없음).
+- `volley`: alias `{ key: 'ranger_d:volley', lineAsRect: true, land: false }` · land: 줄 = `hit % 3 === 2 ? [−1, 0, 1] : [hit % 3 === 0 ? −1 : 1]`(× 폭 / 2 × 0.55), 줄마다 `arrow(…, 0.2, 1.8 · 1.05^min(6, hit), color, k)` + `beam(…, 0.35, 0.12, '#ffffff', k)`; 대상 `star(14, 세 줄 때 30)` + 세 줄 때 깃털 3 · impact `s => s.hit === s.hits - 1 ? { shake: 2, flash: 0.4 } : { shake: s.hit % 3 === 2 ? 1.8 : 1 }` · motif `aim`.
+- `pin`: prep 3 × `fallAt(fx, x, y, FallObj.Arrow, 0.7, 6, delay − 0.15, 0.15, ARROW, k, follow, cos(a_i)·1.6, sin(a_i)·1.6·0.8)`(a_i = 90° + 120°·i) · land 3 × `tetherFx(fx, 꽂힌 곳, x, y, TetherStyle.Electric, s.toFinish + 0.05, ARROW, k, −1, follow, 0, 2)` + `crosshairFx(x, y, 1.2, s.toFinish, '#ffd23f', k, follow)` + Feather 6 · impact `{ shake: 4, flash: 0.7 }`.
+- `pierce`: alias `{ key: 'ranger_d:pierce', lineAsRect: true }`(PREP: 활 둘레 조이는 고리 + 렌즈 빛, LAND: 빛줄기 둘 + 큰 화살 2.4 + 깃털).
+  - prep (내 것): `h.laterSim(delay − 0.4, …)` → 그 순간의 레인저(`h.memo(src)`)와 대상(`h.memo(follow)`)으로 띠를 다시 재서 `h.screen.focusDim(가운데, r, 0.4, 0.08, 남은 시간, 0, { area: { shape: 'rect', dir: 'right', anchor: 'start', length: 16.6, width: 2.8, rot }, center: 레인저 − u · 0.3, origin: null })` + `aimLine(P0, P1, 2.2, '#ffd23f', k, 0, 0.4)`. 공통 숨 고르기는 띠의 반대각선 8.1 > 6이라 원래 없음 — 이 띠 모양 어둠이 대신하고, ★의 `cancelFocus()`가 끊음.
+  - land: `fx.add(Fx.Wings, …)` 셋(r 1.6, z 0.9, `footAlong` 0.25 · 0.55 · 0.85, 0.18초, wait 0.04·i; 남의 것은 하나) + 띠 안 평행 흰 줄 넷 `beam(…, 0.22, 0.2, '#ffffff', k, 0.015·j)`(옆으로 ±0.5 · ±0.9 — 띠 폭 안) + `arrow(P0, P1, 0.2, 3.2, '#ffffff', k)` + 대상 `star(70)` + `rings(ox, oy, 0.3, 2.6, 2, 0.3, '#ffffff', k)` + `h.afterimage(src, 레인저 − u · 0.7, 0.3)` + `sprayAlong(Feather 12)` + 내 것 `ultSpeedLines(x, y, { dir: ultAngle(s), n: 16 })`.
+  - charge `{ vignetteColor: '#000000', vignette: 0.4 }` · linger `{ kind: 'gash' }`(띠를 따라) · motif `aim`.
+- 예산 어림: 입자 ≈ 110, SkillFx ≈ 25.
+- 끔(22차): `ranger_ud:volley`(첫 발) · `ranger_ud:pierce` 강조 그대로, `pin`은 기본 물결.
+
+#### B10′. 바드 드래그 「공명 무대 · 피날레」 (전: 공명 삼중주 · 피날레) — 설계 변경 · finale `forte` · ★ 1.1 → 1.65초
+
+납작하던 세로 띠 셋을 없애고 「커지는 음파 셋 → 한 박자 쉼 → 드롭」으로. 무대 조명 넷과 이퀄라이저 막대로 높이를 줌. 박자는 0.3초(하나 · 둘 · 셋 · 쉼 · 드롭).
+
+| 시각 | 박자 | 그림 | 손맛 | 소리 |
+|---|---|---|---|---|
+| 0~0.16 | 이동(돌진 9) | 공통 + 길 위 음표 8(지금) → 착지: 둘레 반경 4.5의 네 곳(45° · 135° · 225° · 315°)에 조명 받침(작은 금빛 고리) | (착지 흔들만) | `dash.support` |
+| 0.45 | `choir` · `encore` 지원 (아군 반경 6) | 아군 금빛 + 대기 음표(오늘 「앙코르」) | — | sfx `ult.bard.choir` −6dB · 행 `drag.bard.encore` |
+| 0.45 | `beat1` 첫 타 (반경 3) | 바드가 콩 뜀(0.25) + 음파 고리 둘(흰 · 자홍, 0.5 → 3, 굵기 8) + 둘레 이퀄라이저 막대 6(높이 1 ~ 3, 0.25초) + 음표 6 + **조명 하나 켜짐**(자홍 빛기둥 0.5 × 8, 0.3초) + 내 화면 자홍 맥박 0.25 | **멈춤 .04** · 흔들 4 · 범위 .6 | 행 `drag.bard.beat1` |
+| 0.75 | `beat2` 쌓기 (반경 4.5) | × 1.15(고리 → 4.5, 막대 6, 음표 8) + 조명 둘 | 흔들 3 · 범위 .5 | 행 `drag.bard.beat2` |
+| 1.05 | `beat3` 쌓기 (반경 6) | × 1.3(고리 → 6, 막대 8, 음표 10) + 조명 셋 | 흔들 3.5 · 범위 .5 | sfx `drag.bard.beat2` +2음 + `ult.bard.tick` −4dB |
+| 1.35 | (쉼표) | **조명이 다 꺼짐**: 내 화면 0.3초 검게 물듦(0.45) + 바드 머리 위 금빛 음표 하나 + 바드가 뛰어오름(0.6). 빛 모으기 · 숨 고르기(무대 반경 6.4만 밝음) | 빛 모으기 · 숨 고르기 (공통) | (1.45초부터 배경음 −10dB — 공통 규칙) |
+| 1.65 | `forte` ★ 드롭 (반경 6) | 조명 넷 + 가운데 큰 흰 빛기둥(1.6 × 12)이 한꺼번에 켜짐 + 받침에서 가운데로 자홍 공명 줄 넷 → 오늘 드래그 「포르테」 × 1.4 + 흰 · 자홍 · 금 고리 3겹(0.5 → 6.5, 굵기 10) + 음표 분수 20 + 막대 12 | ★ (충격 프레임 · 음표 자국) | sfx `drag.bard.forte` + `ult.bard.beat.last` (지금) |
+
+데이터 (전체 교체; `BARD_UD_BUFF` · `BARD_UD_HIT`는 그대로, `band()`와 이름 없는 아군 옆 띠 둘은 지움):
+```ts
+/** 바드 드래그 (기획 24차): the sound waves grow beat by beat — [stage, delay, radius]; a beat's rest, then the drop. */
+const BARD_BEATS: readonly (readonly ['beat1' | 'beat2' | 'beat3', number, number])[] = [['beat1', 0.45, 3], ['beat2', 0.75, 4.5], ['beat3', 1.05, 6]];
+// bard.drag:
+id: 'bard_ud', name: '공명 무대 · 피날레', slot: 'ult', castTime: ULT_CAST_TIME, move: { kind: 'dash', maxRange: 9 }, finale: 'forte',
+sfx: {
+  choir: { id: 'ult.bard.choir', db: -6 },                                    // under the beats
+  beat3: [{ id: 'drag.bard.beat2', step: 2 }, { id: 'ult.bard.tick', db: -4 }], // the second beat's cue a tone up + a lute pluck
+  forte: [{ id: 'drag.bard.forte' }, { id: 'ult.bard.beat.last' }],           // unchanged
+},
+actions: [
+  { stage: 'choir', center: 'point', delay: 0.45, telegraphLead: 0, area: { shape: 'circle', radius: 6 }, affects: 'allies', effects: BARD_UD_BUFF },
+  // 'encore' (self, benchStatus atkUp / haste 0.15 × 10 s, every player) — unchanged
+  ...BARD_BEATS.map(([stage, delay, radius]): SkillAction => ({
+    stage, center: 'point', delay, telegraphLead: 0, area: { shape: 'circle', radius }, affects: 'enemies', effects: BARD_UD_HIT,
+  })),
+  { stage: 'forte', center: 'point', delay: 1.65, telegraphLead: 0.45, area: { shape: 'circle', radius: 6 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 1.8 }, { kind: 'knockback', distance: 2 }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }] },
+],
+```
+위력: 전 약 210 ~ 270%(가운데 띠 60% + 옆 띠 하나쯤 60% + 150%) → 360%(60% × 3 + 180%) + 2칸 넉백 + 0.6초 기절. 바드 조준 포르티시모(180% + 2칸 넉백 + 0.6초 기절)와 같은 마무리.
+
+새 설명: 「끌어 놓은 곳까지 미끄러져 감(최대 9칸). 반경 6 아군 HP 15% 회복 + 10초간 공격력 +30%·공격 속도 +40%, 모든 플레이어의 대기 캐릭터 10초간 공격력 +15%·공격 속도 +15%. 음파가 박자마다 커짐(0.45초 반경 3, 0.75초 반경 4.5, 1.05초 반경 6): 각각 공격력 60% 피해 + 3초간 40% 둔화. 한 박자 쉬고 1.65초에 피날레(반경 6): 공격력 180% 피해 + 2칸 넉백 + 0.6초 기절.」
+
+구현 (그룹 B):
+- look `bard_ud`: `touchdownStop: 0`, move 그대로(음표). touchdown: 착지 둘레 반경 4.5의 네 곳을 `spots(lightKey)`(`${entityId}|bard_ud|lights`)에 기억하고 작은 금빛 고리(받침) 넷 `h.ring(p, 0.2, 0.6, 1.4, GOLD, 2, 0.1)`.
+- 비공개 `beat(fx, h, s, n)`(n = 0 · 1 · 2, g = 1 · 1.15 · 1.3): `h.hop(src, 0.25, 0.2)` + `rings(fx, x, y, 0.5, R, 2, 0.35, '#ffffff' / BARD, k, −1, 8)` + 이퀄라이저 막대 `pillar(fx, x + cosθ·R·0.95, y + sinθ·R·0.95, 0.22, 1 + rnd·2·g, GOLD / BARD, k, 0.25)` × 6 · 6 · 8(남의 것 절반) + Note 6 · 8 · 10 + 조명 0..n `lightPillar(spot_i, 0.5, 8, [BARD, GOLD, '#7df9ff', '#ffffff'][i], k, 0.3)` + 내 것 `h.screen.vignette(BARD, 0.25, 0.2, 0)`.
+- `beat1` impact `{ stop: 40, shake: 4, flash: 0.6 }` · `beat2` `{ shake: 3, flash: 0.5 }` · `beat3` `{ shake: 3.5, flash: 0.5 }`. 23차 별칭 `bard_d:beat1` · `bard_d:beat2`(세로 띠 오선지 `bardBand`)는 지움.
+- `choir`: `alliesGlow(fx, h, s, GOLD, false)`, impact null. `encore` 그대로.
+- `forte`: prep `h.laterSim(delay − 0.3, …)` → 내 것 `h.screen.vignette('#05060a', 0.45, 0.3, 0)`(조명 꺼짐) + `notes(fx, 바드, 0.6, GOLD, k, src)` + `h.hop(src, 0.6, 0.3)` · alias `{ key: 'bard_d:forte', k: 1.4 }` · land: 조명 넷 `lightPillar(0.6, 8, …, 0.5)` + 가운데 `lightPillar(x, y, 1.6, 12, '#ffffff', k, 0.5)` + 받침 → 가운데 `beam(…, 0.35, 0.25, BARD, k)` × 4 + `rings(0.5, 6.5, 3, 0.5, …, 10)`(흰 · 자홍 · 금) + Note 20 + 막대 12 · charge `{ vignette: 0 }`(쉼표의 어둠이 물듦을 대신. 빛 모으기 · 숨 고르기는 공통 — 반경 6이라 6.4 구멍) · finisher 기본.
+- 예산 어림: ★ SkillFx ≈ 27, 입자 ≈ 110.
+- 끔(22차): 바드 드래그는 22차 강조가 원래 없음 → 기본 물결. 소리는 `beat1` · `beat2` · `forte` 오늘 행, `beat3` · `choir`는 22차 경로.
+
+#### B12′. 크로노 드래그 「시간 균열 · 영겁의 역행」 — 설계 변경 · finale `stop` · ★ 1.2 → 1.65초
+
+균열 → 필름 되감기 → 세상이 회색으로 멈춤 → 같은 균열이 흰 사본으로 두 번 되풀이(X → +) → 시계판이 깨지며 색이 돌아옴. 크로노 조준은 「멈추고 다시 흐름」, 드래그는 「되감고 되풀이」라 둘이 겹치지 않음. 23차의 「★와 같은 순간에 회색이 시작 + 흰 번쩍 + 흰 비네트 = 회색 판」을 고침.
+
+| 시각 | 박자 | 그림 | 손맛 | 소리 |
+|---|---|---|---|---|
+| 0~0.18 | 이동(순간이동 9) | 공통 + 거꾸로 감긴 필름 잔상 3(지금) + 착지점 바닥에 큰 시계(반경 4, 0.45초)가 거꾸로 빠르게 돎 | (착지 흔들만) | `mon.blink` |
+| 0.45 | `rift` 첫 타 (X 5 / 1.8) | 오늘 드래그 「균열」(X 낙인 · 작은 거꾸로 시계 · 유리) + X 네 팔 끝까지 시간색 번개(0.2초) + 흰 X 베기 44 | **멈춤 .04** · 흔들 4 · 범위 .6 | 행 `drag.chrono.rift` (+ 시전 `drag.chrono.wind`) |
+| 0.8 | `rewind` 쌓기 (반경 6, 2.5칸 끌어당김) | **필름 되감기**: 반경 6 시계가 0.4초 동안 빠르게 거꾸로 + 끌려오는 적마다 원래 자리 → 지금 자리 점선 줄(0.45초) + 잔상(오늘) + 흰 고리 6 → 0.5 두 겹 + 유리 10이 빨려 듦 | 흔들 3 · 범위 .5 | 행 `drag.chrono.rewind` |
+| 1.0 | `stasis` 쌓기 (반경 3.5, 2초 정지) | 오늘 「시간 정지」를 착지 자리에 + 바늘 멈춘 시계(3.5)가 ★까지 + **내 화면 색 빠짐 — ★에 딱 맞춰 색이 돌아옴**(마지막 0.3초 동안) | 범위 .5 | sfx `ult.chrono.stasis` −8dB (**24차 검토**: 전 −2 — 종소리의 가장 큰 곳이 ★에 겹쳐 ★보다 컸음) — 행의 'special'(효과음 버스 저역 필터 + 1초마다 똑딱) 없이. 필터는 효과음 버스만 막으므로 ★ 소리(영웅 버스)를 먹먹하게 한 적은 없음 — 빼서 좋은 것은 맞는 소리들의 둔함과 되풀이와 엇갈리던 1초 똑딱 |
+| 1.15 / 1.35 | `echo` ×2 쌓기 (X → +, 5 / 1.8) | **균열이 되풀이됨**: 흰 「되감긴 사본」 낙인 + 0.04초 늦게 시간색 잔상 낙인 + 시곗바늘 빛줄기 + 흰 X · + 베기 50 → 60 + 유리 6. 둘째가 더 큼 → 착지 자리에 여덟 갈래 별 | 흔들 2.5 / 3 · 범위 .5 | sfx `ult.chrono.tock` 바늘마다 +2음, −10dB (**24차 검토**: 전 0 — ★보다 8 ~ 9dB 컸음) |
+| 1.65 | `stop` ★ (반경 4) | 0.45초 전 바늘 감기는 소리, 0.3초 전 남색 가장자리(0.3) → 흰 시계판(4)이 12시에 멈춘 채 나타남 → 금 12줄 → **산산이 깨짐**(유리 24) + 오늘 드래그 「정지」 × 1.4 + 기억한 X · + 여덟 팔이 한 번 더 흰 빛줄기 + 흰 고리 3겹 0.5 → 5. 화면색 `#c9d1ff`, 여운 가장자리 남색 `#1c2259`(흰 판 없음) | ★ (충격 프레임 · 문양 자국) | sfx `drag.chrono.wind` lead 0.45 −3dB + `drag.chrono.stop` +4dB (**24차 검토**: 전 0 — 이제 이 시전에서 가장 큰 소리) |
+| 2.2 / 3.0 | (정지 풀림: 보스 · 중형보스 1.2초 / 졸개 2초) | 지금 그대로(받은 피해의 30%가 다시 — ★의 피해도 들어감) | — | `ult.chrono.resume` (지금 규칙) |
+
+데이터 (부분 0 · 1 그대로, 순서 3 = `stasis` 유지 → 22차 강조 `chrono_ud:stasis`(`actionIndex 3`)가 계속 맞음):
+```ts
+finale: 'stop',
+sfx: {
+  // a plain cue: the ult row's 'stasis' carries the 'special' (the EFFECT-bus lowpass until 3.4 s + a tock a second) — 24차
+  // 검토: it never touched the ★ (drag.chrono.stop: hero bus); the build-up now sits under the blow (−8 / −10 / +4)
+  stasis: { id: 'ult.chrono.stasis', db: -8 },
+  echo: { id: 'ult.chrono.tock', on: 'hit', step: 2, max: 2, db: -10 },
+  stop: [{ id: 'drag.chrono.wind', lead: 0.45, db: -3 }, { id: 'drag.chrono.stop', db: 4 }],   // the hands wind back, then the face breaks
+},
+actions: [
+  /* 0 rift (enemies, X 5 / 1.8: 120 % + slow 0.5 / 3 s) · 1 rift (self, swapCooldownReduce 3, every player) — unchanged */
+  { stage: 'rewind', center: 'point', delay: 0.8, area: { shape: 'circle', radius: 6 }, affects: 'enemies',
+    effects: [{ kind: 'pull', distance: 2.5 }, { kind: 'damage', amount: 0.4 }] },                                   // + damage
+  { stage: 'stasis', center: 'point', delay: 1, telegraphLead: 0, area: { shape: 'circle', radius: 3.5 }, affects: 'enemies',
+    effects: [{ kind: 'status', status: 'stasis', duration: 2, value: 0.3 }] },                                        // was 1.2 s
+  { stage: 'echo', center: 'point', delay: 1.15, telegraphLead: 0, area: { shape: 'cross', diagonal: true, length: 5, width: 1.8 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 0.6 }] },
+  { stage: 'echo', center: 'point', delay: 1.35, telegraphLead: 0, area: { shape: 'cross', length: 5, width: 1.8 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 0.6 }] },
+  { stage: 'stop', center: 'point', delay: 1.65, telegraphLead: 0.4, area: { shape: 'circle', radius: 4 }, affects: 'enemies',
+    effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'vulnerable', duration: 5, value: 0.2 }] },    // was the X (5 / 2.4, 160 %) at 1.2 s
+],
+```
+보스 정지 = 2초 × 0.6 = 1.2초 → 2.2초에 풀림. 되풀이 둘과 ★(1.65초)가 그 안이라 30% 되돌림에 들어감(조준과 같은 구조).
+
+위력: 전 280%(120% + 160%) + 되돌림 → 480%(120% + 40% + 60% × 2 + 200%) + 되돌림 + 5초간 받는 피해 +20%. 크로노 조준(60% + 60% + 80% + 200% + 되돌림)과 비슷.
+
+새 설명: 「끌어 놓은 곳으로 순간 이동(최대 9칸). X자 균열(대각선 5칸, 폭 1.8): 공격력 120% 피해 + 3초간 50% 둔화, 모든 플레이어의 대기 캐릭터 재등장 쿨 3초 감소. 0.8초에 반경 6 적을 2.5칸 끌어당기며 되감음: 공격력 40% 피해. 1초에 반경 3.5 적 2초 정지(보스 · 중형보스는 짧게, 풀릴 때 받은 피해의 30% 다시). 1.15초 · 1.35초에 균열이 되풀이됨(X자 → 십자 +, 5칸, 폭 1.8): 각각 공격력 60% 피해. 1.65초에 시계판이 깨짐(반경 4): 공격력 200% 피해 + 5초간 받는 피해 +20%.」
+
+구현 (그룹 B):
+- look `chrono_ud`: `touchdownStop: 0`(지금), move = 필름 잔상(지금) + `clock(fx, to.x, to.y, 4, 0.45, TIME, k).flip = −1`.
+- `rift`: alias `chrono_d:rift` + (적 부분) X 네 팔 끝까지 `boltFx(…, 0.2, TIME, k)` × 4 + `xslash 44`(지금) · impact 지금.
+- `rewind`: alias `chrono_d:rewind` + implode Glass 10(지금) + `clock(fx, x, y, 6, 0.4, '#ffffff', k · 0.8).flip = −1` + `rings(6, 0.5, 2, 0.35, '#ffffff')` + 적(≤ 6)마다 `tetherFx(memo 자리 → follow2 = m.id, TetherStyle.Dotted, 0.45, TIME)`(이 순간의 memo는 끌리기 전 자리) · impact `{ shake: 3, flash: 0.5 }`.
+- `stasis`: alias `{ key: 'chrono_u:stasis', at: 'point' }`(지금) + `clock(fx, x, y, 3.5, s.toFinish, TIME, k).flip = 0` + 내 것 `h.screen.desaturate(Math.max(0.3, s.toFinish))`(23차 `desaturate(0.5)`는 ★부터 회색이었음 — 색 빠짐은 끝 0.3초 동안 돌아오므로 ★에 다 돌아와 있음) · impact `{ flash: 0.5 }` · motif `clock`.
+- `echo`: `areaFx(fx, Fx.Brand, x, y, area, 0.4, '#ffffff', k)` + `areaFx(…, TIME, k · 0.7, 0.04)` + `xslash(fx, x, y, 0.5, 50 + 10·seq, '#ffffff', k, 0, diag ? 0 : π/4)` + `hands(fx, s, 1 + 0.15·seq)` + Glass 6; 두 십자를 `spots(echoKey)`에 기억 · impact `s => ({ shake: 2.5 + 0.5 * s.seq, flash: 0.5 })` · motif `clock`.
+- `stop`: alias `{ key: 'chrono_d:stop', k: 1.4 }` + land `clock(fx, x, y, 4, 0.3, '#ffffff', k).flip = 0` + `crackFx(x, y, 4, 12, '#ffffff', k, { dur: 0.6 })` + Glass 24 + `rings(0.5, 5, 3, 0.4, '#ffffff')` + 기억한 십자마다 팔 빛줄기(흰 w 0.8, 0.25초) · charge `{ vignette: 0.3, vignetteColor: '#1c2259', vignetteLead: 0.3 }` · finisher `{ screenColor: '#c9d1ff', tailColor: '#1c2259', sparks: 30 }` · motif `clock`.
+- 예산 어림: ★ 입자 ≈ 115, SkillFx ≈ 20.
+- 끔(22차): `chrono_ud:rewind`(고리) · `chrono_ud:stasis`(순서 3) 강조 그대로, `echo` · `stop`은 기본 물결. 소리는 22차 경로(그때는 정지 저역 필터도 22차처럼 있음).
+
+#### 8-3-끝. 정리
+
+| | ★ (전 → 이번) | 중간 멈춤 (★까지) | `touchdownStop` | 데이터 바뀜 | 그림 · 소리만 |
+|---|---|---|---|---|---|
+| 섀도우 드래그 | 1.5 → 1.5 | `clone` .04 (1.05초) | 0 (그대로) | 부분 전부(먹물 진 · 베기 여섯 · ★ 반경 3 + 기절), 미끄러짐 · X 없앰 | 먹물 번짐, 분신 서기, 남는 낙인 줄, 본체 숨김, 낮은 큰 달, 줄 동시 폭발 |
+| 레인저 조준 | 2.3 → 1.9 | `mark` .045 (1.45초) | — | `mark` 추가, 연사 · 5번 화살비 → 좁혀 오는 화살비 셋, ★ 600% + 기절 | 굵은 화살, 빛의 매(날개 셋), 금빛 기둥, 화살 왕관 |
+| 레인저 드래그 | 1.25 → 1.5 | 없음 | 기본 50 | 연사 7, `pin` 추가, ★ 폭 2.2 + 넉백 | 굵은 세 줄, 삼각 포박 줄, 저격 어둠, 매 셋, 충격 터널, 베인 자국 |
+| 바드 드래그 | 1.1 → 1.65 | `beat1` .04 (1.2초) | 0 (그대로) | 띠 → 원(3 · 4.5 · 6), 아군 원 6, ★ 원 6 + 넉백 · 기절 | 조명 넷, 이퀄라이저, 콩 뜀, 쉼표 어둠, 공명 줄 |
+| 크로노 드래그 | 1.2 → 1.65 | `rift` .04 (1.2초) | 0 (그대로) | 되감기 피해, 정지 1초, `echo` 둘 추가, ★ 원 4 · 200% | 큰 바닥 시계, 필름 줄, 흰 사본, 색 돌아옴, 시계판 깨짐, 남색 여운 |
+
+### 8-4. 충전 버튼
+
+| 항목 | 정한 것 |
+|---|---|
+| 어디 | `.hud-bc` 안, `.ult`의 **형제**(자식이면 누르는 순간 궁극기 손짓이 시작됨). DOM에서는 `.ult` 뒤(CSS `~` 선택자). 논리 px(1280×720): 궁극기 x 577 ~ 703 · y 564 ~ 690 → **충전 x 727 ~ 807 · y 587 ~ 667**(지름 80, 가운데 (767, 627) = 궁극기와 같은 높이, 24px 떨어짐). 폰(×0.54): 지름 43 CSS px + 둘레 10 논리 px 터치 여유 |
+| 다른 것과의 거리 | 궁극기 누름 여유(`BUTTON_SLACK` 6 CSS px ≈ 11 논리 px, x ≤ 714)보다 바깥. 펫 카드 3장일 때 첫 장 x 876 → 69px. 궁극기 이름 줄 y 692 ~(버튼 아래). 「조준 / 드래그」 표시 x 600 ~ 680(위). 캐릭터 카드 x ≤ 436. 겹치는 것 없음 |
+| 생김새 | 진보라 원(`radial-gradient(#3b2f6b, #171230)`), 테두리 4px `#b49cff`(궁극기 테스트 색). 가운데 「충전」 22px 굵게(폰 `.is-small` 24px) `#f1ebff`. 오른쪽 위에 금빛 작은 원 「+」 배지(26px). `aria-label` · `title` 「궁극기 게이지 채우기 (궁극기 테스트)」 |
+| 하는 일 | 디버그 「궁극기 충전」과 같은 명령 `{ type: 'debug', action: { kind: 'chargeUlt', player: 내 번호 } }` → `fillUlts`: **내 세 캐릭터 모두** 가득(필드 · 대기). 봇 · 다른 사람은 그대로 |
+| 누른 느낌 | `ui.tap` + 버튼 `is-pop`(0.35초, 1 → 1.12 → 1 + 금빛 빛). 궁극기 원호가 꽉 차고(지금 0.15초 전환) 「끌기!」 / 「탭!」. 필드 게이지가 비어 있었으면 `ultReady` 이벤트로 `ult.ready` 종소리가 저절로 남. **성공 알림 없음**(22차 통합: 디버그 알림이 손가락 꼬리표를 덮었음). 거절되면 `ui.ult.denied` + 이유 알림. (**24차 검토**: 버튼에 `data-sfx=""` — 앱 전체 클릭 소리 `ui.tap`이 더해지지 않게, 0.3초 안 두 번째 누름은 소리 없음) |
+| 흐리게 | 내 세 캐릭터 게이지(`memberUltGauge`)가 모두 1 이상이면 `is-full`(알파 0.45, 테두리 `#6b6290`), 눌러도 명령 없음. 필드만 가득이면 그대로 누를 수 있음(대기 캐릭터를 채움). (**24차 검토**: 흐린 버튼을 누르면 `ui.refuse` — `data-sfx`) |
+| 숨김 | 궁극기 테스트가 아니면 **아예 만들지 않음**(HUD 생성자에서 `game.state.mode === 'ultTest'`일 때만 — 클래식 · 원정 · 레이드 HUD는 DOM까지 그대로). 전투 단계가 아니거나(보상 · 괴담 방 · 결과) 관전 중(`me.out`)이면 `is-hidden` |
+| 잠깐 흐리게 | 궁극기를 겨누는 동안(`.ult.is-aiming ~ .ult-charge`), 카드를 끄는 동안(`.hud.is-drag .ult-charge`) 알파 0.25 · `pointer-events: none`(CSS만) |
+| 궁극기 손짓과 안 부딪힘 | ① 형제라 버튼의 누름이 궁극기로 가지 않음. ② 겨누는 동안 포인터가 궁극기 버튼에 잡혀 있어(`setPointerCapture`) 손가락이 충전 버튼 위로 가거나 거기서 떼도 충전 버튼은 클릭을 못 받음 — 거기서 떼면 지금처럼 「궁극기 취소 · 게이지는 그대로」. ③ 충전은 `click`으로만(손 뗄 때), `pointerdown`은 `stopPropagation`, `touch-action: manipulation`. ④ 0.3초 안에 다시 누르면 무시 |
+| 혼자 | `game.dispatch` 그대로(디버그 판을 열 필요 없음) |
+| 멀티 | 명령 모양 그대로 — **프로토콜 8 유지**. 지금은 디버그가 클라이언트 · 서버 모두 방장 전용이라 두 줄만 고침(아래). 궁극기 테스트 방의 `chargeUlt`만 손님에게 열림. 서버는 이미 `PER_PLAYER_DEBUG`로 보낸 사람 자리에 꽂음(남의 게이지 안 바뀜). 다른 디버그 명령과 다른 모드 방은 지금처럼 방장만. 옛 서버면 손님은 「방장만 할 수 있어요」 알림만 받음 |
+| 디버그 판 | 「궁극기 충전」 단추는 그대로 둠 |
+
+멀티 두 줄:
+```ts
+// src/net/remoteGame.ts dispatch, case 'debug' / 'tunables' (L259–261)
+r = this.isHost || (cmd.type === 'debug' && cmd.action.kind === 'chargeUlt' && s.mode === 'ultTest') ? ok : fail('방장만 할 수 있어요');
+// server/room.ts, case 'debug' (L418)
+if (!isHost && !(cmd.action.kind === 'chargeUlt' && this.variant === 'ultTest')) return fail('방장만 할 수 있어요');
+```
+
+HUD · 연결:
+```ts
+// src/ui/hud.ts
+export interface HudCallbacks { /* … */ /** 기획 24차 궁극기 테스트: the 「충전」 button (fill my three gauges). */ onUltCharge?(): void }
+// constructor, right after this.ultMode — only when s.mode === 'ultTest':
+//   this.ultCharge = h('button', 'ult-charge', bc, '충전') + h('span', 'ult-charge-badge', …, '+'); aria-label / title
+//   pointerdown → ev.stopPropagation(); click → (0.3 s guard, not .is-full) cb.onUltCharge?.(), class 'is-pop' for 350 ms
+// updateUlt: show(ultCharge, s.phase === 'combat' && !me.out); setClass(ultCharge, 'is-full', every memberUltGauge(me, i).charge >= 1)
+
+// src/ui/app.ts hudCallbacks
+onUltCharge: () => chargeMyUlt(),
+// chargeMyUlt: game && screen is combat && !paused && !menuOpen →
+//   r = game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: localPlayer } });
+//   sfx.ui(r.ok ? 'ui.tap' : 'ui.ult.denied'); if (!r.ok) hud.toast(r.reason ?? '충전할 수 없어요', 'warn')
+```
+
+```css
+/* src/ui/ultTest.css — 기획 24차: 「충전」 next to the ult button (built only in 궁극기 테스트) */
+.ult-charge {
+  position: absolute;
+  left: calc(50% + 87px); /* the ult's right edge (50% + 63) + 24 */
+  top: 23px; /* centred on the ult (63 − 40) */
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, #3b2f6b 0%, #171230 75%);
+  border: 4px solid #b49cff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  color: #f1ebff;
+  font-size: 22px;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  transition: opacity 0.15s, transform 0.08s;
+}
+.ult-charge::before { content: ''; position: absolute; inset: -10px; border-radius: 50%; } /* a bigger touch target */
+.ult-charge-badge {
+  position: absolute; right: -4px; top: -4px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--gold); color: #2a210c; font-size: 20px; line-height: 26px; text-align: center; pointer-events: none;
+}
+.stage.is-small .ult-charge { font-size: 24px; }
+.ult-charge:active { transform: scale(0.92); }
+.ult-charge.is-full { opacity: 0.45; border-color: #6b6290; color: #9a90b8; }
+.ult-charge.is-pop { animation: ultChargePop 0.35s ease-out; }
+@keyframes ultChargePop {
+  40% { transform: scale(1.12); box-shadow: 0 0 24px rgba(255, 209, 102, 0.9); }
+}
+.ult.is-aiming ~ .ult-charge,
+.hud.is-drag .ult-charge { opacity: 0.25; pointer-events: none; }
+```
+
+### 8-5. 기술 설계 (Technical design)
+
+#### 8-5-1. Tracks, order, file ownership
+
+All four tracks start at once in one working tree. CORE does its **step C1 first** (the API of 8-5-2 with the two shims, small) so GROUP-B's `tailColor` typechecks; the content tracks code against 8-5-2 meanwhile. UI is independent. Subagents never commit; each runs its own tests (Playwright with its own outDir and `E2E_OUT`, `E2E_PORT`, `E2E_RESULTS`).
+
+| Track | Owns (only these files) |
+|---|---|
+| CORE | `src/render/ultTest/{grammar,core,theme,settings,kit,index}.ts`; hooks in `src/render/index.ts` (the frozen-frame warning redraw only), `src/render/cutin.ts` (`CutIn.noSeal` only), `src/render/vfx.ts` (`ultCutIn` sets `noSeal`; comments); `src/data/ultTest/beats.ts` (no change expected); tests `tests/render/ult-fx-core.test.ts` (**never** `TABLES_22`), `tests/render/ult-test-render.test.ts` (fake canvas methods only, if the impact frame needs one) |
+| GROUP-A | `src/data/ultTest/groupA.ts`, `src/render/ultTest/groupA.ts`, `tests/sim/ult-test-groupA.test.ts`, `tests/render/ult-fx-groupA.test.ts` — A12′ A13′ A14′, delete the 15 `glyph` keys |
+| GROUP-B | `src/data/ultTest/groupB.ts`, `src/render/ultTest/groupB.ts`, `tests/sim/ult-test-groupB.test.ts`, `tests/render/ult-fx-groupB.test.ts` — B10′ B12′, 퇴마사 8-2-3, delete the 14 `glyph` keys and the `glyphFx` import |
+| UI | `src/ui/hud.ts`, `src/ui/ultTest.css`, `src/ui/app.ts`, `src/net/remoteGame.ts`, `server/room.ts`; tests `tests/e2e/ult-test.spec.ts`, `tests/e2e/multi-ult-test.spec.ts`, `tests/net/ult-test.test.ts`, `tests/net/remoteGame.test.ts`; NEW `tests/visual/ult-charge-shot.mjs` (phone picture of the button) |
+| INTEGRATION (main session) | after the four: deletes the two shims (`FinisherSpec.glyph?`, kit's `glyphFx` re-export), turns on the source-scan guard if it was skipped, the shared docs, full checks, sheets / videos / screenshot by eye, then commit + push + artifact |
+
+Rules (as 4-1): group tracks import render helpers only from `kit.ts` (a missing helper is written privately in the group file — `skyZ`, `beat`, `cutLines` …); data files stay pure (no `Math.random` / `Date`); today's tables get no new keys; every new stage name has an `sfx` cue in its alt's data; every picture inside its footprint (2-9) except airborne ones (moon, wings) and thin white rings; screen effects only `if (s.local)`.
+
+#### 8-5-2. CORE API (what the content tracks may rely on)
+
+```ts
+// ── grammar.ts ──
+export interface FinisherSpec {
+  kind: 'strike' | 'bless';
+  stopMs: number; stopCapMs: number; shake: number; shakeDur: number; tail: number; tailDur: number;
+  screen: number; screenColor: string; breath: number; zoom: number; speedLines: boolean;
+  /** 24차 충격 프레임 (mine only): the dark cut's alpha at the blow (0 = none). Strike 0.65, bless 0. */
+  impact: number;
+  /** 24차 충격 프레임 (mine only): the white star burst's size × (0 = none). Strike 1, bless 0.8. */
+  burst: number;
+  /** 24차: the edge tint after the blow ('' = the theme's vignetteColor; 크로노 드래그 '#1c2259'). */
+  tailColor: string;
+  flash: number; star: number; rings: number; pillar: boolean;
+  sparks: number; debris: number; embers: number; hitMarks: number;
+  /** @deprecated 24차 shim — ignored; deleted at integration once no group file sets it. */
+  glyph?: string | null;
+}
+// REMOVED: glyphPx, ultGlyph(). ultFinisher: `if (s.local && (sp.impact > 0 || sp.burst > 0)) pushImpact(...)` where the glyph was;
+// the tail: h.screen.vignette(sp.tailColor || th.vignetteColor, 0.4, 0.6, 0).
+// R px = clamp(roundR(area) × PX_PER_UNIT × IMPACT.rK, IMPACT.rMin, IMPACT.rMax) × burst; point = ultFocus, height 0.6.
+
+// ── theme.ts ──
+export interface UltBurst { spikes: number; jag: number; tilt: number; ink: string }   // the 8-2-2 table
+export interface UltTheme { burst: UltBurst; screenColor: string; vignetteColor: string; vignette: number; spark: Pk; decal: DecalKind; decalColor: string; ember: Pk }
+
+// ── core.ts (core-internal; tests read them) ──
+export const IMPACT = {
+  cut: 0.05, cutFade: 0.06, cutAlpha: 0.65, gap: 1.0,           // the dark cut; at most once per gap s (real clock)
+  slam: 0.06, slamFrom: 1.6, hold: 0.12, out: 0.2, grow: 1.35,  // the star
+  rMin: 120, rMax: 220, rK: 1.1, inner: 0.42, innerFew: 0.18, rim: 6,
+  flareAt: 0.02, flareSec: 0.2, flareW: 1100, flareH: 10, flareV: 280, flareVH: 6,
+  ring1: [60, 480, 22, 2, 0.32], ring2: [40, 360, 10, 1, 0.3], ring2At: 0.06, ringAt: 0.03,
+  busy: 0.74, x0: 100, x1: 1180, y0: 160, y1: 620,
+} as const;
+/** Mine only (the grammar calls it after its `s.local` check); a new one replaces the old. cut = the dark-cut alpha (core
+ *  zeroes it for the 1 s gap / hit-stop setting 0 / reduced motion); points of the star computed once (Math.random jag). */
+export function pushImpact(x: number, y: number, rPx: number, charId: string, theme: UltTheme, color: string, cut: number, burst: number): void;
+export function ultImpactOf(): string | null;   // tests: the char id of my impact frame while it is up (replaces ultStampText)
+export function ultImpactCut(): boolean;        // the dark cut is on this frame (render/index.ts drawFrozen redraws the warnings)
+export function ultScreenBusy(): boolean;       // impact (≤ IMPACT.busy s) or speed lines up
+export function ultCoreCounts(): { locks: number; sights: number; impact: boolean; cut: boolean; lines: boolean; pending: number };
+// REMOVED: Stamp, pushGlyph, GLYPH, drawStamp, ultStampText, smallStamps. drawImpact runs FIRST in drawUltScreen.
+
+// ── kit.ts ── − ultGlyph (C1), − glyphFx (integration), + `export type { FocusShape } from '../cutin'` (A14′'s 저격 어둠)
+// ── cutin.ts / vfx.ts ── CutIn.noSeal = false (reset in start()); drawBand: `if (ink && !this.noSeal) sealStamp(…)`;
+//    Vfx.ultCutIn (mine, boost, alt): cut.noSeal = true
+// ── render/index.ts drawFrozen ── after drawUltScreen: if (state.mode === 'ultTest' && ULT_FX.boost && ultImpactCut())
+//    { save; translate(shake o); the live path's zoom if vfx.juice.zoomAt(ZOOM); drawEnemyDanger(state); restore }
+```
+
+What the content tracks need from CORE: (1) nothing to remove their `glyph` keys (the shim keeps either state compiling); (2) `tailColor` (GROUP-B, B12′) — lands in C1; (3) their render tests switch `ultStampText()` → `ultImpactOf() === charId` and drop `ultTheme(c).glyph`. Everything else they use is already in `kit.ts`: `Fx.Moon` / `Fx.Wings` / `Fx.Brand`, `fallAt`, `tetherFx` (`TetherStyle.Electric` / `Dotted` / `Thread`), `lightPillar`, `crosshairFx`, `boltFx`, `scorchFx`, `areaFx`, `rings`, `pillar`, `clock`, `notes`, `arrow`, `beam`, `slash`, `xslash`, `crackFx`, `beamAlong`, `footAlong`, `randomIn`, `ultAngle`, `ultSpeedLines`, `UltHost.{laterSim, later, hideFor, drop, hop, afterimage, implode, memo, screen.focusDim / desaturate / vignette}`.
+
+#### 8-5-3. Shared files — who edits what
+
+| File | Who | What |
+|---|---|---|
+| `src/data/ultTest/beats.ts` | CORE only — no change expected | the new stage names get their roles from today's rules (`clone` / `mark` / `volley` / `beat1` / `rift` opener, the rest build, the finale finisher). A content track that finds a wrong role reports it |
+| `src/data/ultTest/types.ts`, `index.ts` | nobody | `UltCue` already covers every new cue |
+| `src/audio/director.ts` | nobody (the main session only, if a check shows a need) | every new sound is data `sfx`; the 크로노 정지 lowpass is solved by the plain-cue override in data |
+| `src/render/stagefx.ts`, `castfx.ts`, `fxparts.ts`, `marks.ts`, `impact.ts`, `src/audio/stages.ts` | nobody | today's tables and today's looks never change |
+| `docs/ult-fx.md` | main session | after integration: 8-8 「만든 결과 — 설계와 다른 점」, pointers 「→ 8장」 on 2-2 (큰 글자 row), 2-3 (큰 글자 paragraph, 캐릭터 표 글자 칸), 4-4 (`glyph`) and the 3장 rows A12 · A13 · A14 · B10 · B12 |
+| `docs/ult-test.md` 7-1, `docs/game-design.md` §37 (24차), `CLAUDE.md` | main session | the five names / descriptions; the 24차 decisions; the 23차 code-map line (hanja list → 충격 프레임) + one line for the charge button + §37 in the round list |
+| `docs/screenshots/*` | main session (sheets) · UI (writes the button-shot script; the main session runs it) | |
+
+#### 8-5-4. Notes for the tracks
+
+- CORE: the dark cut, the star and the rings are one record (`impact`), drawn on the real clock; keep the record `IMPACT.busy` s so `ultScreenBusy()` keeps the 23차 window (glyph slam 0.09 + hold 0.35 + fade 0.3). The star's screen point clamps into x0–x1 / y0–y1 like the glyph did, but stays ON the blow (no 「위로 70px」 offset). Count nothing toward the particle / SkillFx budgets (screen layer).
+- CORE: the 1 s gate uses the same real clock as `Juice.finisherStop`'s gap; reduced motion = `prefersReducedMotion()`; `FX_LOAD.low` read at push.
+- GROUP-A: `moonCut` gets a slash-size parameter (default 130 keeps 섀도우 조준 as it is). The shadow's clones are afterimages: check they draw while the body is hidden (`hideFor`) — if not, start the hide after the clones are pushed.
+- GROUP-A: `skyZ` formula in 8-3 공통; the wings' / moon's top must stay under logical y 110 with a fixed boss on the top row (check on the phone sheet with `boss=` a top-centre boss).
+- GROUP-B: `spots()` keys: `${src}|${skillId}|lights` (bard), `${src}|${skillId}|echo` (chrono), cleared at seq 0 / the touchdown.
+- GROUP-B: the chrono `stasis` override must be a plain cue (no `special`) — `UltCue` has no `special` field, so any override drops the lowpass and the 1 s tocks (the `echo` tocks replace them).
+- UI: the button is built only when `game.state.mode === 'ultTest'` at HUD construction; a multi room's first snapshot already carries `mode` (variant rooms send it).
+
+### 8-6. 테스트 · 확인 계획
+
+**단위 테스트 (반드시 통과)**
+
+CORE — `tests/render/ult-fx-core.test.ts` (`TABLES_22`는 손대지 않음):
+1. 충격 프레임: 내 마무리 → `ultImpactOf() === charId`, 어둠 컷 켜짐(`ultCoreCounts().cut`), 0.74초 뒤 기록 꺼짐(24차 검토: 실제 마무리면 0.74초 + 그 멈춤). 다른 사람 · 봇 → 없음. 축복 → 어둠 컷 없이 별만. 1초 안 두 번째 내 마무리 → 어둠 컷 없음(별은 있음). 멈춤 설정 0 → 어둠 컷 없음. 동작 줄이기 → 어둠 컷 · 빛줄기 없음, 쾅 없음. `FX_LOAD.low` → 빛줄기 · 둘째 고리 없음.
+2. 경고: 살아 있는 화면에서 충격 프레임 위에 적 경고(23차 「경고가 글자 위」 테스트를 바꿈 — 기록 캔버스의 표식 `'城'` → 어둠 컷의 `fillStyle`). 멈춘 화면(`drawFrozen`)에서도 어둠 컷 동안 경고가 그 위에, 흔들림 · 5% 확대 변환을 따라(24차 검토: 기록이 있는 멈춘 프레임 모두 — 멈춤 150ms에서 컷 뒤 프레임도, 멈춤 중 새로 뜬 여러 칸 패턴은 순서대로).
+3. 테마: 15캐릭터 모두 `burst`(갈래 ≥ 2, 어둠색 밝기 < 0.1), 어느 칸에도 한자 없음. 2-3 표의 나머지 칸 그대로.
+4. 여운 색: `finisher.tailColor`가 있으면 그 색 비네트.
+5. **글자 없음 가드** (새):
+   - 소스: `src/render/ultTest/*.ts`의 코드 줄(주석 빼고)에 `glyphFx` · `ultGlyph` · `fillText` · `strokeText` · 한자가 든 문자열이 없음.
+   - 그려 보기: 30개 × 조준 · 드래그 × 강화 켬 · 끔 × (내 것, 봇) 시전 뒤 6초 동안 `Fx.Glyph` 효과가 하나도 안 생김(`SkillFx.add` 감시), `drawUltScreen`이 `fillText` · `strokeText`를 한 번도 안 부름.
+   - 컷인: 내 `exorcist_ua`(강화 켬) → `cutin.noSeal === true`. 강화 끔 · 클래식 퇴마사 궁극기 → `false`.
+   - (♬은 `Fx.Staff` 음표라 이 가드에 걸리지 않음, 8-2-4.)
+6. 그대로: 클래식 · 레이드에서 대체 궁극기 경로 안 돎(지금 테스트), `classic-look` 해시 · 골든 · 결정성 그대로.
+
+GROUP A:
+- `tests/sim/ult-test-groupA.test.ts`:
+  - L543 단계 목록 → 섀도우 드래그 `['clone', 'dance', 'dance', 'dance', 'dance', 'dance', 'dance', 'moon']`, 레인저 드래그 `['volley', 'pin', 'pierce']`, 레인저 조준 `['mark', 'rain', 'rain', 'rain', 'skyshot']`.
+  - finale 시각: `shadow_ud` 1.5 · `ranger_ua` 1.9 · `ranger_ud` 1.5. 미끄러짐이 없어졌으니 L433의 `shadow` 예외(드래그 뒤 몸 = 착지 자리)는 지움(통과 확인).
+  - 고정 보스에 실제 시전: 모든 적 부분이 보스를 맞힘(`targets ≥ 1`), 미리보기 = 착지(따라가는 부분 빼고), 설명 규칙, 봇이 60초 안에 같은 방식으로 두 번.
+- `tests/render/ult-fx-groupA.test.ts`:
+  - 「마무리 이야기 + 글자」(L147–153) → 「마무리 이야기가 있고 `finisher`에 `glyph` 키 없음」.
+  - 이야기 열쇠 목록(L43–46): `shadow_ud:vanish` · `shadow_ud:execute` 빼고 `shadow_ud:dance` 더함(`shadow_ud:clone` · `shadow_ud:moon`은 그대로), `ranger_ua:barrage` 빼고 `ranger_ua:mark` 더함, `ranger_ud:pin` 더함.
+  - 세 개의 예산(입자 ≤ 150 · 효과 ≤ 40 · 자국 ≤ 6), 멈춤 규칙, 200프레임 오류 없음(소리 감독 붙여서), 내 마무리에 `ultImpactOf()`가 `'shadow'` / `'ranger'`.
+
+GROUP B:
+- `tests/sim/ult-test-groupB.test.ts`:
+  - finale 표에 `bard_ud` 1.65 · `chrono_ud` 1.65 추가.
+  - L557–576 바드 드래그 → 원(3 · 4.5 · 6) + 피날레 6, 적 단계 `['beat1', 'beat2', 'beat3', 'forte']` 모두 보스 맞힘, 반경 6 안 아군 버프, 회전 안 함.
+  - L614–635 크로노 드래그 → 1.75초까지 진행, `stasis` 순서 [3], `echo` [4, 5], `stop` [6], 보스 정지 · 받는 피해 +20%, 2초 더 가면 `stasisEnd` 되돌림.
+  - 설명 길이(오늘 가장 긴 설명의 1.5배 이하) · 숫자 규칙, `target` 안 씀.
+- `tests/render/ult-fx-groupB.test.ts`:
+  - L98 `GLYPH` 표 · L169–173 · L279–294 → `ultImpactOf() === charId`.
+  - 두 개의 예산 · 멈춤 · 200프레임.
+  - 퇴마사 조준 · 드래그 시전 중 `Fx.Glyph` 0개.
+  - 크로노 드래그 ★ 프레임에는 색 빠짐이 끝나 있음.
+
+UI · 넷:
+- `tests/net/ult-test.test.ts`: 궁극기 테스트 방 손님의 `chargeUlt` → ok, 그 손님 게이지만 가득(방장 · 봇 그대로). 클래식 방 손님 → 「방장만 할 수 있어요」. 궁극기 테스트 방 손님의 다른 디버그(`ultMode`, `killAll`) → 여전히 거절.
+- `tests/net/remoteGame.test.ts`: 손님 클라이언트의 `chargeUlt`(궁극기 테스트 방) → 보냄, `killAll` → 「방장만 할 수 있어요」.
+- `tests/e2e/ult-test.spec.ts` (폰 · 데스크톱):
+  - 버튼이 궁극기 테스트 전투에만 보임(같은 파일에서 클래식 게임을 하나 열어 `.ult-charge` 없음 확인).
+  - 누르면 `.ult.is-full` + 「끌기!」, 알림 없음. 세 게이지가 다 차면 `is-full`(흐림).
+  - 궁극기를 겨누는 동안 흐리고 못 누름. 궁극기를 끌어 버튼 위에서 떼면 취소(게이지 그대로, 충전 명령 없음). 버튼을 눌러 궁극기 위로 밀어도 조준이 시작되지 않음.
+  - 버튼 상자가 궁극기 누름 상자(+ 여유) · 캐릭터 카드 · 펫 카드 · 궁극기 이름과 안 겹침(844×390, 카드 3 · 펫 3, 가장 긴 대체 궁극기 이름 — **24차 검토**: 「매의 화살비 · 천공 강하」가 아니라 거너 드래그 「펌프 버스트 · 대구경 슬러그」. 테스트는 30개 이름을 화면의 `.ult-name`에 넣어 재고 가장 넓은 것을 씀).
+- `tests/e2e/multi-ult-test.spec.ts` (3인): 손님 B가 누르면 B 게이지만 가득(A · 봇 그대로). 지금 확인(★ 경고가 세 화면 같은 자리)은 유지.
+
+**그림 · 영상 · 귀** (통합에서 눈으로 읽음):
+- `node tests/visual/ult-test-sheet.mjs` → 30줄(`docs/screenshots/ult-test-sheet-{aim,drag}*.png`):
+  - 「마무리 + 0.05초」 칸에 글자가 없고 충격 프레임(캐릭터 모양 별)이 보이며 그 줄에서 가장 큰 그림인지.
+  - 섀도우 달 · 레인저 날개가 보스 막대 아래에 보이는지, 바드 조명이 서 보이는지, 크로노 ★가 색이 돌아온 화면인지.
+  - 퇴마사 두 줄에 封 · 印 · 滅이 없는지.
+- `node tests/visual/ult-fx-video.mjs only=shadow_ud,ranger_ua,ranger_ud,bard_ud,chrono_ud` + `only=guardian_ud,exorcist_ua,blade_ua`(충격 프레임 세 모양 · 퇴마사 글자 없음) + 섀도우 드래그 · 레인저 조준을 위쪽 고정 보스(`boss=`)에 한 번씩 → `test-results/ult-fx-video/*.webm`를 보내 드림.
+- `node tests/visual/ult-charge-shot.mjs` → `docs/screenshots/ult-charge-button.png`(폰 844×390, 누르기 전 · 뒤).
+- 강화 끔: 다섯 개를 끔으로 시전해 22차 강조(8-3 각 「끔」 줄)가 나오고 오류가 없는지.
+- 귀(게임에서): 크로노 드래그 ★가 먹먹하지 않은지, 섀도우 베기 여섯 · 레인저 화살비 셋 · 바드 셋째 박이 겹쳐 시끄럽지 않은지. 새 파일이 없어 `npm run sfx:preview`는 필요 없음. 크로노 조준(B11)도 정지 저역 필터가 ★(2.3초)를 덮는지 함께 들어 봄 — 덮으면 다음 차 질문(이번 범위 밖). (**24차 검토**: 그 필터는 효과음 버스만 막음 — ★ 소리 같은 `ult.` · `drag.` 소리(영웅 버스)는 안 막음.)
+
+**전체 점검** (CLAUDE.md): `npx tsc --noEmit && npm run typecheck:server && npx vitest run` · `npm run build:all && npm run build:artifact`(16MB 아래, 새 소리 파일 없음) · `npx playwright test`(폰 · 데스크톱 · 멀티, 3인 포함. PC가 바쁘면 3인만 다시).
+
+### 8-7. 판단 근거
+
+설계안 ① = 궁극기별 이야기, ② = 손맛과 폰 안전, ③ = 장르 문법. 기준은 폰에서 느껴지는 화려함, 캐릭터다움, 읽히는지, 지킬 것을 깰 위험, 코드 양.
+
+| # | 부딪힌 점 | 고른 것 | 이유 |
+|---|---|---|---|
+| ① | 글자 대신: ① 어둠 컷 + 캐릭터 모양 별 + 빛줄기 + 고리 둘 / ② 고리 하나 / ③ 색 반전(difference) + 모두 같은 14갈래 문장 | **①**(어둠 72% → 65%) + ③의 1초 제한 · 설정 규칙 · 별 쾅(1.6 → 1배) · 가시 늘며 사라짐 + ②의 0.74초 경고 창 | 0.13초 멈춘 화면을 채울 덩어리가 필요함(② 밋밋). 색 반전은 적 경고와 캐릭터 색까지 뒤집고 폰 합성 비용이 불확실함. 캐릭터별 갈래 모양이 글자처럼 「누구의 한 방인지」를 보여 줌 |
+| ② | 다른 사람 · 봇: ③ 작은 문장 / ①② 없음 | **없음** | 「남의 것은 흐리게」. 땅 위 그림과 번쩍 절반으로 충분 |
+| ③ | 퇴마사 컷인 낙관 封: ①② 그대로 / ③ 궁극기 테스트 조준에서만 지움 | **③** | 「글자가 나오는거 별로」에 맞음. 기본값 false라 클래식 그림 해시 그대로 |
+| ④ | 멈춘 화면의 경고: ①은 「다시 그림」이라 썼지만 지금 `drawFrozen`엔 없음 / ③ 새로 넣음 | **③** | 어둠 컷이 멈춘 첫 화면을 덮으므로 필요. 궁극기 테스트 · 강화 켬에서만 |
+| ⑤ | 섀도우 드래그: ① 모서리 분신 넷 + X + 달 / ② 분신 여섯 점점 빠르게 + X + 달 / ③ 먹물 진 + 베기 여섯(낙인 줄 남김) + 정적 + 달과 함께 줄 폭발 | **③ 바탕** + ②의 점점 빨라지는 간격 · 커지는 베기 · 단계 이름 `dance`(오늘 행 소리 — 끔에서도 맞음) + ①의 낮은 달 높이 | 「베어 둔 것이 한꺼번에 터짐」이 가장 큰 한 방이고, 정적이 마무리를 키움. X 처형은 정적을 깨서 뺌. 이름은 「처형」을 남겨 「흑월 대처형진」 |
+| ⑥ | 레인저 조준: ① 표적 + 좁혀 오는 화살비 셋 + 빛의 매(날개) / ② 소용돌이 연사 12 + 가로지르는 흰 줄 매 / ③ 신호 화살 + 연사 7 + 화살비 6 + 땅 위 매 그림자 | **① 바탕** + ②의 화살 왕관 8 · 굵은 화살 + ③의 이름 · 바람 소리(`ult.ranger.tick`) + 날개 세 장 잔상(새로) | 좁혀 오는 고리가 「어디로 떨어지나」를 폰에서 가장 잘 보여 줌. ③의 그림자(알파 0.24)는 폰에서 거의 안 보이고 따로 그리는 코드가 필요. ②의 흰 줄은 매로 안 읽힘 |
+| ⑦ | 레인저 드래그: ① 세 줄이 대상 한 점으로 + 매 날개 / ② 9연사 + 충격 터널 · 반동 / ③ 연사 7 + 포박 + 쏠 줄만 밝게 + 매 그림자 | **③ 바탕**(포박 · 저격 어둠) + ①의 띠 따라 날아가는 빛의 매 + ②의 충격 터널 · 반동 잔상 · 베인 자국 · 세 줄 번갈이 | 「숨 → 쏨」의 저격 문법이 한 방을 가장 크게 만듦. 띠가 길어(반대각선 8.1 > 6) 공통 숨 고르기가 꺼지는 빈자리를 띠 모양 어둠이 채움 |
+| ⑧ | 바드 드래그: ① 둥근 무대 + 스피커 셋(삼각형) / ② 띠 유지 + 소리 벽 + 폭 9 피날레 / ③ 커지는 음파 셋 + 조명 + 쉼표 + 드롭 | **③ 바탕** + ①의 공명 줄(조명 → 가운데) | 「하나 · 둘 · 셋 · 쉼 · 드롭」이 음악적이고 한눈에 읽힘. ② 띠는 납작함의 원인이 그대로 남고 폭 9 아군 예고가 화면 절반을 덮음 |
+| ⑨ | 바드 피해: ③ 새 50% + 30% 둔화 2초 | 지금 `BARD_UD_HIT`(60% + 40% 둔화 3초) 그대로 | 바꿀 이유가 없고 설명 · 테스트가 덜 바뀜 |
+| ⑩ | 크로노 드래그: ① 정지 1초 + 역행 X, 회색 없음 / ② 되풀이 둘 + ★ 1.35 + 색 돌아옴 + 남색 여운 / ③ 되풀이 X → + + ★ 1.65 시계판 깨짐 + 색 돌아옴 | **③ 바탕** + ②의 남색 물듦 · 남색 여운(`tailColor`) · 화면색 `#c9d1ff` + ①의 바늘 감기는 소리(`drag.chrono.wind` lead 0.45) | 조준(멈춤 → 재개)과 겹치지 않는 「되감고 되풀이」. 회색 → 색이 돌아오는 순간이 ★. 흰 번쩍 + 흰 비네트(회색 판)를 남색으로 끊음 |
+| ⑪ | 크로노 정지 소리: 세 안 모두 행 `ult.chrono.stasis`(정지 길이 + 0.4초 저역 필터) | **데이터에서 필터 없는 소리로 덮어씀** | 필터가 ★(1.65초) 소리를 먹먹하게 함(23차에도 ★가 정지와 같은 순간이었음). **24차 검토로 바로잡음**: 필터는 효과음 버스만 막아 ★ 소리(`drag.chrono.stop`, 영웅 버스)는 원래 안 막혔음 — 덮어써서 얻은 것은 맞는 소리들의 둔함 · 1초 똑딱이 없어진 것. ★를 가장 크게 하는 일은 소리 크기(정지 −8 · 되풀이 −10 · ★ +4)로 함 |
+| ⑫ | 충전 버튼 크기 · 자리: 72 / 80 / 64, 모두 오른쪽 | **80**(폰 43px) + 터치 여유 10 | 손가락 크기(44pt) 근처. 펫 카드와 69px |
+| ⑬ | 가득일 때: ① 못 누름(세 게이지 모두 가득 또는 전투 아님) / ② 필드만 가득이면 흐리지만 누름 / ③ 셋 다 가득이면 흐리고 명령 없음 | **③** + ②의 「전투 아님 · 관전 중이면 숨김」 | 필드만 가득이면 대기 캐릭터를 채우러 누를 수 있어야 함. 쓸 수 없는 때는 숨기는 편이 덜 헷갈림 |
+| ⑭ | 멀티 손님 | 세 안 모두 **누구나 자기 게이지**(두 줄, 프로토콜 8 그대로) | 디버그가 방장 전용이라 그대로면 손님에게 버튼이 쓸모없음. 다른 디버그 명령은 계속 방장만 |
+
+버린 것:
+- ③ 색 반전 프레임, 땅 위 매 그림자(위 ①, ⑥).
+- ①의 섀도우 X 처형 유지, ②의 섀도우 미끄러짐 없애기만 하는 안(X를 남김) — 정적과 줄 폭발이 더 큼.
+- ②의 바드 폭 9 띠 피날레, ②의 크로노 ★ 1.35초(정지와 0.4초 차라 「멈춘 세상」이 짧음).
+- ①의 「충격 프레임 기록 0.6초」 — 여운 비네트(0.72초)보다 짧아 경고가 비네트에 덮일 수 있어 ②의 0.74초.
+
+### 8-8. 만든 결과 — 설계와 다른 점 (통합 기록)
+
+설계(8-1 ~ 8-6)대로 만들었고, 아래만 다르게 했음(이유 = 보이는 곳 = 맞는 곳 · 폰에서 읽힘 · 지킬 것). 다섯 궁극기의 숫자 · 시간 · 설명 글은 8-3 그대로(데이터에서 확인), 이름은 8-1 4번 추천대로(섀도우 드래그 「흑월 대처형진」, 레인저 조준 「매의 화살비 · 천공 강하」, 바드 드래그 「공명 무대 · 피날레」, 레인저 드래그 · 크로노 드래그는 지금 이름).
+
+#### 8-8-1. 공통 (코어 · 충격 프레임)
+
+- `IMPACT`에 `z: 0.6`(별이 서는 몸 높이) 칸을 더함 — 설계는 글로만 적었음.
+- 컷인 띠 그림 저장(캐시) 열쇠에 `noSeal`을 넣음 — 안 넣으면 같은 궁극기로 「궁극기 연출 강화」를 켰다 껐다 할 때 낙관 封이 찍힌 띠 그림을 다시 쓸 수 있었음.
+- 어둠 컷의 1초 제한(`lastCut`)은 `resetUltCore`(층이 바뀜)에서 지우지 않음 — 층이 바뀌어도 1초 안에 두 번째 번쩍임이 끼지 않게. 테스트는 실제 시계를 5초 먼저 돌려 놓고 시작.
+- 설계가 말하지 않은 곳(켜 둠): 「동작 줄이기」에서도 별의 가시는 사라질 때 늘어남. 축복 마무리(지금 30개에는 없음)도 고리 · 빛줄기는 그림(어둠 컷만 없음).
+- 「글자 없음」 가드(`tests/render/ult-fx-core.test.ts` 14절): ① 소스 검사 — `src/render/ultTest/*.ts`의 코드 줄(주석을 빼는 함수와 그 함수의 테스트 포함)에 `glyphFx` · `ultGlyph` · `fillText` · `strokeText` · 한자 없음 ② 그려 보기 — 30개 × 켬/끔 × 내 것/봇(120번, 6초씩)에 `Fx.Glyph`도 화면 층 글자도 없음 ③ 대조 — 오늘 퇴마사 드래그는 印을 하나 만듦(가드가 글자를 볼 수 있다는 확인) ④ 퇴마사 조준 컷인 낙관 — 내 것 · 켬이면 없음, 끔 · 클래식이면 있음.
+- 충격 프레임 그림 확인(코어): 8캐릭터 × 6시각을 Chromium에서 그려 모양 · 시간을 눈으로 확인.
+
+#### 8-8-2. 그룹 A (섀도우 드래그 · 레인저 조준 · 드래그, 글자 키 15곳)
+
+- `skyZ`는 카메라의 정확한 비(0.6875 · 3/128)를 씀 — 설계의 반올림 값(0.687 · 42.7)이면 달이 보스 막대 안으로 0.12px 들어감.
+- 새 비공개 함수 `skyNudge`: 그림 · 테스트 보스(닫히지 않는 엘리베이터)는 y −1.2에 있음(설계는 y ≈ 3로 봄). 하한 0.6만으로는 달 빛무리가 화면 위 끝에 닿아서, 하한에 걸리면 달 · 매 날개를 카메라 쪽(화면 아래)으로 조금 내림(그 보스에서 달은 약 3.8칸). 대상이 y ≥ 2.6이면 0.
+- 레인저 드래그 `pierce`는 마무리의 방사 속도선을 끔(`finisher: { speedLines: false }`) — 공통 속도선 기록이 이야기의 「띠를 따라가는 16줄」을 덮어써서 안 보였음.
+- 레인저 조준 `skyshot`: 준비 그림 전부를 ★ 0.6초 전에 게임 시계로 한 번에 만듦(시전 때부터 기다리는 대신) — 표적의 45ms 멈춤 뒤에도 쾅에 맞고, 기다리는 효과 약 13개가 예산을 안 먹음. 그래서 남의 것은 금빛 기둥이 없음(그 순간엔 낮은 세부 표시가 꺼져 있음).
+- 섀도우 분신 자리: 분신 박자(원)는 겨눈 방향을 몰라서, 같은 시전의 베기 박자가 기록한 베기 방향을 읽음. 분신은 제 베기 때까지 서 있음. 본체가 숨은 동안(0.65 ~ 1.05초)에도 분신이 그려짐(테스트), 1.4초부터 본체 다시 보임.
+- 설계가 정하지 않은 값: 분신 고리 = 달빛색(굵기 4, 채움 0.1), 여섯째 베기의 12갈래 별 56px, 남의 매는 날개 하나(셋 대신), 저격 어둠 · 조준선은 min(0.4, 지연)만큼 먼저.
+- 높이 테스트는 날개가 실제로 그려지는 윤곽(꼭대기 = 폭의 0.47배, 약 60px)으로 잼(조절점이 아니라).
+- 예산(내 것, 시전 한 번 최고): 섀도우 드래그 입자 90 · 효과 23 · 자국 2, 레인저 조준 90 · 29 · 1, 레인저 드래그 94 · 23 · 3(한도 150 · 40 · 6). 섀도우 드래그 `touchdownStop: 0` 그대로.
+
+#### 8-8-3. 그룹 B (바드 드래그 · 크로노 드래그 · 퇴마사 글자, 글자 키 14곳)
+
+- 두 색 · 세 색 고리는 고리 하나짜리 `rings()`를 0.05초 간격으로 여러 번 — 한 번에 n겹을 부르면 그 색과 그 색의 밝은 색이 번갈아 나와 「흰 → 자홍」을 못 그림.
+- 퇴마사 ★ 준비는 조준 · 드래그 모두 `laterSim(지연 − 0.6)` + `finishCount` 확인으로 돌림(드래그의 여덟 문 자리는 1.32초 뒤에야 생김). 설계에 없던 시간: 부적 날아감 0.25초, 먹 룬 ★ − 0.55초, 금빛 고리는 쾅에 맞춰 다 조여지게.
+- `stageLights`: 착지가 조명 네 자리를 기록 안 했거나 다른 자리 둘레면 다시 계산.
+- 설계가 정하지 않은 값: 크로노 되풀이 별 48px, 되감기 점선 줄 처짐 0 · 굵기 2, 퇴마사 드래그 부적 실 처짐 0.15 · 굵기 2.
+- 예산: 그룹 B 테스트는 입자 상한 120으로 봄(바드 드래그 최고 48 · 28 · 2, 크로노 드래그 36 · 19 · 2, 퇴마사 조준 · 드래그 효과 28 · 27).
+- 크로노 드래그 `stasis` 소리는 저역 필터 없는 보통 소리(설계대로). 끔(22차 경로)에서는 필터가 22차처럼 있음. (**24차 검토로 바로잡음**: 그 필터는 효과음 버스만 막아 ★를 먹먹하게 한 적이 없음 — ★가 작게 들린 까닭은 소리 크기여서 8-8-7에서 고침.)
+- 퇴마사 두 설명 글의 「멸(滅)」은 그대로 둠(편성 화면 글이고 오늘 퇴마사 설명과 같은 말 — 8-2-1 목록 밖). → game-design §37-5 질문.
+
+#### 8-8-4. 「충전」 버튼 (UI)
+
+- `hud-block` 클래스를 더함 — 없으면 `.hud`의 `pointer-events: none`을 물려받아 못 누름. 「겨누는 동안 · 카드를 끄는 동안」 규칙이 더 구체적이라 그대로 이김.
+- CSS 작은 추가: `line-height: 1`, `white-space: nowrap`, `-webkit-user-select: none`, 배지 그림자.
+- `chargeMyUlt`는 궁극기 테스트가 아니면 바로 끝남(안전). 보스 레이드 HUD에도 `.ult-charge`가 없는지 확인(설계는 클래식 · 레이드 화면 둘을 말함 — 브라우저 테스트가 둘 다 봄).
+- 옛 서버에서 거절되면 앱의 보통 알림 「서버가 거절했어요 · 방장만 할 수 있어요」(거절 소리 없음).
+- 알아 둘 것: 디버그 「궁극기 충전」과 같은 `fillUlts`라 게이지를 정확히 100%로 맞춤 — 「두 번 차는 게이지」로 100% 넘은 게이지는 100%로 내려감(이 보상은 궁극기 테스트에서 안 나옴, `docs/ult-test.md` 1장).
+- 폰 그림(`docs/screenshots/ult-charge-button.png`, `node tests/visual/ult-charge-shot.mjs`): 충전 버튼 논리 x 727 ~ 807 · y 584 ~ 664(지름 80 = 폰 43 CSS px). 가장 가까운 것: 궁극기 누름 상자 13px, 궁극기 이름 25px, 「조준」 표시 59px, 첫 펫 카드 69px. 겹침 없음. (**24차 검토**: 그때 넣은 「가장 긴 이름」은 레인저 조준이었음 — 진짜 가장 긴 거너 드래그 「펌프 버스트 · 대구경 슬러그」로 고쳐도 겹침 없음 — 검토 측정(폰, CSS px): 이름 상자 y 373 ~ 387 > 버튼 + 테두리 아래 끝 365, 이름 끝 x 485 < 첫 펫 카드 550.) 누르기 전 6% · 2% · 2% → 누른 뒤 100% · 100% · 100%, 「끌기!」, 알림 없음, 버튼 흐림.
+
+#### 8-8-5. 통합에서 한 것 · 본 것
+
+- 두 임시 통로를 지움: `FinisherSpec.glyph?`(grammar.ts), kit.ts의 `glyphFx` 다시 내보내기. 「글자 없음」 소스 가드는 처음부터 켜져 있었고(건너뜀 없음) 이제 통과. 그 밖에 전체 점검에서 깨진 것이 없어 고친 코드는 없음.
+- 「궁극기 연출 강화」 끔으로 다섯 개를 시전(임시 테스트, 200프레임 + 소리 감독, 끝나고 지움): 오류 없음. 충격 프레임 · 마무리 멈춤 · 잠금 · 바닥 자국 · 24차 그림(달 · 날개 · 낙인) 없음. 22차 강조는 8-3 각 「끔」 줄대로 — 섀도우 드래그 `moon`, 레인저 조준 `skyshot`, 레인저 드래그 `volley`(첫 발) · `pierce`, 크로노 드래그 `rewind` · `stasis`(순서 3); 바드 드래그는 원래 강조가 없어 기본 물결. 켬이면 다섯 모두 충격 프레임 + 마무리 멈춤 한 번.
+- 알게 된 것(고치지 않음):
+  1. **위쪽 고정 보스에 대상을 치는 궁극기**: 별 가운데는 설계대로 맞는 자리(화면 y 160 ~ 620 안)에 섬. 맨 위 가운데 고정 보스(엘리베이터 y −1.2 등)를 치면 가운데가 하한 y 160에 걸려 위쪽 가시가 보스 막대 밑으로 들어가고, 그 순간 보스 패턴 팁(화면 y 100 ~ 190, 한 판에 두 번)이 뜨면 팁이 별 위를 덮음(23차 큰 글자는 팁 칸 아래 265 ~ 460으로 옮겼었음). 0.38초짜리라 그대로 둠 → §37-5 질문. → **8-8-6에서 고침**(별 테두리가 늘 팁 칸 아래).
+  2. **오늘 퇴마사 궁극기의 滅**(코어가 찾음): 클래식에서도 안 그려짐 — 대봉인 · 폭풍 · 멸 세 시전이 같은 자리 · 같은 크기라 「한 스킬 = 한 번쩍」 규칙이 멸을 버림. 8-2-4는 滅이 남는다고 적었지만 실제로는 안 보임. 고치면 클래식 그림 해시가 바뀌어서 이번 범위 밖.
+  3. **맨 위 가운데 고정 보스에서 섀도우 드래그 · 레인저 드래그**: 분신 베기(길이 7) · 포박 화살 · 저격 띠가 대상 = 보스 쪽이라 보스 막대 바로 아래 좁은 곳에 몰리고 줄 절반은 경기장 위로 나가서 폰에서 작게 보임. 걸어 다니는 보스(`boss=washer_drum`)로 다시 찍으면 베기 여섯이 보스를 크게 가로지르며 잘 읽힘. 설계대로 둠 → §37-5 6번. → **8-8-6에서 고침**(기획자 「더 화려하게」 — 어떤 보스에서도 크게).
+- 검사 숫자 · 그림 · 영상 확인은 game-design §37-4. 그림: `docs/screenshots/ult-test-sheet-{aim,drag}{,-2,-3}.png`(「마무리 + 0.05초」 칸 = 충격 프레임, 글자 없음, 빨간 테두리 없음), `docs/screenshots/ult-charge-button.png`. 영상 8개: `test-results/ult-fx-video/{shadow_ud,ranger_ua,ranger_ud,bard_ud,chrono_ud,guardian_ud,exorcist_ua,blade_ua}.webm`.
+
+#### 8-8-6. 눈 검사 뒤 고침 (작게 보이던 둘 · 별이 가려지던 것)
+
+통합 눈 검사에서 나온 두 가지(위 8-8-5 「알게 된 것」 1 · 3번)를 고침. 그림 · 영상의 기본 보스(엘리베이터, 맨 위 가운데 고정, 가운데 y −1.2 · 반지름 3)로 확인.
+
+공통:
+- **충격 프레임의 별이 늘 다 보이게.** 폰에서 보스 패턴 팁 칸을 재 보니 논리 y 100 ~ 177(「⚙ 일시정지 화면에서 …」 줄이 있을 때, 없으면 151). 그래서 별 테두리는 y 185(`IMPACT.top` = 177 + 8) 위로 절대 올라가지 않음.
+  - 별 가운데의 하한 `IMPACT.y0` 160 → 305(= 185 + 가장 작은 별 120).
+  - 높은 타격(위쪽 고정 보스)이면 별이 팁 칸 바로 아래에 서고, 크기가 그 자리에 맞춰 줄어듦(120 이상). 낮은 타격은 크기 그대로.
+  - 쾅(1.6배)과 사라질 때 커지는 가시도 테두리가 185 아래 — 그동안은 가운데가 아래로 내려감(칸 밑에서 쾅 하고 자리 잡음). 빛줄기 · 고리는 별 자리 그대로.
+- **대상 「위」 그림을 보이는 앞쪽에.** 그룹 A 비공개 함수 `onBody`: 베기 초승달 · X · 별 · 오늘 「분신」 · 「초승달 베기」처럼 대상 위에 그리는 그림을 대상 몸 **안에서** 카메라 쪽으로(반지름 × 0.95까지) 밀어, 그림 가운데가 화면 y 190 근처에 오게 함. 엘리베이터면 몸 앞쪽(화면 y 147 ~ 190, 전에는 60 ~ 90 = 보스 막대 밑). 작은 적 · 아래쪽 대상은 움직이지 않음.
+- 잔상 크기: `afterimage(…, scale)` 인자를 더함(기본 1 = 지금과 같은 그리기 — 클래식 그림 해시 그대로).
+
+섀도우 드래그 「흑월 대처형진」:
+- 데이터(눈대중): 베기 길이 7 → **9**, 폭 1.4 → **1.8**. 설명 글 · `docs/ult-test.md` · game-design §37-2 숫자도 고침. 시간 · 위력은 그대로.
+- 분신 여섯: 몸 **1.6배** + 보랏빛 기둥(폭 0.5 · 높이 3.2) + 발밑 고리. 섀도우가 가라앉는 착지 자리(늘 빈 바닥이라 보임)에 먹물 웅덩이 + 보라 룬 고리(반경 2.4) = 「진」.
+- 베기: 띠 폭 그대로의 보라 빛줄기(1.8, 높이 0.2 — 위쪽 보스에서도 막대 밑으로 안 감) + 잔상 4(1.3배) + **화면을 가로지르는 가는 빛줄**(길이의 1.15배씩 양쪽 ≈ 21칸; 남의 것 0.6배) + 초승달 베기 56 → **92px** × (1 + 0.1 · 순번, 굵게). 여섯째 흰 X 80 → 130, 열두 갈래 별 56 → 96.
+- 정적(1.0 ~ 1.5초): 여섯째 베기 때 **여섯 줄 흉터**(가는 보라 빛줄, ★까지) — 땅의 낙인 줄은 큰 보스 몸에 가려서.
+- 달: 반지름 60 → **92**. 높이 규칙은 초승달 꼭대기가 y 110 아래(옅은 빛무리는 보스 막대 밑으로 들어가도 됨 — 테스트도 초승달로 잼).
+- ★: 오늘 「초승달 베기」와 분신 넷(1.6배) · 넓은 베기(170 → **250px**)를 대상 앞쪽에. 여섯 줄이 **화면 끝까지 흰 빛(폭 1.3)으로 터짐**. 먹 금 반경 3 → 4.5, 바닥 보라 충격파 0.6 → 6.5 + 흰 고리 4.5(앞쪽 반이 어떤 보스 밑에서도 보임).
+- 예산(내 것, 시전 최고): 입자 92 · 효과 34 · 자국 2.
+
+레인저 드래그 「매의 대일격」:
+- 데이터(눈대중): 연사 띠 폭 2 → **2.6**, 관통 폭 2.2 → **3**(넓은 띠). 설명 글 등 숫자 고침.
+- 연사: 화살 1.8 → **2.4**(한 발마다 × 1.06), 흰 꼬리 0.35 → 0.7, 활에 섬광(38, 세 줄 때 60 + 바람 고리), 첫 발에 레인저 발밑 **금빛 룬(반경 2.2, ★까지)** — 레인저는 늘 빈 바닥이라 보임. 대상 별은 대상 앞쪽(14 / 30 → 34 / 64).
+- 포박: 화살 0.7 → **1.3**(높이 6 → 9), 대상 앞쪽 둘레 1.8칸 삼각형에 꽂힘 + 화살마다 금빛 기둥 + 전기 줄 + 조준 1.2 → 1.8 + 흰 고리.
+- 저격의 숨: 레인저 위에 **빛의 매(날개 2.6)가 0.5초 맴돎**(위 끝은 보스 막대 아래, 남의 것도 흐리게).
+- ★: 띠 폭 그대로 금빛 빛줄기, 매 날개 1.6 → **2.6**을 띠의 25 · 55 · 85% 대신 **레인저 → 대상 사이**의 25 · 55 · 85%에(화면에 보이는 쪽), 터널 줄은 띠 폭에 맞춤, 거대 화살 3.2 → 4.2, 대상 별 70 → 110(앞쪽), 활 둘레 충격 2.6 → 3.6, 레인저 뒤에서 솟는 금빛 매(3.2), 반동 잔상 0.7 → 1.1칸(1.2배).
+- 예산: 입자 96 · 효과 30 · 자국 3.
+
+레인저 조준 · 바드 드래그 · 크로노 드래그(같은 보스로 다시 봄):
+- 레인저 조준: 표적 화살 2.2 → 2.8, 화살비 화살 0.65 → **1.0**, 꽂힌 자리 별 18 → 26, 조여 오는 흰 고리 굵게, 셋째 별 50 → 70, 매 날개 2.4 → **2.9**, 금빛 퍼덕 2 → 2.5, 하늘 화살 1.8 → **2.6**, 왕관 화살 0.5 → 0.8. 예산 90 · 29 · 1. (매 날개는 보스 막대 아래 규칙 그대로 — 패턴 팁이 뜨는 순간이면 날개 위쪽이 팁에 가릴 수 있음. 팁은 한 판에 두 번뿐이라 둠.)
+- 바드 드래그: 박자마다 그 원 전체가 자홍으로 한 번 맥박, 음파 고리 굵기 8 → 10, 이퀄라이저 막대 굵기 0.22 → 0.34 · 0.5 높게, 박자 조명 기둥 0.5 → 0.7. 예산 48 · 28 · 2.
+- 크로노 드래그: 착지 자리 둘레 그림이라 엘리베이터 앞에서도 크게 읽힘 — 그대로.
+
+테스트(고치거나 더함):
+- `tests/render/ult-fx-core.test.ts` 13절: 새 시험 「별 테두리는 쾅 · 머묾 · 사라짐 내내 y 185 아래(엘리베이터 높이 · 칸 바로 위 · 낮은 타격), 낮으면 크기 그대로, 높으면 줄되 120 이상」. 별 가운데 시험은 y 305 ~ 620으로. 크기를 재는 시험들은 낮은 타격(y 9)에서.
+- `tests/render/ult-fx-groupA.test.ts`: 새 시험 「엘리베이터에서 섀도우 드래그의 베기 · X · 초승달과 레인저 드래그의 큰 별이 화면 y 140 이상(전 60 ~ 90) + 보스 몸 안」. 달 높이 시험은 초승달 기준.
+- `tests/sim/ult-test-groupA.test.ts`: 베기 9 × 1.8.
+
+#### 8-8-7. 검토 후 고침 (24차 검토)
+
+독립 검토(기반 · 코어 · 그림 · 소리 · UI · 눈)에서 확인된 15건을 모두 고침. 클래식 · 원정 · 보스 레이드는 그대로(`classic-look` 해시 · `TABLES_22` · 골든 다시 녹화 없이 통과, 프로토콜 8), 「궁극기 연출 강화」 끔 = 22차, 새 소리 파일 없음. 한 줄 = 무엇 / 고침.
+
+| id | 무엇 | 고침 |
+|---|---|---|
+| leak-groupA-cast-maps | 그룹 A의 시전별 기억(섀도우 드래그 베기 방향 · 줄, 레인저 조준 화살비 자리)이 지워지지 않음 — 베기 방향은 아예 안 지움, 층을 깨 시전이 중간에 끊기면 나머지도 남음, 층 바뀜 · 새 판도 안 지움 | 달이 떨어질 때 그 시전의 기억을 모두 지움, 기억마다 24개까지(가장 오래된 것부터 버림 — 그룹 B `spots`와 같은 방식), `UltFxModule`에 `reset?()`를 더해 `resetUltCore`(층 바뀜 · 새 판)가 모든 모듈의 것을 비움. 테스트: 섀도우 드래그 네 번 연달아 → 매번 끝나면 0, 레인저 조준 중간에 층 바뀜 → 0 |
+| F1 (코어) | 멈춘 화면에서 적 경고를 어둠 컷 동안만 다시 그려, 컷이 끝난 뒤(멈춤 설정 150ms)나 컷이 없는 별(동작 줄이기 · 1초 안 두 번째 마무리) 아래에서 경고가 1 ~ 7프레임 가려짐 | `drawFrozen`의 다시 그리기를 살아 있는 화면과 같은 창(`ultScreenBusy()`)으로. 테스트 10절: 기록이 있는 멈춘 프레임마다 경고가 그 위에(75ms · 150ms — 150ms는 컷 뒤 멈춘 프레임도 확인) |
+| F2 (코어) | 여운 비네트는 게임 시계라 마무리 멈춤만큼 늦게 끝나는데(≈ 0.83 ~ 0.86초) 기록은 0.74초에 꺼져, 마지막 5 ~ 7프레임 경고가 비네트 밑 | 마무리 멈춤 직후 `extendImpact(남은 멈춤)` → 그 기록은 0.74초 + 멈춤(`Juice.freezeLeft` 읽기 전용 추가). 테스트 4절: 비네트가 도는 마지막 프레임까지 `ultScreenBusy()`(75 · 150ms), 기록 길이 = 0.74 + 멈춤 |
+| F3 (코어) | 「클래식 · 강화 끔의 멈춘 화면은 경고를 다시 안 그림」 테스트가 멈춘 프레임을 한 번도 못 봄(빈 검사) | 두 판 모두 직접 멈춤(0.12초 × 2)을 걸고 멈춘 프레임이 4개 이상인지 먼저 확인 |
+| F4 (코어) | 별 가운데 테스트의 입력이 모두 경계에 걸려(하한 305로 올린 뒤) 「별이 맞는 자리에」를 안 봄 | 경계에 안 걸리는 타격 둘(y 9 → 388.4 · y 11) 추가, 빛줄기 끝뿐 아니라 별 모양 자체의 가운데도 확인 |
+| F1 (그림) | 레인저 드래그 ★의 매 날개 셋 · 레인저 뒤 금빛 매가 높이 고정(1.2 · 1.4)이라 위쪽 고정 보스에서 보스 막대 밑으로(위 끝 y 54 ~ 96, 세탁기 17) | 맴도는 매와 같은 규칙(`hangWings` = `skyZ` · `skyNudge`, 꼭대기 = 폭 × 0.47). 테스트: 엘리베이터 (12, 3.5) · (12, 0) · (8, 3), 세탁기 (12, 0) — 날개 다섯 모두 위 끝 ≥ 110 |
+| F6 (그림) | 퇴마사 조준 ★의 부적 고리(滅 대신, 높이 2.6)가 위쪽 고정 보스를 겨누면 전부 보스 막대 밑(y 20 ~ 88) | `talismanRing`: 뒤쪽 부적 위 끝이 y 110 아래가 되게 높이를 2.6 → 0.6까지 낮추고, 그래도 모자라면 카메라 쪽으로(룬 · 금빛 고리는 겨눈 자리 그대로). 테스트: 보스 위(12, −1.2) · (12, 1.5) · 앞(15, 5, 그대로 2.6) |
+| S1 (소리) | 단계 소리의 「몇 번째」 세기가 3초 동안 남아, 「충전」으로 3초 안에 다시 쓰면 섀도우 베기 여섯 · 레인저 화살비 셋 · 연사 · 크로노 되풀이가 하나도 안 남 | 궁극기 테스트의 `ultCast`마다 그 시전자 · 그 궁극기의 세기(`hit` · 앞당김 · 길)를 지움(`forgetSteps`). 테스트 12b절: 2.3초 뒤 다시 써도 6 · 3 · 6 · 2번 |
+| S2 (소리) | 매 바람 소리로 고른 `ult.ranger.tick` 파일이 거의 40Hz 아래 덩어리(DC 0.08)라 리미터를 치는 그 시전의 가장 큰 소리(−4dB), 다른 사람에게도 들림 | 레인저 조준 `skyshot` · 드래그 `pierce`의 바람을 `dash.melee`(높은 바람이 떨어지는 소리, 효과음 −14 + 4dB)로 — 화살비(−15) · ★(−10)보다 작음. 새 파일 없음. 테스트: 어느 대체 궁극기도 `ult.ranger.tick`을 안 씀 |
+| S4 (소리) | 크로노 드래그 ★가 여전히 가장 큰 소리가 아님(똑딱 −4 ~ −8dB가 ★보다 8 ~ 9dB 큼, 정지 종이 ★에 겹침), 「필터가 ★를 먹먹하게 함」이라는 이유도 틀림(필터는 효과음 버스만) | 정지 종 −2 → **−8**, 되풀이 똑딱 0 → **−10**, ★ `drag.chrono.stop` 0 → **+4** → ★가 가장 큼(20ms 창 −11 ~ −12 대 똑딱 −13 ~ −14). 데이터 주석 · B12′ · 8-7 ⑪ · 8-8-3 · §37 이유를 바로잡음. 테스트: 정지 · 똑딱 < ★ |
+| S5 (소리) | 「충전」에 `data-sfx`가 없어 앱 전체 클릭 소리 `ui.tap`이 늘 더해짐 — 거절이면 `ui.ult.denied` + `ui.tap`, 흐린 버튼 · 0.3초 안 두 번째도 「됐다」 소리 | 버튼은 `data-sfx=""`(소리는 `chargeMyUlt`만), 셋 다 가득(흐림)이면 `data-sfx="ui.refuse"` |
+| charge-dim-press-sound (UI) | S5와 같음 | S5와 같이 고침. 테스트: `uiSoundFor` 세 경우, 브라우저 테스트에서 누르기 전 `''` · 가득 뒤 `ui.refuse` |
+| charge-test-wrong-longest-name (UI) | 겹침 테스트 · 그림 도구의 「가장 긴 이름」이 레인저 조준(9자)이었음 — 진짜는 거너 드래그 「펌프 버스트 · 대구경 슬러그」(11자) | 브라우저 테스트는 30개 이름을 화면의 `.ult-name`에 넣어 재고 가장 넓은 것으로(그것이 거너 드래그인지도 확인), 그림 도구는 거너 드래그 이름으로. 8-6 · 8-8-4 고침 |
+| R24-EYE-1 (눈) | 멈춘 화면에서 다시 그린 경고 중 멈춤 동안 새로 뜬 여러 칸 패턴(엘리베이터 문짝 넷)이 묶이지 않아 모든 칸이 「다음 칸」 빨강으로 1 ~ 2프레임 번쩍 | 그 다시 그리기 앞에서 `teleSeq.track`(경고 id로 기억 — 다음 살아 있는 프레임에서 다시 묶지 않음). 테스트: 멈춘 프레임에 두 칸 패턴을 띄우면 뒤 칸이 점선 |
+| R24-EYE-3 (눈) | 섀도우 드래그 분신 여섯이 베기 양 끝을 번갈아 서서 위쪽 고정 보스에서는 2 ~ 3개가 화면 위 · 위쪽 HUD 뒤(발 y −14 ~ 85) | 분신 발이 y 190보다 위면 그 베기의 다른 끝(대상을 지나는 거울 자리 — 화면 아래쪽)에 서고, 그 베기는 거기서부터 달림(`cutSides`). 끝 = 베기 길이의 절반(대시 시작과 같은 자리). 테스트: 엘리베이터 세 착지에서 분신 발 ≥ 120, 베기마다 분신 자리 → 거울 자리로 |
+
+검사 숫자는 game-design §37-4.

@@ -3,7 +3,7 @@
 //
 // 기획 23차 궁극기 연출 강화 (docs/ult-fx.md 3장 A1–A16): one story per beat (`<alt>:<stage>`, `<alt>_path:<stage>`) and
 // one look per dragged alt, registered at import. The core (render/ultTest/kit.ts) dresses every beat by its role —
-// the finisher gets the common climax (stop, zoom, the big glyph …) — and these stories add each character's own
+// the finisher gets the common climax (stop, zoom, the impact frame …) — and these stories add each character's own
 // pictures: today's storyboards aliased where the tables say (the falling shield / cage / spears, the crescent …), the
 // wind-ups of each finisher, the chains, cracks, beams and afterimages along the real footprints. Rules kept here:
 //  - 보이는 곳 = 맞는 곳: every picture sits on the beat's real spot / band (a band from its real start, a cone from the
@@ -13,9 +13,13 @@
 //  - Particle counts are small (≈ ≤ 120 per cast with the climax) and halve on a struggling phone (FX_LOAD.low).
 //
 // The 22차 accents (a ring + sparks on the finishers, flashes on the throws) are kept below for 「궁극기 연출 강화」 off.
+//
+// 기획 24차 (docs/ult-fx.md 8장): no letters — the finishers name no glyph (the core's impact frame took its place);
+// 섀도우 드래그 (A12′) and 레인저 조준 / 드래그 (A13′, A14′) redesigned with their data.
 
 import type { AreaShape, GameEvent } from '../../types';
 import { ULT_TEST } from '../../data/ultTest/types';
+import { GROUND_TOP, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from '../camera';
 import { registerUltFx, type UltFxView } from './index';
 import {
   FX_LOAD,
@@ -42,9 +46,11 @@ import {
   beamAlong,
   chains,
   crackFx,
+  crosshairFx,
   eachEnemy,
   fallAt,
   footAlong,
+  footprintRadius,
   lightPillar,
   orbFly,
   randomIn,
@@ -60,6 +66,7 @@ import {
   star,
   tetherFx,
   ultAngle,
+  ultSpeedLines,
   wave,
   xslash,
 } from './kit';
@@ -91,6 +98,7 @@ const BODY_Z = 0.65;
 
 const P0: Vec2 = { x: 0, y: 0 };
 const P1: Vec2 = { x: 0, y: 0 };
+const P2: Vec2 = { x: 0, y: 0 };
 
 /** A particle count: × the beat's strength, halved on a struggling phone. */
 const cnt = (n: number, k: number) => Math.max(0, Math.round(n * k * (FX_LOAD.low ? 0.5 : 1)));
@@ -109,16 +117,41 @@ function bandEnemies(h: UltHost, s: UltBeatInfo): readonly Memo[] {
   return h.enemiesIn(BAND, s.ox, s.oy);
 }
 
-/** n afterimages of a unit along (x0, y0) → (x1, y1) (the last one at the end), `gap` s apart. */
-function ghostsAlong(h: UltHost, id: number, x0: number, y0: number, x1: number, y1: number, n: number, dur: number, gap = 0): void {
+/** n afterimages of a unit along (x0, y0) → (x1, y1) (the last one at the end), `gap` s apart, × `scale` its size. */
+function ghostsAlong(h: UltHost, id: number, x0: number, y0: number, x1: number, y1: number, n: number, dur: number, gap = 0, scale = 1): void {
   if (id < 0) return;
   for (let i = 1; i <= n; i++) {
     const t = i / n;
     const x = x0 + (x1 - x0) * t;
     const y = y0 + (y1 - y0) * t;
-    if (gap > 0 && i > 1) h.later(gap * (i - 1), () => h.afterimage(id, x, y, dur));
-    else h.afterimage(id, x, y, dur);
+    if (gap > 0 && i > 1) h.later(gap * (i - 1), () => h.afterimage(id, x, y, dur, scale));
+    else h.afterimage(id, x, y, dur, scale);
   }
+}
+
+/** 기획 24차 검토: the logical y a picture "on" a target should clear — the boss bar and the raid pattern-tip slot (y 100–177 on the phone). */
+const CLEAR_Y = 190;
+/**
+ * 기획 24차 검토: where a picture "on" its target goes — the beat's spot, pushed toward the camera INSIDE the target's
+ * own body (≤ 0.95 × its radius) until the picture at height z clears logical y `minY`. A fixed boss on the top row
+ * (엘리베이터: y −1.2, radius 3) put every slash / star / X on it under the boss bar; a small or lower target never moves.
+ */
+function onBody(h: UltHost, s: UltBeatInfo, z: number, out: Vec2, minY = CLEAR_Y): Vec2 {
+  out.x = s.x;
+  out.y = s.y;
+  const m = s.follow >= 0 ? h.memo(s.follow) : undefined;
+  if (!m) return out;
+  const sy = GROUND_TOP + s.y * PX_PER_UNIT_Y - z * PX_PER_UNIT_Z;
+  if (sy < minY) out.y = s.y + Math.min(m.radius * 0.95, (minY - sy) / PX_PER_UNIT_Y);
+  return out;
+}
+
+/** A thin glint along a whole line through (x, y) at world angle a, `half` cells each way (outside a footprint: a stroke only). */
+function glint(fx: SkillFx, x: number, y: number, a: number, half: number, w: number, dur: number, color: string, k: number, z = 0.15, wait = 0): void {
+  const ux = Math.cos(a) * half;
+  const uy = Math.sin(a) * half;
+  const f = beam(fx, x - ux, y - uy, x + ux, y + uy, w, dur, color, k, wait);
+  f.z = z;
 }
 
 /** A spray of particles at `n` evenly spaced points of a beat's long axis (t from t0 to t1). */
@@ -173,6 +206,33 @@ function midBurst(fx: SkillFx, h: UltHost, s: UltBeatInfo): void {
 }
 /** The grammar's own pillar / star / sparks / debris / embers off (midBurst draws them where the blow really is). */
 const OFF_ANCHOR = { pillar: false, star: 0, sparks: 0, debris: 0, embers: 0 } as const;
+
+/**
+ * 기획 24차 (8-3 공통): the height (world z) of a picture hung in the sky over ground y (섀도우's moon, 레인저's hawk) whose
+ * top rises `px` logical px above its anchor — kept so the top stays under logical y 110 (the boss bar): screen y =
+ * 150 + 29.33·y − 42.67·z, so z ≤ 0.6875·y + (40 − px) / 42.67 (the camera's exact ratios: 0.55 / 0.8 and 3 / 128 —
+ * the rounded 0.687 / 42.7 of the spec land a hair inside the bar); then clamped to [lo, hi].
+ */
+function skyZ(y: number, px: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, skyTop(y, px)));
+}
+const skyTop = (y: number, px: number) => 0.6875 * y + (40 - px) * (3 / 128);
+/**
+ * 기획 24차: a fixed boss on the top row (엘리베이터 at y −1.2) leaves no room even at `lo` — how far toward the camera
+ * (world y) to hang the picture at height z so its top still clears the bar (0 almost always: y ≥ 2.6 for the moon).
+ */
+function skyNudge(y: number, px: number, z: number): number {
+  return Math.max(0, (z - skyTop(y, px)) / 0.6875);
+}
+/**
+ * 기획 24차 검토: a pair of wings (Fx.Wings, its span r cells) over ground y hung at height ≤ `hi` (≥ 0.6) so its top —
+ * the outline peaks at 0.47 × its span (fxparts.ts wings) + the stroke — stays under the boss bar (skyZ / skyNudge).
+ */
+function hangWings(w: { r: number; z: number; oy: number }, y: number, hi: number): void {
+  const px = 0.47 * w.r * PX_PER_UNIT + 2;
+  w.z = skyZ(y, px, 0.6, hi);
+  w.oy = skyNudge(y, px, w.z);
+}
 
 const CROSS4: readonly (readonly [number, number])[] = [
   [1, 0],
@@ -234,7 +294,6 @@ const guardian: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.6, cnt(14, s.k), Pk.Glass, STEEL_LIGHT, 4, 3, 0.7);
       h.spray(s.x, s.y, 0.4, cnt(6, s.k), Pk.Square, '#ffffff', 3, 2, 0.5);
     },
-    finisher: { glyph: '城' },
     charge: { vignette: 0.3 },
     motif: 'countdown',
   },
@@ -311,7 +370,7 @@ const guardian: Record<string, UltStory> = {
       for (let j = -1; j <= 1; j++) h.spray(P1.x + px * j * W * 0.3, P1.y + py * j * W * 0.3, 0.6, cnt(5, s.k), Pk.Glass, STEEL_LIGHT, 4, 3, 0.7, 6, 5);
       midBurst(fx, h, s);
     },
-    finisher: { glyph: '城', ...OFF_ANCHOR },
+    finisher: OFF_ANCHOR,
     motif: 'outline',
   },
 };
@@ -344,7 +403,6 @@ const paladin: Record<string, UltStory> = {
         h.later(Math.max(0, wait + 0.3), () => h.spray(tx, ty, 0.4, cnt(3, k), Pk.Gold, GOLD, 2, 2.5, 0.5, 4, 4));
       }
     },
-    finisher: { glyph: '審' },
   },
 
   // ── 드래그 「축복의 돌격」: the dash blesses the path → the brand pulses faster → 0.95 s the pillar of light ──
@@ -383,7 +441,6 @@ const paladin: Record<string, UltStory> = {
     land: (fx, _h, s) => {
       rings(fx, s.x, s.y, 0.5, 5, 3, 0.55, HOLY, s.k, -1, 6);
     },
-    finisher: { glyph: '審' },
   },
   'paladin_ud:core': { alias: { key: 'paladin_d:core' }, impact: { flash: 0.7 } },
 };
@@ -401,7 +458,6 @@ const wardenCage: UltStory = {
       tetherFx(fx, s.x + Math.cos(a) * R, s.y + Math.sin(a) * R * 0.8, s.x, s.y, TetherStyle.Chain, 0.35, CHAIN, s.k, -1, -1, 0.1, 3);
     }
   },
-  finisher: { glyph: '獄' },
 };
 
 const wardenRelease: UltStory = {
@@ -549,7 +605,7 @@ const blade: Record<string, UltStory> = {
       midBurst(fx, h, s);
     },
     charge: { vignetteColor: '#000000', vignette: 0.55 },
-    finisher: { glyph: '斬', ...OFF_ANCHOR },
+    finisher: OFF_ANCHOR,
     motif: 'aim',
   },
 
@@ -580,7 +636,6 @@ const blade: Record<string, UltStory> = {
       screenCut(h, s);
     },
     charge: { vignetteColor: '#000000', vignette: 0.5 },
-    finisher: { glyph: '斬' },
   },
 };
 
@@ -642,7 +697,6 @@ const berserker: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.4, cnt(8, s.k), Pk.Ember, EMBER, 3, 4.5, 0.9, 3, 5);
     },
     charge: { vignette: 0.25 },
-    finisher: { glyph: '破' },
     linger: null, // the scorch above is its mark
     motif: 'countdown',
   },
@@ -695,25 +749,60 @@ const berserker: Record<string, UltStory> = {
       }
     },
     impact: { shake: 3, flash: 0.6 }, // the two first geysers (the third is the finisher: the grammar kicks)
-    finisher: { glyph: '破' },
   },
 };
 
 // ─────────────────────────── 섀도우 (A11, A12) ───────────────────────────
 
-/** ★ the crescent's cut: four shadow clones strike in from all round with it, a wide crescent slash, ink. */
-function moonCut(fx: SkillFx, h: UltHost, s: UltBeatInfo, ink: number): void {
+/**
+ * ★ the crescent's cut: four shadow clones strike in from all round with it, a wide crescent slash (`px`, 기획 24차:
+ * 섀도우 드래그's bigger moon cuts bigger), ink. `at` = where on its target it is drawn (default: the beat's spot).
+ */
+function moonCut(fx: SkillFx, h: UltHost, s: UltBeatInfo, ink: number, px = 130, at?: Vec2, ghost = 1): void {
+  const x = at ? at.x : s.x;
+  const y = at ? at.y : s.y;
   const R = (s.area.shape === 'circle' ? s.area.radius : 2.5) * 0.8;
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    h.afterimage(s.src, s.x + Math.cos(a) * R, s.y + Math.sin(a) * R * 0.8, 0.35);
+    h.afterimage(s.src, x + Math.cos(a) * R, y + Math.sin(a) * R * 0.8, 0.35, ghost);
   }
-  slash(fx, s.x, s.y, 0.9, -0.25, 130, MOONLIGHT, s.k, 0, true);
-  h.spray(s.x, s.y, 0.6, cnt(ink, s.k), Pk.Ink, INK_DARK, 3, 2.5, 0.7, 8, 5);
+  slash(fx, x, y, 0.9, -0.25, px, MOONLIGHT, s.k, 0, true);
+  h.spray(x, y, 0.6, cnt(ink, s.k), Pk.Ink, INK_DARK, 3, 2.5, 0.7, 8, 5);
 }
 
-/** 섀도우 드래그: where each caster's clones started (its landing) — the slide's ghosts run from there. */
-const slideFrom = new Map<number, Vec2>();
+/** 섀도우 드래그 (기획 24차): one key per caster's cast of an alt. */
+const castKey = (s: UltBeatInfo) => `${s.src}|${s.skillId}`;
+/**
+ * 기획 24차 검토: the per-cast maps below keep at most CAST_KEYS keys (the oldest goes, as group B's spots) — a cast cut
+ * short by a floor won mid-way never reaches the land that deletes its key; a floor change / a new run clears them all
+ * (the module's reset, from resetUltCore).
+ */
+const CAST_KEYS = 24;
+function capSet<V>(m: Map<string, V>, k: string, v: V): void {
+  if (!m.has(k) && m.size >= CAST_KEYS) m.delete(m.keys().next().value as string);
+  m.set(k, v);
+}
+/** 섀도우 드래그: the way each of the six cuts runs (world radians, by seq) — read by the clone beat, which lands first. */
+const cutAngles = new Map<string, number[]>();
+/**
+ * 섀도우 드래그 (기획 24차 검토): the end of each cut its clone stands at and dashes from (+1 = the cut's far end, −1 =
+ * its near end; by seq) — set by the clone beat, read by the cuts.
+ */
+const cutSides = new Map<string, number[]>();
+/** 섀도우 드래그: the six cuts as they were drawn (their middle + way; cleared at the first cut) — they burst white with the moon. */
+const cutLines = new Map<string, { x: number; y: number; a: number }[]>();
+/** 섀도우 드래그 (기획 24차 검토): a clone's size × (the six that cut, the four of the moon). */
+const CLONE_SCALE = 1.6;
+/** 섀도우 드래그 (기획 24차 검토): each cut's glint runs this × its length each way from its middle (mine; others' 0.6). */
+const CUT_GLINT = 1.15;
+/** 섀도우 드래그 (기획 24차 검토): the moon's radius (logical px; was 60) — its crescent's top kept under the boss bar. */
+const MOON_R = 92;
+/**
+ * 섀도우 드래그 (기획 24차 검토 2): a clone whose feet would stand above this logical y (its 1.6× body off the top of the
+ * screen or behind the top HUD — a fixed boss on the top row) stands at the other end of its cut, lower on the screen.
+ */
+const CLONE_FEET_Y = CLEAR_Y;
+const DUSK = '#5e60ce';
 
 const shadow: Record<string, UltStory> = {
   // ── 조준 「월영 질주」: an ink pool, the pass-through band → three clones burst → 1.4 s the crescent over the aimed point ──
@@ -727,7 +816,7 @@ const shadow: Record<string, UltStory> = {
         return;
       }
       // the pass-through: a dark violet band with a thin white core, four afterimages along it, ink
-      beamAlong(fx, s, 2, '#5e60ce', 0.4);
+      beamAlong(fx, s, 2, DUSK, 0.4);
       beamAlong(fx, s, 0.5, '#ffffff', 0.3, 0.02);
       footAlong(s, 0, P0);
       footAlong(s, 1, P1);
@@ -739,121 +828,432 @@ const shadow: Record<string, UltStory> = {
   'shadow_ua:moon': {
     alias: { key: 'shadow_u:moon' }, // ★ the crescent hangs over the spot (the world turns violet), then cuts down
     land: (fx, h, s) => moonCut(fx, h, s, 10),
-    finisher: { glyph: '影' },
     motif: 'reticle',
   },
 
-  // ── 드래그 「그림자 대처형진」: four clones the way it came → the slide → 1 s the X → 1.5 s the crescent on its target ──
+  // ── 드래그 「흑월 대처형진」 (기획 24차 A12′): an ink circle round its target → six clones cut across it, faster and faster,
+  //    each cut left branded → 0.5 s of stillness, a big crescent fills low over it → 1.5 s the moon falls, the six cuts
+  //    burst white at once (「이미 베었다」).
+  //    기획 24차 검토 (8-8-6): bigger and readable against ANY boss, a fixed one on the top row included — big clones, cuts
+  //    as wide as their band with a glint the whole way across the screen, the slashes / X / star on the target's VISIBLE
+  //    front (onBody), the ink 진 where it sank too, a bigger moon, the burst along the whole glints + ground shock rings ──
   'shadow_ud:clone': {
-    alias: { key: 'shadow_d:clone', seqAsHit: true, prep: false }, // (the ink pool is the look's, at the landing)
-    land: (_fx, _h, s) => {
-      if (s.seq === 0 && s.src >= 0) slideFrom.set(s.src, { x: s.x, y: s.y });
+    prep: (fx, _h, s) => {
+      // the ink ring spreads round its target as the clone lands, then the ink pool (the look's small one is at the landing)
+      rings(fx, s.x, s.y, 0.5, 3.5, 1, s.delay, INK_DARK, s.k, s.follow, 7);
+      scorchFx(fx, s.x, s.y, 3.5, 1.2, true, INK_DARK, s.k, 0.3);
     },
-    impact: s => (s.seq === 0 ? { stop: 40, shake: 4 } : { shake: 1.5 }),
-  },
-  'shadow_ud:vanish': {
-    alias: { key: 'shadow_u:vanish' },
-    land: (_fx, h, s) => {
-      // three afterimages on the slide (from the first clone to where it ends up)
-      const id = s.src;
-      const from = id >= 0 ? slideFrom.get(id) : undefined;
-      if (!from) return;
-      h.later(0.17, () => {
-        const m = h.memo(id);
-        if (!m || Math.hypot(m.x - from.x, m.y - from.y) < 1) return;
-        for (let i = 1; i <= 3; i++) h.afterimage(id, from.x + ((m.x - from.x) * i) / 4, from.y + ((m.y - from.y) * i) / 4, 0.4);
-      });
+    land: (fx, h, s) => {
+      const k = s.k;
+      const src = s.src;
+      // today's 「분신」 (an afterimage on its target, one X, ink) on the target's visible front
+      onBody(h, s, BODY_Z, P2);
+      runStory('shadow_d:clone', 'land', fx, h, s, { x: P2.x, y: P2.y });
+      // six big clones rise from the ink at the starts of their cuts (even ones behind, odd ones ahead) and stand until
+      // their turn — afterimages, so they show while the body itself is hidden below. 기획 24차 검토: one whose feet would
+      // stand above CLONE_FEET_Y (a fixed boss on the top row: its body off the screen / behind the top HUD) stands at
+      // the other end of its cut (the mirror through its target: lower on the screen) and its cut dashes from there
+      const key = castKey(s);
+      const angs = cutAngles.get(key);
+      const cuts = s.beats.beats.filter(b => b.stage === 'dance');
+      const sides: number[] = [];
+      for (const b of cuts) {
+        const a = angs?.[b.seq];
+        if (a === undefined) continue;
+        const ar = s.beats.def.actions[b.actionIndex].area;
+        const half = (ar.shape === 'rect' ? ar.length : 2 * footprintRadius(ar)) / 2; // its cut's ends (footAlong 0 / 1)
+        let side = b.seq % 2 ? 1 : -1;
+        const feet = GROUND_TOP + (s.y + Math.sin(a) * half * side) * PX_PER_UNIT_Y;
+        if (feet < CLONE_FEET_Y && Math.sin(a) * side < 0) side = -side;
+        sides[b.seq] = side;
+        const cx = s.x + Math.cos(a) * half * side;
+        const cy = s.y + Math.sin(a) * half * side;
+        const stand = Math.max(0.1, b.at - s.beat.at);
+        h.afterimage(src, cx, cy, stand, CLONE_SCALE);
+        // each rises in a column of violet light with an ink ring at its feet (a pale copy alone hardly reads)
+        lightPillar(fx, cx, cy, 0.5, 3.2, DUSK, k, stand + 0.1);
+        h.ring(cx, cy, 0.2, 1.3, 0.3, MOONLIGHT, 4, 0.1 * k);
+      }
+      capSet(cutSides, key, sides);
+      h.ring(s.x, s.y, 0.3, 3.5, 0.35, MOONLIGHT, 6, 0.12 * k);
+      h.spray(s.x, s.y, 0.5, cnt(12, k), Pk.Ink, INK_DARK, 3, 2.5, 0.7, 8, 5);
+      if (src >= 0) {
+        // the 진 where it sinks (its landing spot: always on the open floor): an ink pool with a violet rune ring
+        scorchFx(fx, s.ox, s.oy, 2.4, 1.1, true, INK_DARK, k);
+        rune(fx, s.ox, s.oy, 2.4, 1.05, DUSK, k);
+        // the clones are the shadow now: its body sinks into the ink, then drops back in before the moon
+        h.later(0.1, () => h.hideFor(src, 0.6));
+        h.later(0.7, () => h.drop(src, 0.8, 0.2));
+      }
     },
+    impact: { stop: 40, shake: 4, flash: 0.7 },
   },
-  'shadow_ud:execute': {
-    alias: { key: 'shadow_d:execute' }, // the X mark gathers (PREP), then the X cut (LAND)
-    impact: { shake: 6, flash: 0.9 },
+  'shadow_ud:dance': {
+    prep: (_fx, _h, s) => {
+      // the way this cut runs (its aim turn + its own rot) — the clone beat (0.45 s) stands each clone at its start
+      const key = castKey(s);
+      let angs = cutAngles.get(key);
+      if (!angs) capSet(cutAngles, key, (angs = []));
+      angs[s.seq] = ultAngle(s);
+    },
+    land: (fx, h, s) => {
+      const k = s.k;
+      const key = castKey(s);
+      const a = ultAngle(s);
+      const W = s.area.shape === 'rect' ? s.area.width : 1.8;
+      const L = s.area.shape === 'rect' ? s.area.length : 9;
+      // a big clone dashes across its target, from alternate ends (its start = where the clone beat stood it — 기획 24차
+      // 검토: the end it picked there; the alternate one when the clone beat did not run)
+      const side = cutSides.get(key)?.[s.seq] ?? (s.seq % 2 ? 1 : -1);
+      footAlong(s, side > 0 ? 1 : 0, P0);
+      footAlong(s, side > 0 ? 0 : 1, P1);
+      ghostsAlong(h, s.src, P0.x, P0.y, P1.x, P1.y, 4, 0.28, 0.02, 1.3);
+      // the cut: as wide as its band (violet; the beam's own core is white), low (a boss on the top row keeps it out
+      // from under the bar), and a thin glint the whole way across the screen along it
+      beamAlong(fx, s, W, DUSK, 0.36).z = 0.2;
+      glint(fx, s.x, s.y, a, L * (s.local ? CUT_GLINT : 0.6), 0.14, 0.36, MOONLIGHT, k);
+      // the crescent of the cut on the target's visible front, bigger every cut
+      onBody(h, s, BODY_Z, P2);
+      slash(fx, P2.x, P2.y, BODY_Z, screenAngle(Math.cos(a), Math.sin(a)) + Math.PI / 2, 92 * (1 + 0.1 * s.seq), MOONLIGHT, k, 0, true);
+      // the cut stays branded on the ground, pulsing, until the moon bursts it
+      areaFx(fx, Fx.Brand, s.x, s.y, s.area, s.toFinish + 0.08, MOONLIGHT, k * 0.9, 0, 3);
+      h.spray(P2.x, P2.y, 0.6, cnt(4, k), Pk.Ink, INK_DARK, 3, 2.2, 0.5, 8, 5);
+      let lines = cutLines.get(key);
+      if (s.seq === 0 || !lines) capSet(cutLines, key, (lines = []));
+      lines.push({ x: s.x, y: s.y, a });
+      if (s.seq === 5) {
+        // the sixth: a big white X, then a twelve-point star once all six are drawn
+        xslash(fx, P2.x, P2.y, BODY_Z, 130, '#ffffff', k);
+        star(fx, P2.x, P2.y, BODY_Z, 96, '#ffffff', k, 0, 12);
+        // the six scars over everything through the stillness (the ground brand hides under a big body) until the
+        // moon bursts them
+        for (const l of lines) {
+          const hx = Math.cos(l.a) * (L / 2);
+          const hy = Math.sin(l.a) * (L / 2);
+          beam(fx, l.x - hx, l.y - hy, l.x + hx, l.y + hy, 0.42, s.toFinish + 0.05, MOONLIGHT, k, 0.06).z = 0.2;
+        }
+      }
+    },
+    impact: s => ({ shake: 1.5 + 0.3 * s.seq, flash: s.seq === 5 ? 0.35 : 0 }),
   },
   'shadow_ud:moon': {
-    alias: { key: 'shadow_u:moon' },
-    land: (fx, h, s) => moonCut(fx, h, s, 8),
-    finisher: { glyph: '影' },
+    // today's crescent cut (its LAND) is run below on the target's visible front; its PREP hung the moon at height 3.4,
+    // behind the boss bar
+    prep: (fx, _h, s) => {
+      // ★ 흑월: a big crescent fills low over its target through the last second (the crescent's top under the boss
+      // bar; its faint glow may tuck under it)
+      const f = fx.add(Fx.Moon, s.x, s.y, 1.0, DUSK, s.k);
+      f.r = MOON_R;
+      f.z = skyZ(s.y, MOON_R, 0.6, 3.4);
+      f.oy = skyNudge(s.y, MOON_R, f.z); // a boss on the top row: just in front of it
+      f.follow = s.follow;
+      f.wait = Math.max(0, s.delay - 1.0);
+    },
+    land: (fx, h, s) => {
+      const k = s.k;
+      onBody(h, s, 1.2, P2); // today's crescent hangs at 1.2
+      runStory('shadow_u:moon', 'land', fx, h, s, { x: P2.x, y: P2.y });
+      moonCut(fx, h, s, 18, 250, P2, CLONE_SCALE);
+      // the six branded cuts burst white all at once — the whole way along their glints
+      const key = castKey(s);
+      const lines = cutLines.get(key);
+      if (lines) for (const l of lines) glint(fx, l.x, l.y, l.a, 4.5 * (s.local ? 2 * CUT_GLINT : 1), 1.3, 0.32, '#ffffff', k, 0.2);
+      // the cast is over: its keys go (기획 24차 검토: the angles and the sides too)
+      cutLines.delete(key);
+      cutAngles.delete(key);
+      cutSides.delete(key);
+      crackFx(fx, s.x, s.y, 4.5, 8, INK_DARK, k);
+      // a violet shock over the floor round it (its front half shows below any boss) and a white one inside
+      rings(fx, s.x, s.y, 0.6, 6.5, 2, 0.5, DUSK, k, -1, 9);
+      h.ring(s.x, s.y, 0.4, 4.5, 0.35, '#ffffff', 5, 0);
+    },
+    charge: { vignette: 0.5, vignetteLead: 0.6 },
+    finisher: { sparks: 30 },
     motif: 'reticle',
   },
 };
 
 // ─────────────────────────── 레인저 (A13, A14) ───────────────────────────
 
+/** 레인저 조준 (기획 24차): the six spots each ring of rain falls on (`${src}|${skillId}|${seq}`), from its PREP to its land. */
+const rainSpots = new Map<string, Vec2[]>();
+/** 레인저 드래그: the volley's lanes (× half the band's width × 0.55) — left, right, then all three at once. */
+const LANE_L = [-1] as const;
+const LANE_R = [1] as const;
+const LANE_ALL = [-1, 0, 1] as const;
+/** 레인저 드래그: the shock tunnel's four white lines across the band (cells from its axis). */
+const TUNNEL = [-0.9, -0.5, 0.5, 0.9] as const;
+/** 레인저 드래그: where the three wings of the hawk fly — the share of the way from the ranger to its target (기획 24차 검토: was of the band). */
+const HAWK_ALONG = [0.25, 0.55, 0.85] as const;
+/** 레인저 드래그 (기획 24차 검토): the three pins' triangle round the target's visible front (cells; was 1.6 round its middle). */
+const PIN_R = 1.8;
+
 const ranger: Record<string, UltStory> = {
-  // ── 조준 「매의 화살비」: a storm of arrows on the point → the rain → 2.3 s the sky arrow ──
-  'ranger_ua:barrage': {
-    prep: (fx, _h, s) => {
-      aimLine(fx, s.ox, s.oy, s.x, s.y, 0.8, ARROW, s.k, 0, Math.min(0.45, s.delay));
-      star(fx, s.ox, s.oy, BODY_Z, 30, '#ffffff', s.k, Math.max(0, s.delay - 0.12), 6); // the bow flashes
+  // ── 조준 「매의 화살비 · 천공 강하」 (기획 24차 A13′): a thick marking arrow → three rings of rain close in on the mark →
+  //    the hawk of light spreads its wings and dives as the sky arrow (1.9 s) ──
+  'ranger_ua:mark': {
+    prep: (fx, h, s) => {
+      // the bow drawn: a thick gold aim line to the point, feathers pulled into the bow, a flash on it
+      aimLine(fx, s.ox, s.oy, s.x, s.y, 1.0, '#ffd23f', s.k, 0, 0.45);
+      h.implode(s.ox, s.oy, BODY_Z, 1.6, cnt(10, s.k), FEATHER, 0.4, Pk.Feather);
+      star(fx, s.ox, s.oy, BODY_Z, 36, '#ffffff', s.k, 0.35);
     },
     land: (fx, h, s) => {
-      randomIn(s, P0);
-      runStory('ranger_u:barrage', 'land', fx, h, s, { x: P0.x, y: P0.y }); // an arrow from the bow onto a spot in the circle
-      // where it strikes (as the arrow arrives): a small ring, every third a puff of dust and a star
-      const x = P0.x;
-      const y = P0.y;
-      const k = s.k;
-      const third = s.hit % 3 === 2;
-      const g = 1 + 0.06 * Math.min(8, s.hit);
-      h.later(0.14, () => {
-        h.ring(x, y, 0.1, 0.7 * g, 0.22, ARROW, 3, 0);
-        if (!third) return;
-        h.spray(x, y, 0.2, cnt(3, k), Pk.Smoke, '#d8cbb8', 0.8, 1, 0.5, -0.3, 7);
-        star(fx, x, y, 0.3, 22 * g, '#ffffff', k, 0, 6);
-      });
+      // a white beam and a big arrow from the bow; the gold mark (the ★'s own size) stays until the sky arrow
+      beam(fx, s.ox, s.oy, s.x, s.y, 0.9, 0.2, ARROW, s.k);
+      beam(fx, s.ox, s.oy, s.x, s.y, 0.3, 0.16, '#ffffff', s.k, 0.02);
+      arrow(fx, s.ox, s.oy, s.x, s.y, 0.16, 2.8, ARROW, s.k);
+      crosshairFx(fx, s.x, s.y, s.area.shape === 'circle' ? s.area.radius : 2, s.toFinish + 0.1, '#ffd23f', s.k, -1);
+      h.ring(s.x, s.y, 0.2, 2, 0.3, '#ffffff', 3, 0);
+      h.spray(s.x, s.y, 0.6, cnt(8, s.k), Pk.Feather, FEATHER, 2.5, 2, 1, 1, 5);
+      h.spray(s.x, s.y, 0.2, cnt(5, s.k), Pk.Smoke, '#d8cbb8', 0.8, 1, 0.5, -0.3, 7);
     },
-    impact: s => (s.hit === s.hits - 1 ? { shake: 1, flash: 0.3 } : { shake: 0.8 }),
+    impact: { stop: 45, shake: 4, flash: 0.7 },
   },
   'ranger_ua:rain': {
-    alias: { key: 'ranger_u:rain' }, // shot up from the bow, then arrows pour onto the circle
-    impact: { shake: 2, flash: 0.4 },
+    alias: { key: 'ranger_u:rain', land: false }, // a light shot up from the bow 0.35 s before each ring (PREP)
+    prep: (fx, h, s) => {
+      // six thick arrows fall inside the ring as it lands — the spots kept for the land; started on the sim clock just
+      // before (no effects waiting in the pool from the cast: the budget)
+      const pts: Vec2[] = [];
+      for (let i = 0; i < 6; i++) {
+        randomIn(s, P0);
+        pts.push({ x: P0.x, y: P0.y });
+      }
+      capSet(rainSpots, `${castKey(s)}|${s.seq}`, pts);
+      const k = s.k;
+      h.laterSim(Math.max(0, s.delay - 0.18), late => {
+        const d = Math.max(0.06, 0.18 - late);
+        for (const p of pts) fallAt(fx, p.x, p.y, FallObj.Arrow, 1, 6, 0, d, ARROW, k);
+      });
+    },
+    land: (fx, h, s) => {
+      const key = `${castKey(s)}|${s.seq}`;
+      const pts = rainSpots.get(key);
+      rainSpots.delete(key);
+      if (pts) {
+        for (const p of pts) {
+          star(fx, p.x, p.y, 0.3, 26, '#ffffff', s.k, 0, 6);
+          h.spray(p.x, p.y, 0.3, cnt(1, s.k), Pk.Feather, FEATHER, 1.5, 1.5, 0.9, 1, 5);
+        }
+      }
+      // a thin white ring closes onto the ring's edge; the third (innermost) a big star in the middle
+      const R = s.area.shape === 'circle' ? s.area.radius : 2;
+      h.ring(s.x, s.y, R + 0.5, R, 0.25, '#ffffff', 4, 0.08 * s.k);
+      if (s.seq === 2) star(fx, s.x, s.y, 0.4, 70, '#ffffff', s.k, 0, 10);
+    },
+    impact: s => ({ shake: 2 + s.seq, flash: 0.45 }),
     motif: 'reticle',
   },
   'ranger_ua:skyshot': {
-    alias: { key: 'ranger_u:skyshot' }, // ★ the reticle, a gold column, the giant arrow falls (today's 하늘 화살)
-    prep: (fx, _h, s) => {
-      // a ring of six arrows comes down with it
-      const R = (s.area.shape === 'circle' ? s.area.radius : 1.6) * 0.75;
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + 0.5;
-        fallAt(fx, s.x, s.y, FallObj.Arrow, 0.45, 7, s.delay - 0.2 - 0.015 * i, 0.2, s.color, s.k, s.follow, Math.cos(a) * R, Math.sin(a) * R * 0.8);
-      }
+    // today's 하늘 화살 LAND (gold rings, a star, rocks, feathers); its PREP's 1.1 arrow is too small here
+    alias: { key: 'ranger_u:skyshot', prep: false },
+    prep: (fx, h, s) => {
+      // ★ the hawk of light, built on the sim clock 0.6 s before the blow (the mark's stop never pushes it late):
+      // three wings over the mark, from above the ranger's side down onto it (the dive's trail), a gold beat of the
+      // wings 0.45 s before, a gold column, the giant arrow from 11 high with a crown of eight arrows following it
+      const x = s.x;
+      const y = s.y;
+      const k = s.k;
+      const local = s.local;
+      const d = Math.hypot(s.ox - x, s.oy - y);
+      const ux = d > 1e-4 ? (s.ox - x) / d : 0;
+      const uy = d > 1e-4 ? (s.oy - y) / d : 0;
+      const lead = Math.min(0.6, s.delay);
+      h.laterSim(s.delay - lead, late => {
+        const t0 = lead - late; // seconds left to the blow
+        const at = (sec: number) => Math.max(0, t0 - sec); // the wait for a moment `sec` before the blow
+        let zLow = 0.6;
+        for (let i = 0; i < (local ? 3 : 1); i++) {
+          const g = 1 - i / 2; // 1.2 cells toward the ranger → over the mark
+          const wx = x + ux * 1.2 * g;
+          const wy = y + uy * 1.2 * g;
+          const w = fx.add(Fx.Wings, wx, wy, 0.5, FEATHER, k);
+          w.r = 2.9 - 0.15 * i;
+          w.z = zLow = Math.max(0.6, skyZ(wy, 100, 0.6, 3) - 0.6 * i);
+          w.oy = skyNudge(wy, 100, w.z);
+          w.wait = at(0.6 - 0.07 * i);
+        }
+        const flap = fx.add(Fx.Wings, x, y, 0.3, '#ffd23f', k);
+        flap.r = 2.5;
+        flap.z = zLow;
+        flap.oy = skyNudge(y, 100, zLow);
+        flap.wait = at(0.45);
+        const z = zLow;
+        const fy = y + flap.oy;
+        h.later(at(0.45), () => h.implode(x, fy, z, 2, cnt(10, k), '#ffd23f', 0.3, Pk.Feather));
+        // (the router's low detail is off by now: another player's skips the column here)
+        if (local) lightPillar(fx, x, y, 1.2, 11, '#ffd23f', k, 0.45, -1, at(0.45));
+        fallAt(fx, x, y, FallObj.Arrow, 2.6, 11, at(0.26), Math.min(0.26, t0), '#fff6d0', k);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          fallAt(fx, x, y, FallObj.Arrow, 0.8, 9, at(0.24 - 0.012 * i), 0.24, ARROW, k, -1, Math.cos(a) * 1.6, Math.sin(a) * 1.6 * 0.8);
+        }
+      });
     },
     land: (fx, h, s) => {
-      scorchFx(fx, s.x, s.y, 1.2, 2.5, false, '#3a2e26', s.k);
-      lightPillar(fx, s.x, s.y, 1.4, 11, '#ffd23f', s.k, 0.5);
-      h.ring(s.x, s.y, 0.3, 3, 0.3, '#ffffff', 2, 0);
-      h.spray(s.x, s.y, 1.4, cnt(12, s.k), Pk.Feather, FEATHER, 3.5, 2.5, 1.2, 1, 6);
+      crackFx(fx, s.x, s.y, 3, 10, '#ffd23f', s.k);
+      h.ring(s.x, s.y, 0.3, 4, 0.35, '#ffffff', 3, 0);
+      scorchFx(fx, s.x, s.y, 1.5, 2.5, false, '#3a2e26', s.k);
+      h.spray(s.x, s.y, 1.2, cnt(16, s.k), Pk.Feather, FEATHER, 3.5, 2.5, 1.2, 1, 6);
     },
     charge: { vignetteColor: '#000000', vignette: 0.35 },
-    finisher: { glyph: '穿' },
+    finisher: { sparks: 24 },
     motif: 'reticle',
   },
 
-  // ── 드래그 「매의 대일격」: a roll on landing → three lanes of arrows at the target → 1.25 s the pierce ──
+  // ── 드래그 「매의 대일격」 (기획 24차 A14′): a roll on landing → three lanes of thick arrows at the target → 1.1 s three
+  //    arrows from the sky pin it → the sniper's breath (only the band stays lit) → 1.5 s the pierce, the hawk with it.
+  //    기획 24차 검토 (8-8-6): bigger and readable against ANY boss — a wider band (data 2.6 / 3), bigger arrows with a white
+  //    trail as wide as a lane, a muzzle flash and a gold stance circle at the bow (always on the open floor), the pins
+  //    as big lit arrows round the target's VISIBLE front, the pierce a full-width gold band with the hawk (big wings)
+  //    between the ranger and its target, a hawk rising behind the ranger and a ground shock at the bow ──
   'ranger_ud:volley': {
     alias: { key: 'ranger_d:volley', lineAsRect: true, land: false }, // the aim line along the band (PREP)
-    land: (fx, _h, s) => {
-      // three lanes, in turn, each arrow a little bigger
+    land: (fx, h, s) => {
+      // left lane, right lane, then all three at once; each arrow a little bigger, a white trail on each
       footAlong(s, 0, P0);
       footAlong(s, 1, P1);
       const a = ultAngle(s);
-      const half = (s.area.shape === 'line' ? s.area.width : 2) / 2;
-      const lane = ((s.hit % 3) - 1) * half * 0.55;
-      const vx = -Math.sin(a) * lane;
-      const vy = Math.cos(a) * lane;
-      arrow(fx, P0.x + vx, P0.y + vy, P1.x + vx, P1.y + vy, 0.22, 1.2 * (1 + 0.05 * Math.min(8, s.hit)), s.color, s.k);
+      const k = s.k;
+      const half = (s.area.shape === 'line' ? s.area.width : 2.6) / 2;
+      const vx = -Math.sin(a) * half * 0.6;
+      const vy = Math.cos(a) * half * 0.6;
+      const all = s.hit % 3 === 2;
+      const size = 2.4 * Math.pow(1.06, Math.min(6, s.hit));
+      for (const j of all ? LANE_ALL : s.hit % 3 === 0 ? LANE_L : LANE_R) {
+        arrow(fx, P0.x + vx * j, P0.y + vy * j, P1.x + vx * j, P1.y + vy * j, 0.2, size, s.color, k);
+        beam(fx, P0.x + vx * j, P0.y + vy * j, P1.x + vx * j, P1.y + vy * j, 0.7, 0.16, '#ffffff', k);
+      }
+      // the bow's flash (the ranger stands on the open floor: always seen), a wind ring off it on the three-lane shots
+      star(fx, s.ox, s.oy, BODY_Z, all ? 60 : 38, '#ffffff', k, 0, 6);
+      if (all) h.ring(s.ox, s.oy, 0.3, 2, 0.25, FEATHER, 4, 0);
+      onBody(h, s, BODY_Z, P2);
+      star(fx, P2.x, P2.y, BODY_Z, all ? 64 : 34, '#ffffff', k, 0, all ? 8 : 6);
+      if (all) h.spray(P2.x, P2.y, 0.6, cnt(3, k), Pk.Feather, FEATHER, 2, 1.5, 0.8, 1, 5);
+      // the first arrow: a gold stance circle under the ranger, until the pierce
+      if (s.hit === 0) rune(fx, s.ox, s.oy, 2.2, s.toFinish + 0.15, '#ffd23f', k);
     },
-    impact: s => (s.hit === s.hits - 1 ? { shake: 1, flash: 0.35 } : { shake: 0.8 }),
+    impact: s => (s.hit === s.hits - 1 ? { shake: 2, flash: 0.4 } : { shake: s.hit % 3 === 2 ? 1.8 : 1 }),
     motif: 'aim',
+  },
+  'ranger_ud:pin': {
+    prep: (fx, h, s) => {
+      // three big arrows fall from high up onto a triangle round its target's visible front
+      onBody(h, s, 0.4, P2);
+      const dy = P2.y - s.y;
+      for (let i = 0; i < 3; i++) {
+        const a = Math.PI / 2 + (i * 2 * Math.PI) / 3;
+        fallAt(fx, s.x, s.y, FallObj.Arrow, 1.3, 9, Math.max(0, s.delay - 0.2), Math.min(0.2, s.delay), ARROW, s.k, s.follow, Math.cos(a) * PIN_R, dy + Math.sin(a) * PIN_R * 0.8);
+      }
+    },
+    land: (fx, h, s) => {
+      // an electric thread from each planted arrow to its target, a gold column on each arrow and a gold reticle on it,
+      // until the pierce
+      const k = s.k;
+      onBody(h, s, 0.4, P2);
+      for (let i = 0; i < 3; i++) {
+        const a = Math.PI / 2 + (i * 2 * Math.PI) / 3;
+        const px = P2.x + Math.cos(a) * PIN_R;
+        const py = P2.y + Math.sin(a) * PIN_R * 0.8;
+        tetherFx(fx, px, py, P2.x, P2.y, TetherStyle.Electric, s.toFinish + 0.05, ARROW, k, -1, -1, 0, 3);
+        lightPillar(fx, px, py, 0.4, 5, '#ffd23f', k, 0.45);
+      }
+      crosshairFx(fx, P2.x, P2.y, 1.8, s.toFinish, '#ffd23f', k, -1);
+      h.ring(P2.x, P2.y, 0.3, 2.6, 0.3, '#ffffff', 4, 0);
+      h.spray(P2.x, P2.y, 0.6, cnt(8, k), Pk.Feather, FEATHER, 2.2, 1.6, 0.8, 1, 5);
+    },
+    impact: { shake: 4, flash: 0.7 },
   },
   'ranger_ud:pierce': {
     alias: { key: 'ranger_d:pierce', lineAsRect: true }, // ★ the closing ring + the lens flare (PREP) · the beams + the big arrow
-    land: (fx, _h, s) => {
-      star(fx, s.x, s.y, BODY_Z, 60, '#ffffff', s.k, 0, 12);
+    prep: (fx, h, s) => {
+      // the hawk of light hovers over the ranger through the breath, wings spread (its top under the boss bar)
+      const hw = fx.add(Fx.Wings, s.ox, s.oy, 0.5, FEATHER, s.k);
+      hw.r = 2.6;
+      hw.z = skyZ(s.oy, 75, 0.8, 2.2);
+      hw.oy = skyNudge(s.oy, 75, hw.z);
+      hw.follow = s.src;
+      hw.wait = Math.max(0, s.delay - 0.5);
+      if (!s.local) return;
+      // 저격의 숨 (mine): 0.4 s before, the world dims but for the band it will shoot along (+ 0.3 round it) and a thick
+      // gold aim line runs it — measured again then (the ranger and its target may have moved); the ★ cuts it
+      // (cancelFocus). It stands in for the common breath, which a band this long (8.1 > 6 across) never gets.
+      const src = s.src;
+      const tgt = s.follow;
+      const k = s.k;
+      const L = s.area.shape === 'line' ? s.area.length : 16;
+      const W = s.area.shape === 'line' ? s.area.width : 3;
+      const ox0 = s.ox;
+      const oy0 = s.oy;
+      const tx0 = s.x;
+      const ty0 = s.y;
+      const lead = Math.min(0.4, s.delay);
+      h.laterSim(s.delay - lead, late => {
+        const me = src >= 0 ? h.memo(src) : undefined;
+        const tg = tgt >= 0 ? h.memo(tgt) : undefined;
+        const ox = me?.x ?? ox0;
+        const oy = me?.y ?? oy0;
+        const tx = tg?.x ?? tx0;
+        const ty = tg?.y ?? ty0;
+        const d = Math.hypot(tx - ox, ty - oy);
+        const ang = d > 1e-4 ? Math.atan2(ty - oy, tx - ox) : Math.atan2(ty0 - oy0, tx0 - ox0);
+        const ux = Math.cos(ang);
+        const uy = Math.sin(ang);
+        const left = Math.max(0.05, lead - late);
+        const center = { x: ox - ux * 0.3, y: oy - uy * 0.3 };
+        const area: AreaShape = { shape: 'rect', dir: 'right', anchor: 'start', length: L + 0.6, width: W + 0.6, rot: (ang * 180) / Math.PI };
+        h.screen.focusDim(ox + (ux * L) / 2, oy + (uy * L) / 2, L / 2, 0.4, 0.08, left, 0, { area, center, origin: null });
+        aimLine(fx, ox, oy, ox + ux * L, oy + uy * L, W, '#ffd23f', k, 0, left);
+      });
+    },
+    land: (fx, h, s) => {
+      footAlong(s, 0, P0);
+      footAlong(s, 1, P1);
+      const a = ultAngle(s);
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      const vx = -uy;
+      const vy = ux;
+      const k = s.k;
+      const W = s.area.shape === 'line' ? s.area.width : 3;
+      // the band itself goes off: gold as wide as it is, a white core
+      beamAlong(fx, s, W, '#ffd23f', 0.32);
+      // the hawk of light flies with it between the ranger and its target (where the band is on screen), big wings
+      // 0.04 s apart (another player's: one)
+      // (기획 24차 검토: hung like the hover hawk — each wing's top under the boss bar, a boss on the top row included)
+      onBody(h, s, 1.2, P2);
+      const toT = Math.max(2, Math.hypot(P2.x - s.ox, P2.y - s.oy));
+      for (let i = 0; i < (s.local ? 3 : 1); i++) {
+        const t = Math.min(HAWK_ALONG[s.local ? i : 1] * toT, 16);
+        const wy = s.oy + uy * t;
+        const w = fx.add(Fx.Wings, s.ox + ux * t, wy, 0.22, FEATHER, k);
+        w.r = 2.6 - 0.2 * i;
+        hangWings(w, wy, 1.2);
+        w.wait = 0.04 * i;
+      }
+      // a shock tunnel: four thin white lines inside the band; a giant white arrow down it; a big star on its target
+      for (let j = 0; j < TUNNEL.length; j++) {
+        const o = TUNNEL[j] * (W / 2.2);
+        beam(fx, P0.x + vx * o, P0.y + vy * o, P1.x + vx * o, P1.y + vy * o, 0.22, 0.22, '#ffffff', k, 0.015 * j);
+      }
+      arrow(fx, P0.x, P0.y, P1.x, P1.y, 0.2, 4.2, '#ffffff', k);
+      onBody(h, s, BODY_Z, P2);
+      star(fx, P2.x, P2.y, BODY_Z, 110, '#ffffff', k, 0, 12);
+      // the recoil: a shock round the bow over the floor, a gold hawk rising behind the ranger, an afterimage pushed back
+      rings(fx, s.ox, s.oy, 0.3, 3.6, 2, 0.35, '#ffffff', k, -1, 7);
+      const hy = s.oy - uy * 0.6;
+      const hk = fx.add(Fx.Wings, s.ox - ux * 0.6, hy, 0.4, '#ffd23f', k);
+      hk.r = 3.2;
+      hangWings(hk, hy, 1.4);
+      h.afterimage(s.src, s.ox - ux * 1.1, s.oy - uy * 1.1, 0.35, 1.2);
+      sprayAlong(h, s, 4, cnt(3, k), Pk.Feather, FEATHER, 1.6, 1.2, 1.1, 1.2, 5);
+      // speed lines along the band (mine) — the finisher's radial ones are off below, or they would replace these
+      if (s.local) ultSpeedLines(s.x, s.y, { dir: a, n: 16 });
     },
     charge: { vignetteColor: '#000000', vignette: 0.4 },
-    finisher: { glyph: '穿' },
+    finisher: { speedLines: false },
+    linger: { kind: 'gash' }, // a cut along the band
     motif: 'aim',
   },
 };
@@ -934,7 +1334,7 @@ const mage: Record<string, UltStory> = {
       midBurst(fx, h, s);
     },
     charge: { vignette: 0 }, // the freeze already tinted the edges
-    finisher: { glyph: '凍', flash: 0, ...OFF_ANCHOR },
+    finisher: { flash: 0, ...OFF_ANCHOR },
   },
 
   // ── 드래그 「빙결 유성우」: eight icicles round the landing → 1.3 s the great ice star → the blizzard ──
@@ -964,7 +1364,6 @@ const mage: Record<string, UltStory> = {
       encaseEach(fx, h, s, 0.6);
     },
     charge: { vignette: 0.35 },
-    finisher: { glyph: '凍' },
     linger: { kind: 'frost', dur: 3 }, // a frost mark (today's scorch is a fire crater: dark with an orange rim)
     motif: 'rune',
   },
@@ -1223,4 +1622,18 @@ const STAGES22: Record<string, StageFx> = {
   'mage_ud:shatter': (ev, v, k, local) => slam22(ev, v, k, local, C22.ice, 6),
 };
 
-registerUltFx({ onEvent });
+/** 기획 24차 검토 (tests): the keys the per-cast maps hold now (0 once every cast landed its last part, or after a reset). */
+export function ultCastKeysA(): number {
+  return cutAngles.size + cutSides.size + cutLines.size + rainSpots.size;
+}
+
+// 기획 24차 검토: a floor change / a new run drops the per-cast maps (resetUltCore → the modules' reset)
+registerUltFx({
+  onEvent,
+  reset: () => {
+    cutAngles.clear();
+    cutSides.clear();
+    cutLines.clear();
+    rainSpots.clear();
+  },
+});

@@ -1941,14 +1941,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     if (cut.needsPlacement()) cut.place(bandAvoid(state));
     vfx.drawScreen(c, cam, time);
     // 기획 13차 리뷰: the band never hides an enemy warning (2-3 "예고선은 밝게"). 기획 23차: nor the 착지 컷 strip, nor a
-    // 궁극기 테스트 finisher's flash / vignette while its glyph or speed lines are up
+    // 궁극기 테스트 finisher's flash / vignette while its impact frame (기획 24차) or speed lines are up
     const danger = (cut.active && (!cut.short || cut.landAt >= 0)) || (state.mode === 'ultTest' && ultScreenBusy());
     // 기획 23차 검토 (궁극기 테스트 with 「궁극기 연출 강화」 on): those warnings follow the world's shake and zoom (unshaken
-    // they showed twice, ~20 px apart, while a finisher's shake / zoom died out) and go over the big glyph too (no screen
-    // layer hides an enemy warning). Everywhere else (classic, 원정, raid, the switch off) exactly as before.
+    // they showed twice, ~20 px apart, while a finisher's shake / zoom died out) and go over the impact frame's dark cut
+    // and star too (no screen layer hides an enemy warning). Everywhere else (classic, 원정, raid, the switch off) exactly
+    // as before.
     const follow = danger && state.mode === 'ultTest' && ULT_FX.boost;
     if (danger && !follow) drawEnemyDanger(state);
-    drawUltScreen(c, ultView(state)); // 기획 23차: the big glyph, the sight line, speed lines (궁극기 테스트 only)
+    drawUltScreen(c, ultView(state)); // 기획 23차: the impact frame (기획 24차), the sight line, speed lines (궁극기 테스트 only)
     if (follow) {
       c.save();
       c.translate(shX, shY);
@@ -2076,7 +2077,25 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     drawOffscreenEnemies(state);
     fieldFx.drawScreen(c, cam, state, time);
     vfx.drawScreen(c, cam, time);
-    drawUltScreen(c, ultView(state)); // 기획 23차: the glyph slams on the real clock, through the stop too
+    drawUltScreen(c, ultView(state)); // 기획 23차: the impact frame (기획 24차) slams on the real clock, through the stop too
+    if (state.mode === 'ultTest' && ULT_FX.boost && ultScreenBusy()) {
+      // 기획 24차 (docs/ult-fx.md 8-2-2): the dark cut covers the stop's first frames — the enemy warnings go over it,
+      // on the held picture's shake and zoom (궁극기 테스트 with the switch on only: every other frozen frame as before).
+      // 기획 24차 검토: for as long as the live frames redraw them (ultScreenBusy) — the star / streaks drawn on after the
+      // cut, or with no cut at all (reduced motion, a second finisher within 1 s), hid them for a frame or more; and a
+      // warning that came up during the stop is grouped first (the live path's teleSeq.track — keyed by warning id, so
+      // the next live frame does not group it again): unseen, every part of a multi-part cast read as the next one
+      teleSeq.track(state.telegraphs);
+      c.save();
+      c.translate(o.x, o.y);
+      if (vfx.juice.zoomAt(ZOOM)) {
+        c.translate(ZOOM.x, ZOOM.y);
+        c.scale(ZOOM.s, ZOOM.s);
+        c.translate(-ZOOM.x, -ZOOM.y);
+      }
+      drawEnemyDanger(state);
+      c.restore();
+    }
     c.globalAlpha = 1;
   }
 

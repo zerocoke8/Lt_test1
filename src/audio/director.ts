@@ -374,6 +374,9 @@ export class Director {
       case 'skillStage':
         return this.onStage(c, e);
       case 'ultCast':
+        // 기획 24차 검토: a new cast's stepped beats start from the first again (the 「충전」 button makes a re-cast within
+        // the counters' 3 s window the normal way to test) — every caster's, 궁극기 테스트 only
+        if (c.s.mode === 'ultTest') this.forgetSteps(e.entityId, e.skillId);
         if (e.player !== c.lp) return;
         c.play(`ult.${e.defId}.cutin`, { pan: c.heroPan(e.entityId), skill: e.skillId });
         c.duck('sfx', -8, 0, 1.2, 0.04, 0.4);
@@ -984,6 +987,15 @@ export class Director {
     if (t != null && now - t < win) return false;
     this.seen.set(key, now);
     return true;
+  }
+
+  /**
+   * 기획 24차 검토: drop a caster's step counters of one ult (its 'hit' cues and lead hits, its drag path's too) — they
+   * are keyed by caster + skill + stage, so a re-cast inside their 3 s window used to start at its max and play nothing.
+   */
+  private forgetSteps(entityId: number, skillId: string): void {
+    const heads = [`${entityId}:${skillId}:`, `lh:${entityId}:${skillId}:`, `${entityId}:${skillId}_path:`, `lh:${entityId}:${skillId}_path:`];
+    for (const k of [...this.counters.keys()]) if (heads.some(h => k.startsWith(h))) this.counters.delete(k);
   }
 
   private count(key: string, now: number): number {

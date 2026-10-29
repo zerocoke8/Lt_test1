@@ -16,7 +16,7 @@ export function sanitizeUltFx(raw: unknown): { boost: boolean } {
 
 /**
  * The phone is struggling: render/index.ts sets it every frame (the backing-scale governor's cap ≤ 1.25). The 23차
- * extras then go light — half the sparks / embers, no floor-mark cracks, no ink drops on the big glyph, no directional
- * speed lines.
+ * extras then go light — half the sparks / embers, no floor-mark cracks, no directional speed lines; 기획 24차: the
+ * impact frame without its streaks and second ring (read when it is pushed).
  */
 export const FX_LOAD: { low: boolean } = { low: false };

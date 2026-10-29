@@ -258,7 +258,8 @@ export class RemoteGame implements Game {
         break;
       case 'debug':
       case 'tunables':
-        r = this.isHost ? ok : fail('방장만 할 수 있어요');
+        // 기획 24차: 「충전」 in a 궁극기 테스트 room — any member (the server fills my own gauges only)
+        r = this.isHost || (cmd.type === 'debug' && cmd.action.kind === 'chargeUlt' && s.mode === 'ultTest') ? ok : fail('방장만 할 수 있어요');
         break;
       case 'quit':
         r = ok;

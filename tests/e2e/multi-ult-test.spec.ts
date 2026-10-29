@@ -5,6 +5,8 @@
 // A holds its ult button and drags onto the field → releases: the guardian's ult lands at that spot on ALL THREE screens
 // (its barrier zone, the same centre). B drags its ult button onto the field → its guardian appears there and casts there,
 // seen the same on all three. 기획 23차: each ult's ★ finisher warning sits at the same spot on all three screens too. The host's debug 「궁극기 방식」 switches everyone; a member has no debug button.
+// 기획 24차: every member has the 「충전」 button; guest B's press fills B's three gauges only (A's and C's stay as time
+// made them), seen the same on all three screens, with no refusal.
 
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
@@ -196,6 +198,22 @@ test('궁극기 테스트 방: 라벨 → 시작 → 방식 [조준 · 드래그
     await expect(B.page.locator('.ult-mode')).toHaveText('드래그');
     await expect(C.page.locator('.ult-mode')).toBeHidden();
     await expect(B.page.locator('.btn-dbg')).toBeHidden();
+
+    // ── 기획 24차 「충전」: every member has it; guest B's press fills B's three gauges only, on every screen ──
+    for (const p of all) await expect(p.page.locator('.ult-charge')).toBeVisible();
+    await tap(B, '.ult-charge');
+    for (const p of all) await p.page.waitForFunction(() => window.__proto!.game!.state.players[1].party.every(m => m.ult.charge >= 1), undefined, { timeout: 5000 });
+    await expect(B.page.locator('.ult')).toHaveClass(/is-full/);
+    await expect(B.page.locator('.ult-pct')).toHaveText('끌기!');
+    await expect(B.page.locator('.ult-charge')).toHaveClass(/is-full/);
+    for (const p of all) {
+      const g = await p.page.evaluate(() => window.__proto!.game!.state.players.map(x => x.party.map(m => m.ult.charge)));
+      for (const pi of [0, 2]) expect(g[pi].every(c => c < 0.5), `${p.name} sees player ${pi}: ${g[pi].join(', ')}`).toBe(true);
+    }
+    await expect(A.page.locator('.ult-charge')).not.toHaveClass(/is-full/);
+    await expect(B.page.locator('.toasts-hud')).not.toContainText('거절');
+    await expect(B.page.locator('.toasts-hud')).not.toContainText('방장만');
+
     // the host: nobody dies, gauges fill in 2 s (the room's tunables)
     await A.page.evaluate(() => {
       const t = window.__proto!.game!.tunables;

@@ -9,6 +9,7 @@
 //            보스 HP 바 위 흰 보호막 띠 (보스가 자기에게 건 보호막)
 //  기획 20차 보스 형태: 움직이는 보스 머리 위 이름표, 층 시작 배너 · 보스 박스의 형태 한 줄 (배회형 …), 표식 붙은 카드 「교체!」,
 //            「뒤!」 / 「막힘」, 패턴 팁은 레이드에서 런마다 한 번 (ui/bossFormHud.ts)
+//  기획 24차 궁극기 테스트: 궁극기 버튼 오른쪽 「충전」 (내 세 캐릭터 게이지 가득 = 디버그 「궁극기 충전」, 이 모드에서만 만듦)
 
 import { DEBUFFS, LOGICAL_W, type CharacterDef, type Entity, type Game, type GameEvent, type GameState, type PlayerState, type StatusInstance, type Vec2 } from '../types';
 import {
@@ -80,6 +81,11 @@ const RAID_BANNER_MS = 3200;
 /** 기획 12차: bench heals below this many HP (메딕 대기실 간호 ticks) only glow, no '+N'. */
 const BENCH_HEAL_POP_MIN = 10;
 
+/** 기획 24차 궁극기 테스트 「충전」: a second press this soon (ms) is ignored; the pop (ultTest.css .is-pop) lasts this long. */
+const ULT_CHARGE_GUARD_MS = 300;
+const ULT_CHARGE_POP_MS = 350;
+const ULT_CHARGE_LABEL = '궁극기 게이지 채우기 (궁극기 테스트)';
+
 interface SheetRow {
   kind: SkillRowKind;
   live: HTMLElement;
@@ -110,6 +116,8 @@ export interface HudCallbacks {
    * click that follows its release is ignored); false / absent = a plain button (the click casts today's ult).
    */
   onUltDown?(ev: PointerEvent, el: HTMLElement): boolean;
+  /** 기획 24차 궁극기 테스트: the 「충전」 button (fill my three gauges). */
+  onUltCharge?(): void;
   onPause(): void;
   onDebug(): void;
   onShowResult(): void;
@@ -301,6 +309,10 @@ export class Hud {
   /** 기획 22차: when a gesture-owned press ended (its click is ignored for a moment). */
   private ultGestureUpAt = -Infinity;
   private ultGestureOwned = false;
+  /** 기획 24차 궁극기 테스트: 「충전」 right of the ult button (null in every other mode — not even in the DOM). */
+  private readonly ultCharge: HTMLButtonElement | null;
+  private ultChargeAt = -Infinity;
+  private ultChargePop: ReturnType<typeof setTimeout> | null = null;
   // center
   private readonly bannerBox: HTMLElement;
   private readonly hint: HTMLElement;
@@ -523,6 +535,9 @@ export class Hud {
       if (this.ultGestureOwned || performance.now() - this.ultGestureUpAt < 600) return;
       cb.onUlt();
     });
+    // 기획 24차 궁극기 테스트: 「충전」 = the debug 「궁극기 충전」 for my seat. The ult's sibling (after it in the DOM, for the
+    // CSS `~`), never its child: a press on it must not start the ult gesture. Built in this mode only (other HUDs unchanged)
+    this.ultCharge = s.mode === 'ultTest' ? this.makeUltCharge(bc) : null;
 
     // ── bottom-right: pets ──
     const br = h('div', 'hud-br', this.root);
@@ -575,6 +590,7 @@ export class Hud {
   }
 
   destroy(): void {
+    if (this.ultChargePop) clearTimeout(this.ultChargePop);
     this.cancelLongPress();
     this.cardFx.destroy();
     this.root.remove();
@@ -1349,6 +1365,41 @@ export class Hud {
     setText(this.ultSub, me.out ? '관전 중' : full ? (activeDef ? (over > 0 ? `${pct}%` : '준비 완료') : '필드 비었음') : !gauge ? '필드 비었음' : `${countdown(left)}초 후`);
     setText(this.ultName, activeDef ? ultNameFor(s, this.localPlayer, activeDef.id) : '—');
     setStyle(this.ultName, 'color', activeDef ? activeDef.color : '');
+    // 기획 24차 궁극기 테스트 「충전」: hidden outside combat (보상 · 괴담 방 · 결과) and while spectating; dim (a press sends
+    // nothing) once all three of my gauges are full — a full field gauge alone still lets it fill the bench
+    if (this.ultCharge) {
+      show(this.ultCharge, s.phase === 'combat' && !me.out);
+      const allFull = me.party.every((_, i) => (memberUltGauge(me, i)?.charge ?? 0) >= 1);
+      setClass(this.ultCharge, 'is-full', allFull);
+      // 기획 24차 검토: a press on the dim button sends nothing — it sounds as a refusal (src/audio/uiSfx.ts), not a tap
+      setAttr(this.ultCharge, 'data-sfx', allFull ? 'ui.refuse' : '');
+    }
+  }
+
+  /** 기획 24차 궁극기 테스트: the 「충전」 button (ultTest.css). It acts on the click (the release) only. */
+  private makeUltCharge(parent: HTMLElement): HTMLButtonElement {
+    const b = button('ult-charge hud-block is-hidden', '충전', parent, () => this.pressUltCharge());
+    h('span', 'ult-charge-badge', b, '+');
+    // 기획 24차 검토: the app's click sound stays out (app.ts chargeMyUlt plays ui.tap / ui.ult.denied itself; a press
+    // dropped by the 0.3 s guard is silent) — updateUlt makes a dim press ui.refuse
+    b.dataset.sfx = '';
+    b.setAttribute('aria-label', ULT_CHARGE_LABEL);
+    b.title = ULT_CHARGE_LABEL;
+    // the press stays on the button (nothing under or around it reacts)
+    b.addEventListener('pointerdown', ev => ev.stopPropagation());
+    return b;
+  }
+
+  /** 「충전」 clicked: not again within ULT_CHARGE_GUARD_MS, nothing while all three gauges are full; a short pop. */
+  private pressUltCharge(): void {
+    const b = this.ultCharge;
+    const now = performance.now();
+    if (!b || now - this.ultChargeAt < ULT_CHARGE_GUARD_MS || b.classList.contains('is-full')) return;
+    this.ultChargeAt = now;
+    this.cb.onUltCharge?.();
+    replayClass(b, 'is-pop');
+    if (this.ultChargePop) clearTimeout(this.ultChargePop);
+    this.ultChargePop = setTimeout(() => b.classList.remove('is-pop'), ULT_CHARGE_POP_MS);
   }
 
   private updatePets(s: GameState, me: PlayerState): void {

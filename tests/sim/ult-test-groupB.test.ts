@@ -219,6 +219,13 @@ describe('group B data (docs/ult-test.md 5-2 rules)', () => {
         for (const k of Object.keys(def.sfx ?? {})) expect(k === '_path' ? !!def.move?.path : def.actions.some(a => a.stage === k), `${def.id} sfx ${k}`).toBe(true);
       }
     }
+    // 기획 24차 검토: 크로노 드래그's build-up sits under its blow — the stasis bell and the echoes' tocks quieter than the ★
+    const ch = alt('chrono', 'drag').sfx!;
+    const one = (v: unknown) => v as { id: string; db?: number };
+    const star = (ch.stop as { id: string; db?: number }[]).find(c => c.id === 'drag.chrono.stop')!;
+    expect(one(ch.stasis).db ?? 0).toBeLessThan(star.db ?? 0);
+    expect(one(ch.echo).db ?? 0).toBeLessThan(star.db ?? 0);
+    expect([one(ch.stasis).db, one(ch.echo).db, star.db]).toEqual([-8, -10, 4]);
     // where the spec retimed it (the finisher, docs/ult-fx.md 3장)
     const at = (id: string) => ultBeats(id)!.finisherAt;
     expect(at('cleric_ua')).toBeCloseTo(1.6, 9);
@@ -228,7 +235,9 @@ describe('group B data (docs/ult-test.md 5-2 rules)', () => {
     expect(at('exorcist_ua')).toBeCloseTo(2.2, 9);
     expect(at('exorcist_ud')).toBeCloseTo(2, 9);
     expect(at('bard_ua')).toBeCloseTo(1.7, 9);
+    expect(at('bard_ud')).toBeCloseTo(1.65, 9); // 기획 24차 (8-3 B10′): was 1.1
     expect(at('chrono_ua')).toBeCloseTo(2.3, 9);
+    expect(at('chrono_ud')).toBeCloseTo(1.65, 9); // 기획 24차 (8-3 B12′): was 1.2
     expect(at('puppeteer_ua')).toBeCloseTo(2, 9);
     expect(at('puppeteer_ud')).toBeCloseTo(1.9, 9);
     // the 퇴마사 조준 wall is the finisher (the bigger footprint), the seal band and the heal its twins
@@ -554,22 +563,33 @@ describe('바드', () => {
     settle(tg);
   });
 
-  it('드래그 공명 삼중주 · 피날레: slides there, up-down bands through it and ±3, the forte last', () => {
+  it('드래그 공명 무대 · 피날레: slides there, the sound wave grows round it beat by beat (3 · 4.5 · 6), the drop on the whole stage', () => {
     const def = alt('bard', 'drag');
     const tg = game('bard', 'drag');
     const e = place(tg, { x: 12, y: 10 });
     const c = cast(tg, 'drag', { x: 12, y: 4 });
     expectCastFollowsPlan(c, def, 'drag');
-    // the bands do not turn with the move (the drag skill's rule)
-    for (const p of c.parts) if (p.area.shape === 'rect') expect(p.area.rot).toBeUndefined();
-    const xs = c.parts.filter(p => p.area.shape === 'rect').map(p => p.center.x - c.after.x);
-    expect([...new Set(xs.map(x => Math.round(x * 1e6) / 1e6))].sort((a, b) => a - b)).toEqual([-3, 0, 3]);
-    advance(tg, 1.4);
+    // 기획 24차 (8-3 B10′): round, on the landing spot, nothing turns with the move (no bands any more)
+    for (const p of c.parts) {
+      expect(p.area.shape, `${p.stage} #${p.actionIndex}`).not.toBe('rect');
+      if (p.area.shape !== 'single') expect(near(p.center, c.after), `${p.stage} #${p.actionIndex}`).toBe(true);
+    }
+    const enemyParts = def.actions.map((a, i) => ({ a, p: c.parts[i] })).filter(x => x.a.affects === 'enemies');
+    expect(enemyParts.map(x => [x.a.stage, x.a.delay, (x.p.area as { radius: number }).radius])).toEqual([
+      ['beat1', 0.45, 3],
+      ['beat2', 0.75, 4.5],
+      ['beat3', 1.05, 6],
+      ['forte', 1.65, 6],
+    ]);
+    expect(def.actions.find(a => a.affects === 'allies')?.area).toEqual({ shape: 'circle', radius: 6 });
+    advance(tg, 1.2);
+    // the allies on the stage (r 6) — the bard stands in it
     expect(hasStatus(e, 'atkUp')).toBe(true);
     expect(hasStatus(e, 'haste')).toBe(true);
-    // 기획 23차: the drag skill's beat names — beat1 (0.45), beat2 left and right (0.75), forte (1.1)
+    expect(stages(tg, def.id, 'forte')).toHaveLength(0); // a beat's rest (1.05 → 1.65 s)
+    advance(tg, 0.55); // 1.75 s: the drop
     const beats = stages(tg, def.id).filter(s => def.actions[s.actionIndex].affects === 'enemies');
-    expect(beats.map(s => s.stage)).toEqual(['beat1', 'beat2', 'beat2', 'forte']);
+    expect(beats.map(s => s.stage)).toEqual(['beat1', 'beat2', 'beat3', 'forte']);
     for (const s of beats) expect(s.targets, `${s.stage} #${s.actionIndex}`).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
     settle(tg);
@@ -611,25 +631,35 @@ describe('크로노', () => {
     settle(tg);
   });
 
-  it('드래그 시간 균열 · 영겁의 역행: blinks in, X rift, rewind, then freeze + X on the boss', () => {
+  it('드래그 시간 균열 · 영겁의 역행: blinks in, X rift, rewind, the freeze at 1 s, the rift echoes twice (X → +), the face breaks at 1.65 s', () => {
     const def = alt('chrono', 'drag');
     const tg = game('chrono', 'drag');
     place(tg, { x: 12, y: 10 });
     const c = cast(tg, 'drag', { x: 12, y: 3.5 });
     expectCastFollowsPlan(c, def, 'drag');
     expect(c.parts[0].area).toMatchObject({ shape: 'cross', diagonal: true, length: 5 });
-    advance(tg, 1.3);
+    advance(tg, 1.75);
     const b = boss(tg);
     expect(stages(tg, def.id, 'rift')[0].targets).toBeGreaterThanOrEqual(1);
-    expect(stages(tg, def.id, 'rewind')).toHaveLength(1);
-    // 기획 23차: the freeze keeps 'stasis', the X on the frozen ones is the drag skill's 'stop' (the finale)
+    const rewind = stages(tg, def.id, 'rewind');
+    expect(rewind).toHaveLength(1);
+    expect(rewind[0].targets).toBeGreaterThanOrEqual(1); // 기획 24차: the rewind deals damage too
+    // 기획 24차 (8-3 B12′): the freeze stays part 3 (the 22차 accent reads it), the two echoes X → +, the round ★ last
     expect(stages(tg, def.id, 'stasis').map(s => s.actionIndex)).toEqual([3]);
-    expect(stages(tg, def.id, 'stop').map(s => s.actionIndex)).toEqual([4]);
+    const echo = stages(tg, def.id, 'echo');
+    expect(echo.map(s => s.actionIndex)).toEqual([4, 5]);
+    expect(echo.map(s => (s.area as { diagonal?: boolean }).diagonal ?? false)).toEqual([true, false]);
+    for (const s of echo) expect(s.targets).toBeGreaterThanOrEqual(1);
+    const stop = stages(tg, def.id, 'stop');
+    expect(stop.map(s => s.actionIndex)).toEqual([6]);
+    expect(stop[0].area).toEqual({ shape: 'circle', radius: 4 });
+    expect(stop[0].targets).toBeGreaterThanOrEqual(1);
+    // the boss is still frozen at the blow (2 s × 0.6 from 1 s = until 2.2 s) and takes +20 % for 5 s
     expect(hasStatus(b, 'stasis')).toBe(true);
     expect(hasStatus(b, 'vulnerable')).toBe(true);
     expect(ultDamage(tg, def, b.id)).toBeGreaterThan(0);
     advance(tg, 2);
-    expect(drain(tg).some(ev => ev.type === 'stasisEnd' && ev.entityId === b.id && ev.amount > 0)).toBe(true); // the stored X damage comes back
+    expect(drain(tg).some(ev => ev.type === 'stasisEnd' && ev.entityId === b.id && ev.amount > 0)).toBe(true); // the echoes' and the ★'s damage comes back
     settle(tg);
   });
 });

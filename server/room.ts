@@ -415,7 +415,9 @@ export class Room {
         c = { ...cmd, player: pi };
         break;
       case 'debug':
-        if (!isHost) return fail('방장만 할 수 있어요');
+        // 기획 24차: a 궁극기 테스트 room's 「충전」 button — any member fills its own gauges (PER_PLAYER_DEBUG puts the
+        // sender's seat in); every other debug action, and chargeUlt in every other room, stays the host's
+        if (!isHost && !(cmd.action.kind === 'chargeUlt' && this.variant === 'ultTest')) return fail('방장만 할 수 있어요');
         if (!this.debugAllowed()) return fail(SHARED_DEBUG_REFUSED);
         c = PER_PLAYER_DEBUG.has(cmd.action.kind) ? { type: 'debug', action: { ...cmd.action, player: pi } as DebugAction } : cmd;
         break;

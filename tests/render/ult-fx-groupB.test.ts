@@ -4,6 +4,10 @@
 // obey 2-2 (at most one contact stop per alt, ≤ 55 ms, ≥ 0.5 s before the finisher; an encore ≤ 100 ms) and a drag alt
 // with a contact stop within 0.8 s of its touchdown has no touchdown stop; each cast stays in its budget; the 22차
 // accents only run with 「궁극기 연출 강화」 off.
+// 기획 24차 (docs/ult-fx.md 8장, 8-6 GROUP B): no finisher names a glyph — my finisher puts up the core's impact frame
+// (ultImpactOf() = the character); 퇴마사's casts make no Fx.Glyph at all; 바드 드래그 (B10′) and 크로노 드래그 (B12′) are
+// new (beat3, echo), and 크로노 드래그's grey is gone by its blow. 기획 24차 검토: 퇴마사 조준's ring of talismans keeps
+// under the boss bar (aimed onto the top-row boss too).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CHARACTERS } from '../../src/data';
 import { Director } from '../../src/audio/director';
@@ -11,16 +15,17 @@ import { ULT_GROUP_B_IDS, setUltAltFixture, ultAlt, ultBeats, type UltAltDef, ty
 import { createRenderer } from '../../src/render';
 import { Vfx } from '../../src/render/vfx';
 import { ScreenFx } from '../../src/render/cutin';
-import { FallObj, Fx } from '../../src/render/skillfx';
+import { FallObj, Fx, SkillFx } from '../../src/render/skillfx';
 import { FX_LOAD, ULT_FX } from '../../src/render/ultTest/settings';
 import { touchdownAt, ultLook, ultLookKeys, ultStory, ultStoryKeys, type UltBeatInfo } from '../../src/render/ultTest/stories';
 import { decalCount } from '../../src/render/ultTest/decals';
 import { BREATH_MAX_REACH, breathReach } from '../../src/render/ultTest/grammar';
-import { resetUltCore, ultStampText } from '../../src/render/ultTest/core';
+import { resetUltCore, ultImpactOf } from '../../src/render/ultTest/core';
 import { ultFxModules, type UltFxView } from '../../src/render/ultTest';
 import type { ImpactSpec } from '../../src/render/impact';
 import type { GameEvent, RenderUiState, UltAimMode } from '../../src/types';
 import { HUMAN, advance, drain, makeGame } from '../sim/helpers';
+import { GROUND_TOP, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from '../../src/render/camera';
 
 // ─────────────────────────── harness ───────────────────────────
 
@@ -95,8 +100,9 @@ afterEach(() => {
   for (const c of CHARACTERS) setUltAltFixture(c.id, null);
 });
 
-const GLYPH: Record<string, string> = { gunner: '爆', cleric: '聖', medic: '救', exorcist: '滅', bard: '響', chrono: '止', puppeteer: '幕' };
 const FX_FALL: number = Fx.Fall;
+const FX_GLYPH: number = Fx.Glyph;
+const FX_TALISMAN: number = Fx.Talisman;
 const FALL_BELL: number = FallObj.Bell;
 const ALTS = (): UltAltDef[] => ULT_GROUP_B_IDS.flatMap(id => [ultAlt(id, 'aim')!, ultAlt(id, 'drag')!]);
 const party = (id: string) => [id, id === 'cleric' ? 'guardian' : 'cleric', id === 'bard' ? 'mage' : 'bard'];
@@ -142,6 +148,7 @@ const STORY_KEYS = [
   'bard_ud:choir',
   'bard_ud:encore',
   'bard_ud:beat2',
+  'bard_ud:beat3', // 기획 24차
   'bard_ud:forte',
   'chrono_ua:stasis',
   'chrono_ua:mire',
@@ -150,6 +157,7 @@ const STORY_KEYS = [
   'chrono_ud:rift',
   'chrono_ud:rewind',
   'chrono_ud:stasis',
+  'chrono_ud:echo', // 기획 24차
   'chrono_ud:stop',
   'puppeteer_ua:open',
   'puppeteer_ua:charm',
@@ -166,12 +174,12 @@ const LOOK_KEYS = ['gunner_ud', 'cleric_ud', 'medic_ud', 'exorcist_ud', 'bard_ud
 const B_ALT = new Set(ULT_GROUP_B_IDS.flatMap(id => [`${id}_ua`, `${id}_ud`]));
 
 describe('group B stories and looks (render/ultTest/groupB.ts)', () => {
-  it('every alt has a story for its finale stage, with its glyph (the 2-3 character table)', () => {
+  it('every alt has a story for its finale stage, and no story names a glyph (기획 24차: the core’s impact frame instead)', () => {
     for (const def of ALTS()) {
       const st = ultStory(`${def.id}:${def.finale}`);
       expect(st, `${def.id}:${def.finale}`).toBeDefined();
-      expect(st!.finisher?.glyph, def.id).toBe(GLYPH[ultBeats(def.id)!.charId]);
     }
+    for (const key of STORY_KEYS) expect(Object.keys(ultStory(key)?.finisher ?? {}), key).not.toContain('glyph');
   });
 
   it('every story / look of the tables is registered, and only those of group B (every stage of every alt is told)', () => {
@@ -276,26 +284,109 @@ describe('stops (docs/ult-fx.md 2-2)', () => {
 // ─────────────────────────── the 14 casts ───────────────────────────
 
 describe('all 14 casts', () => {
-  it('render 200 frames without throwing, with the sound director attached (and its finisher lands: the glyph is stamped)', () => {
+  it('render 200 frames without throwing, with the sound director attached (and its finisher lands: my impact frame is up)', () => {
     for (const id of ULT_GROUP_B_IDS) {
       for (const mode of ['aim', 'drag'] as const) {
         resetUltCore();
         const r = run(party(id), mode, true);
         r.cast(mode);
         const fin = vi.spyOn(Vfx.prototype as unknown as { ultLand: () => void }, 'ultLand');
-        let glyph: string | null = null;
+        let impact: string | null = null;
         expect(() => {
           for (let i = 0; i < 200; i++) {
             r.frame();
-            glyph ??= ultStampText();
+            impact ??= ultImpactOf();
           }
         }, `${id} ${mode}`).not.toThrow();
         expect(fin.mock.calls.length, `${id} ${mode}: its beats reached the router`).toBeGreaterThan(0);
-        expect(glyph, `${id} ${mode}: the finisher's glyph`).toBe(GLYPH[id]);
+        // 기획 24차: the impact frame (the dark cut + the character's star) of the character whose ult it was
+        expect(impact, `${id} ${mode}: the finisher's impact frame`).toBe(id);
         fin.mockRestore();
       }
     }
   }, 60_000);
+
+  // 기획 24차 (8-2-3): 퇴마사's 封 · 印 · 滅 are gone from its casts — no Fx.Glyph is made (today's PREP / LAND that wrote
+  // them are no longer reached), switch on and off
+  it('퇴마사 조준 / 드래그: no Fx.Glyph from the cast to its end (「궁극기 연출 강화」 on and off)', () => {
+    for (const boost of [true, false]) {
+      for (const mode of ['aim', 'drag'] as const) {
+        ULT_FX.boost = boost;
+        resetUltCore();
+        const add = vi.spyOn(SkillFx.prototype, 'add');
+        const r = run(party('exorcist'), mode);
+        r.cast(mode);
+        for (let i = 0; i < 200; i++) r.frame();
+        const glyphs = add.mock.calls.filter(c => c[0] === FX_GLYPH).length;
+        expect(add.mock.calls.length, `exorcist ${mode}: its pictures were made`).toBeGreaterThan(10);
+        expect(glyphs, `exorcist ${mode} boost ${boost}`).toBe(0);
+        add.mockRestore();
+      }
+    }
+  }, 60_000);
+
+  // 기획 24차 검토: the ★'s ring of eight talismans (the 滅 letter's replacement) hung low enough that each talisman's top
+  // (26 px tall, its centre at the pinned point) stays under the boss bar — at 2.6 high over the top-row boss they all
+  // sat behind it (logical y 20–88)
+  it('퇴마사 조준: the ★ ring of eight talismans keeps every talisman under the boss bar (top ≥ logical y 110), aimed onto the top-row boss too', () => {
+    const add = vi.spyOn(SkillFx.prototype, 'add');
+    try {
+      for (const p of [
+        { x: 12, y: -1.2 },
+        { x: 12, y: 1.5 },
+        { x: 15, y: 5 },
+      ]) {
+        resetUltCore();
+        const r = run(party('exorcist'), 'aim');
+        r.cast('aim', p);
+        let ring: { x: number; y: number; x2: number; y2: number; z: number }[] | null = null;
+        for (let i = 0; i < 90 && !ring; i++) {
+          add.mockClear();
+          r.frame();
+          // the eight that fly in one frame from the wall's ends onto the ring (the storm's eight are pinned: no flight)
+          const fly = add.mock.results
+            .map(x => x.value as { kind: number; x: number; y: number; x2: number; y2: number; z: number })
+            .filter(f => f.kind === FX_TALISMAN && Math.hypot(f.x2 - f.x, f.y2 - f.y) > 0.5);
+          if (i > 0 && fly.length === 8) ring = fly.map(f => ({ x: f.x, y: f.y, x2: f.x2, y2: f.y2, z: f.z }));
+        }
+        expect(ring, `${p.x}, ${p.y}`).not.toBeNull();
+        for (const t of ring!) {
+          const top = GROUND_TOP + t.y2 * PX_PER_UNIT_Y - t.z * PX_PER_UNIT_Z - 13;
+          expect(top, `${p.x}, ${p.y}: a talisman at ${t.x2.toFixed(2)}, ${t.y2.toFixed(2)} z ${t.z.toFixed(2)}`).toBeGreaterThanOrEqual(110 - 1e-6);
+          expect(t.z).toBeGreaterThanOrEqual(0.6 - 1e-9);
+          expect(t.z).toBeLessThanOrEqual(2.6 + 1e-9);
+        }
+        // in front of the boss (aimed at 15, 5) the ring still hangs at its full 2.6
+        if (p.y === 5) for (const t of ring!) expect(t.z).toBeCloseTo(2.6, 9);
+      }
+    } finally {
+      add.mockRestore();
+    }
+  });
+
+  // 기획 24차 (8-3 B12′): the grey of 크로노 드래그's freeze drains back over its last 0.3 s — the colour is back on the blow
+  // (23차 turned it grey at the blow: a grey sheet under the white flash)
+  it('크로노 드래그: grey while frozen, the colour back on the frame its finisher lands (and no grey after it)', () => {
+    resetUltCore();
+    const r = run(party('chrono'), 'drag');
+    r.cast('drag');
+    const screen = r.vfx.screen as unknown as { desatT: number; desatDur: number };
+    // the world layer's grey this frame (render/cutin.ts ScreenFx.drawWorld, the desaturate part)
+    const grey = () => (screen.desatT < screen.desatDur ? Math.min(1, screen.desatT / 0.1, (screen.desatDur - screen.desatT) / 0.3) * 0.85 : 0);
+    let before = 0;
+    let atBlow = -1;
+    let after = 0;
+    for (let i = 0; i < 120; i++) {
+      r.frame();
+      if (atBlow < 0 && ultImpactOf() === 'chrono') atBlow = grey();
+      else if (atBlow < 0) before = Math.max(before, grey());
+      else after = Math.max(after, grey());
+    }
+    expect(atBlow, 'the finisher landed').toBeGreaterThanOrEqual(0);
+    expect(before, 'the freeze greyed my screen before the blow').toBeGreaterThan(0.5);
+    expect(atBlow, 'the colour is back on the blow').toBeLessThan(0.1);
+    expect(after, 'no grey after the blow').toBeLessThan(0.1);
+  }, 30_000);
 
   it('every finisher gets its wind-up exactly once — also where parts share one footprint (render/vfx.ts routes every alt part)', () => {
     const fx = (r: ReturnType<typeof run>) => r.vfx.sfx.pool;

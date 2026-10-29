@@ -13,7 +13,7 @@ import type { UltAlias, UltBeatInfo } from './stories';
 
 // ── the 23차 core ──
 export { FX_LOAD, ULT_FX, sanitizeUltFx } from './settings';
-export { ultTheme, type UltTheme } from './theme';
+export { ultTheme, type UltBurst, type UltTheme } from './theme';
 export {
   CHARGE,
   FINISH_BLESS,
@@ -23,7 +23,6 @@ export {
   ultDecal,
   ultDefault,
   ultFinisher,
-  ultGlyph,
   ultHitMarks,
   ultSpeedLines,
   type ChargeSpec,
@@ -71,7 +70,6 @@ export {
   eachEnemy,
   fallAt,
   fireBurst,
-  glyphFx,
   grow,
   lightPillar,
   rings,
@@ -90,6 +88,8 @@ export { Pk } from '../fxparts';
 export type { TeleMotif, ZoneDecor } from '../marks';
 export type { ImpactSpec } from '../impact';
 export type { Juice } from '../juice';
+// 기획 24차: a focus-dim hole in a footprint's own shape (UltHost.screen.focusDim — 레인저 드래그 저격 어둠)
+export type { FocusShape } from '../cutin';
 export type { AreaShape, Vec2 } from '../../types';
 
 // ─────────────────────────── small helpers ───────────────────────────

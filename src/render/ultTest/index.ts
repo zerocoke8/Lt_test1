@@ -26,6 +26,11 @@ export interface UltFxModule {
   onEvent?(ev: GameEvent, view: UltFxView): void;
   /** Every frame, ground layer (under units). now = renderer clock (s). */
   draw?(ctx: CanvasRenderingContext2D, state: GameState, view: UltFxView, now: number): void;
+  /**
+   * 기획 24차 검토: a floor change / a new run (render/vfx.ts reset → core.ts resetUltCore) — drop whatever the module
+   * keeps per cast (every mode: clearing draws nothing).
+   */
+  reset?(): void;
 }
 
 // `var` + a hoisted accessor on purpose: the group imports at the bottom run BEFORE this module's body (ESM order),
@@ -53,12 +58,17 @@ export function drawUltFx(ctx: CanvasRenderingContext2D, view: UltFxView, now: n
   for (const m of modules()) if (m.draw) m.draw(ctx, view.state, view, now);
 }
 
+/** 기획 24차 검토: every module's reset (core.ts resetUltCore calls it). */
+export function resetUltFxModules(): void {
+  for (const m of modules()) m.reset?.();
+}
+
 /** Registered modules (tests). */
 export function ultFxModules(): readonly UltFxModule[] {
   return modules();
 }
 
-// 기획 23차: the screen layer (big glyph, sight lines, speed lines) — render/index.ts draws it after vfx.drawScreen
+// 기획 23차: the screen layer (기획 24차 impact frame, sight / speed lines) — render/index.ts draws it after vfx.drawScreen
 export { drawUltScreen } from './core';
 
 // the shared looks, then the content tracks' modules (each registers itself on import)

@@ -1,5 +1,5 @@
 /* 기획 22차 궁극기 테스트 (docs/ult-test.md): the fourth main-menu card, the preset's 「궁극기 방식」 choice, the ult
-   button's mode chip and aim gesture, the debug 「궁극기 방식」 buttons. LOGICAL px on the 1280×720 stage (phone ≈ 0.54×):
+   button's mode chip and aim gesture, the debug 「궁극기 방식」 buttons; 기획 24차 the 「충전」 button beside it. LOGICAL px on the 1280×720 stage (phone ≈ 0.54×):
    touch targets ≥ 52 px, info text ≥ 18 px. The mode's colour: violet (#b49cff on dark). */
 
 /* ───────────── main menu: four cards (the three arts keep their 356 px layout, drawn at 0.78×) ───────────── */
@@ -221,6 +221,88 @@
 
 .ult.is-aiming.is-cancel {
   box-shadow: 0 0 0 6px #ef4444, 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+/* 기획 24차: 「충전」 right of the ult button (built only in 궁극기 테스트; docs/ult-fx.md 8-4). Logical px: the ult x 577 – 703
+   → this x 727 – 807 (Ø 80, 24 px off), centred on the ult's height; on a phone (×0.54) Ø 43 CSS px + a 10 px touch rim.
+   Clear of the ult's press box (+ BUTTON_SLACK 6 CSS px ≈ 11 logical, x ≤ 714), the pet cards (x ≥ 876), the ult's name
+   (y ≥ 692) and the 조준 / 드래그 chip above. .hud-block: the HUD layer itself lets presses through */
+.ult-charge {
+  position: absolute;
+  left: calc(50% + 87px); /* the ult's right edge (50% + 63) + 24 */
+  top: 23px; /* centred on the ult (63 − 40) */
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, #3b2f6b 0%, #171230 75%);
+  border: 4px solid #b49cff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  color: #f1ebff;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 0.15s, transform 0.08s;
+}
+
+/* a bigger touch target */
+.ult-charge::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+}
+
+.ult-charge-badge {
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #2a210c;
+  font-size: 20px;
+  line-height: 26px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.stage.is-small .ult-charge {
+  font-size: 24px;
+}
+
+.ult-charge:active {
+  transform: scale(0.92);
+}
+
+/* all three of my gauges full: dim, a press sends nothing */
+.ult-charge.is-full {
+  opacity: 0.45;
+  border-color: #6b6290;
+  color: #9a90b8;
+}
+
+.ult-charge.is-pop {
+  animation: ultChargePop 0.35s ease-out;
+}
+
+@keyframes ultChargePop {
+  40% { transform: scale(1.12); box-shadow: 0 0 24px rgba(255, 209, 102, 0.9); }
+}
+
+/* while the ult is aimed or a card is dragged: faint and out of the way (the aimed release never lands on it) */
+.ult.is-aiming ~ .ult-charge,
+.hud.is-drag .ult-charge {
+  opacity: 0.25;
+  pointer-events: none;
 }
 
 /* the word at the finger while aiming: 「놓으면 발사」 / 「놓으면 취소」 — above the HUD toasts (z 20; 기획 22차 통합: a

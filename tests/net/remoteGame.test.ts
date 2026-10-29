@@ -110,6 +110,29 @@ describe('RemoteGame', () => {
     expect(rg.dispatch({ type: 'pet', player: 1, petIndex: 0, pos: { x: 5, y: 5 } })).toEqual({ ok: false, reason: '서버와 연결이 끊겼어요' });
   });
 
+  it('기획 24차 「충전」: a guest sends chargeUlt in a 궁극기 테스트 room only; every other debug stays the host’s', () => {
+    const ult = makeGame({ mode: 'ultTest', players: [HUMAN, HUMAN2, BOT1] });
+    const { conn, rg } = setup();
+    conn.emit(snapOf(ult.game));
+    expect(rg.state.mode).toBe('ultTest');
+    expect(rg.isHost).toBe(false);
+    expect(rg.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 1 } })).toEqual({ ok: true });
+    expect(conn.cmds().map(c => c.cmd)).toEqual([{ type: 'debug', action: { kind: 'chargeUlt', player: 1 } }]);
+    for (const action of [{ kind: 'killAll' }, { kind: 'ultMode', mode: 'now' }, { kind: 'resetCooldowns' }] as const)
+      expect(rg.dispatch({ type: 'debug', action }), action.kind).toEqual({ ok: false, reason: '방장만 할 수 있어요' });
+    expect(rg.dispatch({ type: 'tunables', patch: { invincible: true } })).toEqual({ ok: false, reason: '방장만 할 수 있어요' });
+    expect(conn.cmds()).toHaveLength(1);
+    // the classic tower and the 보스 레이드: the host's only, as before
+    for (const mode of [undefined, 'bossRaid'] as const) {
+      const other = makeGame({ players: [HUMAN, HUMAN2, BOT1], ...(mode ? { mode } : null) });
+      const c = setup();
+      c.conn.emit(snapOf(other.game));
+      expect(c.rg.state.mode).toBe(mode);
+      expect(c.rg.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 1 } }), String(mode)).toEqual({ ok: false, reason: '방장만 할 수 있어요' });
+      expect(c.conn.cmds()).toHaveLength(0);
+    }
+  });
+
   it('기획 6차 on the client: once the server applied my swap, the card that left is cooling and the next one is free', () => {
     const { tg, conn, rg } = setup();
     conn.emit(snapOf(tg.game));

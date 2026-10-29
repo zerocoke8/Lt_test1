@@ -2,7 +2,7 @@
 // data. Every part (action) gets one role — path · opener · build · finisher · twin · after · zone · support — and the
 // renderer / sound director dress each role (a role default when a beat has no picture of its own). Exactly one
 // finisher per ult: the enemy part of the `finale` stage whose last hit is latest (the climax gets the common finisher
-// grammar: hit-stop, zoom, the big glyph …), its stage-mates are twins.
+// grammar: hit-stop, zoom, the impact frame …), its stage-mates are twins.
 //
 // PURE (data → numbers): no Math.random, no Date, no render imports. Cached per def object (a WeakMap), so a test
 // fixture put in with setUltAltFixture gets fresh beats.

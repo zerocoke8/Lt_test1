@@ -19,8 +19,8 @@ import type { UnitMemo } from './units';
 /** What a storyboard can ask of the effect layer (implemented by Vfx). */
 export interface StageHost extends FxHost {
   spray(x: number, y: number, z: number, n: number, kind: Pk, color: string, speed: number, up: number, dur: number, g?: number, size?: number): void;
-  /** A translucent copy of a unit at (x, y) fading over dur (분신 / 잔상 / 되감기). */
-  afterimage(entityId: number, x: number, y: number, dur: number): void;
+  /** A translucent copy of a unit at (x, y) fading over dur (분신 / 잔상 / 되감기); scale = its size × (기획 24차 검토, default 1). */
+  afterimage(entityId: number, x: number, y: number, dur: number, scale?: number): void;
   /** Render-only jump of a unit (height in world units over dur s). */
   hop(entityId: number, height: number, dur: number): void;
   readonly screen: ScreenFx;

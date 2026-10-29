@@ -12,13 +12,14 @@
 //    a slit of light, a bolt from → to, the body dropping in) and the touchdown at the real arrival (crater ring, shock
 //    ring, cracks, dust, a small crater mark; mine: shake 7 + a 50 ms stop), then the alt's own look (stories.ts);
 //  - the floor marks (decals.ts) on the ground layer, world clock;
-//  - the screen layer (drawUltScreen, real clock — drawn in the hit-stop's frozen frames too): the big glyph stamp,
-//    the sight lines, the speed lines. One of each at a time: a new one replaces the old.
+//  - the screen layer (drawUltScreen, real clock — drawn in the hit-stop's frozen frames too): the impact frame (기획
+//    24차 — the big glyph stamp is gone), the sight lines, the speed lines. One of each at a time: a new one replaces
+//    the old.
 
-import type { GameEvent, Vec2 } from '../../types';
+import { type GameEvent, LOGICAL_H, LOGICAL_W, type Vec2 } from '../../types';
 import { getCharacter } from '../../data';
 import { ULT_TEST, ultBeats, type UltBeats } from '../../data/ultTest';
-import { areaColor, boldFont, lighten, mix } from '../look';
+import { areaColor, lighten, mix } from '../look';
 import { type Camera, PX_PER_UNIT, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from '../camera';
 import { TAU, groundEllipse } from '../shapes';
 import { JUICE, prefersReducedMotion } from '../juice';
@@ -26,11 +27,12 @@ import { pillar, rings as castRings, star } from '../castfx';
 import { Fx, type SkillFx } from '../skillfx';
 import { Pk } from '../fxparts';
 import { STAGE_DETAIL } from '../stagefx';
-import { registerUltFx, type UltFxView } from './index';
+import { registerUltFx, resetUltFxModules, type UltFxView } from './index';
 import { FX_LOAD, ULT_FX } from './settings';
 import { clearDecals, drawDecals, ultDecal } from './decals';
 import { TOUCHDOWN, touchdownAt as touchdownOf, ultLook, type UltAltLook, type UltMoveInfo } from './stories';
 import type { UltHost } from './grammar';
+import type { UltTheme } from './theme';
 
 const RETICLE_SEC = 0.8;
 
@@ -95,18 +97,36 @@ interface Sight {
   t0: number;
 }
 
-interface Stamp {
-  text: string;
-  color: string;
-  px: number;
+/**
+ * 기획 24차 충격 프레임 (docs/ult-fx.md 8-2-2): my finisher's screen-layer blow — the dark cut, the character's white
+ * star, the light streaks and two shock rings. One record, drawn on the real clock (it slams through the stop).
+ */
+interface Impact {
+  charId: string;
+  /** World point of the blow (ultFocus); the star sits at height IMPACT.z on it. */
   x: number;
   y: number;
-  z: number;
-  hold: number;
-  local: boolean;
+  /** The star's outer radius (screen px, × burst); 0 = no star. */
+  r: number;
+  /** Screen colour (the star's rim, the first ring, the streaks' rim). */
+  color: string;
+  /** The dark cut's colour and alpha (0 = none: the 1 s gate, the hit-stop setting 0, reduced motion, a blessing). */
+  ink: string;
+  cut: number;
+  /** Reduced motion: no slam (the star just appears), no streaks, the rings at half. */
   slam: boolean;
-  drops: boolean;
+  flare: boolean;
+  ring2: boolean;
+  ringK: number;
+  /** The star outline, computed once: per vertex [angle (rad), radius × of r]; outer and inner alternate. */
+  pts: number[];
+  /** Real clock at the blow. */
   t0: number;
+  /**
+   * 기획 24차 검토: how long the record stays (real s): IMPACT.busy + the world freeze my finisher's stop left
+   * (extendImpact) — the after-blow vignette runs on the world clock, so the stop pushes its end that much later.
+   */
+  busy: number;
 }
 
 interface Lines {
@@ -134,8 +154,9 @@ interface PendingMove {
 
 const locks: Lock[] = [];
 const sights: Sight[] = [];
-let stamp: Stamp | null = null;
-const smallStamps: Stamp[] = [];
+let impact: Impact | null = null;
+/** 기획 24차: real clock of my last dark cut (at most one per IMPACT.gap s — never reset, a floor change included). */
+let lastCut = -Infinity;
 let lines: Lines | null = null;
 const pending = new Map<number, PendingMove>();
 let realNow = 0;
@@ -153,16 +174,16 @@ export function tickUltReal(dt: number): void {
   realNow += Math.max(0, dt);
 }
 
-/** Floor change / new run (render/vfx.ts reset): every 23차 leftover goes. */
+/** Floor change / new run (render/vfx.ts reset): every 23차 leftover goes (기획 24차 검토: the content modules' own too). */
 export function resetUltCore(): void {
   reticles.length = 0;
   locks.length = 0;
   sights.length = 0;
-  stamp = null;
-  smallStamps.length = 0;
+  impact = null;
   lines = null;
   pending.clear();
   clearDecals();
+  resetUltFxModules();
 }
 
 /** End of an event batch (render/vfx.ts update): a dragged ult's move came in the same batch as its ultCast, or never. */
@@ -170,22 +191,39 @@ export function ultFrameEnd(): void {
   if (pending.size) pending.clear();
 }
 
-/** Live 23차 screen / ground items (tests). */
-export function ultCoreCounts(): { locks: number; sights: number; stamp: boolean; slam: boolean; smallStamps: number; lines: boolean; pending: number } {
-  return { locks: locks.length, sights: sights.length, stamp: stamp !== null, slam: stamp?.slam ?? false, smallStamps: smallStamps.length, lines: lines !== null, pending: pending.size };
+/** Live 23차 / 24차 screen / ground items (tests). */
+export function ultCoreCounts(): { locks: number; sights: number; impact: boolean; cut: boolean; lines: boolean; pending: number } {
+  return { locks: locks.length, sights: sights.length, impact: impactAge() >= 0, cut: ultImpactCut(), lines: lines !== null, pending: pending.size };
+}
+
+/** Seconds since my impact frame's blow while its record is kept (its busy s: IMPACT.busy + the stop), −1 = none. */
+function impactAge(): number {
+  if (!impact) return -1;
+  const t = realNow - impact.t0;
+  return t >= 0 && t < impact.busy ? t : -1;
 }
 
 /**
- * 기획 23차: a screen-layer climax is up (my big glyph or the speed lines) — render/index.ts draws the enemy warnings
- * again over the finisher's flash / vignette meanwhile.
+ * 기획 23차: a screen-layer climax is up (기획 24차: my impact frame — kept IMPACT.busy s + the stop, the 23차 glyph's
+ * window — or the speed lines) — render/index.ts draws the enemy warnings again over the finisher's flash / vignette
+ * meanwhile, in the live frames and (기획 24차 검토) in the hit-stop's frozen frames too.
  */
 export function ultScreenBusy(): boolean {
-  return stamp !== null || lines !== null;
+  return impactAge() >= 0 || lines !== null;
 }
 
-/** The stamped glyph of my last finisher, while it is up (tests). */
-export function ultStampText(): string | null {
-  return stamp ? stamp.text : null;
+/** 기획 24차: the character id of my impact frame while its record is up (tests; replaces the 23차 glyph text). */
+export function ultImpactOf(): string | null {
+  return impactAge() >= 0 ? impact!.charId : null;
+}
+
+/**
+ * 기획 24차: the dark cut is on this frame (full, then fading) — tests (기획 24차 검토: drawFrozen now redraws the enemy
+ * warnings for as long as ultScreenBusy, the star after the cut included).
+ */
+export function ultImpactCut(): boolean {
+  const t = impactAge();
+  return t >= 0 && impact!.cut > 0 && t < IMPACT.cut + IMPACT.cutFade;
 }
 
 // ─────────────────────────── events ───────────────────────────
@@ -423,15 +461,77 @@ function touchdown(fx: SkillFx, h: UltHost, m: UltMoveInfo, look: UltAltLook | u
 
 // ─────────────────────────── screen layer pushes (grammar.ts) ───────────────────────────
 
-/** The big glyph (mine: one at a time, a new one replaces the old) or a small one over the spot (others: two at most). */
-export function pushGlyph(x: number, y: number, z: number, text: string, color: string, local: boolean, px: number, hold: number): void {
+/**
+ * 기획 24차 충격 프레임 numbers (8-2-2; s on the real clock from the blow, px on the logical screen):
+ *  - the dark cut: `cutAlpha` for `cut` s, then to 0 over `cutFade`; at most once per `gap` s (the same real clock as
+ *    Juice.finisherStop's gap);
+ *  - the star: slams `slamFrom`× → 1× in `slam`, holds `hold`, its points grow to `grow`× fading over `out`; outer
+ *    radius rMin–rMax (= the footprint × rK), inner `inner` × (4 points or fewer: `innerFew`), a `rim` px colour edge
+ *    and a 3 px dark one; its centre kept inside x0–x1 / y0–y1, at height z on the blow;
+ *  - 기획 24차 검토: its outline never rises above logical y `top` — the boss bar and the raid pattern-tip slot under it
+ *    (measured on the 844×390 phone: logical y 100–177 with its 「⚙ …」 line; + 8 px). y0 = top + rMin: a blow higher
+ *    up (a fixed boss on the top row) gets its star just under the slot, shrunk to fit (≥ rMin) — never under the tip;
+ *    the slam / the grow as it fades push the centre down instead of crossing `top`;
+ *  - the streaks: from `flareAt` over `flareSec`, a flareW × flareH flat one and a flareV × flareVH upright one;
+ *  - the rings [from, to, width from, width to, sec]: ring1 (screen colour) at `ringAt`, ring2 (white) `ring2At` later;
+ *  - the record stays `busy` s (ultScreenBusy: the warnings over the after-blow vignette, as the 23차 glyph did) — 기획
+ *    24차 검토: + the world freeze my finisher's stop left (extendImpact): the vignette (ULT_FINISH.tailAt 0.12 → 0.72 s)
+ *    runs on the world clock, which stands still through the stop.
+ */
+export const IMPACT = {
+  cut: 0.05, cutFade: 0.06, cutAlpha: 0.65, gap: 1.0,
+  slam: 0.06, slamFrom: 1.6, hold: 0.12, out: 0.2, grow: 1.35,
+  rMin: 120, rMax: 220, rK: 1.1, inner: 0.42, innerFew: 0.18, rim: 6,
+  flareAt: 0.02, flareSec: 0.2, flareW: 1100, flareH: 10, flareV: 280, flareVH: 6,
+  ring1: [60, 480, 22, 2, 0.32], ring2: [40, 360, 10, 1, 0.3], ring2At: 0.06, ringAt: 0.03,
+  busy: 0.74, x0: 100, x1: 1180, y0: 305, y1: 620, z: 0.6, top: 185,
+} as const;
+
+/**
+ * 기획 24차: my impact frame (the grammar calls it after its `s.local` check); a new one replaces the old. cut = the dark
+ * cut's alpha (zeroed here for the 1 s gate / the hit-stop setting 0 / reduced motion); burst ≤ 0 = no star. The star's
+ * points are drawn once here (Math.random jag — render only). Counts toward no particle / effect budget (screen layer).
+ */
+export function pushImpact(x: number, y: number, rPx: number, charId: string, theme: UltTheme, color: string, cut: number, burst: number): void {
   const reduced = prefersReducedMotion();
-  const s: Stamp = { text, color, px, x, y, z, hold, local, slam: local && !reduced, drops: local && !reduced && !FX_LOAD.low, t0: realNow };
-  if (local) stamp = s;
-  else {
-    if (smallStamps.length >= 2) smallStamps.shift();
-    smallStamps.push(s);
+  let a = cut > 0 && !reduced && JUICE.hitStopMs > 0 ? Math.min(1, cut) : 0;
+  if (a > 0) {
+    if (realNow - lastCut < IMPACT.gap) a = 0;
+    else lastCut = realNow;
   }
+  const b = theme.burst;
+  const n = Math.max(2, Math.round(b.spikes));
+  const inner = n <= 4 ? IMPACT.innerFew : IMPACT.inner;
+  const jag = Math.max(0, Math.min(0.6, b.jag));
+  const pts: number[] = [];
+  for (let i = 0; i < 2 * n; i++) {
+    const out = i % 2 === 0;
+    pts.push(b.tilt + (i * Math.PI) / n, out ? 1 - jag * Math.random() : inner * (1 - jag * 0.5 * Math.random()));
+  }
+  impact = {
+    charId,
+    x,
+    y,
+    r: burst > 0 ? Math.max(0, rPx) : 0,
+    color,
+    ink: b.ink,
+    cut: a,
+    slam: !reduced,
+    flare: !reduced && !FX_LOAD.low,
+    ring2: !FX_LOAD.low,
+    ringK: reduced ? 0.5 : 1,
+    pts,
+    t0: realNow,
+    busy: IMPACT.busy,
+  };
+}
+
+/**
+ * 기획 24차 검토 (grammar.ts, right after my finisher's stop): the world stays frozen `sec` more s from now — the impact
+ * record I just pushed stays that much longer (its after-blow vignette starts and runs on the world clock).
+ */
+export function extendImpact(sec: number): void {
+  if (impact && impact.t0 === realNow) impact.busy = IMPACT.busy + Math.max(0, Number.isFinite(sec) ? sec : 0);
 }
 
 /** Speed lines (mine): radial around (x, y), or parallel along dir. Off with shake 0 / reduced motion. */
@@ -605,20 +705,18 @@ function drawLocks(ctx: CanvasRenderingContext2D, cam: Camera, now: number): voi
 // ─────────────────────────── drawing: screen layer ───────────────────────────
 
 /**
- * 기획 23차: the screen layer (logical px, unshaken, real clock): sight lines, speed lines, the big glyph. render/index.ts
- * draws it after vfx.drawScreen and in the hit-stop's frozen frames. Nothing outside the 궁극기 테스트.
+ * 기획 23차: the screen layer (logical px, unshaken, real clock): 기획 24차 the impact frame first (under the rest), then
+ * the sight lines and the speed lines. render/index.ts draws it after vfx.drawScreen and in the hit-stop's frozen
+ * frames. Nothing outside the 궁극기 테스트; never a letter (tests/render/ult-fx-core.test.ts 「글자 없음」).
  */
 export function drawUltScreen(ctx: CanvasRenderingContext2D, view: UltFxView): void {
   if (view.state.mode !== 'ultTest') return;
   const cam = view.cam;
   if (!cam) return;
   lastCam = cam;
+  if (impact && !drawImpact(ctx, cam, impact)) impact = null;
   if (sights.length) drawSights(ctx, cam, view);
   if (lines) drawLines(ctx, cam);
-  if (smallStamps.length) {
-    for (let i = smallStamps.length - 1; i >= 0; i--) if (!drawStamp(ctx, cam, smallStamps[i])) smallStamps.splice(i, 1);
-  }
-  if (stamp && !drawStamp(ctx, cam, stamp)) stamp = null;
   ctx.globalAlpha = 1;
 }
 
@@ -731,72 +829,101 @@ function drawLines(ctx: CanvasRenderingContext2D, cam: Camera): void {
 }
 
 /**
- * Glyph timing (s, real clock): slam 1.9× → 1× in 0.09, white core 0.05, hold, rise 12 px and fade over 0.3. Integration:
- * y0 265 keeps its top (150 px) under the raid's pattern-tip slot (logical y 100–190 on the phone); a blow too near the
- * top gets the glyph `below` it instead of on it.
+ * 기획 24차 충격 프레임: my impact frame this frame (8-2-2); false once its record is over (its busy s — the picture
+ * itself is gone after ~0.39 s, the record keeps ultScreenBusy on). Bottom to top: the dark cut over the whole screen,
+ * the two shock rings, the streaks, the star.
  */
-export const GLYPH = { slam: 0.09, glow: 0.05, fade: 0.3, rise: 12, above: 70, below: 110, x0: 90, x1: 1190, y0: 265, y1: 460, outline: 10 } as const;
-
-/** One glyph this frame; false when it is over. */
-function drawStamp(ctx: CanvasRenderingContext2D, cam: Camera, s: Stamp): boolean {
-  const t = realNow - s.t0;
-  const total = (s.slam ? GLYPH.slam : 0) + s.hold + GLYPH.fade;
-  if (t >= total || t < 0) return false;
-  const big = s.local;
-  let x = cam.sx(s.x);
-  const spotY = cam.sy(s.y) - s.z * PX_PER_UNIT_Z;
-  let y = spotY - (big ? GLYPH.above : 40);
-  if (big) {
-    x = Math.max(GLYPH.x0, Math.min(GLYPH.x1, x));
-    if (y < GLYPH.y0) y = spotY + GLYPH.below;
-    y = Math.max(GLYPH.y0, Math.min(GLYPH.y1, y));
+function drawImpact(ctx: CanvasRenderingContext2D, cam: Camera, m: Impact): boolean {
+  const t = realNow - m.t0;
+  if (t >= m.busy || t < 0) return false;
+  // on the blow (height z), never under the HUD / off the screen: the centre at least y0, the outline under `top` (the
+  // boss bar + the pattern-tip slot) — a high blow's star shrinks to fit (≥ rMin, as y0 = top + rMin)
+  const cx = Math.max(IMPACT.x0, Math.min(IMPACT.x1, cam.sx(m.x)));
+  const cy = Math.max(IMPACT.y0, Math.min(IMPACT.y1, cam.sy(m.y) - IMPACT.z * PX_PER_UNIT_Z));
+  const r = Math.min(m.r, cy - IMPACT.top);
+  // the dark cut: the whole screen in the character's ink, lifting off the screen flash under it
+  if (m.cut > 0 && t < IMPACT.cut + IMPACT.cutFade) {
+    ctx.globalAlpha = m.cut * (t < IMPACT.cut ? 1 : 1 - (t - IMPACT.cut) / IMPACT.cutFade);
+    ctx.fillStyle = m.ink;
+    ctx.fillRect(-40, -40, LOGICAL_W + 80, LOGICAL_H + 80);
   }
-  const slamT = s.slam ? clamp01(t / GLYPH.slam) : 1;
-  const sc = s.slam ? 1.9 - 0.9 * easeOut(slamT) : 1;
-  const fadeFrom = total - GLYPH.fade;
-  const fade = t > fadeFrom ? clamp01((t - fadeFrom) / GLYPH.fade) : 0;
-  const a = (1 - fade) * (big ? 1 : 0.55);
-  y -= GLYPH.rise * fade;
-  const px = s.px * sc;
-  ctx.font = boldFont(Math.round(px));
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  if (big && s.slam && slamT >= 1 && t < GLYPH.slam + 0.22) {
-    // the slam: a ring out from behind the glyph (+ ink drops)
-    const p = clamp01((t - GLYPH.slam) / 0.22);
-    ctx.globalAlpha = (1 - p) * 0.8;
-    ctx.lineWidth = 6 * (1 - p) + 1;
-    ctx.strokeStyle = s.color;
-    ctx.beginPath();
-    ctx.arc(x, y, s.px * (0.55 + 0.45 * p), 0, TAU);
-    ctx.stroke();
-    if (s.drops) {
-      ctx.fillStyle = '#0b0b14';
-      ctx.globalAlpha = (1 - p) * 0.75;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const ang = (i / 6) * TAU + 0.4;
-        const d = s.px * (0.5 + 0.35 * p);
-        const r = 7 * (1 - p * 0.5) * (i % 2 ? 0.7 : 1);
-        ctx.moveTo(x + Math.cos(ang) * d + r, y + Math.sin(ang) * d);
-        ctx.arc(x + Math.cos(ang) * d, y + Math.sin(ang) * d, r, 0, TAU);
-      }
-      ctx.fill();
+  // two shock rings out past the screen's edge (screen colour, then white)
+  shockRing(ctx, cx, cy, t - IMPACT.ringAt, IMPACT.ring1, m.color, m.ringK);
+  if (m.ring2) shockRing(ctx, cx, cy, t - IMPACT.ringAt - IMPACT.ring2At, IMPACT.ring2, '#ffffff', m.ringK);
+  // the streaks through the star's centre: a long flat one and a short upright one, thinning as they fade
+  if (m.flare) {
+    const p = (t - IMPACT.flareAt) / IMPACT.flareSec;
+    if (p >= 0 && p < 1) {
+      const k = 1 - p;
+      streak(ctx, cx, cy, (IMPACT.flareW / 2) * (0.85 + 0.15 * k), (IMPACT.flareH / 2) * k, m.color, k);
+      streak(ctx, cx, cy, (IMPACT.flareVH / 2) * k, (IMPACT.flareV / 2) * (0.85 + 0.15 * k), m.color, k);
     }
   }
-  ctx.globalAlpha = a;
-  ctx.lineWidth = big ? GLYPH.outline : 6;
-  ctx.strokeStyle = '#0b0b14';
-  ctx.strokeText(s.text, x, y);
-  ctx.fillStyle = s.color;
-  ctx.fillText(s.text, x, y);
-  if (big && t < GLYPH.glow) {
-    ctx.globalAlpha = a * (1 - t / GLYPH.glow) * 0.85;
+  // the star: slams 1.6× → 1× (none with reduced motion), holds, its points grow 1.35× as it fades — its outline kept
+  // under `top` all the way (the centre goes down while it is bigger: it lands from below the tip slot)
+  const outFrom = IMPACT.slam + IMPACT.hold;
+  if (r > 0 && t < outFrom + IMPACT.out) {
+    const sc = m.slam && t < IMPACT.slam ? IMPACT.slamFrom - (IMPACT.slamFrom - 1) * easeOut(t / IMPACT.slam) : 1;
+    const p = t > outFrom ? clamp01((t - outFrom) / IMPACT.out) : 0;
+    const grow = 1 + (IMPACT.grow - 1) * easeOut(p);
+    const a = 1 - p;
+    const pts = m.pts;
+    const sy = Math.max(cy, IMPACT.top + r * sc * grow);
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i += 2) {
+      const rr = r * sc * pts[i + 1] * ((i / 2) % 2 === 0 ? grow : 1);
+      const x = cx + Math.cos(pts[i]) * rr;
+      const y = sy + Math.sin(pts[i]) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.lineJoin = 'round';
+    ctx.globalAlpha = a * 0.9;
+    ctx.lineWidth = 2 * (IMPACT.rim + 3);
+    ctx.strokeStyle = '#05060a';
+    ctx.stroke();
+    ctx.globalAlpha = a;
+    ctx.lineWidth = 2 * IMPACT.rim;
+    ctx.strokeStyle = m.color;
+    ctx.stroke();
+    ctx.globalAlpha = a * 0.95;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(s.text, x, y);
+    ctx.fill();
   }
   return true;
+}
+
+/** One shock ring [from, to, width from, width to, sec] at age t (nothing outside 0–sec). */
+function shockRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, t: number, spec: readonly number[], color: string, k: number): void {
+  const [r0, r1, w0, w1, sec] = spec;
+  if (t < 0 || t >= sec) return;
+  const p = t / sec;
+  const e = easeOut(p);
+  ctx.globalAlpha = (1 - p) * 0.9 * k;
+  ctx.lineWidth = w0 + (w1 - w0) * e;
+  ctx.strokeStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r0 + (r1 - r0) * e, 0, TAU);
+  ctx.stroke();
+}
+
+/** A pointed streak of light (half sizes hw × hh about cx, cy): a colour edge (3 px across) under a white core. */
+function streak(ctx: CanvasRenderingContext2D, cx: number, cy: number, hw: number, hh: number, color: string, a: number): void {
+  const flat = hw >= hh;
+  for (let pass = 0; pass < 2; pass++) {
+    const ex = pass === 0 && !flat ? 3 : 0;
+    const ey = pass === 0 && flat ? 3 : 0;
+    ctx.globalAlpha = a * (pass === 0 ? 0.8 : 1);
+    ctx.fillStyle = pass === 0 ? color : '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(cx - hw - ex, cy);
+    ctx.lineTo(cx, cy - hh - ey);
+    ctx.lineTo(cx + hw + ex, cy);
+    ctx.lineTo(cx, cy + hh + ey);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 registerUltFx({ onEvent, draw });

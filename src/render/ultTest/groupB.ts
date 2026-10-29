@@ -3,11 +3,14 @@
 //
 // Every beat of an alt is routed by render/vfx.ts through the stories registered here (`<alt>:<stage>`): its wind-up
 // (prep, at the cast), its burst (land, at each hit), its kick (impact), and on the finale beat the common finisher
-// grammar (render/ultTest/grammar.ts: stop, zoom, the big glyph …) dressed by `finisher` / `charge` / `linger`. Today's
-// storyboards are reused through `alias` (the falling heavy shell, the bell, the defib cross, 滅, the clock, the dolls);
-// the rest is drawn here with the kit (render/ultTest/kit.ts — the only render import of this file). The looks
-// (registerUltLooks) dress the 드래그 moves: knee-slide sparks, feathers, a heart-line beam, talismans flying ahead, notes,
-// a rewound film, a thread.
+// grammar (render/ultTest/grammar.ts: stop, zoom, the impact frame …) dressed by `finisher` / `charge` / `linger`. Today's
+// storyboards are reused through `alias` (the falling heavy shell, the bell, the defib cross, 멸's ink rings, the clock,
+// the dolls); the rest is drawn here with the kit (render/ultTest/kit.ts — the only render import of this file, but for
+// the camera's ratios: 기획 24차 검토, a picture hung over a point kept under the boss bar). The
+// looks (registerUltLooks) dress the 드래그 moves: knee-slide sparks, feathers, a heart-line beam, talismans flying ahead,
+// notes and the stage lights' stands, a rewound film and a clock running backward, a thread.
+// 기획 24차 (docs/ult-fx.md 8장): no letter is drawn anywhere here (the finisher's glyph is gone — the core's impact frame
+// takes its place; 퇴마사's 封 · 印 · 滅 became light, ink and talismans); 바드 드래그 (B10′) and 크로노 드래그 (B12′) are new.
 // Rules kept: colour fills stay inside the real footprint (outside it only thin white rings that are gone in 0.35 s);
 // another player's / a bot's beat is drawn at its k (0.55) and low detail (no light pillars, half the rings), never a
 // screen effect (vignette, grey-out, spotlight) — those are mine only. Particle counts halve on a struggling phone
@@ -37,15 +40,17 @@ import {
   beamAlong,
   boltFx,
   clock,
+  crackFx,
   eachEnemy,
   fallAt,
   footAlong,
-  glyphFx,
   lightPillar,
   notes,
+  pillar,
   registerUltLooks,
   registerUltStories,
   rings,
+  rune,
   runStory,
   scorchFx,
   star,
@@ -62,6 +67,7 @@ import {
   type Vec2,
 } from './kit';
 import { registerUltFx, type UltFxView } from './index';
+import { GROUND_TOP, PX_PER_UNIT_Y, PX_PER_UNIT_Z } from '../camera';
 
 // ─────────────────────────── small private helpers ───────────────────────────
 
@@ -144,14 +150,32 @@ function glowAlliesInBand(fx: SkillFx, h: UltHost, s: UltBeatInfo, color: string
   }
 }
 
-/** A talisman flying from (x, y) to (x2, y2): its flight is the first 30 % of dur (render/fxparts.ts talisman). */
-function talisman(fx: SkillFx, x: number, y: number, x2: number, y2: number, flySec: number, k: number, wait: number, flip: number): void {
+/**
+ * A talisman flying from (x, y) to (x2, y2) at height z: its flight is the first 30 % of dur (render/fxparts.ts
+ * talisman). 기획 24차: the height (퇴마사 조준's ring over the point at 2.6).
+ */
+function talisman(fx: SkillFx, x: number, y: number, x2: number, y2: number, flySec: number, k: number, wait: number, flip: number, z = 0.6): void {
   const f = fx.add(Fx.Talisman, x, y, flySec / 0.3, TALISMAN, k);
   f.x2 = x2;
   f.y2 = y2;
-  f.z = 0.6;
+  f.z = z;
   f.flip = flip;
   f.wait = Math.max(0, wait);
+}
+
+/** 퇴마사 조준's ★ (기획 24차): the ring of eight talismans over the point — its radius (cells) and highest hang (z). */
+const RING_R = 1.4;
+const RING_Z = 2.6;
+/**
+ * 기획 24차 검토: where that ring hangs over ground y — at most RING_Z high, low enough that its back talisman (RING_R ×
+ * 0.85 behind the middle; 26 px tall + its stroke) keeps its top under the boss bar (logical y 110); a point on the top
+ * row (a fixed boss there: the aim is clamped to y 0.5) leaves no room even at 0.6 high, so the ring comes toward the
+ * camera instead (as group A's skyZ / skyNudge). Returns the ring's ground y and its height.
+ */
+function talismanRing(y: number): { y: number; z: number } {
+  const zTop = (GROUND_TOP - 110 - 14 + (y - RING_R * 0.85) * PX_PER_UNIT_Y) / PX_PER_UNIT_Z;
+  const z = Math.max(0.6, Math.min(RING_Z, zTop));
+  return { y: y + Math.max(0, ((z - zTop) * PX_PER_UNIT_Z) / PX_PER_UNIT_Y), z };
 }
 
 /** A talisman already pinned at (x, y) from `wait` for `sec` (no flight: it starts past its 30 % flight). */
@@ -181,6 +205,8 @@ function spots(key: string, fresh = false): Vec2[] {
 const shellKey = (s: UltBeatInfo) => `${s.src}|${s.skillId}|${s.actionIndex}`;
 const dollKey = (s: UltBeatInfo) => `${s.src}|${s.skillId}|dolls`;
 const gateKey = (s: UltBeatInfo) => `${s.src}|${s.skillId}|gates`;
+/** 기획 24차: 크로노 드래그's two echoes, [middle, arm tip] pairs (cleared at the first echo). */
+const echoKey = (s: UltBeatInfo) => `${s.src}|${s.skillId}|echo`;
 
 /** A curtain closing over a band: two beams of its width from both ends meeting in the middle (inside the band). */
 function curtains(fx: SkillFx, s: UltBeatInfo, color: string, dur: number): void {
@@ -237,7 +263,7 @@ const gunner: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.3, n(8, s), Pk.Rock, '#5c4033', 5, 5, 0.9, 12, 6);
     },
     charge: { vignetteColor: '#000000', vignette: 0.35 },
-    finisher: { glyph: '爆', sparks: 30 },
+    finisher: { sparks: 30 },
     linger: null, // today's scorch is its own mark
     motif: 'reticle',
   },
@@ -280,7 +306,6 @@ const gunner: Record<string, UltStory> = {
       }
     },
     charge: { vignetteColor: '#000000', vignette: 0.35 },
-    finisher: { glyph: '爆' },
     motif: 'fan',
   },
 };
@@ -334,7 +359,6 @@ const cleric: Record<string, UltStory> = {
     },
     impact: null, // the twin (allies) kicks nothing; the finisher is the grammar's
     charge: { vignette: 0.3 },
-    finisher: { glyph: '聖' },
     motif: 'ticks',
   },
   // B4 드래그: today's 강림 on the landing + the allies' light
@@ -381,7 +405,7 @@ const cleric: Record<string, UltStory> = {
       h.spray(s.x, s.y, 2, n(10, s), Pk.Feather, FEATHER, 2.5, 1, 1.4, 0.8, 6);
     },
     impact: null,
-    finisher: { glyph: '聖', screenColor: '#fff3b0' },
+    finisher: { screenColor: '#fff3b0' },
     motif: 'ticks',
   },
 };
@@ -461,7 +485,6 @@ const medic: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.5, n(10, s), Pk.Square, '#ffffff', 4, 2.5, 0.45, 6, 4);
     },
     charge: { vignette: 0.3 },
-    finisher: { glyph: '救' },
     motif: 'outline',
   },
   'medic_ua:firstaid': { alias: { key: 'medic_d:firstaid' }, impact: null },
@@ -498,7 +521,6 @@ const medic: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.5, n(8, s), Pk.Square, '#ffffff', 4, 2.5, 0.45, 6, 4);
     },
     charge: { vignette: 0.3 },
-    finisher: { glyph: '救' },
     motif: 'outline',
   },
 };
@@ -506,7 +528,8 @@ const medic: Record<string, UltStory> = {
 // ─────────────────────────── 퇴마사 (B7, B8) ───────────────────────────
 
 const exorcist: Record<string, UltStory> = {
-  // B7 조준: eight talismans fly from the exorcist onto the wall, an ink brand, then 封 + a wave of talisman light
+  // B7 조준: eight talismans fly from the exorcist onto the wall, an ink brand, then a wave of talisman light. 기획 24차:
+  // no 封 — three columns of talisman light stand up on the wall and a gold star bursts in its middle
   'exorcist_ua:greatseal': {
     prep: (fx, _h, s) => {
       for (let i = 0; i < 8; i++) {
@@ -516,7 +539,11 @@ const exorcist: Record<string, UltStory> = {
       areaFx(fx, Fx.Brand, s.x, s.y, s.area, s.delay, INK, s.k * 0.8, 0, 2);
     },
     land: (fx, h, s) => {
-      glyphFx(fx, s.x, s.y, 1.2, '封', 60, '#ffe8a3', s.k, 0.7);
+      for (const t of [0.2, 0.5, 0.8]) {
+        footAlong(s, t, P);
+        lightPillar(fx, P.x, P.y, 0.45, 4, TALISMAN, s.k, 0.6);
+      }
+      star(fx, s.x, s.y, 1, 56, '#ffe8a3', s.k, 0, 8);
       wave(fx, s.x, s.y, s.area, 0.45, TALISMAN, s.k);
       for (let i = 0; i < 4; i++) {
         footAlong(s, (i + 0.5) / 4, P);
@@ -540,7 +567,8 @@ const exorcist: Record<string, UltStory> = {
     },
     impact: null,
   },
-  // the seal along the aim: four talismans fly onto it, then a wave of light and 印
+  // the seal along the aim: four talismans fly onto it, then a wave of light. 기획 24차: no 印 — an ink brand burns along
+  // the seal band, red ink splashes, a gold star
   'exorcist_ua:seal': {
     prep: (fx, _h, s) => {
       for (let i = 0; i < 4; i++) {
@@ -550,7 +578,9 @@ const exorcist: Record<string, UltStory> = {
     },
     land: (fx, h, s) => {
       wave(fx, s.x, s.y, s.area, 0.45, TALISMAN, s.k);
-      glyphFx(fx, s.x, s.y, 1, '印', 50, '#ff3b3b', s.k, 0.6);
+      areaFx(fx, Fx.Brand, s.x, s.y, s.area, 0.55, INK, s.k, 0, 2);
+      h.spray(s.x, s.y, 0.6, n(8, s), Pk.Ink, '#a4161a', 2, 1.5, 0.6, 4, 5);
+      star(fx, s.x, s.y, 0.8, 40, '#ffe8a3', s.k, 0, 8);
       for (let i = 0; i < 4; i++) {
         footAlong(s, (i + 0.5) / 4, P);
         h.spray(P.x, P.y, 0.8, n(2, s), Pk.Paper, TALISMAN, 2.5, 2.5, 0.7, 4, 5);
@@ -559,10 +589,34 @@ const exorcist: Record<string, UltStory> = {
     impact: { shake: 4, flash: 0.7 },
     motif: 'outline',
   },
-  // ★ 멸 on both lines: 滅 rises over the point, then today's 멸 on the wall, the seal band flares, the allies healed
+  // ★ 멸 on both lines: today's 멸 on the wall, the seal band flares, the allies healed. 기획 24차: no 滅 over the point
+  // (today's PREP is not called) — 0.6 s before the blow eight talismans fly in from both ends of the wall onto a ring
+  // over the point (r 1.4, 2.6 high), an ink rune opens under it, a thin gold ring closes in (3.2 → 0.5). 기획 24차 검토:
+  // the ring hangs low enough that its back talisman clears the boss bar (aimed at a boss on the top row: down to 0.6
+  // high and toward the camera — talismanRing); the rune and the gold ring stay on the point
   'exorcist_ua:destroy': {
     prep: (fx, h, s) => {
-      if (s.role === 'finisher') runStory('exorcist_u:destroy', 'prep', fx, h, s, { at: 'point' });
+      if (s.role !== 'finisher') return;
+      footAlong(s, 0, P);
+      footAlong(s, 1, Q);
+      const ends = [P.x, P.y, Q.x, Q.y];
+      const x = s.x;
+      const y = s.y;
+      const k = s.k;
+      const src = s.src;
+      const id = s.skillId;
+      const n0 = h.finishCount(src, id);
+      const ring = talismanRing(y);
+      h.laterSim(Math.max(0, s.delay - 0.6), () => {
+        if (h.finishCount(src, id) !== n0) return; // the blow came first
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * TAU + 0.2;
+          const e = i % 2 ? 2 : 0;
+          talisman(fx, ends[e], ends[e + 1], x + Math.cos(a) * RING_R, ring.y + Math.sin(a) * RING_R * 0.85, 0.25, k, 0, i % 2 ? 1 : -1, ring.z);
+        }
+        rune(fx, x, y, 2.4, 0.65, INK, k * 0.8, 0.05);
+        rings(fx, x, y, 3.2, 0.5, 1, 0.9, GOLD, k, -1, 3).wait = 0.1;
+      });
     },
     land: (fx, h, s) => {
       if (isAllies(s)) return alliesGlow(fx, h, s, HEAL, false);
@@ -579,7 +633,6 @@ const exorcist: Record<string, UltStory> = {
     },
     impact: null,
     charge: { vignette: 0.45 },
-    finisher: { glyph: '滅' },
     motif: 'outline',
   },
 
@@ -604,13 +657,30 @@ const exorcist: Record<string, UltStory> = {
     impact: { shake: 2, flash: 0.5 },
     motif: 'countdown',
   },
-  // ★ 멸: a big 滅 rises over the landing, then today's 멸 (both) + the healing dust on the allies
+  // ★ 멸: today's 멸 (both) + the healing dust on the allies. 기획 24차: no 滅 over the landing — 0.6 s before the blow
+  // talisman threads run from the eight opened gates into the middle and a thin gold ring closes in (5.5 → 0.8); and
+  // today's drag 멸 without its 印 (the alias is gone: its ink rings, paper and embers are drawn here, same values)
   'exorcist_ud:destroy': {
-    prep: (fx, _h, s) => {
-      glyphFx(fx, s.x, s.y, 3.2, '滅', 120, '#ffe8a3', s.k, 0.62, Math.max(0, s.delay - 0.6));
+    prep: (fx, h, s) => {
+      if (s.role !== 'finisher') return;
+      const key = gateKey(s); // the gates open 0.9–1.32 s: read where they stood when the threads go up
+      const x = s.x;
+      const y = s.y;
+      const k = s.k;
+      const src = s.src;
+      const id = s.skillId;
+      const n0 = h.finishCount(src, id);
+      h.laterSim(Math.max(0, s.delay - 0.6), () => {
+        if (h.finishCount(src, id) !== n0) return; // the blow came first
+        for (const p of spots(key)) tetherFx(fx, p.x, p.y, x, y, TetherStyle.Thread, 0.6, TALISMAN, k, -1, -1, 0.15, 2);
+        rings(fx, x, y, 5.5, 0.8, 1, 1.1, GOLD, k, -1, 3);
+      });
     },
-    alias: [{ key: 'exorcist_u:destroy', prep: false }, { key: 'exorcist_d:destroy' }],
+    alias: { key: 'exorcist_u:destroy', prep: false },
     land: (fx, h, s) => {
+      rings(fx, s.x, s.y, 0.4, s.beat.radius * 1.1, 2, 0.5, INK, s.k, -1, 6);
+      h.spray(s.x, s.y, 0.6, n(10, s), Pk.Paper, TALISMAN, 3, 3, 0.8, 4, 5);
+      h.spray(s.x, s.y, 0.6, n(8, s), Pk.Ember, '#ff7b00', 2.5, 3, 0.6, 2, 4);
       alliesGlow(fx, h, s, HEAL, false);
       // the eight gates flare once more as 멸 lands (they stand inside its circle)
       for (const p of spots(gateKey(s))) {
@@ -619,12 +689,11 @@ const exorcist: Record<string, UltStory> = {
       }
     },
     charge: { vignette: 0.45 },
-    finisher: { glyph: '滅' },
     motif: 'countdown',
   },
 };
 
-// ─────────────────────────── 바드 (B9, B10) ───────────────────────────
+// ─────────────────────────── 바드 (B9, B10′) ───────────────────────────
 
 const bard: Record<string, UltStory> = {
   // B9 조준: a staff runs along the band, the bard lights up, the allies in the band glow
@@ -677,50 +746,107 @@ const bard: Record<string, UltStory> = {
       }
     },
     charge: { vignette: 0.35 },
-    finisher: { glyph: '響' },
   },
 
-  // B10 드래그: today's three beats of the drag skill, bigger, and its forte with a white beam down the band
-  'bard_ud:beat1': {
-    alias: { key: 'bard_d:beat1' },
-    land: (fx, _h, s) => {
-      footAlong(s, 0.5, P);
-      star(fx, P.x, P.y, 0.6, 36, '#ffffff', s.k, 0, 8);
-      beamAlong(fx, s, bandW(s) * 0.4, '#ffffff', 0.25);
-    },
-    impact: { stop: 40, shake: 4, flash: 0.6 },
-  },
+  // B10′ 드래그 (기획 24차) 「공명 무대 · 피날레」: 하나 · 둘 · 셋 — the sound wave grows on every beat and one more stage
+  // light comes on, a beat's rest (the lights go out), then the drop: all four lights + a white column, the lights'
+  // resonance into the middle, today's drag forte ×1.4
   'bard_ud:choir': {
-    alias: { key: 'bard_u:encore' },
-    land: (fx, h, s) => glowAlliesInBand(fx, h, s, GOLD, 4, false),
+    land: (fx, h, s) => alliesGlow(fx, h, s, GOLD, false),
     impact: null,
   },
   'bard_ud:encore': { alias: { key: 'bard_u:encore' }, impact: null },
-  'bard_ud:beat2': {
-    alias: { key: 'bard_d:beat2' },
-    land: (fx, h, s) => {
-      footAlong(s, 0.5, P);
-      h.spray(P.x, P.y, 1, n(4, s), Pk.Note, GOLD, 2.5, 3.5, 1, 3, 6);
-    },
-    impact: { shake: 3, flash: 0.5 },
-  },
-  // ★ 피날레: today's forte ×1.4 + a white beam the band's width + notes all along it
+  'bard_ud:beat1': { land: (fx, h, s) => stageBeat(fx, h, s, 0), impact: { stop: 40, shake: 4, flash: 0.6 } },
+  'bard_ud:beat2': { land: (fx, h, s) => stageBeat(fx, h, s, 1), impact: { shake: 3, flash: 0.5 } },
+  'bard_ud:beat3': { land: (fx, h, s) => stageBeat(fx, h, s, 2), impact: { shake: 3.5, flash: 0.5 } },
+  // ★ the drop: 0.3 s before it the lights go out (my screen darkens, the 쉼표), a gold note over the bard, she springs up
   'bard_ud:forte': {
+    prep: (fx, h, s) => {
+      if (s.role !== 'finisher') return;
+      const src = s.src;
+      const local = s.local;
+      const k = s.k;
+      const x = s.ox;
+      const y = s.oy;
+      const n0 = h.finishCount(src, s.skillId);
+      const id = s.skillId;
+      h.laterSim(Math.max(0, s.delay - 0.3), () => {
+        if (h.finishCount(src, id) !== n0) return; // the blow came first
+        if (local) h.screen.vignette('#05060a', 0.45, 0.3, 0);
+        if (src < 0) return;
+        notes(fx, x, y, 0.6, GOLD, k, src);
+        h.hop(src, 0.6, 0.3);
+      });
+    },
     alias: { key: 'bard_d:forte', k: 1.4 },
     land: (fx, h, s) => {
-      beamAlong(fx, s, bandW(s) * 0.7, '#ffffff', 0.4);
-      beamAlong(fx, s, bandW(s) * 0.3, BARD, 0.45, 0.02);
-      for (let i = 0; i < 4; i++) {
-        footAlong(s, (i + 0.5) / 4, P);
-        h.spray(P.x, P.y, 1, n(3, s), Pk.Note, i % 2 ? GOLD : BARD, 3, 4, 1.1, 3, 7);
+      const L = stageLights(s);
+      for (let i = 0; i < L.length; i++) {
+        lightPillar(fx, L[i].x, L[i].y, 0.6, 8, LIGHT_COLORS[i], s.k, 0.5);
+        beam(fx, L[i].x, L[i].y, s.x, s.y, 0.35, 0.25, BARD, s.k);
       }
+      lightPillar(fx, s.x, s.y, 1.6, 12, '#ffffff', s.k, 0.5);
+      rings(fx, s.x, s.y, 0.5, 6.5, 1, 0.5, '#ffffff', s.k, -1, 10);
+      rings(fx, s.x, s.y, 0.5, 6.5, 1, 0.5, BARD, s.k, -1, 10).wait = 0.05;
+      rings(fx, s.x, s.y, 0.5, 6.5, 1, 0.5, GOLD, s.k, -1, 10).wait = 0.1;
+      h.spray(s.x, s.y, 1, n(10, s), Pk.Note, GOLD, 3.5, 5, 1.2, 4, 7);
+      h.spray(s.x, s.y, 1, n(10, s), Pk.Note, BARD, 3.5, 5, 1.2, 4, 7);
+      equalizer(fx, s, s.beat.radius, 12, 1.3);
     },
-    charge: { vignette: 0.3, vignetteLead: 0.3 },
-    finisher: { glyph: '響' },
+    charge: { vignette: 0 }, // the rest's darkness is its edge tint (the gathering light and the breath stay: r 6)
   },
 };
 
-// ─────────────────────────── 크로노 (B11, B12) ───────────────────────────
+/** 바드 드래그: the four stage lights stand on a ring of 4.5 around the landing (45° · 135° · 225° · 315°), lit in turn. */
+const LIGHT_R = 4.5;
+const LIGHT_COLORS = [BARD, GOLD, '#7df9ff', '#ffffff'] as const;
+const lightKey = (src: number, skillId: string) => `${src}|${skillId}|lights`;
+
+function pushLights(list: Vec2[], x: number, y: number): void {
+  list.length = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + (i * Math.PI) / 2;
+    list.push({ x: x + Math.cos(a) * LIGHT_R, y: y + Math.sin(a) * LIGHT_R });
+  }
+}
+
+/** The light spots of this cast (remembered at its touchdown; worked out again when they stand around another spot). */
+function stageLights(s: UltBeatInfo): Vec2[] {
+  const list = spots(lightKey(s.src, s.skillId));
+  if (list.length !== 4 || Math.abs(Math.hypot(list[0].x - s.x, list[0].y - s.y) - LIGHT_R) > 0.05) pushLights(list, s.x, s.y);
+  return list;
+}
+
+/** An equalizer of `count` bars on the rim of r (gold / magenta, 1–3 high × g); another player's: half of them. */
+function equalizer(fx: SkillFx, s: UltBeatInfo, r: number, count: number, g: number): void {
+  const bars = s.local ? count : Math.ceil(count / 2);
+  const turn = Math.random() * TAU;
+  for (let i = 0; i < bars; i++) {
+    const a = turn + (i / bars) * TAU;
+    pillar(fx, s.x + Math.cos(a) * r * 0.95, s.y + Math.sin(a) * r * 0.95, 0.34, 1.5 + Math.random() * 2 * g, i % 2 ? BARD : GOLD, s.k, 0.25);
+  }
+}
+
+/**
+ * One beat of 바드 드래그 (nth 0 · 1 · 2 → × 1 · 1.15 · 1.3): the bard bounces, a white and a magenta sound ring out to
+ * the beat's circle (3 · 4.5 · 6), an equalizer on its rim, notes, stage lights 0..nth on, a magenta pulse on my screen.
+ */
+function stageBeat(fx: SkillFx, h: UltHost, s: UltBeatInfo, nth: number): void {
+  const g = 1 + 0.15 * nth;
+  const R = s.beat.radius;
+  if (s.src >= 0) h.hop(s.src, 0.25, 0.2);
+  rings(fx, s.x, s.y, 0.5, R, 1, 0.35, '#ffffff', s.k, -1, 10);
+  rings(fx, s.x, s.y, 0.5, R, 1, 0.35, BARD, s.k, -1, 10).wait = 0.05;
+  // 기획 24차 검토: the beat's whole circle pulses magenta (it read small on the phone)
+  wave(fx, s.x, s.y, s.area, 0.35, BARD, s.k * 0.6);
+  equalizer(fx, s, R, nth === 2 ? 8 : 6, g);
+  h.spray(s.x, s.y, 1, n(6 + 2 * nth, s), Pk.Note, nth % 2 ? GOLD : BARD, 2.2 * g, 3.5, 1, 3, 6);
+  const L = stageLights(s);
+  for (let i = 0; i <= nth && i < L.length; i++) lightPillar(fx, L[i].x, L[i].y, 0.7, 9, LIGHT_COLORS[i], s.k, 0.3);
+  if (s.local) h.screen.vignette(BARD, 0.25, 0.2, 0);
+}
+
+// ─────────────────────────── 크로노 (B11, B12′) ───────────────────────────
 
 /** A cross's two hands sweeping over it: a white beam along each axis (inside its arms). */
 function hands(fx: SkillFx, s: UltBeatInfo, g: number): void {
@@ -777,39 +903,76 @@ const chrono: Record<string, UltStory> = {
       h.spray(s.x, s.y, 0.8, n(12, s), Pk.Glass, '#ffffff', 6, 3, 0.8, 8, 6);
     },
     charge: { vignette: 0.35 },
-    finisher: { glyph: '止' },
     motif: 'clock',
   },
 
-  // B12 드래그: today's rift (its clock under the landing runs backward), a white X
+  // B12′ 드래그 (기획 24차) 「시간 균열 · 영겁의 역행」: the rift → the film rewinds → the world stops grey → the same rift
+  // comes back twice as white copies (X → +) → the clock face breaks and the colour comes back on the blow
   'chrono_ud:rift': {
     alias: { key: 'chrono_d:rift' },
     land: (fx, _h, s) => {
-      if (!isSelf(s)) xslash(fx, s.x, s.y, 0.5, 44, '#ffffff', s.k, 0, 0);
+      if (isSelf(s)) return;
+      xslash(fx, s.x, s.y, 0.5, 44, '#ffffff', s.k, 0, 0);
+      armBolts(fx, s, 0.2, TIME, 0); // lightning out to the X's four tips
     },
     impact: s => (isSelf(s) ? null : { stop: 40, shake: 4, flash: 0.6 }),
   },
+  // the film rewinds: a big clock racing backward, white rings closing, a dotted line from where each one stood to where
+  // it is pulled (the memos still hold the spot before this tick's pull), glass pulled in
   'chrono_ud:rewind': {
     alias: { key: 'chrono_d:rewind' },
-    land: (_fx, h, s) => h.implode(s.x, s.y, 0.4, s.beat.radius * 0.8, n(10, s), '#e7eaff', 0.4, Pk.Glass),
-    impact: { shake: 3 },
+    land: (fx, h, s) => {
+      h.implode(s.x, s.y, 0.4, s.beat.radius * 0.8, n(10, s), '#e7eaff', 0.4, Pk.Glass);
+      clock(fx, s.x, s.y, s.beat.radius, 0.4, '#ffffff', s.k * 0.8).flip = -1;
+      rings(fx, s.x, s.y, s.beat.radius, 0.5, 2, 0.35, '#ffffff', s.k, -1, 4);
+      eachEnemy(h, s, s.area, m => tetherFx(fx, m.x, m.y, m.x, m.y, TetherStyle.Dotted, 0.45, TIME, s.k, -1, m.id, 0, 2), 6);
+    },
+    impact: { shake: 3, flash: 0.5 },
   },
+  // the world stops: today's time stop on the landing, a clock with still hands until the blow, my screen grey — the
+  // colour drains back over its last 0.3 s, so it is all back on the blow (23차 went grey from the blow on)
   'chrono_ud:stasis': {
     alias: { key: 'chrono_u:stasis', at: 'point' },
-    land: (_fx, h, s) => {
-      if (s.local) h.screen.desaturate(0.5);
+    land: (fx, h, s) => {
+      clock(fx, s.x, s.y, s.beat.radius, Math.max(0.1, s.toFinish), TIME, s.k).flip = 0;
+      if (s.local) h.screen.desaturate(Math.max(0.3, s.toFinish));
     },
-    impact: { flash: 0.6 },
+    impact: { flash: 0.5 },
     motif: 'clock',
   },
-  // ★ the X on the frozen: today's 정지 ×1.3 and a clock racing forward
-  'chrono_ud:stop': {
-    alias: { key: 'chrono_d:stop', k: 1.3 },
-    land: (fx, _h, s) => {
-      clock(fx, s.x, s.y, 3, 0.45, '#ffffff', s.k);
+  // the rift comes back twice (X, then +): a white rewound copy and a time-coloured ghost 0.04 s behind, the hands, a
+  // growing cut, glass; an eight-point star on the landing after the second. Their arms are kept for the blow
+  'chrono_ud:echo': {
+    land: (fx, h, s) => {
+      const diag = s.area.shape === 'cross' && !!s.area.diagonal;
+      areaFx(fx, Fx.Brand, s.x, s.y, s.area, 0.4, '#ffffff', s.k);
+      areaFx(fx, Fx.Brand, s.x, s.y, s.area, 0.4, TIME, s.k * 0.7, 0.04);
+      xslash(fx, s.x, s.y, 0.5, 50 + 10 * s.seq, '#ffffff', s.k, 0, diag ? 0 : Math.PI / 4);
+      hands(fx, s, 1 + 0.15 * s.seq);
+      h.spray(s.x, s.y, 0.5, n(6, s), Pk.Glass, '#e7eaff', 3, 2, 0.5, 8, 4);
+      const arms = spots(echoKey(s), s.seq === 0);
+      const L = crossLen(s.area);
+      for (const u of crossAxes(s.area)) arms.push({ x: s.x, y: s.y }, { x: s.x + u.x * L, y: s.y + u.y * L });
+      if (s.seq === s.seqN - 1) star(fx, s.x, s.y, 0.6, 48, '#ffffff', s.k, 0, 8);
     },
-    charge: { vignette: 0.3, vignetteLead: 0.3 },
-    finisher: { glyph: '止' },
+    impact: s => ({ shake: 2.5 + 0.5 * s.seq, flash: 0.5 }),
+    motif: 'clock',
+  },
+  // ★ the clock face breaks: a white face stopped at twelve, cracks, glass everywhere, today's 정지 ×1.4, the eight
+  // remembered arms flare once more, white rings — a pale blue flash and a navy edge after it (no white sheet)
+  'chrono_ud:stop': {
+    alias: { key: 'chrono_d:stop', k: 1.4 },
+    land: (fx, h, s) => {
+      clock(fx, s.x, s.y, s.beat.radius, 0.3, '#ffffff', s.k).flip = 0;
+      crackFx(fx, s.x, s.y, s.beat.radius, 12, '#ffffff', s.k, { dur: 0.6 });
+      h.spray(s.x, s.y, 0.6, n(24, s), Pk.Glass, '#ffffff', 6, 3, 0.8, 8, 6);
+      rings(fx, s.x, s.y, 0.5, s.beat.radius + 1, 3, 0.4, '#ffffff', s.k, -1, 5);
+      const arms = spots(echoKey(s));
+      for (let i = 0; i + 1 < arms.length; i += 2) beam(fx, arms[i].x, arms[i].y, arms[i + 1].x, arms[i + 1].y, 0.8, 0.25, '#ffffff', s.k);
+    },
+    charge: { vignette: 0.3, vignetteColor: '#1c2259', vignetteLead: 0.3 },
+    finisher: { screenColor: '#c9d1ff', tailColor: '#1c2259', sparks: 30 },
+    motif: 'clock',
   },
 };
 
@@ -896,7 +1059,6 @@ const puppeteer: Record<string, UltStory> = {
       curtainExtras(fx, h, s);
     },
     charge: { vignette: 0.45, vignetteLead: 0.45 },
-    finisher: { glyph: '幕' },
     motif: 'outline',
   },
 
@@ -936,7 +1098,6 @@ const puppeteer: Record<string, UltStory> = {
       curtainExtras(fx, h, s);
     },
     charge: { vignette: 0.45, vignetteLead: 0.45 },
-    finisher: { glyph: '幕' },
     motif: 'outline',
   },
 };
@@ -1000,23 +1161,31 @@ registerUltLooks({
       }
     },
   },
-  // B10: notes scattered along the slide
+  // B10′: notes scattered along the slide; 기획 24차: on landing the four stage lights' stands (small gold rings) on the
+  // ring of 4.5 — the beats light them in turn, the drop all four
   bard_ud: {
     touchdownStop: 0,
     move: (_fx, h, m) => {
       along(h, m, 4, (x, y) => h.spray(x, y, 0.8, Math.max(1, nk(2, m.k)), Pk.Note, GOLD, 1.4, 2.5, 0.9, 2, 6));
     },
+    touchdown: (_fx, h, m) => {
+      const list = spots(lightKey(m.entityId, m.skillId), true);
+      pushLights(list, m.to.x, m.to.y);
+      for (const p of list) h.ring(p.x, p.y, 0.2, 0.6, 1.4, GOLD, 2, 0.1);
+    },
   },
-  // B12: a rewound film — three ghosts from the landing back toward where it left
+  // B12′: a rewound film — three ghosts from the landing back toward where it left; 기획 24차: a big clock (r 4) on the
+  // ground where it lands, running backward fast
   chrono_ud: {
     touchdownStop: 0,
-    move: (_fx, h, m) => {
+    move: (fx, h, m) => {
       for (let i = 1; i <= 3; i++) {
         const t = 1 - i / 4;
         const x = m.from.x + (m.to.x - m.from.x) * t;
         const y = m.from.y + (m.to.y - m.from.y) * t;
         h.later(0.04 * (i - 1), () => h.afterimage(m.entityId, x, y, 0.35));
       }
+      clock(fx, m.to.x, m.to.y, 4, 0.45, TIME, m.k).flip = -1;
     },
   },
   // B14: a thread from where she leapt to where she lands, paper along it
@@ -1151,7 +1320,7 @@ const STAGES: Record<string, StageFx> = {
     v.host.ring(x, y, radiusOf(ev.area) + 0.5, 0.4, 0.4, TIME, 5 * k, 0.08 * k);
   },
   'chrono_ud:stasis': (ev, v, k, local) => {
-    if (ev.actionIndex !== 3) return; // the freeze circle (the X lands with it)
+    if (ev.actionIndex !== 3) return; // the freeze circle (기획 24차: still part 3; the X no longer lands with it)
     const { x, y } = ev.center;
     v.host.ring(x, y, 0.3, radiusOf(ev.area) + 0.3, 0.5, TIME, 6 * k, 0.15 * k);
     if (local) v.host.shake(3);

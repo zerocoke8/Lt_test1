@@ -180,6 +180,53 @@ describe('a 궁극기 테스트 room', () => {
     expect((await a.next('cmdResult', m => m.seq === 3)).ok).toBe(true);
   });
 
+  it('기획 24차 「충전」: a guest’s chargeUlt fills that guest’s three gauges only; other debug stays the host’s', async () => {
+    const a = await connect('방장');
+    const b = await connect('손님');
+    a.send({ t: 'createRoom', preset: { ...PRESET_A, ultMode: 'aim' }, mode: 'ultTest' });
+    const { room } = await a.next('room', m => !!m.room);
+    b.send({ t: 'joinRoom', code: room!.code, preset: { ...PRESET_B, ultMode: 'drag' } });
+    await b.next('room', m => !!m.room && m.room.members.length === 2);
+    for (const x of [a, b]) x.mark();
+    a.send({ t: 'start' });
+    await b.snap(m => m.state.phase === 'combat');
+    // the guest: its own seat (whatever player it names), every card — field and bench
+    b.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'chargeUlt', player: 0 } } });
+    expect(await b.next('cmdResult', m => m.seq === 1)).toMatchObject({ ok: true });
+    const s = await b.snap(m => m.state.players[1].party.every(x => x.ult.charge >= 1));
+    expect(s.state.players[1].party.map(x => x.ult.charge)).toEqual([1, 1, 1]);
+    // the host and the bot only charged by time (a field gauge fills in 30 s)
+    for (const pi of [0, 2]) for (const x of s.state.players[pi].party) expect(x.ult.charge).toBeLessThan(0.5);
+    // every other debug action from the guest is still refused
+    b.send({ t: 'cmd', seq: 2, cmd: { type: 'debug', action: { kind: 'ultMode', mode: 'now' } } });
+    expect(await b.next('cmdResult', m => m.seq === 2)).toMatchObject({ ok: false, reason: '방장만 할 수 있어요' });
+    b.send({ t: 'cmd', seq: 3, cmd: { type: 'debug', action: { kind: 'killAll' } } });
+    expect(await b.next('cmdResult', m => m.seq === 3)).toMatchObject({ ok: false, reason: '방장만 할 수 있어요' });
+    b.send({ t: 'cmd', seq: 4, cmd: { type: 'tunables', patch: { invincible: true } } });
+    expect(await b.next('cmdResult', m => m.seq === 4)).toMatchObject({ ok: false, reason: '방장만 할 수 있어요' });
+  });
+
+  it('기획 24차 「충전」 is a 궁극기 테스트 room’s only: a guest of a classic or a 보스 레이드 room is refused', async () => {
+    for (const mode of [undefined, 'bossRaid'] as const) {
+      const a = await connect('방장');
+      const b = await connect('손님');
+      a.send({ t: 'createRoom', preset: PRESET_A, ...(mode ? { mode } : null) });
+      const { room } = await a.next('room', m => !!m.room);
+      b.send({ t: 'joinRoom', code: room!.code, preset: PRESET_B });
+      await b.next('room', m => !!m.room && m.room.members.length === 2);
+      for (const x of [a, b]) x.mark();
+      a.send({ t: 'start' });
+      const first = await b.snap(m => m.state.phase === 'combat');
+      expect(first.state.mode).toBe(mode);
+      b.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'chargeUlt' } } });
+      expect(await b.next('cmdResult', m => m.seq === 1), String(mode)).toMatchObject({ ok: false, reason: '방장만 할 수 있어요' });
+      // the host still may
+      a.send({ t: 'cmd', seq: 1, cmd: { type: 'debug', action: { kind: 'chargeUlt' } } });
+      expect((await a.next('cmdResult', m => m.seq === 1)).ok).toBe(true);
+      for (const x of [a, b]) x.kill();
+    }
+  });
+
   it('a classic room ignores the aim (the tap happens) and has no ult modes', async () => {
     const a = await connect('A');
     a.send({ t: 'createRoom', preset: { ...PRESET_A, ultMode: 'drag' } });

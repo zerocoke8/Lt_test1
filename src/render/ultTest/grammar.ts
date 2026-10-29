@@ -2,9 +2,10 @@
 //  - ultDefault: the picture of a beat by its role when no story draws it (path · opener · build · twin · after · zone ·
 //    support) — so all 30 ults read stronger even before a character story exists.
 //  - ultCharge: the wind-up of the finisher (edge tint at t − 0.35, light gathering at t − 0.3, the breath at t − 0.12).
-//  - ultFinisher: the climax (flash, rings, pillar, sparks, the big glyph; mine: a 0.13 s stop, a 12 px shake with an
-//    aftershock, a 5 % zoom, radial speed lines). Its full picture is up at age 0 — the frozen frame is the blow.
-// Another player's / a bot's ult: ground pictures at k 0.55 and low detail, never a stop / shake / zoom / screen glyph.
+//  - ultFinisher: the climax (flash, rings, pillar, sparks; mine: a 0.13 s stop, a 12 px shake with an aftershock, a 5 %
+//    zoom, radial speed lines, the 충격 프레임 — 기획 24차: a dark cut + the character's white star, no letter). Its full
+//    picture is up at age 0 — the frozen frame is the blow.
+// Another player's / a bot's ult: ground pictures at k 0.55 and low detail, never a stop / shake / zoom / impact frame.
 // Colour fills stay inside the real footprint; outside it only thin white rings that are gone within 0.35 s (2-9).
 
 import type { AreaShape, Vec2 } from '../../types';
@@ -15,9 +16,10 @@ import type { SkillFx, Sfx } from '../skillfx';
 import type { UnitMemo } from '../units';
 import { Pk } from '../fxparts';
 import { lighten } from '../look';
+import { PX_PER_UNIT } from '../camera';
 import { ULT_FINISH, type Juice } from '../juice';
 import { STAGE_DETAIL, type StageHost, alliesGlow, genericLand, rings, rune, selfBubble } from '../stagefx';
-import { pushGlyph, pushSpeedLines, ultCam } from './core';
+import { IMPACT, extendImpact, pushImpact, pushSpeedLines, ultCam } from './core';
 import { FX_LOAD } from './settings';
 import type { UltBeatInfo } from './stories';
 
@@ -75,9 +77,12 @@ export interface FinisherSpec {
   breath: number;
   zoom: number;
   speedLines: boolean;
-  /** null = no stamp ('' = theme glyph). */
-  glyph: string | null;
-  glyphPx: number;
+  /** 기획 24차 충격 프레임 (mine only): the dark cut's alpha at the blow (0 = none). Strike 0.65, bless 0. */
+  impact: number;
+  /** 기획 24차 충격 프레임 (mine only): the white star burst's size × (0 = none). Strike 1, bless 0.8. */
+  burst: number;
+  /** 기획 24차: the edge tint after the blow ('' = the theme's vignetteColor; 크로노 드래그 '#1c2259'). */
+  tailColor: string;
   flash: number;
   star: number;
   rings: number;
@@ -114,8 +119,9 @@ export const FINISH_STRIKE: Readonly<FinisherSpec> = {
   breath: 0.35,
   zoom: 0.05,
   speedLines: true,
-  glyph: '',
-  glyphPx: 150,
+  impact: 0.65,
+  burst: 1,
+  tailColor: '',
   flash: 1,
   star: 70,
   rings: 3,
@@ -126,7 +132,10 @@ export const FINISH_STRIKE: Readonly<FinisherSpec> = {
   hitMarks: 10,
 };
 
-/** An allies-only climax (축복): no stop, no shake, a softer flash, 2 % zoom, pillars on the allies, gold dust. */
+/**
+ * An allies-only climax (축복): no stop, no shake, a softer flash, 2 % zoom, pillars on the allies, gold dust; 기획 24차:
+ * no dark cut, the impact frame's star at 0.8×.
+ */
 export const FINISH_BLESS: Readonly<FinisherSpec> = {
   ...FINISH_STRIKE,
   kind: 'bless',
@@ -138,6 +147,8 @@ export const FINISH_BLESS: Readonly<FinisherSpec> = {
   breath: 0,
   zoom: 0.02,
   speedLines: false,
+  impact: 0,
+  burst: 0.8,
   flash: 0.7,
   star: 50,
   rings: 2,
@@ -168,8 +179,8 @@ function roundR(a: AreaShape): number {
 }
 
 /**
- * The middle of where the blow lands (the glyph, the zoom, the breath's hole, the gathering light sit there): a line /
- * fan / rect / cone at the middle of its length, anything else at its centre.
+ * The middle of where the blow lands (the impact frame's star, the zoom, the breath's hole, the gathering light sit
+ * there): a line / fan / rect / cone at the middle of its length, anything else at its centre.
  */
 export function ultFocus(s: UltBeatInfo, out: Vec2): Vec2 {
   const a = s.area;
@@ -432,8 +443,8 @@ export function ultFinisher(fx: SkillFx, h: UltHost, s: UltBeatInfo, spec?: Part
   const screenColor = sp.screenColor || th.screenColor;
   const R = roundR(s.area);
   const low = STAGE_DETAIL.low;
-  // the point pieces (star, pillar, sparks, debris, embers, glyph, zoom) sit on the middle of a band / fan / cone — its
-  // s.x, s.y can be the caster's feet (integration fix: they burst behind the 블레이드 / 거너 / 메이지)
+  // the point pieces (star, pillar, sparks, debris, embers, impact frame, zoom) sit on the middle of a band / fan / cone —
+  // its s.x, s.y can be the caster's feet (integration fix: they burst behind the 블레이드 / 거너 / 메이지)
   ultFocus(s, FOCUS);
   const fx0 = FOCUS.x;
   const fy0 = FOCUS.y;
@@ -470,7 +481,13 @@ export function ultFinisher(fx: SkillFx, h: UltHost, s: UltBeatInfo, spec?: Part
       i++;
     }
   }
-  if (sp.glyph !== null) ultGlyph(fx0, fy0, 0, sp.glyph || th.glyph, screenColor, s.local, { px: sp.glyphPx });
+  // 기획 24차 충격 프레임 (mine only, the screen layer): the dark cut + the character's white star on the blow — no
+  // letter. R = the footprint's round size × 1.1 on the screen (120–220 px) × burst.
+  const impactUp = s.local && (sp.impact > 0 || sp.burst > 0);
+  if (impactUp) {
+    const rPx = Math.max(IMPACT.rMin, Math.min(IMPACT.rMax, R * PX_PER_UNIT * IMPACT.rK)) * Math.max(0, sp.burst);
+    pushImpact(fx0, fy0, rPx, s.charId, th, screenColor, sp.impact, sp.burst);
+  }
 
   // ── the kick: mine only ──
   const cam = ultCam();
@@ -485,6 +502,9 @@ export function ultFinisher(fx: SkillFx, h: UltHost, s: UltBeatInfo, spec?: Part
     const sec = (sp.stopMs / 1000) * (j.settings.hitStopMs / 75);
     j.finisherStop(Math.min(sec, Math.max(sp.stopCapMs, sp.stopMs) / 1000));
   }
+  // 기획 24차 검토: the tail vignette below starts and runs on the world clock — the impact record (the warnings drawn
+  // over it) stays as much longer as the world stays frozen from here
+  if (impactUp) extendImpact(j.freezeLeft);
   if (sp.shake > 0) j.shake(sp.shake, sp.shakeDur);
   if (sp.screen > 0) h.screen.flash(sp.screen, screenColor, 0.06);
   if (sp.zoom > 0) {
@@ -493,21 +513,13 @@ export function ultFinisher(fx: SkillFx, h: UltHost, s: UltBeatInfo, spec?: Part
     j.zoomPunch(sp.zoom, Math.max(0, Math.min(1280, sx)), Math.max(0, Math.min(720, sy)));
   }
   if (sp.speedLines) ultSpeedLines(fx0, fy0, { n: 28 });
-  const vc = th.vignetteColor;
+  const vc = sp.tailColor || th.vignetteColor;
   const tail = sp.tail;
   const tailDur = sp.tailDur;
   h.later(ULT_FINISH.tailAt, () => {
     if (tail > 0) j.shake(tail, tailDur);
     h.screen.vignette(vc, 0.4, 0.6, 0);
   });
-}
-
-/**
- * The big glyph (2-3 큰 글자): mine = a 150 px stamp on the screen layer above the blow (real clock: it slams in through
- * the stop); another player's = a small faint one (60 px) over the spot. x, y, z = world point.
- */
-export function ultGlyph(x: number, y: number, z: number, text: string, color: string, local: boolean, o?: { px?: number; hold?: number }): void {
-  pushGlyph(x, y, z, text, color, local, o?.px ?? (local ? 150 : 60), o?.hold ?? 0.35);
 }
 
 /**

@@ -21,18 +21,22 @@
 //                                    광란 8 s, the finale
 //             드래그 혈귀 대지분쇄    blink (leap) there, slam + 광란, the crack the way it leapt, three lava geysers along it
 //   shadow    조준 월영 질주          an 8-cell pass-through toward the aim (mark), clones burst on the way, the crescent
-//             드래그 그림자 대처형진  blink there, 4 clones ahead + the slide, the X, the crescent on its target
-//   ranger    조준 매의 화살비        an arrow storm on the point, rain around it, the sky arrow in the middle
-//             드래그 매의 대일격      a leap there, then a piercing volley + the pierce toward its target (bots stay put)
+//             드래그 흑월 대처형진    blink there, an ink circle round its target, six clones cut across it (faster and
+//                                    faster), then the black moon falls on it (1.5 s)
+//   ranger    조준 매의 화살비 · 천공 강하  a marking arrow on the point, three rings of rain closing in on it, then the
+//                                    hawk of light dives as the sky arrow (1.9 s)
+//             드래그 매의 대일격      a leap there, a three-lane volley at its target, three arrows pin it, then the pierce
+//                                    (1.5 s) (bots stay put)
 //   mage      조준 블리자드 · 빙결풍  the blizzard as a fan toward the aim (2 s), five icicles in it, then freeze and shatter
 //             드래그 빙결 유성우      blink there, 8 ice hailstones around (ahead first), the big ice star, a short blizzard
 //
 // Stage names reuse today's ult stages where the beat matches (they play today's ult sounds, src/audio/stages.ts slot
 // 'ult'): aegis rally citadel barrier · sanctuary spear tribunal · chainstorm cage prison release · storm issen ·
-// frenzy roar finale · vanish dance moon · barrage rain skyshot · blizzard freeze shatter. A name only in the drag
-// skill's row (가디언 'slam', 팔라딘 'brand' 'blessing', 워든 'hook', 블레이드 'dash' 'return', 버서커 'slam' 'split',
-// 섀도우 'clone' 'execute', 레인저 'volley' 'pierce') plays that drag cue (src/audio/director.ts); the rest the role's
-// default sound. Visuals are keyed `<id>:<stage>` (src/render/ultTest/groupA.ts).
+// frenzy roar finale · dance moon · rain skyshot · blizzard freeze shatter. A name only in the drag skill's row (가디언
+// 'slam', 팔라딘 'brand' 'blessing', 워든 'hook', 블레이드 'dash' 'return', 버서커 'slam' 'split', 섀도우 'clone',
+// 레인저 'volley' 'pierce') plays that drag cue (src/audio/director.ts); a name in neither (레인저 'mark' 'pin', 기획
+// 24차) has its cue in the alt's own `sfx`; the rest the role's default sound. Visuals are keyed `<id>:<stage>`
+// (src/render/ultTest/groupA.ts).
 // Every effect lands at ≥ ULT_TEST.firstHit (0.45 s, the cut-in rule); only movement (dash) happens at 0 s. No part uses
 // center 'target' in 조준 (보이는 곳 = 맞는 곳: with nobody near the point it would jump to the caster's own target).
 //
@@ -41,6 +45,12 @@
 // got a closing blow (성채 전개 1.5 s / 성벽 돌파 1.6 s), 워든 조준's cage at 1 s, 버서커 조준 a leap-slam at 1.5 s
 // (혈귀 낙하), 버서커 드래그 three lava geysers along the crack instead of the aftershock, 메이지 조준 2.45 s instead of
 // 4.85 s with five hailstones. The others only renamed stages (each beat its own picture / sound).
+//
+// 기획 24차 (docs/ult-fx.md 8-3 A12′–A14′): three weak ones redesigned (data + looks, power by eye like the rest) —
+// 섀도우 드래그 「흑월 대처형진」 (an ink circle, six clones cutting across its target, the moon at 1.5 s; the run of
+// clones, the slide and the X are gone), 레인저 조준 「매의 화살비 · 천공 강하」 (a marking arrow, three rings of rain
+// closing in, the sky arrow at 1.9 s instead of 2.3 s; the 12-arrow storm and the 5-hit rain are gone), 레인저 드래그
+// (seven arrows instead of ten, three arrows pinning its target at 1.1 s, the pierce at 1.5 s instead of 1.25 s, wider).
 
 import type { AreaShape, Effect, SkillAction } from '../../types';
 import type { UltAltSet } from './types';
@@ -76,12 +86,20 @@ const SHADOW_CLONES: readonly (readonly [number, number])[] = [
   [4, 0.7],
   [6, 0.8],
 ];
-/** 섀도우 드래그: [offset ahead of the landing spot, delay] — four clones the way it came in, 2.2 cells / 0.08 s apart. */
-const SHADOW_RUN: readonly (readonly [number, number])[] = [
-  [0, 0.45],
-  [2.2, 0.53],
-  [4.4, 0.61],
-  [6.6, 0.69],
+/** 섀도우 드래그 (기획 24차): six clones cut through its target, faster and faster — [rot° from the way it moved, delay]. */
+const SHADOW_CUTS: readonly (readonly [number, number])[] = [
+  [0, 0.6],
+  [60, 0.7],
+  [120, 0.79],
+  [30, 0.87],
+  [90, 0.94],
+  [150, 1],
+];
+/** 레인저 조준 (기획 24차): the arrow rain closes in on the mark — [radius, delay, damage]; the innermost = the sky arrow's size. */
+const HAWK_RAIN: readonly (readonly [number, number, number])[] = [
+  [3.6, 0.8, 1.6],
+  [2.8, 1.05, 1.8],
+  [2, 1.3, 2],
 ];
 /** 메이지 조준 (기획 23차): five icicles inside the fan, [ahead, right, delay] — far and near in turn, the last in the middle. */
 const ICICLES: readonly (readonly [number, number, number])[] = [
@@ -486,34 +504,36 @@ export const GROUP_A: Record<string, UltAltSet> = {
     },
     drag: {
       id: 'shadow_ud',
-      name: '그림자 대처형진',
+      name: '흑월 대처형진',
       slot: 'ult',
       castTime: ULT_CAST_TIME,
       move: { kind: 'blink', maxRange: 9 },
       description:
-        '끌어 놓은 곳에 나타나(최대 9칸) 들어온 쪽으로 6.6칸 질주하며 분신 폭발 4번(반경 1.8): 각각 공격력 100% 피해 + 4초간 받는 피해 +20%. 1초에 가운데에 X자 처형(대각선 4칸, 폭 1.8): 공격력 200% 피해 + 0.5초 기절. 1.5초에 대상에게 초승달 베기(반경 2.5): 공격력 250% 피해(치명타 확정).',
+        '끌어 놓은 곳에 나타나(최대 9칸) 대상 둘레 반경 3.5에 먹물 진: 공격력 60% 피해 + 4초간 받는 피해 +20%. 0.6초부터 1초까지 분신 여섯이 점점 빠르게 대상을 가로질러 벰(길이 9, 폭 1.8): 각각 공격력 50% 피해. 1.5초에 흑월: 대상에게 초승달 베기(반경 3): 공격력 280% 피해(치명타 확정) + 0.6초 기절.',
       finale: 'moon',
-      // 기획 23차: the clones and the X have the drag skill's stages (its clone / execute pictures and sounds)
+      // 기획 24차: 'clone' and 'dance' keep their rows (drag.shadow.clone; ult.shadow.dance on every cut, +1 step) — also
+      // right with the switch off. The moon restates its row cue (an override replaces the row) and lays the X-cut under it.
+      sfx: { moon: [{ id: 'ult.shadow.moon', lead: 0.35, duck: [-10, 0.35] }, { id: 'drag.shadow.execute', lead: 0.25, db: -6 }] },
+      // 드래그 'target' = the enemy nearest the landing spot, else its own target (the preview shows the same one);
+      // follow keeps every part on a moving boss
       actions: [
-        ...SHADOW_RUN.map(
-          ([x, delay], i): SkillAction => ({
-            stage: 'clone',
+        { stage: 'clone', center: 'target', follow: true, delay: 0.45, telegraphLead: 0.3, area: { shape: 'circle', radius: 3.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.6 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.2 }] },
+        // the six cuts across its target, each turned from the way the shadow moved (rel 'aim')
+        ...SHADOW_CUTS.map(
+          ([rot, delay]): SkillAction => ({
+            stage: 'dance',
             rel: 'aim',
-            center: 'point',
-            ...(x ? { offset: { x, y: 0 } } : null),
+            center: 'target',
+            follow: true,
             delay,
-            ...(i ? { telegraphLead: 0 } : null),
-            area: { shape: 'circle', radius: 1.8 },
+            telegraphLead: 0,
+            // 기획 24차 검토: 7 × 1.4 → 9 × 1.8 (bigger on the phone, a boss on the top row included)
+            area: { shape: 'rect', dir: 'right', anchor: 'center', length: 9, width: 1.8, rot },
             affects: 'enemies',
-            effects: [{ kind: 'damage', amount: 1 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.2 }],
+            effects: [{ kind: 'damage', amount: 0.5 }],
           }),
         ),
-        // the shadow slides through its clones (movement only, from where it stands when it fires)
-        { stage: 'vanish', rel: 'aim', center: 'self', delay: 0.75, telegraphLead: 0, area: { shape: 'single' }, affects: 'self', effects: [], dash: { dir: 'right', distance: 6.6, duration: 0.16, atFire: true } },
-        { stage: 'execute', rel: 'aim', center: 'point', offset: { x: 3.3, y: 0 }, delay: 1, area: { shape: 'cross', diagonal: true, length: 4, width: 1.8 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'stun', duration: 0.5, value: 0 }] },
-        // 드래그 'target' = the enemy nearest the landing spot, else its own target (the preview shows the same one);
-        // follow keeps it on a moving boss
-        { stage: 'moon', center: 'target', follow: true, delay: 1.5, telegraphLead: 0.3, area: { shape: 'circle', radius: 2.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.5, crit: 'always' }] },
+        { stage: 'moon', center: 'target', follow: true, delay: 1.5, telegraphLead: 0.4, area: { shape: 'circle', radius: 3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 2.8, crit: 'always' }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }] },
       ],
     },
   },
@@ -522,16 +542,35 @@ export const GROUP_A: Record<string, UltAltSet> = {
   ranger: {
     aim: {
       id: 'ranger_ua',
-      name: '매의 화살비',
+      name: '매의 화살비 · 천공 강하',
       slot: 'ult',
       castTime: ULT_CAST_TIME,
       description:
-        '겨눈 곳 반경 2.5에 0.5초부터 0.08초마다 화살 폭풍 공격력 70% 피해 ×12. 1.6초에 반경 3.5에 화살비 공격력 40% 피해 ×5, 2.3초에 가운데 하늘 화살(반경 1.6): 공격력 450% 피해(치명타 확정).',
+        '겨눈 곳에 표적 화살(반경 2): 공격력 100% 피해 + 4초간 받는 피해 +15%. 화살비가 표적으로 좁혀 옴: 0.8초에 반경 3.6 공격력 160% 피해 + 2초간 30% 둔화, 1.05초에 반경 2.8 공격력 180% 피해, 1.3초에 반경 2 공격력 200% 피해. 1.9초에 빛의 매가 하늘 화살이 되어 내리꽂힘(반경 2): 공격력 600% 피해(치명타 확정) + 0.5초 기절.',
       finale: 'skyshot',
+      // 기획 24차: the mark has no row of its own (the ranger's shot); a shot-up + pour per ring, rising; the row + the
+      // hawk's swoop on the sky arrow. 기획 24차 검토: the swoop is dash.melee (an airy rush falling in pitch; effect bus
+      // −14 + 4) — ult.ranger.tick's file is mostly a sub-40 Hz pulse (DC 0.08) that hit the limiter as the cast's
+      // loudest sound
+      sfx: {
+        mark: { id: 'normal.ranger' },
+        rain: { id: 'ult.ranger.rain', on: 'hit', step: 2, max: 3, lead: 0.3 },
+        skyshot: [{ id: 'ult.ranger.skyshot', lead: 0.3 }, { id: 'dash.melee', lead: 0.45, db: 4 }],
+      },
       actions: [
-        { stage: 'barrage', center: 'point', delay: 0.5, area: { shape: 'circle', radius: 2.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.7 }], hits: 12, hitInterval: 0.08 },
-        { stage: 'rain', center: 'point', delay: 1.6, telegraphLead: 0.3, area: { shape: 'circle', radius: 3.5 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.4 }], hits: 5, hitInterval: 0.1 },
-        { stage: 'skyshot', center: 'point', delay: 2.3, telegraphLead: 0.3, area: { shape: 'circle', radius: 1.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 4.5, crit: 'always' }] },
+        { stage: 'mark', center: 'point', delay: 0.45, area: { shape: 'circle', radius: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1 }, { kind: 'status', status: 'vulnerable', duration: 4, value: 0.15 }] },
+        ...HAWK_RAIN.map(
+          ([radius, delay, amount], i): SkillAction => ({
+            stage: 'rain',
+            center: 'point',
+            delay,
+            telegraphLead: 0.25,
+            area: { shape: 'circle', radius },
+            affects: 'enemies',
+            effects: i === 0 ? [{ kind: 'damage', amount }, { kind: 'status', status: 'slow', duration: 2, value: 0.3 }] : [{ kind: 'damage', amount }],
+          }),
+        ),
+        { stage: 'skyshot', center: 'point', delay: 1.9, telegraphLead: 0.45, area: { shape: 'circle', radius: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 6, crit: 'always' }, { kind: 'status', status: 'stun', duration: 0.5, value: 0 }] },
       ],
     },
     drag: {
@@ -543,16 +582,25 @@ export const GROUP_A: Record<string, UltAltSet> = {
       // a bot keeps its distance (a sniper never leaps next to the boss): it casts where it stands
       botAim: 'self',
       description:
-        '끌어 놓은 곳으로 몸을 날려(최대 9칸) 대상 쪽 직선(길이 16, 폭 2)으로 0.5초부터 0.08초마다 화살 연사: 공격력 70% 피해 ×10. 1.25초에 대상을 꿰뚫는 관통 일격(길이 16, 폭 1.6): 공격력 600% 피해(치명타 확정).',
+        '끌어 놓은 곳으로 몸을 날려(최대 9칸) 대상 쪽 직선(길이 16, 폭 2.6)으로 0.5초부터 0.08초마다 화살 연사: 공격력 70% 피해 ×7. 1.1초에 화살 셋이 대상 둘레(반경 1.8)에 꽂혀 공격력 80% 피해 + 1.5초간 60% 둔화. 1.5초에 매와 함께 대상을 꿰뚫는 관통 일격(길이 16, 폭 3): 공격력 600% 피해(치명타 확정) + 1.5칸 넉백.',
       finale: 'pierce',
-      // the bow drawn at the cast, then a twang every other arrow (six at most)
-      sfx: { volley: [{ id: 'drag.ranger.draw', on: 'cast' }, { id: 'drag.ranger.volley', on: 'hit', step: 2, max: 6 }] },
+      sfx: {
+        // the bow drawn at the cast, then a twang every other arrow (six at most)
+        volley: [{ id: 'drag.ranger.draw', on: 'cast' }, { id: 'drag.ranger.volley', on: 'hit', step: 2, max: 6 }],
+        // 기획 24차: the three arrows planted (the tether's snap + a soft shot); the row + the hawk's whoosh on the pierce
+        // (기획 24차 검토: dash.melee, as 조준's swoop — not the broken ult.ranger.tick file)
+        pin: [{ id: 'fx.tether' }, { id: 'normal.ranger', db: -4 }],
+        pierce: [{ id: 'drag.ranger.pierce', lead: 0.25 }, { id: 'dash.melee', lead: 0.35, db: 4 }],
+      },
       // 기획 23차: the drag skill's stages (its volley / pierce pictures and sounds)
       actions: [
         // 'line' = from the ranger (landed) through its target (the enemy nearest the landing spot, else its own target);
-        // follow keeps both ends live
-        { stage: 'volley', center: 'target', follow: true, delay: 0.5, area: { shape: 'line', length: 16, width: 2 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.7 }], hits: 10, hitInterval: 0.08 },
-        { stage: 'pierce', center: 'target', follow: true, delay: 1.25, telegraphLead: 0.3, area: { shape: 'line', length: 16, width: 1.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 6, crit: 'always' }] },
+        // follow keeps both ends live. 기획 24차: 7 arrows (was 10); 검토: width 2 → 2.6 (a wider band on the phone)
+        { stage: 'volley', center: 'target', follow: true, delay: 0.5, area: { shape: 'line', length: 16, width: 2.6 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.7 }], hits: 7, hitInterval: 0.08 },
+        // 기획 24차: a slow, not a root — bosses are immune to root
+        { stage: 'pin', center: 'target', follow: true, delay: 1.1, telegraphLead: 0, area: { shape: 'circle', radius: 1.8 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.8 }, { kind: 'status', status: 'slow', duration: 1.5, value: 0.6 }] },
+        // 기획 24차: 1.25 s → 1.5 s, width 1.6 → 2.2 (검토: → 3), a knock-back
+        { stage: 'pierce', center: 'target', follow: true, delay: 1.5, telegraphLead: 0.4, area: { shape: 'line', length: 16, width: 3 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 6, crit: 'always' }, { kind: 'knockback', distance: 1.5 }] },
       ],
     },
   },

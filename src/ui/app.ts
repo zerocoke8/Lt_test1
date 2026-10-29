@@ -461,6 +461,7 @@ export function startApp(root: HTMLElement): void {
     onCardDown: (kind, index, ev, el) => drag.begin(kind, index, ev, el),
     onUlt: () => useUlt(),
     onUltDown: (ev, el) => ultAim.begin(ev, el),
+    onUltCharge: () => chargeMyUlt(),
     onPause: () => openMenu(),
     onDebug: () => {
       if (canDebug()) debug.toggle();
@@ -701,6 +702,18 @@ export function startApp(root: HTMLElement): void {
               : '지금은 쓸 수 없어요';
     hud?.toast(text, 'warn');
     return r;
+  }
+
+  /**
+   * 기획 24차 궁극기 테스트 「충전」 (the HUD button right of the ult): the debug 「궁극기 충전」 for my seat — all three of my
+   * gauges full, nobody else's (multi: any member; the server puts the sender's seat in). No toast when it works (기획 22차
+   * 통합: the debug one covered the finger's tag); a refusal says why.
+   */
+  function chargeMyUlt(): void {
+    if (!game || screen !== 'combat' || paused || menuOpen || game.state.mode !== 'ultTest') return;
+    const r = game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: localPlayer } });
+    sfx.ui(r.ok ? 'ui.tap' : 'ui.ult.denied');
+    if (!r.ok) hud?.toast(r.reason ?? '충전할 수 없어요', 'warn');
   }
 
   /** 포기 / 관전 중 결과 보기 (solo): end the run now and show the result without the delay. */

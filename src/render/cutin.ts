@@ -145,6 +145,11 @@ export class CutIn {
   focus: CutInFocus | null = null;
   /** 기획 23차 착지 컷: when the strip slides in (s into this cut-in), −1 = none (the 22차 small banner). */
   landAt = -1;
+  /**
+   * 기획 24차 (docs/ult-fx.md 8-2-1): the band leaves out the exorcist's red 封 seal — set by vfx.ts ultCutIn for my own
+   * 궁극기 테스트 alt with 「궁극기 연출 강화」 on (no letters there); false again on every start (classic looks as before).
+   */
+  noSeal = false;
   private landFromRight = false;
   /** The strip's centre y, picked on its first frame from the landing's screen y (placeStrip); −1 = not yet. */
   private stripY = -1;
@@ -184,6 +189,7 @@ export class CutIn {
     this.placed = false;
     this.focus = null;
     this.landAt = -1;
+    this.noSeal = false;
     this.stripY = -1;
     this.note({ kind: this.short ? 'short' : 'full', name, who: '' });
   }
@@ -358,7 +364,7 @@ export class CutIn {
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
     const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
     const scale = Math.max(1, Math.min(3, m && Number.isFinite(m.a) ? Math.hypot(m.a, m.b) : 1));
-    const key = `${this.defId}|${this.name}|${scale.toFixed(3)}|${this.bandY}`;
+    const key = `${this.defId}|${this.name}|${scale.toFixed(3)}|${this.bandY}|${this.noSeal ? 1 : 0}`;
     if (this.bandCache && this.bandKey === key) return this.bandCache;
     try {
       const c = this.bandCache ?? document.createElement('canvas');
@@ -444,7 +450,7 @@ export class CutIn {
     ctx.strokeText(this.name, tx, BAND_Y + 26);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(this.name, tx, BAND_Y + 26);
-    if (ink) sealStamp(ctx, tx + Math.min(560, ctx.measureText(this.name).width) + 54, BAND_Y + 6);
+    if (ink && !this.noSeal) sealStamp(ctx, tx + Math.min(560, ctx.measureText(this.name).width) + 54, BAND_Y + 6);
   }
 
   /** Shadow: the band leaves cut in two along a slash (top half up-left, bottom half down-right). */

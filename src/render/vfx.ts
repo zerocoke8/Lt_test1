@@ -119,6 +119,8 @@ interface Ghost {
   age: number;
   dur: number;
   mode: 0 | 1 | 2; // 0 death, 1 leave (swap out), 2 afterimage (기획 13차 분신 / 잔상 / 되감기)
+  /** 기획 24차 검토: an afterimage's size × (섀도우 드래그's big clones); 1 everywhere else. */
+  sc: number;
 }
 
 interface Warn {
@@ -314,7 +316,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
     360,
   );
   readonly ghosts = new Pool<Ghost>(
-    () => ({ look: unitLook('monster', '?'), tier: 'normal', radius: 0.4, x: 0, y: 0, s: 1, phase: 0, age: 0, dur: 1, mode: 0 }),
+    () => ({ look: unitLook('monster', '?'), tier: 'normal', radius: 0.4, x: 0, y: 0, s: 1, phase: 0, age: 0, dur: 1, mode: 0, sc: 1 }),
     48,
   );
   readonly warns = new Pool<Warn>(() => ({ x: 0, y: 0, age: 0, dur: 1 }), 40);
@@ -1363,12 +1365,14 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
    * spot bright (first on-point beat + 0.5, 1.2–4.5 cells). 드래그 (not 「컷인 짧게」): the forced small banner becomes the
    * 착지 컷 strip from the touchdown + 0.03 s (the look's stripFrom) when ≥ 0.2 s of it is left before the wipe; its dim
    * leaves the landing bright (first beat 2–5 cells + 0.4). m = the caster before its move (where it came from).
+   * 기획 24차 (8-2-1): no letters in these looks — the band leaves out the exorcist's red 封 seal (CutIn.noSeal).
    */
   private ultCutIn(ev: Extract<GameEvent, { type: 'ultCast' }>, m: UnitMemo | undefined): void {
+    const cut = this.screen.cutin;
+    cut.noSeal = true;
     const b = ultBeats(ev.skillId);
     const aim = ev.aim;
     if (!b || !aim) return;
-    const cut = this.screen.cutin;
     if (aim.mode === 'aim') {
       if (!cut.short) cut.focus = { x: aim.x, y: aim.y, r: Math.max(1.2, Math.min(4.5, ultLockRadius(b) + 0.5)) };
       return;
@@ -1449,9 +1453,9 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
 
   // ── StageHost ──
 
-  afterimage(entityId: number, x: number, y: number, dur: number): void {
+  afterimage(entityId: number, x: number, y: number, dur: number, scale = 1): void {
     const m = this.memosRef.get(entityId);
-    if (m) this.ghost(m, 2, dur, x, y);
+    if (m) this.ghost(m, 2, dur, x, y, scale);
   }
 
   hop(entityId: number, height: number, dur: number): void {
@@ -1516,7 +1520,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
   /** Screen layer on the real clock (the cut-in keeps going through a hit-stop). */
   updateReal(dt: number): void {
     this.screen.update(dt);
-    tickUltReal(dt); // 기획 23차: the big glyph / sight lines keep moving through a hit-stop
+    tickUltReal(dt); // 기획 23차: the impact frame (기획 24차) / sight lines keep moving through a hit-stop
   }
 
   /**
@@ -2100,7 +2104,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
     }
   }
 
-  private ghost(m: UnitMemo, mode: 0 | 1 | 2, dur: number, x = m.x, y = m.y): void {
+  private ghost(m: UnitMemo, mode: 0 | 1 | 2, dur: number, x = m.x, y = m.y, sc = 1): void {
     const g = this.ghosts.spawn();
     g.look = m.look;
     g.tier = m.tier;
@@ -2112,6 +2116,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
     g.age = 0;
     g.dur = dur;
     g.mode = mode;
+    g.sc = sc;
   }
 
   /** A label with this text that started under 0.25 s ago within 2.5 units of (x, y). */
@@ -2512,9 +2517,9 @@ export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
         ctx.scale(1 + p * 0.25, Math.max(0.05, 1 - p * 0.85));
         drawBody(ctx, g.look, g.tier, 0, 0, w, h, g.s, time, g.phase, p < 0.15);
       } else if (g.mode === 2) {
-        // afterimage: a pale copy fading where it stood
+        // afterimage: a pale copy fading where it stood (기획 24차 검토: × sc — 1 = the same call as ever)
         ctx.globalAlpha = (1 - p) * 0.5;
-        drawBody(ctx, g.look, g.tier, fx, fy, w, h, g.s, time, g.phase, true);
+        drawBody(ctx, g.look, g.tier, fx, fy, g.sc === 1 ? w : w * g.sc, g.sc === 1 ? h : h * g.sc, g.s, time, g.phase, true);
       } else {
         // leave: rise + thin out
         fy -= p * 40;

@@ -1013,6 +1013,11 @@ describe('sfx settings · buttons · baking', () => {
     expect(uiSoundFor(el('btn btn-secondary', {}, '방 나가기'))).toBe('ui.back');
     expect(uiSoundFor(el('btn btn-primary', {}, '다시 하기'))).toBe('ui.start');
     expect(uiSoundFor(el('btn is-disabled'))).toBe('ui.refuse');
+    // 기획 24차 검토: the 궁극기 테스트 「충전」 button (its label 충전+) — silent here (chargeMyUlt plays its own tap /
+    // refusal), a refusal when dim (all three gauges full: the HUD sets data-sfx); without the attribute it was a tap
+    expect(uiSoundFor(el('ult-charge hud-block', {}, '충전+'))).toBe('ui.tap');
+    expect(uiSoundFor(el('ult-charge hud-block', { 'data-sfx': '' }, '충전+'))).toBeNull();
+    expect(uiSoundFor(el('ult-charge hud-block is-full', { 'data-sfx': 'ui.refuse' }, '충전+'))).toBe('ui.refuse');
     expect(uiSoundFor(el('btn'))).toBe('ui.tap');
   });
 

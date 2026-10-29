@@ -18,9 +18,10 @@
 //   exorcist  조준 봉마 결계 · 부적 장벽        a talisman wall across the aim, a seal along it at 1.1 s, 멸 on both (★ 2.2 s)
 //             드래그 팔문 봉인진 · 백귀 결계    blink, seal ring (drain + root), eight gates open in turn, 멸 (★ 2 s)
 //   bard      조준 음파 직격 · 포르티시모        a wide sound beam from the bard: 3 beats 0.35 s apart, fortissimo (★ 1.7 s)
-//             드래그 공명 삼중주 · 피날레        dash, the drag skill's three up-down bands (bigger) + the forte (★ 1.1 s)
+//             드래그 공명 무대 · 피날레          dash, sound waves growing beat by beat (3 · 4.5 · 6), a beat's rest, the drop (★ 1.65 s)
 //   chrono    조준 시간 정지 · 시간의 늪        freeze on the point, three clock hands, 시간 재개 (★ 2.3 s), then 5 s mire
-//             드래그 시간 균열 · 영겁의 역행    blink, X rift, rewind pull, freeze + the X again (★ 1.2 s)
+//             드래그 시간 균열 · 영겁의 역행    blink, X rift, rewind pull, freeze, the rift echoes twice (X → +), the face breaks (★ 1.65 s)
+// 기획 24차 (docs/ult-fx.md 8-3 B10′ · B12′): 바드 드래그 and 크로노 드래그 redesigned (data + pictures).
 //   puppeteer 조준 인형극 개막 · 커튼 라인      4 grand dolls tossed one by one across the aim, threads pull taut, curtain (★ 2 s)
 //             드래그 대역 인형극 · 대공연        dash, 2 grand dolls tossed ahead, thread between, the yank, curtain (★ 1.9 s)
 //
@@ -36,18 +37,22 @@ import type { AreaShape, Effect, SkillAction } from '../../types';
 import type { UltAltSet } from './types';
 import { ULT_CAST_TIME } from './types';
 
-/** 바드 드래그: an up-down band through the landing spot (the drag skill's band, longer reach kept). */
-const band = (width: number): AreaShape => ({ shape: 'rect', dir: 'down', anchor: 'center', length: 12, width });
-/** 바드 드래그: allies in a band. */
+/** 바드 드래그: the allies on the stage (r 6 around the landing spot). */
 const BARD_UD_BUFF: Effect[] = [
   { kind: 'heal', amount: 0.15 },
   { kind: 'status', status: 'atkUp', duration: 10, value: 0.3 },
   { kind: 'status', status: 'haste', duration: 10, value: 0.4 },
 ];
-/** 바드 드래그: enemies in a band. */
+/** 바드 드래그: the enemies in one beat's sound wave. */
 const BARD_UD_HIT: Effect[] = [
   { kind: 'damage', amount: 0.6 },
   { kind: 'status', status: 'slow', duration: 3, value: 0.4 },
+];
+/** 바드 드래그 (기획 24차): the sound waves grow beat by beat — [stage, delay, radius]; a beat's rest, then the drop. */
+const BARD_BEATS: readonly (readonly ['beat1' | 'beat2' | 'beat3', number, number])[] = [
+  ['beat1', 0.45, 3],
+  ['beat2', 0.75, 4.5],
+  ['beat3', 1.05, 6],
 ];
 /** 거너 조준: [offset toward the gunner (cells), delay] — the barrage walks onto the point (explicit, no float dust). */
 const BARRAGE: readonly (readonly [number, number])[] = [
@@ -456,19 +461,22 @@ export const GROUP_B: Record<string, UltAltSet> = {
     },
     drag: {
       id: 'bard_ud',
-      name: '공명 삼중주 · 피날레',
+      name: '공명 무대 · 피날레',
       slot: 'ult',
       castTime: ULT_CAST_TIME,
       move: { kind: 'dash', maxRange: 9 },
       finale: 'forte',
-      sfx: { forte: [{ id: 'drag.bard.forte' }, { id: 'ult.bard.beat.last' }] },
+      sfx: {
+        choir: { id: 'ult.bard.choir', db: -6 }, // under the beats
+        beat3: [{ id: 'drag.bard.beat2', step: 2 }, { id: 'ult.bard.tick', db: -4 }], // the second beat's cue a tone up + a lute pluck
+        forte: [{ id: 'drag.bard.forte' }, { id: 'ult.bard.beat.last' }],
+      },
       description:
-        '끌어 놓은 곳까지 미끄러져 감(최대 9칸). 세로 띠(길이 12, 폭 3), 0.75초에 좌우 띠(±3칸): 아군 HP 15% 회복 + 10초간 공격력 +30%·공격 속도 +40%, 적 공격력 60% 피해 + 3초간 40% 둔화. 모든 플레이어의 대기 캐릭터 10초간 공격력 +15%·공격 속도 +15%. 1.1초에 가운데 띠(폭 4) 공격력 150% 피해 + 3초간 50% 둔화.',
-      // the bands stay up-down like the drag skill's (aimed by where it lands, not by the way it moved). 기획 23차: the
-      // drag skill's beat names (beat1 → beat2 left and right → forte), each with its own picture and cue
+        '끌어 놓은 곳까지 미끄러져 감(최대 9칸). 반경 6 아군 HP 15% 회복 + 10초간 공격력 +30%·공격 속도 +40%, 모든 플레이어의 대기 캐릭터 10초간 공격력 +15%·공격 속도 +15%. 음파가 박자마다 커짐(0.45초 반경 3, 0.75초 반경 4.5, 1.05초 반경 6): 각각 공격력 60% 피해 + 3초간 40% 둔화. 한 박자 쉬고 1.65초에 피날레(반경 6): 공격력 180% 피해 + 2칸 넉백 + 0.6초 기절.',
+      // 기획 24차: a round stage around the landing spot (was three up-down bands) — the sound wave grows on every beat
+      // (하나 · 둘 · 셋), a beat's rest, then the drop: the fortissimo of 바드 조준 on the whole stage
       actions: [
-        { stage: 'choir', center: 'point', delay: 0.45, area: band(3), affects: 'allies', effects: BARD_UD_BUFF },
-        { stage: 'beat1', center: 'point', delay: 0.45, area: band(3), affects: 'enemies', effects: BARD_UD_HIT },
+        { stage: 'choir', center: 'point', delay: 0.45, telegraphLead: 0, area: { shape: 'circle', radius: 6 }, affects: 'allies', effects: BARD_UD_BUFF },
         {
           stage: 'encore',
           center: 'self',
@@ -481,12 +489,26 @@ export const GROUP_B: Record<string, UltAltSet> = {
             { kind: 'benchStatus', status: 'haste', duration: 10, value: 0.15, allPlayers: true },
           ],
         },
-        { stage: 'beat2', center: 'point', offset: { x: -3, y: 0 }, delay: 0.75, area: band(3), affects: 'enemies', effects: BARD_UD_HIT },
-        { stage: 'beat2', center: 'point', offset: { x: 3, y: 0 }, delay: 0.75, area: band(3), affects: 'enemies', effects: BARD_UD_HIT },
-        // the allies' twins of the side bands: no stage (one picture per band)
-        { center: 'point', offset: { x: -3, y: 0 }, delay: 0.75, telegraphLead: 0, area: band(3), affects: 'allies', effects: BARD_UD_BUFF },
-        { center: 'point', offset: { x: 3, y: 0 }, delay: 0.75, telegraphLead: 0, area: band(3), affects: 'allies', effects: BARD_UD_BUFF },
-        { stage: 'forte', center: 'point', delay: 1.1, area: band(4), affects: 'enemies', effects: [{ kind: 'damage', amount: 1.5 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
+        ...BARD_BEATS.map(
+          ([stage, delay, radius]): SkillAction => ({
+            stage,
+            center: 'point',
+            delay,
+            telegraphLead: 0,
+            area: { shape: 'circle', radius },
+            affects: 'enemies',
+            effects: BARD_UD_HIT,
+          }),
+        ),
+        {
+          stage: 'forte',
+          center: 'point',
+          delay: 1.65,
+          telegraphLead: 0.45,
+          area: { shape: 'circle', radius: 6 },
+          affects: 'enemies',
+          effects: [{ kind: 'damage', amount: 1.8 }, { kind: 'knockback', distance: 2 }, { kind: 'status', status: 'stun', duration: 0.6, value: 0 }],
+        },
       ],
     },
   },
@@ -541,22 +563,36 @@ export const GROUP_B: Record<string, UltAltSet> = {
       castTime: ULT_CAST_TIME,
       move: { kind: 'blink', maxRange: 9 },
       finale: 'stop',
+      sfx: {
+        // 기획 24차: a plain cue — the ult row's 'stasis' carries the 'special' (the EFFECT-bus low-pass until the freeze
+        // + 0.4 s = 3.4 s, and a tock every second); it dulled the hits' thuds under the echoes and the ★ (the ★'s own
+        // drag.chrono.stop is on the hero bus: never filtered) and its 1 s tocks crossed the echoes' — the echoes tock
+        // instead. 기획 24차 검토: the build-up under the blow — the stasis bell −8 (was −2), the echoes −10, the ★ +4
+        // (the bell's loudest stretch lands on the ★ and the tocks hit 8–9 dB over it before)
+        stasis: { id: 'ult.chrono.stasis', db: -8 },
+        echo: { id: 'ult.chrono.tock', on: 'hit', step: 2, max: 2, db: -10 },
+        stop: [{ id: 'drag.chrono.wind', lead: 0.45, db: -3 }, { id: 'drag.chrono.stop', db: 4 }], // the hands wind back, then the face breaks
+      },
       description:
-        '끌어 놓은 곳으로 순간 이동(최대 9칸). X자 균열(대각선 5칸, 폭 1.8): 공격력 120% 피해 + 3초간 50% 둔화, 모든 플레이어의 대기 캐릭터 재등장 쿨 3초 감소. 0.8초에 반경 6 적 2.5칸 끌어당김. 1.2초에 반경 3.5 적 2초 정지(풀릴 때 받은 피해의 30% 다시) + X자(폭 2.4) 공격력 160% 피해 + 5초간 받는 피해 +20%.',
+        '끌어 놓은 곳으로 순간 이동(최대 9칸). X자 균열(대각선 5칸, 폭 1.8): 공격력 120% 피해 + 3초간 50% 둔화, 모든 플레이어의 대기 캐릭터 재등장 쿨 3초 감소. 0.8초에 반경 6 적을 2.5칸 끌어당기며 되감음: 공격력 40% 피해. 1초에 반경 3.5 적 2초 정지(보스 · 중형보스는 짧게, 풀릴 때 받은 피해의 30% 다시). 1.15초 · 1.35초에 균열이 되풀이됨(X자 → 십자 +, 5칸, 폭 1.8): 각각 공격력 60% 피해. 1.65초에 시계판이 깨짐(반경 4): 공격력 200% 피해 + 5초간 받는 피해 +20%.',
+      // 기획 24차: rewound and repeated — the freeze at 1 s (part 3 stays 'stasis': the 22차 accent reads its index), the
+      // rift echoes twice inside it, then the face breaks at 1.65 s (a boss's freeze, 2 s × 0.6, ends at 2.2 s: the echoes'
+      // and the ★'s damage are in the 30 % rebound)
       actions: [
         { stage: 'rift', center: 'point', delay: 0.45, area: { shape: 'cross', diagonal: true, length: 5, width: 1.8 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 1.2 }, { kind: 'status', status: 'slow', duration: 3, value: 0.5 }] },
         { stage: 'rift', center: 'self', delay: 0.45, telegraphLead: 0, area: { shape: 'single' }, affects: 'self', effects: [{ kind: 'swapCooldownReduce', seconds: 3, allPlayers: true }] },
-        { stage: 'rewind', center: 'point', delay: 0.8, area: { shape: 'circle', radius: 6 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 2.5 }] },
-        // the freeze first, then the X lands on the frozen ones (its damage is stored for the 30% rebound). 기획 23차: the
-        // freeze keeps 'stasis' (the time-stop cue, its length read from this part: 2 s), the X is the drag skill's 'stop'
-        { stage: 'stasis', center: 'point', delay: 1.2, area: { shape: 'circle', radius: 3.5 }, affects: 'enemies', effects: [{ kind: 'status', status: 'stasis', duration: 2, value: 0.3 }] },
+        { stage: 'rewind', center: 'point', delay: 0.8, area: { shape: 'circle', radius: 6 }, affects: 'enemies', effects: [{ kind: 'pull', distance: 2.5 }, { kind: 'damage', amount: 0.4 }] },
+        { stage: 'stasis', center: 'point', delay: 1, telegraphLead: 0, area: { shape: 'circle', radius: 3.5 }, affects: 'enemies', effects: [{ kind: 'status', status: 'stasis', duration: 2, value: 0.3 }] },
+        { stage: 'echo', center: 'point', delay: 1.15, telegraphLead: 0, area: { shape: 'cross', diagonal: true, length: 5, width: 1.8 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.6 }] },
+        { stage: 'echo', center: 'point', delay: 1.35, telegraphLead: 0, area: { shape: 'cross', length: 5, width: 1.8 }, affects: 'enemies', effects: [{ kind: 'damage', amount: 0.6 }] },
         {
           stage: 'stop',
           center: 'point',
-          delay: 1.2,
-          area: { shape: 'cross', diagonal: true, length: 5, width: 2.4 },
+          delay: 1.65,
+          telegraphLead: 0.4,
+          area: { shape: 'circle', radius: 4 },
           affects: 'enemies',
-          effects: [{ kind: 'damage', amount: 1.6 }, { kind: 'status', status: 'vulnerable', duration: 5, value: 0.2 }],
+          effects: [{ kind: 'damage', amount: 2 }, { kind: 'status', status: 'vulnerable', duration: 5, value: 0.2 }],
         },
       ],
     },

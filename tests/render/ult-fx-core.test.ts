@@ -2,14 +2,21 @@
 // story / look registries the content tracks fill, today's tables left alone, the finisher's kick (mine only, the
 // settings obeyed), the classic tower / 보스 레이드 never touching any of it, the per-cast budgets, the 「궁극기 연출 강화」
 // switch; the cut-in's 착지 컷 strip / bright hole (item 6) and the sound director's alt rules (item 9).
-import { existsSync } from 'node:fs';
+// 기획 24차 (docs/ult-fx.md 8-6 CORE 1–6): the 충격 프레임 instead of the big glyph (mine only, the 1 s gate, the
+// settings), the warnings over its dark cut (live and frozen frames), the burst table, the tail colour, and the
+// 「글자 없음」 guard (no letter in the 궁극기 테스트 looks: source scan, a draw probe of all 30, the exorcist's seal).
+// 기획 24차 검토 (docs/ult-fx.md 8-8 검토 후 고침): the frozen frames redraw the warnings while the record is up (not
+// only under the cut) and group a warning that came up during the stop; the record covers the after-blow vignette
+// (+ the stop); the classic / switch-off frozen frames are really seen; the star on an unclamped blow; a re-cast's
+// stepped beats start again.
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CHARACTERS } from '../../src/data';
 import { STAGE_CUES } from '../../src/audio/stages';
 import { ALT_SOUND, type Ctl, Director, type SoundReq } from '../../src/audio/director';
 import { recipeIds } from '../../src/audio/synth/recipes';
 import { ULT_GROUP_A_IDS, ULT_GROUP_B_IDS, setUltAltFixture, ultAltBySkill, ultAltEntries, ultBeatOf, ultBeats, type UltAltDef, type UltCue } from '../../src/data/ultTest';
-import { Camera, PX_PER_UNIT } from '../../src/render/camera';
+import { Camera, PX_PER_UNIT, PX_PER_UNIT_Z } from '../../src/render/camera';
 import { createRenderer } from '../../src/render';
 import { IMPACT } from '../../src/render/impact';
 import { JUICE, Juice, ULT_FINISH } from '../../src/render/juice';
@@ -17,13 +24,16 @@ import { TELE_MOTIF, ZONE_DECOR } from '../../src/render/marks';
 import { LAND, PREP } from '../../src/render/stagefx';
 import { CUTIN, STRIP, ScreenFx } from '../../src/render/cutin';
 import { Vfx } from '../../src/render/vfx';
-import { ULT_FX } from '../../src/render/ultTest/settings';
+import { FX_LOAD, ULT_FX } from '../../src/render/ultTest/settings';
 import { ultTheme, ultThemeIds } from '../../src/render/ultTest/theme';
 import { registerUltLooks, registerUltStories, touchdownAt, ultLook, ultLookKeys, ultStoryKeys, type UltStory } from '../../src/render/ultTest/stories';
 import { decalCount } from '../../src/render/ultTest/decals';
-import { resetUltCore, ultCoreCounts, ultStampText } from '../../src/render/ultTest/core';
-import { BREATH_MAX_REACH, breathReach } from '../../src/render/ultTest/grammar';
-import type { GameEvent, PlayerSetup, RenderUiState, Telegraph, UltAimMode } from '../../src/types';
+import { IMPACT as FRAME, drawUltScreen, pushImpact, resetUltCore, tickUltReal, ultCoreCounts, ultImpactCut, ultImpactOf, ultScreenBusy } from '../../src/render/ultTest/core';
+import { BREATH_MAX_REACH, FINISH_BLESS, FINISH_STRIKE, breathReach } from '../../src/render/ultTest/grammar';
+import type { UltFxView } from '../../src/render/ultTest';
+import { Fx, SkillFx } from '../../src/render/skillfx';
+import { Pk } from '../../src/render/fxparts';
+import { type GameEvent, type GameState, LOGICAL_H, LOGICAL_W, type PlayerSetup, type RenderUiState, type Telegraph, type UltAimMode } from '../../src/types';
 import { HUMAN, HUMAN2, type TestGame, advance, drain, makeGame, spawnAt } from '../sim/helpers';
 
 // ─────────────────────────── harness ───────────────────────────
@@ -205,7 +215,7 @@ describe('2. the story / look registries (render/ultTest/stories.ts)', () => {
     for (const key of ultLookKeys()) expect(ultAltBySkill(key), key).not.toBeNull();
     // the theme table covers the roster
     for (const c of CHARACTERS) expect(ultThemeIds(), c.id).toContain(c.id);
-    expect(ultTheme('guardian').glyph).toBe('城');
+    expect(ultTheme('guardian').burst.spikes).toBe(6);
   });
 
   it('every alias key of every registered story exists today', async () => {
@@ -287,8 +297,10 @@ const TABLES_22 = 'f6a0e926f494f1ca';
 // ─────────────────────────── 4. kicks ───────────────────────────
 
 describe('4. the finisher kick: mine only, the settings obeyed', () => {
-  function castProbe(localPlayer: number): { r: Run; stops: number[]; zoom: boolean; flashes: number[]; dims: number; glyph: string | null; shakes: number[]; lines: boolean } {
+  /** 기획 24차: `impact` = the char id of my impact frame (ultImpactOf) the first time it is up, `cut` = its dark cut seen, `on` / `off` = the frames it came up / went. */
+  function castProbe(localPlayer: number): { r: Run; stops: number[]; zoom: boolean; flashes: number[]; dims: number; impact: string | null; cut: boolean; on: number; off: number; shakes: number[]; lines: boolean } {
     setUltAltFixture('guardian', { aim: PROBE });
+    tickUltReal(5); // past the 1 s dark-cut gate of an earlier test's finisher
     const stop = vi.spyOn(Juice.prototype, 'finisherStop');
     const zoomAt = vi.spyOn(Juice.prototype, 'zoomAt');
     const shake = vi.spyOn(Juice.prototype, 'shake');
@@ -296,12 +308,19 @@ describe('4. the finisher kick: mine only, the settings obeyed', () => {
     const dim = vi.spyOn(ScreenFx.prototype, 'focusDim');
     const r = run(['guardian', 'cleric', 'mage'], 'aim', localPlayer);
     r.cast(0, 'aim');
-    let glyph: string | null = null;
+    let impact: string | null = null;
+    let cut = false;
     let lines = false;
+    let on = -1;
+    let off = -1;
     shake.mockClear();
     for (let i = 0; i < 75; i++) {
       r.frame();
-      glyph ??= ultStampText();
+      const now = ultImpactOf();
+      impact ??= now;
+      if (now && on < 0) on = i;
+      if (!now && on >= 0 && off < 0) off = i;
+      cut ||= ultCoreCounts().cut;
       lines ||= ultCoreCounts().lines;
     }
     return {
@@ -310,19 +329,28 @@ describe('4. the finisher kick: mine only, the settings obeyed', () => {
       zoom: zoomAt.mock.results.some(x => x.value === true),
       flashes: flash.mock.calls.map(c => c[0]),
       dims: dim.mock.calls.length,
-      glyph,
+      impact,
+      cut,
+      on,
+      off,
       shakes: shake.mock.calls.map(c => c[0]),
       lines,
     };
   }
 
-  it('my finisher: a 0.13 s stop (outside the budget), the zoom, the screen flash, the glyph, speed lines, a 12 px shake; the breath before it', () => {
+  it('my finisher: a 0.13 s stop (outside the budget), the zoom, the screen flash, the impact frame (dark cut + star, its record 0.74 s + the stop), speed lines, a 12 px shake; the breath before it', () => {
     const k = castProbe(0);
     expect(k.stops.length).toBe(1);
     expect(k.stops[0]).toBeCloseTo(ULT_FINISH.stopSec, 3);
     expect(k.zoom).toBe(true);
     expect(k.flashes.some(a => Math.abs(a - 0.42) < 1e-9)).toBe(true);
-    expect(k.glyph).toBe('城');
+    expect(k.impact).toBe('guardian');
+    expect(k.cut).toBe(true);
+    // the record goes FRAME.busy s + the stop (기획 24차 검토: the after-blow vignette runs on the world clock, held
+    // through the stop) after the blow (real clock: 1/30 s a frame)
+    const busy = FRAME.busy + k.stops[0];
+    expect(k.off - k.on).toBeGreaterThanOrEqual(Math.floor(busy * 30));
+    expect(k.off - k.on).toBeLessThanOrEqual(Math.ceil(busy * 30) + 1);
     expect(k.lines).toBe(true);
     expect(k.shakes).toContain(12);
     expect(k.dims).toBe(1);
@@ -341,23 +369,53 @@ describe('4. the finisher kick: mine only, the settings obeyed', () => {
     JUICE.hitStopMs = 0;
     const off = castProbe(0);
     expect(off.stops.every(s => s === 0)).toBe(true);
-    expect(off.glyph).toBe('城'); // the picture stays
+    expect(off.impact).toBe('guardian'); // the star stays …
+    expect(off.cut).toBe(false); // … the dark cut goes with the stop (8-2-2)
   });
 
-  it('the shake setting at 0: no zoom, no speed lines (the glyph still lands)', () => {
+  it('기획 24차 검토: the after-blow vignette (world clock, held by the stop) ends inside the record — the warnings stay over it to its last frame (hit-stop 75 and 150 ms)', () => {
+    for (const ms of [75, 150]) {
+      vi.restoreAllMocks();
+      vi.stubGlobal('document', { createElement: () => fakeCanvas() });
+      resetUltCore();
+      JUICE.hitStopMs = ms;
+      setUltAltFixture('guardian', { aim: PROBE });
+      tickUltReal(5);
+      const r = run(['guardian', 'cleric', 'mage'], 'aim');
+      const vig = r.vfx.screen as unknown as { vigT: number; vigDur: number };
+      r.cast(0, 'aim');
+      let blow = -1;
+      let tail = 0;
+      for (let i = 0; i < 75; i++) {
+        r.frame();
+        if (blow < 0 && ultImpactOf()) blow = i;
+        if (blow < 0 || i === blow) continue;
+        if (vig.vigDur > 0 && vig.vigT < vig.vigDur) {
+          tail++;
+          expect(ultScreenBusy(), `${ms} ms: frame blow + ${i - blow} (vignette ${vig.vigT.toFixed(3)} / ${vig.vigDur})`).toBe(true);
+        }
+      }
+      expect(blow, `${ms} ms`).toBeGreaterThan(0);
+      expect(tail, `${ms} ms: the tail vignette ran`).toBeGreaterThan(10);
+    }
+  });
+
+  it('the shake setting at 0: no zoom, no speed lines (the impact frame still lands, dark cut and all)', () => {
     JUICE.shake = 0;
     const k = castProbe(0);
     expect(k.zoom).toBe(false);
     expect(k.lines).toBe(false);
-    expect(k.glyph).toBe('城');
+    expect(k.impact).toBe('guardian');
+    expect(k.cut).toBe(true);
   });
 
-  it("another player's / a bot's finisher: no stop, no shake, no zoom, no dim, no screen glyph (a small one over the spot)", () => {
+  it("another player's / a bot's finisher: no stop, no shake, no zoom, no dim, no impact frame (기획 24차: not even a small mark)", () => {
     const k = castProbe(1);
     expect(k.stops.length).toBe(0);
     expect(k.zoom).toBe(false);
     expect(k.dims).toBe(0);
-    expect(k.glyph).toBeNull();
+    expect(k.impact).toBeNull();
+    expect(k.cut).toBe(false);
     expect(k.lines).toBe(false);
     expect(k.shakes.filter(s => s >= 4)).toEqual([]);
     // the screen flash only at half
@@ -398,16 +456,24 @@ describe('4. the finisher kick: mine only, the settings obeyed', () => {
     expect(still.zoomAt(z)).toBe(false);
   });
 
-  it('reduced motion (device setting): no speed lines, the glyph appears without its slam', async () => {
+  it('reduced motion (device setting): no speed lines; the impact frame without its dark cut and streaks, the star without its slam, the rings at half', async () => {
     vi.resetModules();
     vi.stubGlobal('window', { matchMedia: () => ({ matches: true, addEventListener() {} }), devicePixelRatio: 1 });
     const core = await import('../../src/render/ultTest/core');
     core.resetUltCore();
     core.pushSpeedLines(10, 5, undefined, 28, '#ffffff', 0.5);
     expect(core.ultCoreCounts().lines).toBe(false);
-    core.pushGlyph(10, 5, 0, '城', '#ffffff', true, 150, 0.35);
-    expect(core.ultCoreCounts().stamp).toBe(true);
-    expect(core.ultCoreCounts().slam).toBe(false);
+    core.tickUltReal(5);
+    core.pushImpact(12, 9, 176, 'chrono', ultTheme('chrono'), '#eef0ff', 0.65, 1);
+    expect(core.ultCoreCounts().impact).toBe(true);
+    expect(core.ultCoreCounts().cut).toBe(false);
+    const at0 = impactDraw(core, 0);
+    expect(at0.cuts).toEqual([]);
+    expect(at0.starR).toBeCloseTo(176, 0); // no 1.6× slam: it just appears
+    const at1 = impactDraw(core, 0.1);
+    expect(at1.flare).toBe(false);
+    expect(at1.rings.length).toBe(2);
+    for (const g of at1.rings) expect(g.alpha).toBeLessThanOrEqual(0.5 + 1e-9);
     core.resetUltCore();
   });
 });
@@ -448,7 +514,7 @@ describe('5. the classic tower / 보스 레이드 never reach the 23차 paths', 
     expect(land).not.toHaveBeenCalled();
     expect(zoomAt.mock.results.every(x => x.value === false)).toBe(true);
     expect(dim).not.toHaveBeenCalled();
-    expect(ultCoreCounts()).toEqual({ locks: 0, sights: 0, stamp: false, slam: false, smallStamps: 0, lines: false, pending: 0 });
+    expect(ultCoreCounts()).toEqual({ locks: 0, sights: 0, impact: false, cut: false, lines: false, pending: 0 });
     expect(decalCount()).toBe(0);
   });
 });
@@ -518,7 +584,7 @@ describe('7. budgets', () => {
 // ─────────────────────────── 8. the switch ───────────────────────────
 
 describe('8. 「궁극기 연출 강화」 off → the 22차 looks', () => {
-  it('no story, no finisher, no lock-on / sight line / glyph, no floor mark (the 22차 reticle is back)', () => {
+  it('no story, no finisher, no lock-on / sight line / impact frame, no floor mark (the 22차 reticle is back)', () => {
     ULT_FX.boost = false;
     setUltAltFixture('guardian', { aim: PROBE });
     const prep = vi.fn();
@@ -532,7 +598,7 @@ describe('8. 「궁극기 연출 강화」 off → the 22차 looks', () => {
       for (let i = 0; i < 75; i++) {
         r.frame();
         const c = ultCoreCounts();
-        locks = Math.max(locks, c.locks + c.sights + (c.stamp ? 1 : 0));
+        locks = Math.max(locks, c.locks + c.sights + (c.impact ? 1 : 0));
       }
       expect(prep).not.toHaveBeenCalled();
       expect(land).not.toHaveBeenCalled();
@@ -843,8 +909,18 @@ describe('9. the sound director: the alt rules (「궁극기 연출 강화」 on
 
 // ─────────────────────────── 10. 기획 23차 검토: the core fixes ───────────────────────────
 
-/** A recording canvas: where (after the transform) every ellipse of radius rx = `probeRx` lands, and their order against the glyph's text. */
-function recCanvas(probeRx: number, glyph: string, log: { hits: { x: number; y: number }[]; order: string[] }): HTMLCanvasElement {
+/**
+ * A recording canvas: where (after the transform) every ellipse of radius rx = `probeRx` lands, and their order against
+ * the impact frame's dark cut (기획 24차: a fillRect in the `ink` colour — the 23차 glyph's text before); `frozen` = the
+ * held picture's offset when drawFrozen put it down this frame (the 9-argument drawImage). 기획 24차 검토: 'later' in
+ * `order` = a later part of a multi-part enemy cast drawn as one (render/index.ts LATER_DASH [10, 7]).
+ */
+interface RecLog {
+  hits: { x: number; y: number }[];
+  order: string[];
+  frozen: { x: number; y: number } | null;
+}
+function recCanvas(probeRx: number, ink: string, log: RecLog): HTMLCanvasElement {
   type M = [number, number, number, number, number, number];
   let m: M = [1, 0, 0, 1, 0, 0];
   const stack: M[] = [];
@@ -872,8 +948,15 @@ function recCanvas(probeRx: number, glyph: string, log: { hits: { x: number; y: 
       log.hits.push({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
       log.order.push('warn');
     },
-    fillText: (t: string) => {
-      if (t === glyph) log.order.push('glyph');
+    fillRect: () => {
+      if (store.fillStyle === ink && Number(store.globalAlpha ?? 1) > 0) log.order.push('cut');
+    },
+    drawImage: (...a: unknown[]) => {
+      // drawFrozen: the held picture put down whole (sx, sy 0, the logical screen size) at the shake offset
+      if (a.length === 9 && a[1] === 0 && a[2] === 0 && a[7] === LOGICAL_W && a[8] === LOGICAL_H) log.frozen = { x: a[5] as number, y: a[6] as number };
+    },
+    setLineDash: (d: number[]) => {
+      if (d.length === 2 && d[0] === 10 && d[1] === 7) log.order.push('later');
     },
   };
   const gradient = { addColorStop() {} };
@@ -922,7 +1005,7 @@ describe('10. 기획 23차 검토: the wind-up on the sim clock, the lock-on, th
       if (o.stopAt !== undefined && !stopped && t >= o.stopAt) {
         stopped = r.vfx.juice.hitStop(o.stopSec ?? 0.18, { cap: 0.2, ignoreBudget: true }) > 0;
       }
-      if (blowFrame < 0 && ultStampText()) blowFrame = i;
+      if (blowFrame < 0 && ultImpactOf()) blowFrame = i;
       if (blowFrame < 0 && t > fin - 0.4) heldLocks = Math.max(heldLocks, ultCoreCounts().locks);
       if (blowFrame >= 0 && i > blowFrame) afterAlpha = Math.max(afterAlpha, r.vfx.screen.focusAlpha());
       // the finisher's own 0.13 s stop + the 0.2 s burst, and a little slack
@@ -950,13 +1033,22 @@ describe('10. 기획 23차 검토: the wind-up on the sim clock, the lock-on, th
     expect(k.afterAlpha).toBe(0);
   });
 
-  it('my finisher: the enemy warnings drawn again over the screen layer sit exactly on the world copy (shake, zoom) and over the big glyph', () => {
+  /**
+   * guardian_ua aimed at (12, 4) with one enemy warning (a probe circle at (4, 8)) up the whole time, drawn by a recording
+   * renderer: per frame after the blow, the warnings' positions and their order against the dark cut. `inject(i, held)`
+   * may add warnings / events before frame i (held = the frame before it was a frozen one).
+   */
+  function warnProbe(ms: number, inject?: (i: number, prevHeld: boolean, state: GameState, evs: GameEvent[]) => void) {
     const R_PROBE = 2.345;
-    const log = { hits: [] as { x: number; y: number }[], order: [] as string[] };
-    vi.stubGlobal('document', { createElement: () => recCanvas(R_PROBE * PX_PER_UNIT, '城', log) });
+    const INK = ultTheme('guardian').burst.ink;
+    const log: RecLog = { hits: [], order: [], frozen: null };
+    JUICE.hitStopMs = ms;
+    resetUltCore();
+    tickUltReal(5); // past the 1 s dark-cut gate of an earlier test's finisher
+    vi.stubGlobal('document', { createElement: () => recCanvas(R_PROBE * PX_PER_UNIT, INK, log) });
     const tg = makeGame({ seed: 4, mode: 'ultTest', players: [{ ...HUMAN, characters: ['guardian', 'cleric', 'mage'], ultMode: 'aim' }], tunables: { invincible: true }, bossRaid: { onlyBoss: 'elevator_keeper', hpMult: 50 } });
     advance(tg, 0.5);
-    const r = createRenderer(recCanvas(R_PROBE * PX_PER_UNIT, '城', log));
+    const r = createRenderer(recCanvas(R_PROBE * PX_PER_UNIT, INK, log));
     const ui: RenderUiState = { localPlayer: 0, dragPreview: null, freezeCamera: false, ultAim: null };
     r.render(tg.w.state, [{ type: 'floorStart', floor: 1, kind: 'boss' }], 1 / 30, ui);
     const tele: Telegraph = { id: 987654, team: 'enemy', center: { x: 4, y: 8 }, origin: { x: 4, y: 8 }, area: { shape: 'circle', radius: R_PROBE }, remaining: 5, total: 6 };
@@ -967,28 +1059,129 @@ describe('10. 기획 23차 검토: the wind-up on the sim clock, the lock-on, th
     let evs: GameEvent[] = tg.game.drainEvents();
     let blow = -1;
     let redrawn = 0;
-    let glyphFrames = 0;
+    let cutFrames = 0;
+    let frozenCut = 0;
+    let frozenAfterCut = 0;
+    let prevHeld = false;
+    const heldOrders: string[][] = [];
+    /** The world copy of the last live frame (the held picture is that frame's world, unshaken and zoomed). */
+    let world = null as { x: number; y: number } | null;
     for (let i = 0; i < 90; i++) {
       tele.remaining = 5;
       if (!tg.w.state.telegraphs.includes(tele)) tg.w.state.telegraphs.push(tele);
       log.hits.length = 0;
       log.order.length = 0;
+      log.frozen = null;
+      if (blow >= 0) inject?.(i, prevHeld, tg.w.state, evs);
       r.render(tg.w.state, evs, 1 / 30, ui);
-      if (blow < 0 && ultStampText()) blow = i;
+      const held = (log as RecLog).frozen; // (read after the render: TS keeps the `= null` above)
+      if (blow < 0 && ultImpactOf()) blow = i;
       if (blow >= 0) {
         for (const h of log.hits) expect(Math.hypot(h.x - log.hits[0].x, h.y - log.hits[0].y), `frame ${i} (blow + ${i - blow})`).toBeLessThanOrEqual(0.5);
         if (log.hits.length > 1) redrawn++;
-        if (log.order.includes('glyph') && log.order.includes('warn')) {
-          glyphFrames++;
-          expect(log.order.lastIndexOf('warn'), `frame ${i}: the warning over the glyph`).toBeGreaterThan(log.order.lastIndexOf('glyph'));
+        if (log.order.includes('cut') && log.order.includes('warn')) {
+          cutFrames++;
+          expect(log.order.lastIndexOf('warn'), `frame ${i}: the warning over the dark cut`).toBeGreaterThan(log.order.lastIndexOf('cut'));
+        }
+        if (held && ultScreenBusy()) {
+          // a held frame while the record is up (under the dark cut, or after it with the star / streaks on — 기획 24차
+          // 검토): the warning drawn again on the held picture (its shake offset + the zoom)
+          if (log.order.includes('cut')) frozenCut++;
+          else frozenAfterCut++;
+          heldOrders.push([...log.order]);
+          expect(log.hits.length, `${ms} ms frame ${i}: the frozen frame's warning`).toBeGreaterThan(0);
+          expect(world).not.toBeNull();
+          const want = { x: world!.x + held.x, y: world!.y + held.y };
+          for (const h of log.hits) expect(Math.hypot(h.x - want.x, h.y - want.y), `frame ${i}: on the held picture`).toBeLessThanOrEqual(0.5);
         }
       }
+      if (!held && log.hits.length) world = log.hits[0];
+      prevHeld = !!held;
       advance(tg, 1 / 30);
       evs = tg.events.splice(0);
     }
     expect(blow).toBeGreaterThan(0);
-    expect(redrawn).toBeGreaterThan(3); // the redraw really ran (glyph / speed lines up)
-    expect(glyphFrames).toBeGreaterThan(3);
+    expect(redrawn).toBeGreaterThan(3); // the redraw really ran (impact frame / speed lines up)
+    expect(cutFrames).toBeGreaterThanOrEqual(2); // the blow's live frame + the held ones
+    return { frozenCut, frozenAfterCut, heldOrders };
+  }
+
+  it('my finisher: the enemy warnings drawn again over the screen layer sit exactly on the world copy (shake, zoom) and over the impact frame — 기획 24차: in the frozen frames too (검토: every held frame while the record is up, the star after the cut included)', () => {
+    const at75 = warnProbe(75);
+    expect(at75.frozenCut).toBeGreaterThanOrEqual(1);
+    // the hit-stop setting 150 ms: a 0.16 s stop outlasts the 0.11 s cut — its last held frames carry the star alone
+    const at150 = warnProbe(150);
+    expect(at150.frozenCut).toBeGreaterThanOrEqual(1);
+    expect(at150.frozenAfterCut).toBeGreaterThanOrEqual(1);
+  });
+
+  it('기획 24차 검토: a multi-part enemy cast that comes up during the stop is drawn in its sequence on the held frame (the next part solid, the later ones dashed) — not every part as the next one', () => {
+    let injectedAt = -1;
+    const R2 = 1.75;
+    const probe = warnProbe(75, (i, prevHeld, state, evs) => {
+      if (injectedAt >= 0 || !prevHeld) return;
+      injectedAt = i;
+      const boss = state.bossId ?? null;
+      for (const [k, x] of [
+        [0, 6],
+        [1, 9],
+      ] as const) {
+        const center = { x, y: 9 };
+        const area = { shape: 'circle', radius: R2 } as const;
+        state.telegraphs.push({ id: 990001 + k, team: 'enemy', center, origin: center, area, remaining: 1 + 0.5 * k, total: 2 });
+        evs.push({ type: 'skillCast', sourceId: boss, player: null, slot: 'monster', skillId: 'probe_multi', name: '', center, area, team: 'enemy', delay: 1 + 0.5 * k });
+      }
+    });
+    expect(injectedAt).toBeGreaterThan(0);
+    // the frame it came up in was a held one, and it drew the later part dashed
+    expect(probe.heldOrders.some(o => o.includes('later'))).toBe(true);
+  });
+
+  it('기획 24차: the frozen frames of a classic floor and of the switch off draw no warning again (only the 궁극기 테스트 impact record does) — 검토: with a stop of their own, so the held frames are really there', () => {
+    const R_PROBE = 2.345;
+    for (const boost of [false, true]) {
+      ULT_FX.boost = boost;
+      resetUltCore();
+      tickUltReal(5);
+      const log: RecLog = { hits: [], order: [], frozen: null };
+      vi.stubGlobal('document', { createElement: () => recCanvas(R_PROBE * PX_PER_UNIT, ultTheme('guardian').burst.ink, log) });
+      const classic = boost; // the classic tower with the switch on, the 궁극기 테스트 with it off
+      const tg = classic
+        ? makeGame({ seed: 4, players: [{ ...HUMAN, characters: ['guardian', 'cleric', 'mage'] }], tunables: { invincible: true }, startFloor: 5 })
+        : makeGame({ seed: 4, mode: 'ultTest', players: [{ ...HUMAN, characters: ['guardian', 'cleric', 'mage'], ultMode: 'aim' }], tunables: { invincible: true }, bossRaid: { onlyBoss: 'elevator_keeper', hpMult: 50 } });
+      advance(tg, 0.5);
+      const spy = vi.spyOn(Vfx.prototype, 'update');
+      const r = createRenderer(recCanvas(R_PROBE * PX_PER_UNIT, ultTheme('guardian').burst.ink, log));
+      const ui: RenderUiState = { localPlayer: 0, dragPreview: null, freezeCamera: false, ultAim: null };
+      r.render(tg.w.state, tg.events.splice(0), 1 / 30, ui);
+      const vfx = spy.mock.contexts[0] as Vfx;
+      spy.mockRestore();
+      const tele: Telegraph = { id: 987655, team: 'enemy', center: { x: 4, y: 8 }, origin: { x: 4, y: 8 }, area: { shape: 'circle', radius: R_PROBE }, remaining: 5, total: 6 };
+      tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 0 } });
+      drain(tg);
+      tg.events.length = 0;
+      expect(tg.game.dispatch(classic ? { type: 'ult', player: 0 } : { type: 'ult', player: 0, aim: { mode: 'aim', point: { x: 12, y: 4 } } }).ok).toBe(true);
+      let evs: GameEvent[] = tg.game.drainEvents();
+      let held = 0;
+      for (let i = 0; i < 90; i++) {
+        tele.remaining = 5;
+        if (!tg.w.state.telegraphs.includes(tele)) tg.w.state.telegraphs.push(tele);
+        // 기획 24차 검토: a stop of their own (neither run's ult stops the world by itself) — the held frames are really seen
+        if (i === 20 || i === 50) vfx.juice.hitStop(0.12, { cap: 0.2, ignoreBudget: true });
+        log.hits.length = 0;
+        log.order.length = 0;
+        log.frozen = null;
+        r.render(tg.w.state, evs, 1 / 30, ui);
+        if ((log as RecLog).frozen) {
+          held++;
+          expect(log.hits, `${classic ? 'classic' : 'switch off'} frame ${i}`).toEqual([]);
+        }
+        expect(log.order, `frame ${i}`).not.toContain('cut');
+        advance(tg, 1 / 30);
+        evs = tg.events.splice(0);
+      }
+      expect(held, classic ? 'classic' : 'switch off').toBeGreaterThanOrEqual(4);
+    }
   });
 
   it('the breath: none for a footprint reaching over 6 cells by its half diagonal (가디언 드래그 성벽 5 × 13); a band gets a hole in its own shape, a circle a round one', () => {
@@ -1111,5 +1304,630 @@ describe('12. 기획 23차 검토: a file with a built-in run-up is asked for ea
       expect(h[2].rate).toBeCloseTo(Math.pow(2, 4 / 12), 6);
       for (const x of h) expect(x.far, `lp ${lp}`).toBe(lp === 1);
     }
+  });
+});
+
+// ─────────────────────────── 13. 기획 24차: the impact frame (충격 프레임) ───────────────────────────
+
+/** What one drawUltScreen call put down: dark fills over the screen, the star's size, the streaks, the rings, any text. */
+interface ScreenRec {
+  cuts: { style: string; alpha: number }[];
+  /** Half the widest span of the star's white fill (= its outer radius for an even point count), 0 = none. */
+  starR: number;
+  flare: boolean;
+  rings: { style: string; alpha: number; r: number }[];
+  texts: string[];
+}
+
+/** A context recording the screen layer's calls (paths, fills, strokes, arcs, texts). */
+function screenCtx(): { ctx: CanvasRenderingContext2D; rec: ScreenRec } {
+  const rec: ScreenRec = { cuts: [], starR: 0, flare: false, rings: [], texts: [] };
+  let pts: { x: number; y: number }[] = [];
+  let arcs: number[] = [];
+  const store: Record<string | symbol, unknown> = {};
+  const alpha = () => Number(store.globalAlpha ?? 1);
+  Object.assign(store, {
+    beginPath: () => {
+      pts = [];
+      arcs = [];
+    },
+    moveTo: (x: number, y: number) => pts.push({ x, y }),
+    lineTo: (x: number, y: number) => pts.push({ x, y }),
+    arc: (_x: number, _y: number, r: number) => arcs.push(r),
+    fillRect: (_x: number, _y: number, w: number, h: number) => {
+      if (alpha() > 0 && w >= 1280 && h >= 720) rec.cuts.push({ style: String(store.fillStyle), alpha: alpha() });
+    },
+    fill: () => {
+      if (pts.length >= 4) {
+        const xs = pts.map(p => p.x);
+        if (Math.max(...xs) - Math.min(...xs) > 800) rec.flare = true;
+      }
+      if (store.fillStyle === '#ffffff' && pts.length >= 4 && arcs.length === 0) {
+        let d = 0;
+        for (const a of pts) for (const b of pts) d = Math.max(d, Math.hypot(a.x - b.x, a.y - b.y));
+        // the streaks are white too: a star is never wider than 2 × rMax × slam × grow
+        if (d <= 2 * FRAME.rMax * FRAME.slamFrom * FRAME.grow) rec.starR = Math.max(rec.starR, d / 2);
+      }
+    },
+    stroke: () => {
+      if (arcs.length) rec.rings.push({ style: String(store.strokeStyle), alpha: alpha(), r: arcs[0] });
+    },
+    fillText: (t: string) => rec.texts.push(String(t)),
+    strokeText: (t: string) => rec.texts.push(String(t)),
+  });
+  const ctx = new Proxy(store, {
+    get(t, p) {
+      if (p in t) return t[p];
+      if (p === 'measureText') return (s: string) => ({ width: String(s ?? '').length * 9 });
+      if (p === 'createLinearGradient' || p === 'createRadialGradient') return () => ({ addColorStop() {} });
+      return () => undefined;
+    },
+    set(t, p, v) {
+      t[p] = v;
+      return true;
+    },
+  });
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, rec };
+}
+
+const SCREEN_CAM = new Camera();
+/** A 궁극기 테스트 screen-layer view (no sights / lines unless a run's host is given). */
+function screenView(host?: Vfx, state?: GameState, localPlayer = 0): UltFxView {
+  return { cam: SCREEN_CAM, localPlayer, host: host ?? ({} as Vfx), state: state ?? ({ mode: 'ultTest' } as GameState), fx: host?.sfx };
+}
+
+type CoreClock = { drawUltScreen: typeof drawUltScreen; tickUltReal: typeof tickUltReal };
+const CORE_NOW: CoreClock = { drawUltScreen, tickUltReal };
+
+/** Move the real clock dt on, then draw the screen layer once into a recording context. */
+function impactDraw(core: CoreClock, dt: number, view?: UltFxView): ScreenRec {
+  core.tickUltReal(dt);
+  const { ctx, rec } = screenCtx();
+  core.drawUltScreen(ctx, view ?? screenView());
+  return rec;
+}
+
+describe('12b. 기획 24차 검토: a re-cast (the 「충전」 button) within the step counters’ 3 s hears its stepped beats again', () => {
+  /** One caster casting its alt twice, `gap` s apart (charged by the debug 「충전」 action); the requests for `id` per cast. */
+  function twice(chars: string[], mode: 'aim' | 'drag', id: string, gap: number, lp = 0): [number, number] {
+    const tg = makeGame({ seed: 4, mode: 'ultTest', players: [{ ...HUMAN, characters: chars, ultMode: mode }, { ...HUMAN2, characters: ['guardian', 'cleric', 'mage'], ultMode: mode }], tunables: { invincible: true }, bossRaid: { onlyBoss: 'elevator_keeper', hpMult: 50 } });
+    advance(tg, 0.5);
+    const d = new Director();
+    d.route([], tg.w.state, { localPlayer: lp, gameSpeed: 1, now: 10 });
+    const point = mode === 'drag' ? { x: 15, y: 6 } : { x: 12, y: 4 };
+    const n: [number, number] = [0, 0];
+    const per = Math.round(gap * 30);
+    for (let c = 0; c < 2; c++) {
+      tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 0 } });
+      drain(tg);
+      tg.events.length = 0;
+      expect(tg.game.dispatch({ type: 'ult', player: 0, aim: { mode, point } }).ok, `${chars[0]} ${mode} cast ${c}`).toBe(true);
+      for (let i = 0; i < (c === 0 ? per : 90); i++) {
+        if (i > 0) advance(tg, 1 / 30);
+        const evs = i > 0 ? tg.events.splice(0) : tg.game.drainEvents();
+        const now = 10 + (c * per + i) / 30;
+        for (const s of d.route(evs, tg.w.state, { localPlayer: lp, gameSpeed: 1, now }).sounds) if (s.id === id) n[c]++;
+      }
+    }
+    return n;
+  }
+
+  it('섀도우 드래그 six cuts, 레인저 조준 three rains, 레인저 드래그 its twangs, 크로노 드래그 two echoes: as many on a cast 2.3 s after the last as on the first', () => {
+    for (const [chars, mode, id] of [
+      [['shadow', 'cleric', 'mage'], 'drag', 'ult.shadow.dance'],
+      [['ranger', 'cleric', 'mage'], 'aim', 'ult.ranger.rain'],
+      [['ranger', 'cleric', 'mage'], 'drag', 'drag.ranger.volley'],
+      [['chrono', 'cleric', 'mage'], 'drag', 'ult.chrono.tock'],
+    ] as const) {
+      const [first, second] = twice([...chars], mode, id, 2.3);
+      expect(first, `${chars[0]} ${mode} ${id}: the first cast`).toBeGreaterThan(1);
+      expect(second, `${chars[0]} ${mode} ${id}: the re-cast`).toBe(first);
+    }
+  });
+});
+
+describe('13. 기획 24차 충격 프레임: the impact frame (core: its record, drawing, gate and settings; the burst table, the tail colour)', () => {
+  const THEME = ultTheme('chrono'); // 12 even points (jag 0): its size reads exactly
+  const R = 176; // a 3-cell footprint × PX_PER_UNIT × rK
+  // 기획 24차 검토: a blow low enough (y 9) that its star keeps its full size (a higher one shrinks to clear the tip slot)
+  const push = (cut = 0.65, burst = 1) => pushImpact(12, 9, R, 'chrono', THEME, '#eef0ff', cut, burst);
+  beforeEach(() => {
+    tickUltReal(5); // past the 1 s gate of an earlier finisher
+    FX_LOAD.low = false;
+  });
+  afterEach(() => {
+    FX_LOAD.low = false;
+  });
+
+  it('the dark cut (the ink, 0.65 → 0 by 0.11 s), the star slamming 1.6× → 1×, holding, its points growing as it fades; the streaks, two rings; the record 0.74 s; no letter', () => {
+    push();
+    expect(ultImpactOf()).toBe('chrono');
+    expect(ultImpactCut()).toBe(true);
+    expect(ultScreenBusy()).toBe(true);
+    const a = impactDraw(CORE_NOW, 0);
+    expect(a.cuts).toEqual([{ style: THEME.burst.ink, alpha: FRAME.cutAlpha }]);
+    expect(a.starR).toBeCloseTo(R * FRAME.slamFrom, 0);
+    expect(a.texts).toEqual([]);
+    const b = impactDraw(CORE_NOW, 0.1);
+    expect(b.cuts.length).toBe(1);
+    expect(b.cuts[0].alpha).toBeGreaterThan(0);
+    expect(b.cuts[0].alpha).toBeLessThan(0.2);
+    expect(b.starR).toBeCloseTo(R, 0);
+    expect(b.flare).toBe(true);
+    expect(b.rings.map(g => g.style).sort()).toEqual(['#eef0ff', '#ffffff']);
+    tickUltReal(0.02);
+    expect(ultImpactCut()).toBe(false);
+    const c = impactDraw(CORE_NOW, 0.18);
+    expect(c.cuts).toEqual([]);
+    expect(c.starR).toBeGreaterThan(R * 1.1);
+    const d = impactDraw(CORE_NOW, 0.1); // 0.4 s: the picture is gone, the record stays
+    expect(d.starR + d.rings.length + d.cuts.length).toBe(0);
+    expect(d.flare).toBe(false);
+    tickUltReal(0.33);
+    expect(ultImpactOf()).toBe('chrono');
+    expect(ultScreenBusy()).toBe(true);
+    tickUltReal(0.02);
+    expect(ultImpactOf()).toBeNull();
+    expect(ultScreenBusy()).toBe(false);
+    expect(ultCoreCounts().impact).toBe(false);
+  });
+
+  it('a star sits on the blow, kept inside x 100–1180 / y 305–620 (its centre) — 기획 24차 검토', () => {
+    for (const [x, y, free] of [
+      // the clamps (a blow high up, off to a side, far below)
+      [12, 6, false],
+      [-30, 6, false],
+      [12, -20, false],
+      [60, 40, false],
+      // 기획 24차 검토 2: blows low enough that nothing clamps — the centre IS the blow at height z (y 9 → 388.4 px)
+      [12, 9, true],
+      [5, 11, true],
+    ] as const) {
+      resetUltCore();
+      tickUltReal(5);
+      pushImpact(x, y, R, 'chrono', THEME, '#eef0ff', 0, 1);
+      const { ctx } = screenCtx();
+      const seen: { x: number; y: number }[] = [];
+      // the star's own path (the white fill of more than four points; chrono: 12 even points, jag 0)
+      let pts: { x: number; y: number }[] = [];
+      let starPts: { x: number; y: number }[] = [];
+      const c = ctx as unknown as Record<string, unknown>;
+      const mv = c.moveTo as (x: number, y: number) => void;
+      const ln = c.lineTo as (x: number, y: number) => void;
+      const bp = c.beginPath as () => void;
+      const fl = c.fill as () => void;
+      c.beginPath = () => {
+        pts = [];
+        bp();
+      };
+      c.moveTo = (px: number, py: number) => {
+        seen.push({ x: px, y: py });
+        pts.push({ x: px, y: py });
+        mv(px, py);
+      };
+      c.lineTo = (px: number, py: number) => {
+        pts.push({ x: px, y: py });
+        ln(px, py);
+      };
+      c.fill = () => {
+        if (c.fillStyle === '#ffffff' && pts.length > 4 && Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x)) < 800) starPts = pts;
+        fl();
+      };
+      tickUltReal(0.1);
+      drawUltScreen(ctx, screenView());
+      // the flat streak starts at its left tip: cx − flareW / 2 × (0.85 + 0.15 k)
+      const tip = seen[0];
+      const k = 1 - (0.1 - FRAME.flareAt) / FRAME.flareSec;
+      const cx = tip.x + (FRAME.flareW / 2) * (0.85 + 0.15 * k);
+      const rawX = SCREEN_CAM.sx(x);
+      const rawY = SCREEN_CAM.sy(y) - FRAME.z * PX_PER_UNIT_Z;
+      const wantX = Math.max(FRAME.x0, Math.min(FRAME.x1, rawX));
+      const wantY = Math.max(FRAME.y0, Math.min(FRAME.y1, rawY));
+      if (free) {
+        expect(rawX, `${x}, ${y}: inside x0–x1`).toBeGreaterThan(FRAME.x0);
+        expect(rawX, `${x}, ${y}: inside x0–x1`).toBeLessThan(FRAME.x1);
+        expect(rawY, `${x}, ${y}: inside y0–y1`).toBeGreaterThan(FRAME.y0);
+        expect(rawY, `${x}, ${y}: inside y0–y1`).toBeLessThan(FRAME.y1);
+      }
+      expect(cx, `${x}, ${y}`).toBeCloseTo(wantX, 6);
+      expect(tip.y, `${x}, ${y}`).toBeCloseTo(wantY, 6);
+      // the star itself is centred there too (held at 1× at 0.1 s)
+      expect(starPts.length, `${x}, ${y}: the star`).toBeGreaterThan(4);
+      const sx = starPts.reduce((a, p) => a + p.x, 0) / starPts.length;
+      const sy = (Math.min(...starPts.map(p => p.y)) + Math.max(...starPts.map(p => p.y))) / 2;
+      expect(sx, `${x}, ${y}: the star's x`).toBeCloseTo(wantX, 3);
+      expect(sy, `${x}, ${y}: the star's y`).toBeCloseTo(wantY, 3);
+    }
+  });
+
+  it('기획 24차 검토: the star never rises into the boss bar / the pattern-tip slot (outline ≥ y 185 through the slam and the fade); a high blow’s star shrinks to fit (≥ rMin), a low one keeps its size', () => {
+    // the tip slot under the boss bar, measured on the 844×390 phone (logical y 100–177 with its 「⚙ …」 line)
+    expect(FRAME.top).toBeGreaterThanOrEqual(177 + 6);
+    expect(FRAME.y0).toBe(FRAME.top + FRAME.rMin);
+    /** The star's own path this frame (the white fill of more than four points), as its points. */
+    const starAt = (t: number): { x: number; y: number }[] => {
+      const { ctx } = screenCtx();
+      let pts: { x: number; y: number }[] = [];
+      let best: { x: number; y: number }[] = [];
+      const c = ctx as unknown as Record<string, unknown>;
+      const mv = c.moveTo as (x: number, y: number) => void;
+      const ln = c.lineTo as (x: number, y: number) => void;
+      const bp = c.beginPath as () => void;
+      const fl = c.fill as () => void;
+      c.beginPath = () => {
+        pts = [];
+        bp();
+      };
+      c.moveTo = (x: number, y: number) => {
+        pts.push({ x, y });
+        mv(x, y);
+      };
+      c.lineTo = (x: number, y: number) => {
+        pts.push({ x, y });
+        ln(x, y);
+      };
+      c.fill = () => {
+        if (c.fillStyle === '#ffffff' && pts.length > 4) best = pts;
+        fl();
+      };
+      tickUltReal(t);
+      drawUltScreen(ctx, screenView());
+      return best;
+    };
+    // the elevator's blow (a fixed boss on the top row: y −1.2) — and a blow just over the slot's edge; then a low one
+    for (const [y, full] of [
+      [-1.2, false],
+      [3.5, false],
+      [11, true],
+    ] as const) {
+      resetUltCore();
+      tickUltReal(5);
+      pushImpact(12, y, FRAME.rMax, 'chrono', THEME, '#eef0ff', 0.65, 1);
+      let maxR = 0;
+      let dt = 0;
+      for (const t of [0, 0.02, 0.04, 0.07, 0.15, 0.2, 0.27, 0.33, 0.37]) {
+        const pts = starAt(t - dt);
+        dt = t;
+        if (!pts.length) continue;
+        const top = Math.min(...pts.map(p => p.y));
+        expect(top, `y ${y} at ${t}`).toBeGreaterThanOrEqual(FRAME.top - 1e-6);
+        if (t >= 0.07 && t <= 0.15) {
+          const cy = (Math.min(...pts.map(p => p.y)) + Math.max(...pts.map(p => p.y))) / 2;
+          maxR = Math.max(maxR, Math.max(...pts.map(p => p.y)) - cy);
+        }
+      }
+      // held (1×): a full-size star low down; up high at least rMin (it shrank, it did not vanish)
+      if (full) expect(maxR, `y ${y}`).toBeCloseTo(FRAME.rMax, 0);
+      else {
+        expect(maxR, `y ${y}`).toBeGreaterThanOrEqual(FRAME.rMin - 1);
+        expect(maxR, `y ${y}`).toBeLessThan(FRAME.rMax);
+      }
+    }
+  });
+
+  it('the 1 s gate (the real clock, like the finisher stop): a second finisher of mine within 1 s gets no dark cut — the star still comes; after the gap it cuts again', () => {
+    push();
+    expect(ultImpactCut()).toBe(true);
+    tickUltReal(0.5);
+    push();
+    expect(ultImpactOf()).toBe('chrono');
+    expect(ultImpactCut()).toBe(false);
+    const a = impactDraw(CORE_NOW, 0);
+    expect(a.cuts).toEqual([]);
+    expect(a.starR).toBeGreaterThan(R);
+    tickUltReal(0.55); // 1.05 s after the first cut
+    push();
+    expect(ultImpactCut()).toBe(true);
+  });
+
+  it('the hit-stop setting 0: no dark cut (the star, the streaks and the rings stay)', () => {
+    JUICE.hitStopMs = 0;
+    push();
+    expect(ultImpactCut()).toBe(false);
+    const a = impactDraw(CORE_NOW, 0.1);
+    expect(a.cuts).toEqual([]);
+    expect(a.flare).toBe(true);
+    expect(a.rings.length).toBe(2);
+    expect(a.starR).toBeCloseTo(R, 0);
+  });
+
+  it('a struggling phone (FX_LOAD.low, read at the push): no streaks, no second ring — the cut, the star and the first ring stay', () => {
+    FX_LOAD.low = true;
+    push();
+    FX_LOAD.low = false;
+    const a = impactDraw(CORE_NOW, 0.1);
+    expect(a.flare).toBe(false);
+    expect(a.rings.map(g => g.style)).toEqual(['#eef0ff']);
+    expect(a.cuts.length).toBe(1);
+    expect(a.starR).toBeCloseTo(R, 0);
+  });
+
+  it('the grammar: strike = dark cut 0.65 + star 1×, blessing = no cut + star 0.8×; a real 축복 finisher (allies only) draws its star at 0.8× of a strike and never cuts', () => {
+    expect([FINISH_STRIKE.impact, FINISH_STRIKE.burst, FINISH_STRIKE.tailColor]).toEqual([FRAME.cutAlpha, 1, '']);
+    expect([FINISH_BLESS.impact, FINISH_BLESS.burst]).toEqual([0, 0.8]);
+    const BLESS: UltAltDef = { ...PROBE, finale: 'heal', actions: [...PROBE.actions, { stage: 'heal', center: 'point', delay: 1.5, area: { shape: 'circle', radius: 3 }, affects: 'allies', effects: [{ kind: 'heal', amount: 0.1 }] }] };
+    const sizes: number[] = [];
+    for (const def of [PROBE, BLESS]) {
+      resetUltCore();
+      tickUltReal(5);
+      setUltAltFixture('guardian', { aim: def });
+      expect(ultBeats('guardian_ua')!.finisherKind).toBe(def === PROBE ? 'strike' : 'bless');
+      const r = run(['guardian', 'cleric', 'mage'], 'aim');
+      r.cast(0, 'aim', { x: 12, y: 9 }); // low on the screen: the star keeps its full size (기획 24차 검토)
+      let star = 0;
+      let cut = false;
+      let who: string | null = null;
+      for (let i = 0; i < 75; i++) {
+        r.frame();
+        who ??= ultImpactOf();
+        cut ||= ultImpactCut();
+        star = Math.max(star, impactDraw(CORE_NOW, 0, screenView(r.vfx, r.tg.w.state)).starR);
+      }
+      expect(who, def.finale).toBe('guardian');
+      expect(cut, def.finale).toBe(def === PROBE);
+      sizes.push(star);
+    }
+    // guardian's points are ragged by ≤ 5 %
+    expect(sizes[0]).toBeGreaterThan(R * FRAME.slamFrom * 0.94);
+    expect(sizes[1] / sizes[0]).toBeGreaterThan(0.8 * 0.94);
+    expect(sizes[1] / sizes[0]).toBeLessThan(0.8 / 0.94);
+  });
+
+  it('the burst table (8-2-2): all 15 characters, ≥ 2 points, a dark ink (luminance < 0.1); no hanja anywhere in a theme; the rest of the 2-3 table as it was', () => {
+    const BURST: Record<string, [number, number, number, string]> = {
+      guardian: [6, 0.05, 0, '#070a14'],
+      paladin: [4, 0.05, 0, '#0d0a02'],
+      warden: [8, 0.1, 0.39, '#080a05'],
+      blade: [2, 0, -0.5, '#000000'],
+      berserker: [12, 0.3, 0, '#140402'],
+      shadow: [5, 0.15, 0, '#05030f'],
+      ranger: [4, 0.05, 0.785, '#000000'],
+      mage: [6, 0, 0.52, '#03080c'],
+      gunner: [10, 0.3, 0, '#0c0703'],
+      cleric: [8, 0.05, 0, '#0c0a02'],
+      medic: [4, 0, 0, '#020a0b'],
+      exorcist: [8, 0.2, 0.39, '#0c0203'],
+      bard: [10, 0.15, 0, '#0c020d'],
+      chrono: [12, 0, 0, '#04050c'],
+      puppeteer: [6, 0.2, 0.52, '#0c0208'],
+    };
+    // screen colour, vignette colour · alpha, spark, decal · colour, ember (2-3, unchanged by 기획 24차)
+    const REST: Record<string, [string, string, number, Pk, string, string, Pk]> = {
+      guardian: ['#dbe9ff', '#cfe8ff', 0.3, Pk.Glass, 'crater', '#cfe0ff', Pk.Glass],
+      paladin: ['#fff3b0', '#fff3b0', 0.3, Pk.Gold, 'sigil', '#ffd166', Pk.Gold],
+      warden: ['#e8f0d0', '#c9d6a3', 0.3, Pk.Square, 'crater', '#c9d6a3', Pk.Square],
+      blade: ['#ffe3ec', '#000000', 0.5, Pk.Petal, 'gash', '#ffe3ec', Pk.Petal],
+      berserker: ['#ffd0c2', '#ff3b1f', 0.25, Pk.Ember, 'crater', '#5c4033', Pk.Ember],
+      shadow: ['#e6dcff', '#0b0820', 0.45, Pk.Ink, 'ink', '#1b1c3d', Pk.Ink],
+      ranger: ['#fff6d0', '#000000', 0.35, Pk.Feather, 'crater', '#c9ffe9', Pk.Feather],
+      mage: ['#e0f7ff', '#bfefff', 0.35, Pk.Glass, 'frost', '#bdeeff', Pk.Glass],
+      gunner: ['#ffe2b8', '#000000', 0.35, Pk.Square, 'scorch', '#3a2e26', Pk.Ember],
+      cleric: ['#fffbe6', '#fffbe6', 0.3, Pk.Feather, 'sigil', '#ffe08a', Pk.Gold],
+      medic: ['#d9fbff', '#bdf6ff', 0.3, Pk.Square, 'sigil', '#2ec4b6', Pk.Gold],
+      exorcist: ['#ffd6d6', '#3a0a0c', 0.45, Pk.Paper, 'ink', '#2a1a1a', Pk.Ember],
+      bard: ['#ffe6ff', '#e056fd', 0.35, Pk.Note, 'petals', '#e056fd', Pk.Note],
+      chrono: ['#eef0ff', '#eef0ff', 0.35, Pk.Glass, 'sigil', '#cfd5ff', Pk.Glass],
+      puppeteer: ['#ffd6ea', '#2a0a1a', 0.45, Pk.Petal, 'petals', '#ffb3d9', Pk.Petal],
+    };
+    const lum = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16);
+      const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+    };
+    expect([...ultThemeIds()].sort()).toEqual(Object.keys(BURST).sort());
+    for (const id of [...ultThemeIds(), 'nobody']) {
+      const th = ultTheme(id);
+      expect(th.burst.spikes, id).toBeGreaterThanOrEqual(2);
+      expect(lum(th.burst.ink), id).toBeLessThan(0.1);
+      expect(JSON.stringify(th), id).not.toMatch(HANJA);
+      expect('glyph' in th, id).toBe(false);
+      if (id === 'nobody') continue;
+      const b = th.burst;
+      expect([b.spikes, b.jag, b.tilt, b.ink], id).toEqual(BURST[id]);
+      expect([th.screenColor, th.vignetteColor, th.vignette, th.spark, th.decal, th.decalColor, th.ember], id).toEqual(REST[id]);
+    }
+    expect(ultTheme('nobody').burst).toEqual({ spikes: 8, jag: 0.1, tilt: 0, ink: '#05060a' });
+  });
+
+  it("the tail colour: a finisher's tailColor tints the edge after the blow (else the theme's vignette colour)", () => {
+    const tails = (story: UltStory | null) => {
+      resetUltCore();
+      setUltAltFixture('guardian', { aim: PROBE });
+      const undo = story ? registerUltStories({ 'guardian_ua:boom': story }) : () => undefined;
+      const vig = vi.spyOn(ScreenFx.prototype, 'vignette');
+      try {
+        const r = run(['guardian', 'cleric', 'mage'], 'aim');
+        r.cast(0, 'aim');
+        for (let i = 0; i < 75; i++) r.frame();
+        return vig.mock.calls.filter(c => c[1] === 0.4 && c[2] === 0.6).map(c => c[0]);
+      } finally {
+        vig.mockRestore();
+        undo();
+      }
+    };
+    expect(tails({ finisher: { tailColor: '#1c2259' } })).toEqual(['#1c2259']);
+    expect(tails(null)).toEqual([ultTheme('guardian').vignetteColor]);
+  });
+});
+
+// ─────────────────────────── 14. 기획 24차: 「글자 없음」 — no letter in the 궁극기 테스트 looks ───────────────────────────
+
+/** A CJK ideograph (a hanja such as 城 斬 封 滅); Hangul and the music sign ♬ are not. */
+const HANJA = /[㐀-䶿一-鿿豈-﫿]/;
+
+/** The code of a TypeScript source with its comments blanked (strings kept), line by line. */
+function codeLines(src: string): string[] {
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  /** Open template literals: the `${` depth inside each. */
+  const tpl: number[] = [];
+  let str: string | null = null;
+  while (i < n) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (str) {
+      out += c;
+      if (c === '\\') {
+        out += d ?? '';
+        i += 2;
+        continue;
+      }
+      if (str === '`' && c === '$' && d === '{') {
+        out += d;
+        tpl.push(0);
+        str = null;
+        i += 2;
+        continue;
+      }
+      if (c === str || (c === '\n' && str !== '`')) str = null;
+      i++;
+      continue;
+    }
+    if (c === '/' && d === '/') {
+      while (i < n && src[i] !== '\n') i++;
+      continue;
+    }
+    if (c === '/' && d === '*') {
+      i += 2;
+      while (i < n && !(src[i] === '*' && src[i + 1] === '/')) {
+        if (src[i] === '\n') out += '\n';
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') str = c;
+    else if (tpl.length && c === '{') tpl[tpl.length - 1]++;
+    else if (tpl.length && c === '}') {
+      if (tpl[tpl.length - 1] === 0) {
+        tpl.pop();
+        str = '`';
+      } else tpl[tpl.length - 1]--;
+    }
+    out += c;
+    i++;
+  }
+  return out.split('\n');
+}
+
+describe('14. 기획 24차 「글자 없음」: no letter in the 궁극기 테스트 looks', () => {
+  it('source: no glyphFx / ultGlyph / fillText / strokeText and no hanja string in the code of src/render/ultTest/*.ts', () => {
+    const dir = 'src/render/ultTest';
+    const bad: string[] = [];
+    for (const f of readdirSync(dir).filter(x => x.endsWith('.ts')).sort()) {
+      const lines = codeLines(readFileSync(`${dir}/${f}`, 'utf8'));
+      lines.forEach((line, i) => {
+        if (/\b(glyphFx|ultGlyph|fillText|strokeText)\b/.test(line) || HANJA.test(line)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('the comment stripper keeps strings and code, drops comments', () => {
+    const src = "const a = '城'; // 滅\n/* 封\n印 */ glyphFx(x, `a${'斬'}b`);\nconst u = 'http://x'; // fillText";
+    expect(codeLines(src)).toEqual(["const a = '城'; ", '', " glyphFx(x, `a${'斬'}b`);", "const u = 'http://x'; "]);
+  });
+
+  it('a draw probe: every one of the 30 alts × 「궁극기 연출 강화」 on / off × mine / a bot’s — 6 s after the cast no Fx.Glyph is added and the screen layer writes no text', () => {
+    const add = vi.spyOn(SkillFx.prototype, 'add');
+    const bad: string[] = [];
+    let probes = 0;
+    try {
+      for (const id of [...ULT_GROUP_A_IDS, ...ULT_GROUP_B_IDS]) {
+        for (const mode of ['aim', 'drag'] as const) {
+          for (const boost of [true, false]) {
+            for (const lp of [0, 1]) {
+              ULT_FX.boost = boost;
+              resetUltCore();
+              add.mockClear();
+              const r = run([id, id === 'cleric' ? 'guardian' : 'cleric', id === 'bard' ? 'mage' : 'bard'], mode, lp);
+              r.cast(0, mode);
+              const texts = new Set<string>();
+              for (let i = 0; i < 180; i++) {
+                r.frame();
+                for (const t of impactDraw(CORE_NOW, 0, screenView(r.vfx, r.tg.w.state, lp)).texts) texts.add(t);
+              }
+              const glyphs = add.mock.calls.filter(c => c[0] === Fx.Glyph).length;
+              const tag = `${id} ${mode} ${boost ? 'on' : 'off'} ${lp === 0 ? 'mine' : 'bot'}`;
+              if (glyphs > 0) bad.push(`${tag}: ${glyphs} Fx.Glyph`);
+              if (texts.size) bad.push(`${tag}: screen text ${[...texts].join(' ')}`);
+              probes++;
+            }
+          }
+        }
+      }
+      // the control (8-2-4, out of scope): today's exorcist drag skill swapped in during the 궁극기 테스트 still stamps its
+      // 印 — the probe does see an Fx.Glyph when there is one
+      resetUltCore();
+      add.mockClear();
+      const today = run(['cleric', 'exorcist', 'bard'], 'aim');
+      today.tg.game.dispatch({ type: 'debug', action: { kind: 'resetCooldowns' } });
+      expect(today.tg.game.dispatch({ type: 'swap', player: 0, partyIndex: 1, pos: { x: 12, y: 6 } }).ok).toBe(true);
+      today.frame(today.tg.game.drainEvents());
+      for (let i = 0; i < 40; i++) today.frame();
+      expect(add.mock.calls.filter(c => c[0] === Fx.Glyph).length).toBe(1);
+    } finally {
+      add.mockRestore();
+      ULT_FX.boost = true;
+    }
+    expect(probes).toBe(120);
+    expect(bad).toEqual([]);
+  }, 300_000);
+
+  it("the cut-in: my exorcist_ua with the switch on leaves out the red 封 seal (noSeal); the switch off and the classic exorcist ult keep it", () => {
+    const sealed = (tg: TestGame, cast: () => void): { noSeal: boolean; texts: string[] } => {
+      const spy = vi.spyOn(Vfx.prototype, 'handle');
+      const r = createRenderer(fakeCanvas());
+      const ui: RenderUiState = { localPlayer: 0, dragPreview: null, freezeCamera: false, ultAim: null };
+      r.render(tg.w.state, tg.events.splice(0), 1 / 30, ui);
+      const vfx = spy.mock.contexts[0] as Vfx;
+      spy.mockRestore();
+      cast();
+      r.render(tg.w.state, tg.game.drainEvents(), 1 / 30, ui);
+      const cut = vfx.screen.cutin;
+      expect(cut.active).toBe(true);
+      // no DOM: the band paints straight into this context (no cached picture)
+      vi.unstubAllGlobals();
+      const { ctx, texts } = textCtx();
+      cut.draw(ctx, 0);
+      vi.stubGlobal('document', { createElement: () => fakeCanvas() });
+      return { noSeal: cut.noSeal, texts };
+    };
+    const ultGame = () => {
+      const tg = makeGame({ seed: 4, mode: 'ultTest', players: [{ ...HUMAN, characters: ['exorcist', 'guardian', 'mage'], ultMode: 'aim' }], tunables: { invincible: true }, bossRaid: { onlyBoss: 'elevator_keeper', hpMult: 50 } });
+      advance(tg, 0.5);
+      return tg;
+    };
+    const castAim = (tg: TestGame) => () => {
+      tg.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt', player: 0 } });
+      drain(tg);
+      tg.events.length = 0;
+      expect(tg.game.dispatch({ type: 'ult', player: 0, aim: { mode: 'aim', point: { x: 12, y: 4 } } }).ok).toBe(true);
+    };
+    const on = ultGame();
+    const mine = sealed(on, castAim(on));
+    expect(mine.noSeal).toBe(true);
+    expect(mine.texts.some(t => t.includes('封'))).toBe(false);
+    expect(mine.texts.length).toBeGreaterThan(0); // the band's name / sub line are UI text and stay
+    ULT_FX.boost = false;
+    const offGame = ultGame();
+    const off = sealed(offGame, castAim(offGame));
+    expect(off.noSeal).toBe(false);
+    expect(off.texts).toContain('封');
+    ULT_FX.boost = true;
+    const classic = makeGame({ seed: 4, players: [{ ...HUMAN, characters: ['exorcist', 'guardian', 'mage'] }], tunables: { invincible: true }, startFloor: 5 });
+    advance(classic, 0.5);
+    const today = sealed(classic, () => {
+      classic.game.dispatch({ type: 'debug', action: { kind: 'chargeUlt' } });
+      drain(classic);
+      classic.events.length = 0;
+      expect(classic.game.dispatch({ type: 'ult', player: 0 }).ok).toBe(true);
+    });
+    expect(today.noSeal).toBe(false);
+    expect(today.texts).toContain('封');
   });
 });

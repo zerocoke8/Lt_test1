@@ -112,6 +112,11 @@ export class Juice {
     return this.freeze > 0;
   }
 
+  /** 기획 24차 검토: seconds the world still stays frozen (0 = live) — a 궁극기 테스트 finisher's impact record reads it. */
+  get freezeLeft(): number {
+    return this.freeze;
+  }
+
   /**
    * Advance on the real clock (shake keeps decaying during a freeze: the frozen frame shakes).
    * The first update after a freeze starts never ends it: on a slow device one long frame (≥ the whole stop) used to

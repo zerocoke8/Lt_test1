@@ -7,7 +7,9 @@
 //    arena clamp, something real happens (damage + the design's own ally effects), 10 s more run clean;
 //  - the same on a roaming and an arena boss (src/data/bosses/forms.ts), and bots playing them in both modes;
 //  - 기획 23차 (docs/ult-fx.md 3장 A1–A16): every alt's climax (`finale`, 0.8–2.45 s), the renamed beats, the new and
-//    retimed parts landing when and where the tables say (성채 전개 · 성벽 돌파 · 철창 1초 · 혈귀 낙하 · 용암 분출 · 고드름).
+//    retimed parts landing when and where the tables say (성채 전개 · 성벽 돌파 · 철창 1초 · 혈귀 낙하 · 용암 분출 · 고드름);
+//  - 기획 24차 (docs/ult-fx.md 8-3 A12′–A14′): 섀도우 드래그 · 레인저 조준 / 드래그 redesigned — their climax times, every
+//    part landing on the fixed boss when the tables say, the shadow staying where it landed (no slide any more).
 import { describe, expect, it } from 'vitest';
 import { getCharacter } from '../../src/data';
 import { ULT_CAST_TIME, ULT_GROUP_A_IDS, ULT_TEST, ultAlt, ultAltBySkill, ultBeats, type UltAltDef } from '../../src/data/ultTest';
@@ -430,7 +432,8 @@ describe('드래그 reach: maxRange and the arena clamp', () => {
         const u = { x: cp.x - from.x, y: cp.y - from.y };
         expect(Math.abs(u.x * (to.y - from.y) - u.y * (to.x - from.x)) / Math.hypot(u.x, u.y), id).toBeLessThan(1e-6);
         expect(u.x * (to.x - from.x) + u.y * (to.y - from.y), id).toBeGreaterThan(0);
-        if (id !== 'blade' && id !== 'shadow') expect(near(me.pos, to, 1e-9), id).toBe(true);
+        // 기획 24차: 섀도우 드래그 no longer slides on — only the blade's rush moves it past the landing
+        if (id !== 'blade') expect(near(me.pos, to, 1e-9), id).toBe(true);
         expect(() => advance(tg, 3)).not.toThrow();
       }
     }
@@ -529,6 +532,22 @@ describe('기획 23차: the climax and the beats', () => {
     }
   });
 
+  it('기획 24차 검토: 레인저’s hawk swoop (조준 skyshot, 드래그 pierce) is a clean airy whoosh (dash.melee), never ult.ranger.tick (its file is mostly a sub-40 Hz pulse)', () => {
+    const cues = (d: UltAltDef, stage: string) => {
+      const v = d.sfx?.[stage];
+      return v == null ? [] : Array.isArray(v) ? v : [v];
+    };
+    for (const [mode, stage] of [
+      ['aim', 'skyshot'],
+      ['drag', 'pierce'],
+    ] as const) {
+      const c = cues(alt('ranger', mode), stage);
+      expect(c.map(x => x.id), `${mode} ${stage}`).toContain('dash.melee');
+      expect(c.map(x => x.id), `${mode} ${stage}`).not.toContain('ult.ranger.tick');
+    }
+    for (const id of IDS) for (const mode of MODES) for (const st of Object.keys(alt(id, mode).sfx ?? {})) expect(cues(alt(id, mode), st).map(x => x.id)).not.toContain('ult.ranger.tick');
+  });
+
   it('each beat has its own stage name (the renames of 3장): the drag skill rows play the matching sounds', () => {
     const stages = (d: UltAltDef) => d.actions.map(a => a.stage);
     expect(stages(alt('guardian', 'aim'))).toEqual(['aegis', 'rally', 'citadel', 'wave', 'barrier', 'barrier']);
@@ -540,8 +559,10 @@ describe('기획 23차: the climax and the beats', () => {
     expect(stages(alt('blade', 'drag'))).toEqual(['dash', 'return', 'issen']);
     expect(stages(alt('berserker', 'aim'))).toEqual(['split', 'frenzy', 'roar', 'quake', 'finale']);
     expect(stages(alt('berserker', 'drag'))).toEqual(['slam', 'frenzy', 'split', 'quake', 'quake', 'quake']);
-    expect(stages(alt('shadow', 'drag'))).toEqual(['clone', 'clone', 'clone', 'clone', 'vanish', 'execute', 'moon']);
-    expect(stages(alt('ranger', 'drag'))).toEqual(['volley', 'pierce']);
+    // 기획 24차: the redesigned three
+    expect(stages(alt('shadow', 'drag'))).toEqual(['clone', 'dance', 'dance', 'dance', 'dance', 'dance', 'dance', 'moon']);
+    expect(stages(alt('ranger', 'drag'))).toEqual(['volley', 'pin', 'pierce']);
+    expect(stages(alt('ranger', 'aim'))).toEqual(['mark', 'rain', 'rain', 'rain', 'skyshot']);
     expect(stages(alt('mage', 'aim'))).toEqual(['blizzard', 'hail', 'hail', 'hail', 'hail', 'hail', 'freeze', 'shatter']);
     // the paladin's eight spears warn only briefly (the falling spear is the warning)
     for (const a of alt('paladin', 'aim').actions.filter(x => x.stage === 'spear')) expect(a.telegraphLead).toBe(0.15);
@@ -655,6 +676,63 @@ describe('기획 23차: the climax and the beats', () => {
     expect(landing(m, 'mage_ua', 'shatter').t).toBeCloseTo(2.45, 1);
     // the fan's field is gone by then (2 s from 0.45)
     expect(m.tg.w.state.zones.some(z => z.ownerPlayer === 0 && z.area?.shape === 'cone')).toBe(false);
+  });
+});
+
+// ─────────────────────────── 기획 24차: the three redesigned (docs/ult-fx.md 8-3 A12′–A14′) ───────────────────────────
+
+describe('기획 24차: 섀도우 드래그 · 레인저 조준 / 드래그 redesigned', () => {
+  /** [character, mode, its parts' stages in landing order, when each lands (s after the release)]. */
+  const REDONE: [string, Mode, string[], number[]][] = [
+    ['shadow', 'drag', ['clone', 'dance', 'dance', 'dance', 'dance', 'dance', 'dance', 'moon'], [0.45, 0.6, 0.7, 0.79, 0.87, 0.94, 1, 1.5]],
+    ['ranger', 'aim', ['mark', 'rain', 'rain', 'rain', 'skyshot'], [0.45, 0.8, 1.05, 1.3, 1.9]],
+    ['ranger', 'drag', ['volley', 'pin', 'pierce'], [0.5, 1.1, 1.5]],
+  ];
+
+  it('the climax: 흑월 1.5 s, 천공 강하 1.9 s (was 2.3), 관통 1.5 s (was 1.25)', () => {
+    expect(ultBeats('shadow_ud')!.finisherAt).toBeCloseTo(1.5, 9);
+    expect(ultBeats('ranger_ua')!.finisherAt).toBeCloseTo(1.9, 9);
+    expect(ultBeats('ranger_ud')!.finisherAt).toBeCloseTo(1.5, 9);
+    // the new beats' roles: the first enemy part opens, the rest build up to the finale
+    for (const [id, mode, stages] of REDONE) {
+      const b = ultBeats(alt(id, mode).id)!;
+      expect(b.beats.map(x => x.role), `${id} ${mode}`).toEqual(stages.map((_, i) => (i === 0 ? 'opener' : i === stages.length - 1 ? 'finisher' : 'build')));
+    }
+  });
+
+  it('on the fixed boss every part lands when the table says and hits it (targets ≥ 1)', () => {
+    for (const [id, mode, stages, times] of REDONE) {
+      const def = alt(id, mode);
+      const w = watch(id, mode, times[times.length - 1] + 0.2);
+      const mine = w.stages.filter(x => x.ev.skillId === def.id);
+      expect(mine.map(x => x.ev.stage), def.id).toEqual(stages);
+      mine.forEach((x, i) => {
+        const tag = `${def.id} #${i} ${x.ev.stage}`;
+        expect(x.t, tag).toBeCloseTo(times[i], 1);
+        expect(x.ev.targets, tag).toBeGreaterThanOrEqual(1);
+      });
+    }
+  });
+
+  it('섀도우 드래그: the six cuts cross its target (each band through the boss, turned 0° · 60° · 120° · 30° · 90° · 150° from the way it moved); the shadow stays where it landed', () => {
+    const w = watch('shadow', 'drag', 1.7);
+    const boss = bossOf(w.tg);
+    const cuts = w.stages.filter(x => x.ev.skillId === 'shadow_ud' && x.ev.stage === 'dance');
+    expect(cuts).toHaveLength(6);
+    // rel 'aim' in 드래그 = the way it moved (from where it stood to the landing spot)
+    const moved = (Math.atan2(w.plan.point.y - w.from.y, w.plan.point.x - w.from.x) * 180) / Math.PI;
+    for (const [i, c] of cuts.entries()) {
+      // centred on the boss (it follows it), 9 long, 1.8 wide (기획 24차 검토: was 7 × 1.4)
+      expect(near(c.ev.center, boss.pos, 1e-6), `cut ${i}`).toBe(true);
+      expect(c.ev.area).toMatchObject({ shape: 'rect', anchor: 'center', length: 9, width: 1.8 });
+      const rot = c.ev.area.shape === 'rect' ? c.ev.area.rot! : NaN;
+      const want = (((moved + [0, 60, 120, 30, 90, 150][i]) % 360) + 360) % 360;
+      const diff = Math.abs((((rot - want) % 360) + 540) % 360 - 180);
+      expect(diff, `cut ${i}: rot ${rot}, want ${want}`).toBeLessThan(1e-6);
+    }
+    // no slide, no rush any more: it stands on the landing spot at the release and no part moves it
+    expect(near(w.stopped, w.plan.point, 1e-9)).toBe(true);
+    expect(alt('shadow', 'drag').actions.some(a => a.dash || a.charge)).toBe(false);
   });
 });
 
