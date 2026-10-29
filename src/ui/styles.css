@@ -2231,6 +2231,9 @@
 .ss-normal .ss-type { background: #4cc9f0; }
 .ss-drag .ss-type { background: #3ddc84; }
 .ss-ult .ss-type { background: #ffd166; }
+/* 기획 23차 검토: the 궁극기 테스트 ult row's 「궁극기 · 조준」 badge wraps in its column — it spans both lines of the row
+   (hud.ts openSheet sets ss-alt only there) instead of making the first line 3 lines tall */
+.ss-row.ss-alt .ss-type { grid-row: span 2; align-self: start; }
 
 .ss-trigger {
   font-size: 15px;
@@ -6020,6 +6023,31 @@
 
 .pause-btns > .btn {
   min-height: 74px;
+}
+
+/* 기획 23차: the 궁극기 테스트 pause has one more settings row (「궁극기 연출 강화」) and the raid's boss line — its main
+   buttons are slimmer so the box fits a phone (the 보스 레이드 box is ~30 px taller than the screen) */
+.pause.is-ult-test .pause-btns > .btn {
+  min-height: 48px;
+}
+
+/* 기획 23차 검토: a multiplayer 궁극기 테스트 「메뉴」 adds the room note, and sound.css's 70 px multi rule (same
+   specificity as the rule above, loaded later) won over it — the sound sliders sat fully under a phone screen. Scoped
+   to .is-ult-test.is-multi: the classic / 원정 / raid menus stay as they are. */
+.pause.is-ult-test.is-multi .pause-btns > .btn {
+  min-height: 44px;
+}
+
+.pause.is-ult-test.is-multi .pause-btns .pause-opts .btn.btn-cutin {
+  min-height: 46px;
+}
+
+.pause.is-ult-test.is-multi .pause-box {
+  padding: 16px 28px 14px;
+}
+
+.pause.is-ult-test.is-multi .pause-note {
+  margin-top: 6px;
 }
 
 .pl-build {

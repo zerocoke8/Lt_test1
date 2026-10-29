@@ -2,6 +2,7 @@
 // Multiplayer (R35): "메뉴" — the game keeps running underneath; 닫기 / 디버그 (방장만) / 전체 화면 / 나가기.
 // 기획 10차: next to the buttons, my 흔적 (name · effect · floors left) and owned relics (no other way to see them mid-run).
 // 기획 17차: 「내 빌드」 (tags + floor rewards) at the top of that list; the settings row gets 진동 · 저스트 도우미 · 저스트 슬로.
+// 기획 23차: + 「궁극기 연출 강화」 (궁극기 테스트: the 23차 looks / sounds, off = the 22차 ones), a whole row.
 
 import type { GameState, PlayerState } from '../types';
 import { getBoss, getGoedamTrace, getRelic, goedamTraceDuration, goedamTraceEffectText, goedamTraceKind } from '../data';
@@ -11,7 +12,8 @@ import { stageTitle } from './expeditionFormat';
 import { toggleFullscreen } from './stage';
 import { createSoundPanel, type SoundPanel } from './soundPanel';
 import { CUTIN } from '../render/cutin';
-import { FEEL, loadCutIn, loadFeel, saveCutIn, saveFeel, type FeelSettings } from './storage';
+import { ULT_FX } from '../render/ultTest/settings';
+import { FEEL, loadCutIn, loadFeel, loadUltFx, saveCutIn, saveFeel, saveUltFx, type FeelSettings } from './storage';
 import { buildSummary, renderBuild } from './buildPanel';
 import { bossFormLine, bossPatternTips } from './bossFormHud';
 import { isRaidMode } from '../sim/ultTest';
@@ -45,6 +47,8 @@ export class PauseMenu {
   private readonly resumeBtn: HTMLButtonElement;
   private readonly debugBtn: HTMLButtonElement;
   private readonly quitBtn: HTMLButtonElement;
+  /** 기획 23차: 「궁극기 연출 강화」 (궁극기 테스트 only). */
+  private readonly fxBtn: HTMLButtonElement;
   private readonly lists: HTMLElement;
   /** 기획 13차 효과음: 🔊/🔇 + 전체 · 효과음 · 배경음. */
   private readonly sound: SoundPanel;
@@ -88,6 +92,21 @@ export class PauseMenu {
     feelBtn('vibrate', '진동');
     feelBtn('justHelper', '저스트 도우미');
     feelBtn('justSlow', '저스트 슬로');
+    // 기획 23차 (docs/ult-fx.md 2-8): 「궁극기 연출 강화」 — it only changes the 궁극기 테스트, so it shows only there
+    // (integration: one more row pushed the box past a phone's 390 px in every mode); a whole row (the label is long),
+    // saved on this device, default on
+    Object.assign(ULT_FX, loadUltFx());
+    const fxBtn = (this.fxBtn = button('btn btn-secondary btn-cutin btn-feel btn-ultfx', '', opts, () => {
+      ULT_FX.boost = !ULT_FX.boost;
+      saveUltFx(ULT_FX);
+      syncFx();
+    }));
+    fxBtn.style.gridColumn = '1 / -1';
+    const syncFx = () => {
+      fxBtn.textContent = `궁극기 연출 강화 (궁극기 테스트): ${ULT_FX.boost ? '켬' : '끔'}`;
+      fxBtn.classList.toggle('is-off', !ULT_FX.boost);
+    };
+    syncFx();
     this.quitBtn = button('btn btn-danger', '포기', btns, () => {
       if (!this.armed) {
         this.armed = true;
@@ -120,6 +139,10 @@ export class PauseMenu {
     this.view = view;
     this.armed = false;
     this.el.classList.toggle('is-multi', view.multi);
+    // 기획 23차: the 「궁극기 연출 강화」 row only in the 궁극기 테스트 (its main buttons slimmer there, so the box still fits)
+    const ultTest = s?.mode === 'ultTest';
+    this.el.classList.toggle('is-ult-test', ultTest);
+    this.fxBtn.classList.toggle('is-hidden', !ultTest);
     this.title.textContent = view.multi ? '메뉴' : '일시정지';
     this.resumeBtn.textContent = view.multi ? '닫기' : '계속';
     this.debugBtn.classList.toggle('is-hidden', view.multi && !view.isHost);

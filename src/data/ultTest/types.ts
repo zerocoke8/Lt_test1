@@ -18,6 +18,28 @@ export interface UltMove {
 }
 
 /**
+ * 기획 23차: a sound cue of an alt stage (the shape of src/audio/stages.ts Cue minus `fin` / `special`; existing ids only
+ * — no new sound files). on: when it plays ('land' default = the beat's skillStage, 'hit' = every hit, 'cast' = the
+ * skillCast, 'zone' = the zone's ticks); lead = seconds early; step = semitones up per hit; max = hits that play; last =
+ * the id of the last hit; loop / tick / end / loopFor = a held sound; duck = [dB, s] of the others; db = its gain.
+ */
+export interface UltCue {
+  id: string;
+  on?: 'land' | 'hit' | 'cast' | 'zone';
+  lead?: number;
+  step?: number;
+  jitter?: number;
+  max?: number;
+  last?: string;
+  loop?: boolean;
+  tick?: string;
+  end?: string;
+  duck?: [number, number];
+  db?: number;
+  loopFor?: number;
+}
+
+/**
  * One alternate ult of a character (궁극기 테스트 only): exactly the shape of CharacterDef.ult (a SkillDef with slot
  * 'ult'), plus the fields below. How the actions read the aim:
  *  - center 'point'  = the aimed point (조준) / the spot the character landed on (드래그).
@@ -36,6 +58,18 @@ export interface UltAltDef extends SkillDef {
   aimRange?: number;
   /** Where a bot aims it: 'enemy' (default: the boss / its target), 'ally' (the most hurt ally), 'self' (where it stands). */
   botAim?: 'enemy' | 'ally' | 'self';
+  /**
+   * 기획 23차 (render / sound only — the sim never reads it): the climax stage. The finisher is the action with this stage
+   * that affects enemies and whose last hit is latest (ties: bigger footprint, then lower index); the other actions of
+   * the stage are its twins. Group tests require it on every registered alt (src/data/ultTest/beats.ts).
+   */
+  finale?: string;
+  /**
+   * 기획 23차 (sound only): per-stage cue overrides for this alt (key = stage name; '_path' = the drag path beat). Wins over
+   * the character's ult / drag rows; null = silent. `fin` is not set here: the finale stage's cues are the ones other
+   * players hear.
+   */
+  sfx?: Readonly<Record<string, UltCue | readonly UltCue[] | null>>;
 }
 
 /** A character's alternates: aim = 조준 방식, drag = 드래그 방식. A missing one uses the fallback (docs/ult-test.md 4장). */

@@ -7,11 +7,13 @@
 //     puppeteer stage curtain, chrono desaturation, medic siren light, mage frost vignette.
 //   · another player's / a bot's ult: no dimming — a quarter-size banner top-left for 0.6 s.
 //   · "컷인 짧게" (CUTIN.short, pause menu): 0.25 s small banner only. The data timing is the same either way.
+//   · 기획 23차 궁극기 테스트 (「궁극기 연출 강화」, docs/ult-fx.md 2-4, 2-5): my 조준 ult's band dims the world but for
+//     the aimed spot (CutIn.focus); my 드래그 ult's small banner becomes the 착지 컷 strip after the touchdown (landing).
 
-import { LOGICAL_H, LOGICAL_W } from '../types';
+import { type AreaShape, LOGICAL_H, LOGICAL_W, type Vec2 } from '../types';
 import { Camera, PX_PER_UNIT, PX_PER_UNIT_Y } from './camera';
 import { FONT_STACK, boldFont, darken, lighten, mix, type UnitLook } from './look';
-import { TAU } from './shapes';
+import { TAU, addAreaPath } from './shapes';
 import { HERO_POSE, bodyWidth, drawBody } from './units';
 
 /** Device-local cut-in setting (pause menu "컷인 짧게", persisted by ui/storage). */
@@ -32,6 +34,28 @@ export const CUTIN_SHORT_SEC = 0.25;
 export const MINI_BANNER_SEC = 0.9;
 /** World dim of my cut-in (2-3: 40 %). */
 export const CUTIN_DIM = 0.4;
+
+/**
+ * 기획 23차 착지 컷 (궁극기 테스트 드래그, docs/ult-fx.md 2-5): instead of the small banner, a 96 px slanted strip on the
+ * half of the screen away from the landing (landing screen y ≥ splitY → the strip at yHigh, else at yLow), sliding in
+ * from the side the character came from in `slide` s, out behind a white wipe at wipeFrom → wipeTo (the first hit lands
+ * with it). The world dims 30 % but for the landing spot meanwhile. Only when at least minSec of strip is left.
+ */
+export const STRIP = { h: 96, dim: 0.3, yHigh: 205, yLow: 470, splitY: 330, slide: 0.06, wipeFrom: 0.39, wipeTo: 0.45, minSec: 0.2, nameFont: 40 } as const;
+
+/** A bright hole in the cut-in dim (world point, world radius). */
+export interface CutInFocus {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** 기획 23차 검토: a focus-dim hole in a footprint's own shape (render/shapes.ts addAreaPath: centre, origin, area). */
+export interface FocusShape {
+  center: Vec2;
+  origin: Vec2 | null;
+  area: AreaShape;
+}
 
 export type CutInVariant = 'plain' | 'rage' | 'slash' | 'ink' | 'curtain' | 'desat' | 'siren' | 'frost';
 const VARIANT: Record<string, CutInVariant> = {
@@ -113,6 +137,17 @@ export class CutIn {
   casterId = -1;
   /** Band centre y of this cut-in (BAND_Y or BAND_Y_LOW), picked once on its first frame (place). */
   bandY = BAND_Y;
+  /**
+   * 기획 23차 (궁극기 테스트, 「궁극기 연출 강화」): the spot the dim leaves bright — 조준: the aimed point under the band's
+   * dim (set by vfx.ts right after start); 드래그: the landing under the strip's dim (landing). Null otherwise — always
+   * outside the 궁극기 테스트. Cleared when the cut-in ends.
+   */
+  focus: CutInFocus | null = null;
+  /** 기획 23차 착지 컷: when the strip slides in (s into this cut-in), −1 = none (the 22차 small banner). */
+  landAt = -1;
+  private landFromRight = false;
+  /** The strip's centre y, picked on its first frame from the landing's screen y (placeStrip); −1 = not yet. */
+  private stripY = -1;
   private placed = false;
   private readonly minis: Mini[] = [];
   /** Test hook: the last SHOWN_MAX cut-ins / corner banners, oldest first (never read by the drawing). */
@@ -124,6 +159,8 @@ export class CutIn {
     this.active = false;
     this.minis.length = 0;
     this.casterId = -1;
+    this.focus = null;
+    this.landAt = -1;
   }
 
   /**
@@ -145,7 +182,31 @@ export class CutIn {
     this.casterId = casterId;
     this.bandY = BAND_Y;
     this.placed = false;
+    this.focus = null;
+    this.landAt = -1;
+    this.stripY = -1;
     this.note({ kind: this.short ? 'short' : 'full', name, who: '' });
+  }
+
+  /**
+   * 기획 23차 착지 컷 (my dragged 궁극기 테스트 ult, 「궁극기 연출 강화」 on, not 「컷인 짧게」): the forced small banner
+   * becomes the strip from `fromSec` (the touchdown + 0.03 s) to the wipe; `focus` = the landing spot the dim leaves
+   * bright; fromRight = the character came from the right (the strip slides in from there). `short` / `forced` / the
+   * shown kind stay as 22차.
+   */
+  landing(fromSec: number, focus: CutInFocus, fromRight: boolean): void {
+    if (!this.active || !this.short) return;
+    this.landAt = Math.max(0, fromSec);
+    this.focus = { x: focus.x, y: focus.y, r: focus.r };
+    this.landFromRight = fromRight;
+    this.stripY = -1;
+    this.dur = CUTIN_SEC;
+  }
+
+  /** The strip's spot: the half of the screen away from the landing (its first frame; the camera says where that is). */
+  placeStrip(cam: Camera): void {
+    if (this.landAt < 0 || this.stripY >= 0 || !this.focus) return;
+    this.stripY = cam.sy(this.focus.y) >= STRIP.splitY ? STRIP.yHigh : STRIP.yLow;
   }
 
   /** A full cut-in whose band spot is not picked yet (index.ts gathers the spans to avoid). */
@@ -184,6 +245,8 @@ export class CutIn {
       if (this.age >= this.dur) {
         this.active = false;
         this.casterId = -1;
+        this.focus = null;
+        this.landAt = -1;
       }
     }
     for (let i = this.minis.length - 1; i >= 0; i--) {
@@ -192,23 +255,32 @@ export class CutIn {
     }
   }
 
-  /** World dim (0..CUTIN_DIM) this frame: down in 0.08 s, held, back up over the last 0.08 s. */
+  /**
+   * World dim (0..CUTIN_DIM) this frame: down in 0.08 s, held, back up over the last 0.08 s. 기획 23차 착지 컷: STRIP.dim
+   * while the strip is up (in with its slide, gone with the wipe).
+   */
   dim(): number {
-    if (!this.active || this.short) return 0;
+    if (!this.active) return 0;
+    if (this.landAt >= 0) {
+      const t = this.age;
+      return STRIP.dim * Math.min(clamp01((t - this.landAt) / STRIP.slide), clamp01((STRIP.wipeTo - t) / (STRIP.wipeTo - STRIP.wipeFrom)));
+    }
+    if (this.short) return 0;
     const t = this.age;
     const k = Math.min(clamp01(t / 0.08), clamp01((this.dur - t) / 0.08));
     return CUTIN_DIM * k;
   }
 
-  /** Chrono's cut-in drains the colour out of the world (0..1). */
+  /** Chrono's cut-in drains the colour out of the world (0..1). Not under the 착지 컷 strip (a plain dim there). */
   desat(): number {
-    return this.variant === 'desat' ? this.dim() / CUTIN_DIM : 0;
+    return this.variant === 'desat' && this.landAt < 0 ? this.dim() / CUTIN_DIM : 0;
   }
 
-  /** Screen layer (logical px, unshaken): the band / small banner, its variant decor, the corner banners. */
+  /** Screen layer (logical px, unshaken): the band / small banner / 착지 컷 strip, its variant decor, the corner banners. */
   draw(ctx: CanvasRenderingContext2D, time: number): void {
     if (this.active) {
-      if (this.short) this.drawSmall(ctx, this.age / this.dur, time);
+      if (this.landAt >= 0) this.drawStrip(ctx, time);
+      else if (this.short) this.drawSmall(ctx, this.age / this.dur, time);
       else this.drawFull(ctx, time);
     }
     for (let i = 0; i < this.minis.length; i++) drawMini(ctx, this.minis[i], i, time);
@@ -421,7 +493,117 @@ export class CutIn {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(this.name, L + 108, cy + 20);
   }
+
+  // ── 기획 23차 착지 컷: a slanted strip on the far half of the screen (my dragged 궁극기 테스트 ult) ──
+
+  private drawStrip(ctx: CanvasRenderingContext2D, time: number): void {
+    const t = this.age - this.landAt;
+    if (t < 0 || this.age >= STRIP.wipeTo) return;
+    const cy = this.stripY >= 0 ? this.stripY : STRIP.yLow;
+    const top = cy - STRIP.h / 2;
+    const bot = cy + STRIP.h / 2;
+    const slant = STRIP_SLANT;
+    const L = -200;
+    const R = LOGICAL_W + 200;
+    // in from the side the character came from; out behind a white sheet sweeping the same way
+    const side = this.landFromRight ? 1 : -1;
+    const shift = (1 - ease(clamp01(t / STRIP.slide))) * (LOGICAL_W + 420) * side;
+    const w = clamp01((this.age - STRIP.wipeFrom) / (STRIP.wipeTo - STRIP.wipeFrom));
+    const wx = side > 0 ? LOGICAL_W + 160 - w * (LOGICAL_W + 320) : -160 + w * (LOGICAL_W + 320);
+    ctx.save();
+    ctx.translate(LOGICAL_W / 2, cy);
+    ctx.rotate(BAND_TILT);
+    ctx.translate(-LOGICAL_W / 2 + shift, -cy);
+    ctx.save();
+    if (w > 0) {
+      // what the sheet already passed is gone
+      ctx.beginPath();
+      if (side > 0) ctx.rect(L - 200, top - 40, wx - (L - 200), STRIP.h + 80);
+      else ctx.rect(wx, top - 40, R + 200 - wx, STRIP.h + 80);
+      ctx.clip();
+    }
+    // body: character colour → darker, a brighter lower stripe, light edges
+    bandPath(ctx, L, R, top, bot, slant);
+    ctx.globalAlpha = 0.94;
+    ctx.fillStyle = darken(this.color, 0.35);
+    ctx.fill();
+    ctx.save();
+    bandPath(ctx, L, R, top, bot, slant);
+    ctx.clip();
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = this.color;
+    ctx.fillRect(L, top + STRIP.h * 0.64, R - L, STRIP.h * 0.36);
+    // speed lines streaming back toward where it came from
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#ffffff';
+    const run = R - L;
+    for (let i = 0; i < 9; i++) {
+      const yy = top + 8 + ((i * 29) % (STRIP.h - 16));
+      const len = 90 + ((i * 53) % 130);
+      const p = ((time * 2400 + i * 211) % (run + len)) | 0;
+      const xx = side > 0 ? L + p - len : R - p;
+      ctx.fillRect(xx, yy, len, i % 3 === 0 ? 3 : 1.5);
+    }
+    // the arrival: a white flash over the strip for its first 0.1 s
+    if (t < 0.1) {
+      ctx.globalAlpha = 0.45 * (1 - t / 0.1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(L, top, R - L, STRIP.h);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = lighten(this.color, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(L + slant, top);
+    ctx.lineTo(R, top);
+    ctx.moveTo(L, bot);
+    ctx.lineTo(R - slant, bot);
+    ctx.stroke();
+    // portrait + 「<이름> · 궁극기」 + the ult name (40 px bold, fitted)
+    portraitDisc(ctx, this.look, this.color, STRIP_X, cy, 36, time);
+    const tx = STRIP_X + 52;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `700 16px ${FONT_STACK}`;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#05060a';
+    ctx.strokeText(this.sub, tx, cy - 14);
+    ctx.fillStyle = lighten(this.color, 0.6);
+    ctx.fillText(this.sub, tx, cy - 14);
+    ctx.font = boldFont(STRIP.nameFont);
+    const room = LOGICAL_W - 120 - tx;
+    const tw = ctx.measureText(this.name).width;
+    if (tw > room) ctx.font = boldFont(Math.max(26, Math.floor((STRIP.nameFont * room) / tw)));
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = mix(this.color, '#000000', 0.25);
+    ctx.strokeText(this.name, tx, cy + 30);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(this.name, tx, cy + 30);
+    ctx.restore();
+    // the white sheet
+    if (w > 0 && w < 1) {
+      ctx.globalAlpha = 0.85 * (1 - Math.abs(w - 0.5) * 1.2);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(wx - 70, top - 14);
+      ctx.lineTo(wx + 50, top - 14);
+      ctx.lineTo(wx - 10, bot + 14);
+      ctx.lineTo(wx - 130, bot + 14);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
 }
+
+/**
+ * 기획 23차 착지 컷: the strip's slanted ends and where its portrait sits (strip space, logical px) — right of the HUD's
+ * bottom-left tip pill (「카드 길게 누르기」 ends near x 370), which would hide it in the lower spot.
+ */
+const STRIP_SLANT = Math.tan((30 * Math.PI) / 180) * STRIP.h * 0.6;
+const STRIP_X = 480;
 
 // ─────────────────────────── pieces ───────────────────────────
 
@@ -602,10 +784,53 @@ export class ScreenFx {
   private slashColor = '#ffffff';
   private desatT = 99;
   private desatDur = 0;
+  /** 기획 23차: the world dimmed but for one hole (the breath before a 궁극기 테스트 finisher, the landing strip). */
+  private focusT = 99;
+  private focusIn = 0;
+  private focusHold = 0;
+  private focusOut = 0;
+  private focusX = 0;
+  private focusY = 0;
+  private focusR = 1;
+  private focusA = 0;
+  /** 기획 23차 검토: the hole in a footprint's own shape (null = the round hole above). */
+  private focusShape: FocusShape | null = null;
 
   reset(): void {
     this.cutin.reset();
-    this.flashT = this.vigT = this.spotT = this.slashT = this.desatT = 99;
+    this.flashT = this.vigT = this.spotT = this.slashT = this.desatT = this.focusT = 99;
+  }
+
+  /**
+   * 기획 23차 (궁극기 테스트 only): dim the world to `alpha` except a hole of world radius r around (x, y) — in over inSec,
+   * held holdSec, out over outSec (real clock). Enemy warnings are drawn again over it (index.ts drawWorldScreen).
+   * 기획 23차 검토: `shape` = the hole in that footprint's own shape instead (a band, a cross, a fan).
+   */
+  focusDim(x: number, y: number, r: number, alpha: number, inSec: number, holdSec: number, outSec: number, shape: FocusShape | null = null): void {
+    this.focusT = 0;
+    this.focusX = x;
+    this.focusY = y;
+    this.focusR = Math.max(0.3, r);
+    this.focusA = alpha;
+    this.focusIn = Math.max(0, inSec);
+    this.focusHold = Math.max(0, holdSec);
+    this.focusOut = Math.max(0, outSec);
+    this.focusShape = shape;
+  }
+
+  /** 기획 23차: end a focus dim at once (the finisher lands: 「어둠 끊김」). */
+  cancelFocus(): void {
+    this.focusT = 99;
+  }
+
+  /** 기획 23차: the focus dim's alpha now (0 = none). */
+  focusAlpha(): number {
+    const t = this.focusT;
+    const end = this.focusIn + this.focusHold + this.focusOut;
+    if (t >= end || this.focusA <= 0) return 0;
+    const kin = this.focusIn > 0 ? Math.min(1, t / this.focusIn) : 1;
+    const kout = this.focusOut > 0 ? Math.min(1, (end - t) / this.focusOut) : 1;
+    return this.focusA * Math.min(kin, kout);
   }
 
   /** Full-screen flash (ult finale 0.08–0.1 s, alpha 0.35–0.4; others' at half). */
@@ -654,11 +879,12 @@ export class ScreenFx {
     this.spotT += dt;
     this.slashT += dt;
     this.desatT += dt;
+    if (this.focusT < 99) this.focusT += dt;
   }
 
   /** Anything on the world layer this frame (index.ts skips the pass otherwise). */
   worldActive(): boolean {
-    return this.cutin.dim() > 0 || this.spotT < this.spotDur || this.desatT < this.desatDur;
+    return this.cutin.dim() > 0 || this.spotT < this.spotDur || this.desatT < this.desatDur || this.focusAlpha() > 0;
   }
 
   /** World layer (after the units / skill effects, before the numbers): dim, desaturate, spotlight. */
@@ -675,7 +901,14 @@ export class ScreenFx {
     if (dim > 0) {
       ctx.globalAlpha = dim;
       ctx.fillStyle = '#05060a';
-      ctx.fillRect(-40, -40, LOGICAL_W + 80, LOGICAL_H + 80);
+      const f = this.cutin.focus;
+      if (f) {
+        // 기획 23차 (궁극기 테스트): the aimed point / the landing stays bright
+        ctx.beginPath();
+        ctx.rect(-40, -40, LOGICAL_W + 80, LOGICAL_H + 80);
+        ctx.ellipse(cam.sx(f.x), cam.sy(f.y), f.r * PX_PER_UNIT, f.r * PX_PER_UNIT_Y, 0, 0, TAU, true);
+        ctx.fill('evenodd');
+      } else ctx.fillRect(-40, -40, LOGICAL_W + 80, LOGICAL_H + 80);
     }
     if (this.spotT < this.spotDur && entityPos(this.spotId, SPOT)) {
       const k = Math.min(1, this.spotT / 0.15, (this.spotDur - this.spotT) / 0.3);
@@ -697,6 +930,20 @@ export class ScreenFx {
       ctx.lineTo(sx - this.spotR * PX_PER_UNIT, sy);
       ctx.closePath();
       ctx.fill();
+    }
+    const fa = this.focusAlpha();
+    if (fa > 0) {
+      // 기획 23차: everything darker but the hole where the blow lands
+      const sx = cam.sx(this.focusX);
+      const sy = cam.sy(this.focusY);
+      ctx.globalAlpha = fa;
+      ctx.fillStyle = '#05060a';
+      ctx.beginPath();
+      ctx.rect(-40, -40, LOGICAL_W + 80, LOGICAL_H + 80);
+      const fs = this.focusShape;
+      if (fs) addAreaPath(ctx, cam, fs.center, fs.origin, fs.area);
+      else ctx.ellipse(sx, sy, this.focusR * PX_PER_UNIT, this.focusR * PX_PER_UNIT_Y, 0, 0, TAU, true);
+      ctx.fill('evenodd');
     }
     ctx.globalAlpha = 1;
   }
@@ -725,6 +972,7 @@ export class ScreenFx {
       ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
     }
     ctx.globalAlpha = 1;
+    if (this.cutin.landAt >= 0) this.cutin.placeStrip(cam); // 기획 23차 착지 컷: the far half from the landing
     this.cutin.draw(ctx, time);
   }
 }

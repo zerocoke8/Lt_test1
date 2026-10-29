@@ -621,7 +621,7 @@ describe('review fixes', () => {
     const path = stageOf(tg, 'guardian_ud_path', 'rally')[0];
     expect(path.origin && near(path.origin, from)).toBe(true);
     // a circle beat never carries one
-    expect(stageOf(tg, 'guardian_ud', 'rally')[0].origin).toBeUndefined();
+    expect(stageOf(tg, 'guardian_ud', 'slam')[0].origin).toBeUndefined(); // 23차: the landing part is 'slam' (the path keeps 'rally')
   });
 
   it('두 번 차는 게이지 · 궁극기 여운 (replays of today’s ult) are never offered in 궁극기 테스트; the raid keeps them', () => {

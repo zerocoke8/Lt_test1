@@ -5,7 +5,7 @@
 // (조준 and 드래그) and the texts (every number from the data, the tuned phrases present).
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS, getCharacter, getMonster } from '../../src/data';
-import { ULT_CAST_TIME, ULT_GROUP_B_IDS, ULT_TEST, setUltAltFixture, ultAlt, type UltAltDef } from '../../src/data/ultTest';
+import { ULT_CAST_TIME, ULT_GROUP_B_IDS, ULT_TEST, setUltAltFixture, ultAlt, ultBeats, type UltAltDef } from '../../src/data/ultTest';
 import { GROUP_B } from '../../src/data/ultTest/groupB';
 import { createRenderer } from '../../src/render';
 import { ARENA_MARGIN } from '../../src/sim/constants';
@@ -188,9 +188,60 @@ describe('group B data (docs/ult-test.md 5-2 rules)', () => {
     }
   });
 
-  it('the texts fit the preset panel (844×390): none longer than today’s longest ult text', () => {
+  it('기획 23차: every alt names its climax (finale = a stage with an enemy part) and its finisher lands within 0.8–2.45 s', () => {
+    // docs/ult-fx.md 3장: the finale of each of the 14
+    const want: Record<string, string> = {
+      gunner_ua: 'heavy',
+      gunner_ud: 'slug',
+      cleric_ua: 'descend',
+      cleric_ud: 'bell',
+      medic_ua: 'defib',
+      medic_ud: 'defib',
+      exorcist_ua: 'destroy',
+      exorcist_ud: 'destroy',
+      bard_ua: 'forte',
+      bard_ud: 'forte',
+      chrono_ua: 'stop',
+      chrono_ud: 'stop',
+      puppeteer_ua: 'curtaincall',
+      puppeteer_ud: 'curtaincall',
+    };
+    for (const id of ULT_GROUP_B_IDS) {
+      for (const mode of ['aim', 'drag'] as const) {
+        const def = alt(id, mode);
+        expect(def.finale, def.id).toBe(want[def.id]);
+        expect(def.actions.some(a => a.stage === def.finale && a.affects === 'enemies'), `${def.id}: finale ${def.finale}`).toBe(true);
+        const b = ultBeats(def.id)!;
+        expect(b.beats[b.finisher].stage, def.id).toBe(def.finale);
+        expect(b.finisherAt, def.id).toBeGreaterThanOrEqual(0.8);
+        expect(b.finisherAt, def.id).toBeLessThanOrEqual(2.45);
+        // a sound override only names a stage of this alt (or the drag path)
+        for (const k of Object.keys(def.sfx ?? {})) expect(k === '_path' ? !!def.move?.path : def.actions.some(a => a.stage === k), `${def.id} sfx ${k}`).toBe(true);
+      }
+    }
+    // where the spec retimed it (the finisher, docs/ult-fx.md 3장)
+    const at = (id: string) => ultBeats(id)!.finisherAt;
+    expect(at('cleric_ua')).toBeCloseTo(1.6, 9);
+    expect(at('cleric_ud')).toBeCloseTo(2, 9);
+    expect(at('medic_ua')).toBeCloseTo(1.9, 9);
+    expect(at('medic_ud')).toBeCloseTo(1.6, 9);
+    expect(at('exorcist_ua')).toBeCloseTo(2.2, 9);
+    expect(at('exorcist_ud')).toBeCloseTo(2, 9);
+    expect(at('bard_ua')).toBeCloseTo(1.7, 9);
+    expect(at('chrono_ua')).toBeCloseTo(2.3, 9);
+    expect(at('puppeteer_ua')).toBeCloseTo(2, 9);
+    expect(at('puppeteer_ud')).toBeCloseTo(1.9, 9);
+    // the 퇴마사 조준 wall is the finisher (the bigger footprint), the seal band and the heal its twins
+    const ex = ultBeats('exorcist_ua')!;
+    expect(ex.finisher).toBe(3);
+    expect(ex.beats.filter(x => x.role === 'twin').map(x => x.actionIndex)).toEqual([4, 5]);
+  });
+
+  it('the texts fit the preset panel (844×390): at most 1.5 × today’s longest ult text', () => {
+    // 기획 23차: the redesigned ults say more (docs/ult-fx.md 3장 texts, every beat with its numbers) — the preset detail
+    // scrolls with a fade cue (src/ui/preset.ts updateDetailFade) and shows the ult row first; still a hard cap
     const longest = Math.max(...CHARACTERS.map(c => c.ult.description.length));
-    for (const id of ULT_GROUP_B_IDS) for (const mode of ['aim', 'drag'] as const) expect(alt(id, mode).description.length, alt(id, mode).id).toBeLessThanOrEqual(longest);
+    for (const id of ULT_GROUP_B_IDS) for (const mode of ['aim', 'drag'] as const) expect(alt(id, mode).description.length, alt(id, mode).id).toBeLessThanOrEqual(Math.round(longest * 1.5));
   });
 });
 
@@ -256,7 +307,7 @@ describe('거너', () => {
     const recoil = ev.find((e): e is Ev<'dash'> => e.type === 'dash' && e.entityId === c.ult.entityId);
     expect(recoil).toBeDefined();
     expect(recoil!.to.y - recoil!.from.y).toBeCloseTo(1.5, 6); // pushed down, away from where it fired
-    expect(stages(tg, def.id, 'shells').filter(s => s.targets > 0)).toHaveLength(3);
+    expect(stages(tg, def.id, 'blast1').filter(s => s.targets > 0)).toHaveLength(3); // 기획 23차: the drag skill's blast
     expect(stages(tg, def.id, 'slug')[0].targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
     settle(tg);
@@ -282,7 +333,11 @@ describe('클레릭', () => {
     const e = place(tg, { x: 12, y: 4 }, 0.3);
     const c = cast(tg, 'aim', { x: 12, y: 2.5 });
     expectCastFollowsPlan(c, def, 'aim');
-    expect(c.parts.slice(1).map(p => (p.area as { radius: number }).radius)).toEqual([7.5, 5, 2.5]);
+    expect(c.parts.slice(1, 4).map(p => (p.area as { radius: number }).radius)).toEqual([7.5, 5, 2.5]);
+    expect(c.parts.slice(4).map(p => [p.stage, (p.area as { radius: number }).radius, p.delay])).toEqual([
+      ['descend', 2.8, 1.6],
+      ['descend', 6, 1.6],
+    ]);
     advance(tg, 0.6);
     expect(e.hp / e.maxHp).toBeGreaterThanOrEqual(0.74);
     expect(hasStatus(e, 'regen')).toBe(true);
@@ -292,6 +347,17 @@ describe('클레릭', () => {
     expect(rings).toHaveLength(3);
     for (const r of rings) expect(r.targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
+    // 기획 23차: 1.6 s 대천사 강림 — the enemy circle on the point (the boss), the allies' heal around it (me)
+    clearEvents(tg);
+    e.hp = e.maxHp * 0.3;
+    advance(tg, 0.5);
+    const angel = stages(tg, def.id, 'descend');
+    expect(angel.map(s => s.actionIndex).sort()).toEqual([4, 5]);
+    for (const s of angel) expect(near(s.center, c.plan.point)).toBe(true);
+    expect(angel.find(s => s.actionIndex === 4)!.targets).toBeGreaterThanOrEqual(1);
+    expect(angel.find(s => s.actionIndex === 5)!.targets).toBeGreaterThanOrEqual(1);
+    expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0); // (a boss never takes a stun)
+    expect(drain(tg).some(ev => ev.type === 'heal' && ev.targetId === e.id)).toBe(true);
     settle(tg);
   });
 
@@ -304,21 +370,29 @@ describe('클레릭', () => {
     settle(tg);
   });
 
-  it('드래그 성역의 종 · 천상의 울림: blinks there, heals + leaves the sanctuary, the bell at 4.5 s', () => {
+  it('드래그 성역의 종 · 천상의 울림: blinks there, heals + leaves the sanctuary, the bell tolls at 1 / 1.4 s and falls at 2 s', () => {
     const def = alt('cleric', 'drag');
     const tg = game('cleric', 'drag');
     const e = place(tg, { x: 6, y: 9 }, 0.3);
     const c = cast(tg, 'drag', { x: 12, y: 3.5 });
     expectCastFollowsPlan(c, def, 'drag');
     expect(near(c.after, { x: 12, y: 3.5 }, 1e-9)).toBe(true);
+    // 기획 23차: the bell's warning shows for its last second only (not the whole wait)
+    expect(c.parts[4].delay).toBe(2);
     advance(tg, 0.6);
     expect(e.hp / e.maxHp).toBeGreaterThanOrEqual(0.55);
     expect(hasStatus(e, 'defUp')).toBe(true);
     expect(tg.w.state.zones.some(z => z.ownerPlayer === 0 && z.kind === 'heal' && near(z.center, c.after, 1e-6))).toBe(true);
-    advance(tg, 4.2);
-    const bell = stages(tg, def.id, 'judgement');
-    expect(bell).toHaveLength(1);
-    expect(bell[0].targets).toBeGreaterThanOrEqual(1);
+    advance(tg, 0.9); // 1.5 s
+    const tolls = stages(tg, def.id, 'judgement');
+    expect(tolls).toHaveLength(2);
+    for (const s of tolls) expect(s.targets).toBeGreaterThanOrEqual(1);
+    expect(hasStatus(boss(tg), 'slow')).toBe(true);
+    expect(stages(tg, def.id, 'bell')).toHaveLength(0);
+    advance(tg, 0.6); // 2.1 s
+    const bell = stages(tg, def.id, 'bell');
+    expect(bell).toHaveLength(2); // the enemies' bell + the allies' heal
+    expect(bell.find(s => s.actionIndex === 4)!.targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
     settle(tg);
   });
@@ -338,8 +412,20 @@ describe('메딕', () => {
     expect(hasStatus(e, 'haste')).toBe(true);
     expect(p.party[1].hp / p.party[1].maxHp).toBeGreaterThanOrEqual(0.69);
     expect(tg.w.state.zones.some(z => z.ownerPlayer === 0 && z.kind === 'heal' && near(z.center, { x: 12, y: 6 }))).toBe(true);
-    advance(tg, 6);
-    expect(stages(tg, def.id, 'siren').map(s => s.hit)).toEqual([0, 1, 2, 3, 4, 5]);
+    // 기획 23차: the field charges twice (1 / 1.4 s), then 「클리어!」 at 1.9 s — the cross on the boss, the heal on me
+    e.hp = e.maxHp * 0.3;
+    clearEvents(tg);
+    advance(tg, 1.4); // 2 s
+    const charges = stages(tg, def.id, 'charge');
+    expect(charges.map(s => s.actionIndex)).toEqual([3, 4]);
+    expect(hasStatus(boss(tg), 'slow')).toBe(true);
+    const defib = stages(tg, def.id, 'defib');
+    expect(defib).toHaveLength(1);
+    expect(defib[0].area).toEqual({ shape: 'cross', length: 6, width: 2.4 });
+    expect(stages(tg, def.id, 'firstaid')[0].targets).toBeGreaterThanOrEqual(1);
+    expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
+    advance(tg, 4.6);
+    expect(stages(tg, def.id, 'siren').map(s => s.hit)).toEqual([1, 2, 3, 4, 5]); // (tick 0 went with the clear)
     settle(tg);
   });
 
@@ -354,7 +440,11 @@ describe('메딕', () => {
     expect(near(c.path[0].center, c.after, 1e-9)).toBe(true);
     advance(tg, 0.6);
     expect(e.hp / e.maxHp).toBeGreaterThanOrEqual(0.74); // path 20 % + cross 25 %
-    advance(tg, 0.5);
+    // 기획 23차: the cross charges at 0.85 / 1.2 s, the defib at 1.6 s (was 0.8 s)
+    advance(tg, 0.7); // 1.3 s
+    expect(stages(tg, def.id, 'charge').filter(s => s.targets > 0)).toHaveLength(2);
+    expect(stages(tg, def.id, 'defib')).toHaveLength(0);
+    advance(tg, 0.4); // 1.7 s
     expect(stages(tg, def.id, 'defib')[0].targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
     settle(tg);
@@ -369,15 +459,29 @@ describe('퇴마사', () => {
     const c = cast(tg, 'aim', { x: 12, y: 2 });
     expectCastFollowsPlan(c, def, 'aim');
     const across = (c.plan.aimDeg + 90) % 360;
-    for (const i of [0, 1, 2]) expect((c.parts[i].area as { rot: number }).rot).toBeCloseTo(across, 6);
+    // the wall, its storm and the wall's 멸 across the aim; 기획 23차: the seal and its 멸 along it (a cross on the point)
+    for (const i of [0, 1, 3]) expect((c.parts[i].area as { rot: number }).rot).toBeCloseTo(across, 6);
+    for (const i of [2, 4]) {
+      expect((c.parts[i].area as { rot: number }).rot).toBeCloseTo(c.plan.aimDeg, 6);
+      expect(c.parts[i].area).toMatchObject({ shape: 'rect', anchor: 'center', length: 7, width: 2 });
+      expect(near(c.parts[i].center, c.plan.point)).toBe(true);
+    }
     advance(tg, 0.6);
     const b = boss(tg);
     expect(hasStatus(b, 'drain')).toBe(true);
     const zone = tg.w.state.zones.find(z => z.ownerPlayer === 0 && z.kind === 'damage');
     expect(zone?.area).toMatchObject({ shape: 'rect', length: 9, width: 2 });
-    advance(tg, 3.1);
-    expect(stages(tg, def.id, 'destroy').find(s => s.actionIndex === 2)?.targets).toBeGreaterThanOrEqual(1);
+    advance(tg, 0.6); // 1.2 s: the seal
+    expect(stages(tg, def.id, 'seal')[0].targets).toBeGreaterThanOrEqual(1);
+    expect(stages(tg, def.id, 'destroy')).toHaveLength(0);
+    advance(tg, 1.1); // 2.3 s: 멸 on both lines + the heal (was 3.5 s)
+    const destroy = stages(tg, def.id, 'destroy');
+    expect(destroy.map(s => s.actionIndex).sort()).toEqual([3, 4, 5]);
+    expect(destroy.find(s => s.actionIndex === 3)?.targets).toBeGreaterThanOrEqual(1);
+    expect(destroy.find(s => s.actionIndex === 4)?.targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, b.id)).toBeGreaterThan(0);
+    // the storm lasted 2 s (5 ticks, 0.4 s apart)
+    expect(stages(tg, def.id, 'storm').map(s => s.hit)).toEqual([0, 1, 2, 3, 4]);
     settle(tg);
   });
 
@@ -392,8 +496,17 @@ describe('퇴마사', () => {
     expect(hasStatus(b, 'drain')).toBe(true);
     expect(stages(tg, def.id, 'greatseal')[0].targets).toBeGreaterThanOrEqual(1);
     expect(tg.w.state.zones.some(z => z.ownerPlayer === 0 && z.kind === 'damage' && near(z.center, c.after))).toBe(true);
+    // 기획 23차: eight gates on a ring of 4 around the landing, opening 0.06 s apart from the way it moved (up), clockwise
+    const gates = c.parts.filter(p => p.stage === 'seal');
+    expect(gates.map(p => p.delay)).toEqual([0.9, 0.96, 1.02, 1.08, 1.14, 1.2, 1.26, 1.32]);
+    for (const g of gates) expect(len(g.center, c.after)).toBeCloseTo(4, 1);
+    expect(near(gates[0].center, { x: 12, y: -0.5 }, 1e-6)).toBe(true); // ahead (up) first
+    expect(gates[2].center.x).toBeCloseTo(16, 6); // then its right (screen right when moving up)
     clearEvents(tg);
-    advance(tg, 3);
+    advance(tg, 0.8); // 1.4 s
+    expect(stages(tg, def.id, 'seal')).toHaveLength(8);
+    expect(stages(tg, def.id, 'seal').filter(s => s.targets > 0).length).toBeGreaterThanOrEqual(1);
+    advance(tg, 0.7); // 2.1 s: 멸 (was 3.5 s)
     expect(stages(tg, def.id, 'destroy')[0].targets).toBeGreaterThanOrEqual(1);
     expect(drain(tg).some(ev => ev.type === 'heal' && ev.targetId === e.id)).toBe(true);
     expect(ultDamage(tg, def, b.id)).toBeGreaterThan(0);
@@ -413,13 +526,20 @@ describe('바드', () => {
     expect(hasStatus(e, 'atkUp')).toBe(true);
     expect(hasStatus(e, 'haste')).toBe(true);
     expect(drain(tg).some(ev => ev.type === 'benchBuff' && ev.player === 0)).toBe(true);
-    advance(tg, 1.2);
+    advance(tg, 0.6); // 1.2 s: 기획 23차 — the three beats 0.35 s apart (0.45 / 0.8 / 1.15)
     const beats = stages(tg, def.id, 'beat');
     expect(beats.map(s => s.hit)).toEqual([0, 1, 2]);
     // the beam never slides: every beat is where the first one was
     for (const s of beats) expect(near(s.center, c.plan.point)).toBe(true);
     for (const s of beats) expect(s.targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
+    expect(stages(tg, def.id, 'forte')).toHaveLength(0);
+    advance(tg, 0.6); // 1.8 s: the fortissimo along the same line, wider
+    const forte = stages(tg, def.id, 'forte');
+    expect(forte).toHaveLength(1);
+    expect(forte[0].area).toEqual({ shape: 'line', length: 14, width: 5 });
+    expect(near(forte[0].center, c.plan.point)).toBe(true);
+    expect(forte[0].targets).toBeGreaterThanOrEqual(1);
     settle(tg);
   });
 
@@ -447,9 +567,10 @@ describe('바드', () => {
     advance(tg, 1.4);
     expect(hasStatus(e, 'atkUp')).toBe(true);
     expect(hasStatus(e, 'haste')).toBe(true);
-    const beats = stages(tg, def.id, 'beat');
-    expect(beats).toHaveLength(3); // one 'beat' per beat (0.45 / 0.75 left / 1.1)
-    for (const s of beats) expect(s.targets).toBeGreaterThanOrEqual(1);
+    // 기획 23차: the drag skill's beat names — beat1 (0.45), beat2 left and right (0.75), forte (1.1)
+    const beats = stages(tg, def.id).filter(s => def.actions[s.actionIndex].affects === 'enemies');
+    expect(beats.map(s => s.stage)).toEqual(['beat1', 'beat2', 'beat2', 'forte']);
+    for (const s of beats) expect(s.targets, `${s.stage} #${s.actionIndex}`).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
     settle(tg);
   });
@@ -470,8 +591,23 @@ describe('크로노', () => {
     expect(drain(tg).some(ev => ev.type === 'swapCdCut' && ev.player === 0 && ev.seconds === 4)).toBe(true);
     const mine = tg.w.state.zones.filter(z => z.ownerPlayer === 0 && near(z.center, c.plan.point));
     expect(mine.map(z => z.kind).sort()).toEqual(['buff', 'debuff']);
-    advance(tg, 2.5);
+    // 기획 23차: the freeze is 1.9 s now — the three clock hands (0.95 / 1.35 / 1.75 s) and 시간 재개 (2.3 s) land inside it
+    expect(b.statuses.find(s => s.id === 'stasis')?.total).toBeLessThanOrEqual(1.9 + 1e-9);
+    advance(tg, 1.25); // 1.85 s
+    const hands = stages(tg, def.id, 'rift');
+    expect(hands.map(s => (s.area as { diagonal?: boolean; width: number }).diagonal ?? false)).toEqual([false, true, false]);
+    expect(hands.map(s => (s.area as { width: number }).width)).toEqual([1.4, 1.4, 2]);
+    for (const s of hands) expect(s.targets).toBeGreaterThanOrEqual(1);
+    advance(tg, 0.5); // 2.35 s
+    const resume = stages(tg, def.id, 'stop');
+    expect(resume).toHaveLength(1);
+    expect(resume[0].targets).toBeGreaterThanOrEqual(1);
+    expect(ultDamage(tg, def, b.id)).toBeGreaterThan(0);
+    // the mire zones have their stage now (their look); they tick on, silent
+    expect(stages(tg, def.id, 'mire').length).toBeGreaterThan(4);
+    advance(tg, 1);
     expect(hasStatus(b, 'slow')).toBe(true); // the mire after the freeze
+    expect(drain(tg).some(ev => ev.type === 'stasisEnd' && ev.entityId === b.id && ev.amount > 0)).toBe(true); // the hands' damage comes back
     settle(tg);
   });
 
@@ -486,6 +622,9 @@ describe('크로노', () => {
     const b = boss(tg);
     expect(stages(tg, def.id, 'rift')[0].targets).toBeGreaterThanOrEqual(1);
     expect(stages(tg, def.id, 'rewind')).toHaveLength(1);
+    // 기획 23차: the freeze keeps 'stasis', the X on the frozen ones is the drag skill's 'stop' (the finale)
+    expect(stages(tg, def.id, 'stasis').map(s => s.actionIndex)).toEqual([3]);
+    expect(stages(tg, def.id, 'stop').map(s => s.actionIndex)).toEqual([4]);
     expect(hasStatus(b, 'stasis')).toBe(true);
     expect(hasStatus(b, 'vulnerable')).toBe(true);
     expect(ultDamage(tg, def, b.id)).toBeGreaterThan(0);
@@ -496,13 +635,17 @@ describe('크로노', () => {
 });
 
 describe('퍼펫티어', () => {
-  it('조준 인형극 개막 · 커튼 라인: four grand dolls in a row across the aim, atk down on the boss, the curtain along the row', () => {
+  it('조준 인형극 개막 · 커튼 라인: four grand dolls tossed one by one in a row across the aim, atk down on the boss, threads, the curtain along the row', () => {
     const def = alt('puppeteer', 'aim');
     const tg = game('puppeteer', 'aim');
     place(tg, { x: 6, y: 8 });
     const c = cast(tg, 'aim', { x: 12, y: 6 }); // the row fits in the arena (a doll off the edge is pulled in)
     expectCastFollowsPlan(c, def, 'aim');
-    advance(tg, 0.6);
+    // 기획 23차: one toss every 0.15 s from 0.45 s
+    expect(c.parts.filter(p => p.stage === 'toss').map(p => p.delay)).toEqual([0.45, 0.6, 0.75, 0.9]);
+    advance(tg, 0.55);
+    expect(tg.w.state.entities.filter(e => e.defId === 'paper_doll_grand' && e.team === 'ally')).toHaveLength(1);
+    advance(tg, 0.45); // 1 s
     const dolls = tg.w.state.entities.filter(e => e.defId === 'paper_doll_grand' && e.team === 'ally');
     expect(dolls).toHaveLength(4);
     const u = unit(c.from, c.plan.point);
@@ -511,7 +654,12 @@ describe('퍼펫티어', () => {
     for (const d of dolls) expect(Math.abs((d.pos.x - c.plan.point.x) * u.x + (d.pos.y - c.plan.point.y) * u.y)).toBeLessThan(1e-6);
     const b = boss(tg);
     expect(hasStatus(b, 'atkDown')).toBe(true);
-    advance(tg, 2.6);
+    advance(tg, 0.3); // 1.3 s: the threads between the dolls pulled taut (along the row)
+    const thread = stages(tg, def.id, 'thread');
+    expect(thread).toHaveLength(1);
+    expect(near(thread[0].center, c.plan.point)).toBe(true);
+    expect(stages(tg, def.id, 'curtaincall')).toHaveLength(0);
+    advance(tg, 0.8); // 2.1 s: the curtain call (was 3 s)
     expect(stages(tg, def.id, 'curtaincall')[0].targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, b.id)).toBeGreaterThan(0);
     settle(tg);
@@ -536,7 +684,14 @@ describe('퍼펫티어', () => {
     ]);
     expect(stages(tg, def.id, 'toss').filter(s => s.targets > 0)).toHaveLength(2);
     expect(stages(tg, def.id, 'thread')[0].targets).toBeGreaterThanOrEqual(1);
-    advance(tg, 2.4);
+    // 기획 23차: the yank at 1.3 s (on the landing spot), the curtain at 1.9 s (was 3 s)
+    advance(tg, 0.5); // 1.4 s
+    const yank = stages(tg, def.id, 'yank');
+    expect(yank).toHaveLength(1);
+    expect(near(yank[0].center, c.after)).toBe(true);
+    expect(yank[0].targets).toBeGreaterThanOrEqual(1);
+    expect(stages(tg, def.id, 'curtaincall')).toHaveLength(0);
+    advance(tg, 0.6); // 2 s
     expect(stages(tg, def.id, 'curtaincall')[0].targets).toBeGreaterThanOrEqual(1);
     expect(ultDamage(tg, def, boss(tg).id)).toBeGreaterThan(0);
     settle(tg);
@@ -650,6 +805,25 @@ describe('bots', () => {
       expect(new Set(casts.map(c => c.skillId)).size).toBeGreaterThanOrEqual(3);
     });
   }
+
+  it('the same seed plays the same way twice (bots, both modes; 기획 23차 data)', () => {
+    const digest = (mode: UltAimMode): string => {
+      const players: PlayerSetup[] = [
+        { ...HUMAN, characters: ['puppeteer', 'chrono', 'bard'], ultMode: mode },
+        { ...BOT1, characters: ['gunner', 'cleric', 'medic'] },
+        { ...BOT2, characters: ['exorcist', 'bard', 'chrono'] },
+      ];
+      const tg = makeGame({ seed: 11, mode: 'ultTest', players, tunables: { invincible: true, ultFieldChargeTime: 4 }, bossRaid: { onlyBoss: FIXED, hpMult: 400 } });
+      advance(tg, 40);
+      const evs = drain(tg).filter(e => (e.type === 'ultCast' && e.player > 0) || (e.type === 'skillStage' && e.slot === 'ult'));
+      return JSON.stringify(evs.map(e => (e.type === 'ultCast' ? ['u', e.player, e.skillId, e.aim?.x, e.aim?.y] : ['s', (e as Ev<'skillStage'>).skillId, (e as Ev<'skillStage'>).stage, (e as Ev<'skillStage'>).hit, (e as Ev<'skillStage'>).targets])));
+    };
+    for (const mode of ['aim', 'drag'] as const) {
+      const a = digest(mode);
+      expect(a.length).toBeGreaterThan(100);
+      expect(digest(mode)).toBe(a);
+    }
+  });
 });
 
 // ─────────────────────────── render smoke (src/render/ultTest/groupB.ts) ───────────────────────────

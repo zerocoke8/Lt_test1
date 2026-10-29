@@ -60,6 +60,9 @@ import { governScale, newGovernor } from './quality';
 import { isStopped } from './statusfx';
 import { isRaidMode } from '../sim/ultTest';
 import { drawUltAimGround, drawUltAimOverlay } from './ultTest/preview';
+import { drawUltScreen, type UltFxView } from './ultTest';
+import { ultScreenBusy } from './ultTest/core';
+import { FX_LOAD, ULT_FX } from './ultTest/settings';
 
 export { Camera } from './camera';
 
@@ -155,6 +158,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const shown = readShownScale(dt);
     // 기획 13차 통합: a device that can't keep up renders fewer backing pixels (render/quality.ts)
     const cap = governScale(quality, dt, dpr);
+    FX_LOAD.low = quality.cap <= 1.25; // 기획 23차: a struggling device gets the light 궁극기 extras
     const want = Math.max(1, Math.min(2, cap, Math.round(raw * shown * 8) / 8));
     // 기획 8차 리뷰: the shake is felt in CSS px — a phone's 0.54× stage gets ~1.5× the logical kick
     vfx.juice.screenBoost = screenBoostFor(shown);
@@ -215,9 +219,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (!cam.visibleX(z.center.x, (z.area ? areaReach(z.area) : z.radius) + 1)) continue;
       // 기획 13차: a renewed skill's field is border decor only (render/marks.ts)
       const deco = vfx.marks.zone(z.id);
+      // 기획 23차: a 궁극기 테스트 alt's field bound without decor keeps the plain look below, its wash × deco.fill
+      let washK = 1;
       if (deco) {
-        if (!deco.skip) drawZoneDecor(c, cam, z, deco, time);
-        continue;
+        if (deco.decor) {
+          if (!deco.skip) drawZoneDecor(c, cam, z, deco, time);
+          continue;
+        }
+        if (deco.skip) continue;
+        washK = deco.fill;
       }
       const color =
         vfx.zoneTint(z.center.x, z.center.y) ??
@@ -245,7 +255,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         continue;
       }
       if (z.area && z.area.shape !== 'circle') {
-        drawShapedZone(z, z.area, color, fade);
+        drawShapedZone(z, z.area, color, fade, washK);
         continue;
       }
       const sx = cam.sx(z.center.x);
@@ -254,7 +264,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const ry = z.radius * PX_PER_UNIT_Y;
       c.beginPath();
       c.ellipse(sx, sy, rx, ry, 0, 0, TAU);
-      c.globalAlpha = (z.team === 'enemy' ? 0.24 : 0.18) * fade;
+      c.globalAlpha = (z.team === 'enemy' ? 0.24 : 0.18) * fade * washK;
       c.fillStyle = color;
       c.fill();
       c.globalAlpha = 0.75 * fade;
@@ -288,10 +298,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   }
 
   /** Non-circle persistent zone (3차 shapes): exact footprint, slow inner pulse, remaining-time ring at its middle. */
-  function drawShapedZone(z: GameState['zones'][number], area: AreaShape, color: string, fade: number): void {
+  function drawShapedZone(z: GameState['zones'][number], area: AreaShape, color: string, fade: number, washK = 1): void {
     const c = ctx!;
     pathArea(c, cam, z.center, null, area, 1);
-    c.globalAlpha = (z.team === 'enemy' ? 0.24 : 0.18) * fade;
+    c.globalAlpha = (z.team === 'enemy' ? 0.24 : 0.18) * fade * washK;
     c.fillStyle = color;
     c.fill();
     c.globalAlpha = 0.75 * fade;
@@ -1709,7 +1719,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const juice = vfx.juice;
     juice.update(realStep);
     vfx.updateReal(realStep);
-    if (ui.dragPreview || ui.ultAim) juice.cancelFreeze(); // 기획 22차: an aimed ult's preview is live too
+    if (ui.dragPreview || ui.ultAim) {
+      juice.cancelFreeze(); // 기획 22차: an aimed ult's preview is live too
+      juice.cancelZoom(); // 기획 23차: a finisher's zoom lets go at once
+    }
     const dt = juice.frozen && freezeOk ? 0 : realStep;
     time += dt;
     frameDt = dt;
@@ -1844,10 +1857,20 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // this frame unshaken (the frozen frames then shake it).
     const startsFreeze = juice.frozen && !ui.dragPreview && !ui.ultAim;
     const sh = startsFreeze ? ZERO_OFF : juice.offset(shakeOff);
+    const shX = sh.x; // 기획 23차 검토: the enemy warnings drawn again over the screen layer follow this shake
+    const shY = sh.y;
     if (sh.x !== 0 || sh.y !== 0) {
       c.fillStyle = '#05060a';
       c.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
       c.translate(sh.x, sh.y);
+    }
+    // 기획 23차: my 궁극기 테스트 finisher's zoom punch (s > 1 about an on-screen point never shows an edge). Never while a
+    // card or the ult button is dragged; picking (screenToWorld) ignores it on purpose.
+    const zoomed = !ui.dragPreview && !ui.ultAim && juice.zoomAt(ZOOM);
+    if (zoomed) {
+      c.translate(ZOOM.x, ZOOM.y);
+      c.scale(ZOOM.s, ZOOM.s);
+      c.translate(-ZOOM.x, -ZOOM.y);
     }
     backdrop.draw(c, cam, time, ui.dragPreview !== null);
     if (stage.active) {
@@ -1867,7 +1890,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     fieldFx.drawGround(c, cam, state, time);
     c.restore();
     if (ui.dragPreview) drawPreviewGround(ui.dragPreview, state);
-    if (ui.ultAim) drawUltAimGround(c, cam, ui.ultAim, state, time); // 기획 22차 궁극기 테스트: the aimed ult's preview
+    if (ui.ultAim) drawUltAimGround(c, cam, ui.ultAim, state, time, ui.localPlayer); // 기획 22차 궁극기 테스트: the aimed ult's preview
     for (const e of sorted) drawUnitGround(e, memos.get(e.id)!, ui.localPlayer, state);
     drawMoverRetreat(state, true);
     drawBosses(state, false);
@@ -1917,9 +1940,35 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const cut = vfx.screen.cutin;
     if (cut.needsPlacement()) cut.place(bandAvoid(state));
     vfx.drawScreen(c, cam, time);
-    // 기획 13차 리뷰: the band never hides an enemy warning (2-3 "예고선은 밝게")
-    if (cut.active && !cut.short) drawEnemyDanger(state);
+    // 기획 13차 리뷰: the band never hides an enemy warning (2-3 "예고선은 밝게"). 기획 23차: nor the 착지 컷 strip, nor a
+    // 궁극기 테스트 finisher's flash / vignette while its glyph or speed lines are up
+    const danger = (cut.active && (!cut.short || cut.landAt >= 0)) || (state.mode === 'ultTest' && ultScreenBusy());
+    // 기획 23차 검토 (궁극기 테스트 with 「궁극기 연출 강화」 on): those warnings follow the world's shake and zoom (unshaken
+    // they showed twice, ~20 px apart, while a finisher's shake / zoom died out) and go over the big glyph too (no screen
+    // layer hides an enemy warning). Everywhere else (classic, 원정, raid, the switch off) exactly as before.
+    const follow = danger && state.mode === 'ultTest' && ULT_FX.boost;
+    if (danger && !follow) drawEnemyDanger(state);
+    drawUltScreen(c, ultView(state)); // 기획 23차: the big glyph, the sight line, speed lines (궁극기 테스트 only)
+    if (follow) {
+      c.save();
+      c.translate(shX, shY);
+      if (zoomed) {
+        c.translate(ZOOM.x, ZOOM.y);
+        c.scale(ZOOM.s, ZOOM.s);
+        c.translate(-ZOOM.x, -ZOOM.y);
+      }
+      drawEnemyDanger(state);
+      c.restore();
+    }
     c.globalAlpha = 1;
+  }
+
+  /** 기획 23차: what the 궁극기 테스트 screen layer reads (one reused object). */
+  const ULT_VIEW: UltFxView = { cam, localPlayer: 0, host: vfx, state: null as unknown as GameState };
+  function ultView(state: GameState): UltFxView {
+    ULT_VIEW.localPlayer = vc.localPlayer;
+    ULT_VIEW.state = state;
+    return ULT_VIEW;
   }
 
   /** Enemy telegraphs again, over a screen-wide layer (cut-in dim / band, spotlight): danger stays readable. */
@@ -1947,6 +1996,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const y = cam.sy(t.center.y);
       const r = Math.min(areaExtent(t.area), 6) * PX_PER_UNIT_Y;
       out.push({ top: y - r, bottom: y + r, weight: 1 });
+    }
+    // 기획 23차: my 조준 ult's aimed spot (the bright hole in the dim) — the band keeps clear of it too
+    const f = vfx.screen.cutin.focus;
+    if (f) {
+      const y = cam.sy(f.y);
+      const r = f.r * PX_PER_UNIT_Y;
+      out.push({ top: y - r, bottom: y + r, weight: 2 });
     }
     return out;
   }
@@ -2020,6 +2076,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     drawOffscreenEnemies(state);
     fieldFx.drawScreen(c, cam, state, time);
     vfx.drawScreen(c, cam, time);
+    drawUltScreen(c, ultView(state)); // 기획 23차: the glyph slams on the real clock, through the stop too
     c.globalAlpha = 1;
   }
 
@@ -2089,6 +2146,8 @@ const SELF_CAST_PAD = 1.2;
 const SELF_CAST_COLOR = '#ffd60a';
 const shakeOff = { x: 0, y: 0 };
 const ZERO_OFF = { x: 0, y: 0 } as const;
+/** 기획 23차: the zoom punch of this frame (Juice.zoomAt). */
+const ZOOM = { x: 0, y: 0, s: 1 };
 const dashOff = { ox: 0, oy: 0, z: 0 };
 const offSide = { ln: 0, rn: 0, ly: 0, ry: 0, lmid: false, rmid: false };
 const CAST_DASH = [10, 7];

@@ -72,6 +72,13 @@ export function prefersReducedMotion(): boolean {
   return reducedMotion;
 }
 
+/**
+ * 기획 23차 궁극기 연출 강화 (docs/ult-fx.md 2-2, 4-5): the finisher of MY 궁극기 테스트 ult — a 0.13 s stop (× the hit-stop
+ * setting / 75 ms, at most 0.16 s; outside the per-second budget once per gapSec, a second one inside it), a 12 px shake
+ * (0.4 s) with a 4 px aftershock (0.6 s) 0.12 s later, a 5 % zoom held through the stop and eased back over 0.28 s.
+ */
+export const ULT_FINISH = { stopSec: 0.13, stopCap: 0.16, gapSec: 1.0, shake: 12, shakeDur: 0.4, tail: 4, tailDur: 0.6, tailAt: 0.12, zoom: 0.05, zoomSec: 0.28 } as const;
+
 export class Juice {
   /** Seconds of hit-stop left (real time). */
   freeze = 0;
@@ -85,6 +92,14 @@ export class Juice {
   private phase = 0;
   /** A freeze began since the last update: that update must leave at least one held frame (slow devices). */
   private fresh = false;
+  /** 기획 23차: real clock of my last ult finisher stop (one per gapSec may pass the budget). */
+  private lastFinisher = -Infinity;
+  /** 기획 23차: the finisher's zoom punch — amount, the screen point it zooms about, age / length (world clock). */
+  private zoomAmt = 0;
+  private zoomX = 0;
+  private zoomY = 0;
+  private zoomAge = 0;
+  private zoomDur = 0;
   /**
    * Shake multiplier for small screens (set by the renderer from the shown stage scale): on a phone the stage is drawn
    * at ~0.54×, so the same logical kick moves only ~half the CSS px — the renderer passes ~1.5 there (1 on desktop).
@@ -135,6 +150,54 @@ export class Juice {
     return add;
   }
 
+  /**
+   * 기획 23차: my ult finisher's stop (sec already scaled by the setting): capped at ULT_FINISH.stopCap, and outside the
+   * per-second budget unless another finisher of mine stopped within ULT_FINISH.gapSec (real clock). Returns the seconds added.
+   */
+  finisherStop(sec: number): number {
+    const free = this.now - this.lastFinisher >= ULT_FINISH.gapSec;
+    const add = this.hitStop(sec, { cap: ULT_FINISH.stopCap, ignoreBudget: free });
+    if (add > 0) this.lastFinisher = this.now;
+    return add;
+  }
+
+  /**
+   * 기획 23차: a zoom punch of `amount` (0.05 = 5 %) about the screen point (sx, sy) (logical px), held through a running
+   * stop and eased back over dur s of the world clock (tickZoom). Off with the shake setting 0 / reduced motion.
+   */
+  zoomPunch(amount: number, sx: number, sy: number, dur: number = ULT_FINISH.zoomSec): void {
+    if (!(amount > 0) || this.settings.shake <= 0 || this.reduced()) return;
+    this.zoomAmt = amount;
+    this.zoomX = sx;
+    this.zoomY = sy;
+    this.zoomAge = 0;
+    this.zoomDur = Math.max(0.05, dur);
+  }
+
+  /** 기획 23차: the zoom eases back on the world clock (render/vfx.ts update — it holds while the world is frozen). */
+  tickZoom(dt: number): void {
+    if (this.zoomAmt > 0) {
+      this.zoomAge += Math.max(0, dt);
+      if (this.zoomAge >= this.zoomDur) this.zoomAmt = 0;
+    }
+  }
+
+  /** 기획 23차: drop the zoom (a card / the ult button is being dragged). */
+  cancelZoom(): void {
+    this.zoomAmt = 0;
+  }
+
+  /** 기획 23차: the zoom this frame (scale s > 1 about x, y); false when there is none (or the settings forbid it). */
+  zoomAt(out: { x: number; y: number; s: number }): boolean {
+    if (this.zoomAmt <= 0 || this.settings.shake <= 0 || this.reduced()) return false;
+    const k = 1 - this.zoomAge / this.zoomDur;
+    if (k <= 0) return false;
+    out.x = this.zoomX;
+    out.y = this.zoomY;
+    out.s = 1 + this.zoomAmt * k * k;
+    return true;
+  }
+
   /** Drop any running freeze (the player started a new drag, the floor changed …). */
   cancelFreeze(): void {
     this.freeze = 0;
@@ -183,6 +246,7 @@ export class Juice {
     this.shakeAmp = 0;
     this.shakeAge = 0;
     this.log.length = 0;
+    this.zoomAmt = 0;
   }
 }
 

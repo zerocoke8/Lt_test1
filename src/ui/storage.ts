@@ -3,6 +3,7 @@
 import type { Tunables, UltAimMode } from '../types';
 import { type JuiceSettings, sanitizeJuice } from '../render/juice';
 import { type CutInSettings, sanitizeCutIn } from '../render/cutin';
+import { sanitizeUltFx } from '../render/ultTest/settings';
 import { CHARACTERS, PETS } from '../data';
 import { diffFromDefaults, sanitizeOverrides } from './tunables';
 
@@ -154,6 +155,18 @@ export function loadCutIn(): CutInSettings {
 
 export function saveCutIn(c: CutInSettings): void {
   write(CUTIN_KEY, sanitizeCutIn(c));
+}
+
+// ─────────────── 기획 23차: 「궁극기 연출 강화」 (궁극기 테스트 looks / sounds: 23차 or 22차), per device ───────────────
+
+export const ULT_FX_KEY = 'swap-tower.ultFx.v1';
+
+export function loadUltFx(): { boost: boolean } {
+  return sanitizeUltFx(read(ULT_FX_KEY));
+}
+
+export function saveUltFx(v: { boost: boolean }): void {
+  write(ULT_FX_KEY, sanitizeUltFx(v));
 }
 
 // ─────────────── 기획 17차 저스트 교대: device settings (진동 · 저스트 도우미 · 저스트 슬로) + the learner count ───────────────

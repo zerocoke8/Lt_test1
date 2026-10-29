@@ -7,8 +7,11 @@ import type { UltAltDef, UltAltSet } from './types';
 import { GROUP_A } from './groupA';
 import { GROUP_B } from './groupB';
 
-export type { UltAltDef, UltAltSet, UltMove } from './types';
+export type { UltAltDef, UltAltSet, UltCue, UltMove } from './types';
 export { ULT_TEST, ULT_CAST_TIME } from './types';
+// 기획 23차 궁극기 연출 강화: the beats (roles, the finisher) of an alt, read from its data (beats.ts)
+export type { UltBeat, UltBeatRole, UltBeats } from './beats';
+export { footprintRadius, ultBeatOf, ultBeats } from './beats';
 
 /** Characters of each content group, in roster order (docs/ult-test.md 5-1; tests check the split covers the roster). */
 export const ULT_GROUP_A_IDS: readonly string[] = ['guardian', 'paladin', 'warden', 'blade', 'berserker', 'shadow', 'ranger', 'mage'];

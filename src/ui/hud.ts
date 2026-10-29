@@ -64,6 +64,8 @@ const SHEET_MS = 7000;
 const SHEET_W = 520;
 const SHEET_EDGE = 12;
 const SHEET_CLEAR = 46;
+/** 기획 23차 검토 (궁극기 테스트): the sheet's top stays at least this far inside the stage (logical px). */
+const SHEET_TOP_MIN = 6;
 /** "카드를 길게 누르면 스킬 정보" pill at the start of floor 1, until the player has opened the sheet once. */
 const TIP_ID = 'skillSheet';
 const TIP_MS = 9000;
@@ -643,6 +645,7 @@ export class Hud {
   closeSheet(): void {
     this.sheetIdx = -1;
     show(this.sheet, false);
+    this.sheet.style.bottom = ''; // 기획 23차 검토: openSheet's push-down
   }
 
   /** My field character's x on screen (logical px); the screen centre when unknown / field empty. */
@@ -695,8 +698,10 @@ export class Hud {
       ultRow.summary = alt ? skillSummary(alt) : `${ULT_FALLBACK_LINE[um]} ${skillSummary(def.ult)}`;
     }
     // two lines per skill: type · name · trigger · live, then the whole effect line (wraps, never cut off)
+    // 기획 23차 검토: the 조준 / 드래그 ult row's long type badge (「궁극기 · 드래그」, 3 lines in its 70 px column) spans
+    // both lines of the row (ss-alt) instead of making the first one 3 lines tall
     this.sheetRows = rows.map(r => {
-      const row = h('div', `ss-row ss-${r.kind}`, this.sheet);
+      const row = h('div', `ss-row ss-${r.kind}${r === ultRow ? ' ss-alt' : ''}`, this.sheet);
       h('span', 'ss-type', row, r.type);
       h('b', 'ss-skill', row, r.name);
       const trigger = h('span', 'ss-trigger', row, r.trigger);
@@ -705,6 +710,13 @@ export class Hud {
       return { kind: r.kind, live, trigger };
     });
     show(this.sheet, true);
+    // 기획 23차 검토: the 궁극기 테스트 ult lines are longer — a sheet that would run off the top of the stage comes down
+    // just enough (it may cover the top of the card row: it never takes a touch). Elsewhere it stays where it was.
+    this.sheet.style.bottom = '';
+    if (s.mode === 'ultTest') {
+      const top = this.sheet.offsetTop;
+      if (top < SHEET_TOP_MIN) this.sheet.style.bottom = `${parseFloat(getComputedStyle(this.sheet).bottom) - (SHEET_TOP_MIN - top)}px`;
+    }
     replayClass(this.sheet, 'is-new');
     sfx.ui('ui.sheet.open');
     this.updateSheet(s, me);
