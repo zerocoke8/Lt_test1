@@ -2,9 +2,12 @@
 // (844×390) — the real game, a real finger on the ult button (CDP touch events, like tests/e2e/ult-test.spec.ts).
 // Per character and mode: open /?mode=ultTest&ult=<mode>&chars=<char>,<a>,<b>&boss=<boss> → start the solo run
 // (invincible party) → 「궁극기 충전」 (debug) → hold the ult button and drag it onto the field → picture of the live
-// preview while the finger is still down → release → pictures 0.6 s and 1.3 s (game time) after the release
-// (times= changes them, e.g. times=0.1,0.6,1.3 also catches the 드래그 dash streak).
-// One row a character: [preview | +0.6 s | +1.3 s]; five characters a file:
+// preview while the finger is still down → release → pictures after the release (game time).
+// 기획 23차 (docs/ult-fx.md 5-2): the pictures of a row follow its ult's beats (src/data/ultTest/beats.ts, read from the
+// dev server's own module): 0.25 s (the touchdown · 착지 컷) → 0.5 s (the first hit) → finisher + 0.05 s (the frozen
+// blow) → finisher + 0.8 s (the floor mark), so rows may differ; each tile says its time. times= sets one list for
+// every row (e.g. times=0.1,0.6,1.3); a server without the source modules (a build) falls back to 0.25,0.5,1.35,2.1.
+// One row a character: [preview | 0.25 s | 0.5 s | finisher + 0.05 s | finisher + 0.8 s]; five characters a file:
 //   docs/screenshots/ult-test-sheet-aim.png (가디언 … 버서커), -aim-2.png (섀도우 … 클레릭), -aim-3.png (메딕 … 퍼펫티어),
 //   and the same for drag. A red frame = the cast did not happen / the preview was not "놓으면 …" / the dragged
 // character did not land where the preview said. The console prints one line a shot (preview numbers vs the cast).
@@ -16,8 +19,8 @@
 // Options: only= (character ids), modes= (aim,drag), boss= (default elevator_keeper: fixed, top centre), point=x,y (the
 // aimed world point; default = just in front of the boss, a little to the right), out= (folder, default
 // docs/screenshots), per= (characters a file, default 5), scale= (tile = phone × this, default 0.6), raw= (also keep
-// every full-size picture there), times= (seconds after the release, default 0.6,1.3), banner=1 (keep the floor-start
-// banner, hidden by default because it covers the preview), port= (own dev server port).
+// every full-size picture there), times= (seconds after the release, default: from the beats, see above), banner=1 (keep
+// the floor-start banner, hidden by default because it covers the preview), port= (own dev server port).
 // The landing check (red frame) is taken 0.15 s after the release: a 드래그 must stand at the preview's landing spot, or
 // at the end of the last dash the preview drew (a part that rushes on).
 import { chromium } from '@playwright/test';
@@ -35,7 +38,18 @@ const PER = Number(args.per ?? 5);
 const SCALE = Number(args.scale ?? 0.6);
 const RAW = args.raw ?? null;
 const POINT = args.point ? args.point.split(',').map(Number) : null;
-const TIMES = (args.times ?? '0.6,1.3').split(',').map(Number);
+/** times= (one list for every row) or null = each row from its ult's beats. */
+const TIMES = args.times ? args.times.split(',').map(Number) : null;
+/** No beats to read (a build without the source modules): these. */
+const FALLBACK_TIMES = [0.25, 0.5, 1.35, 2.1];
+/** 기획 23차: the row's pictures (s after the release) and what each shows. */
+const BEAT_SHOTS = [
+  { at: () => 0.25, label: () => '0.25초 (착지 · 착지 컷)' },
+  { at: () => 0.5, label: () => '0.5초 (첫 타)' },
+  { at: f => f + 0.05, label: f => `마무리 ${f}+0.05초 (멈춘 쾅)` },
+  { at: f => f + 0.8, label: f => `마무리 ${f}+0.8초 (여운)` },
+];
+const PER_ROW = 1 + (TIMES ? TIMES.length : BEAT_SHOTS.length);
 
 /** Roster order (src/data/characters.ts). */
 const CHARS = [
@@ -134,6 +148,21 @@ async function shoot(id, name, mode) {
       win: { w: innerWidth, h: innerHeight },
     };
   });
+  // 기획 23차: this ult's picture times (its finisher from the beats), unless times= says otherwise
+  const alt = `${id}_u${mode === 'aim' ? 'a' : 'd'}`;
+  const fin = TIMES
+    ? null
+    : await page
+        .evaluate(async a => {
+          const m = await import('/src/data/ultTest/index.ts');
+          return m.ultBeats(a)?.finisherAt ?? null;
+        }, alt)
+        .catch(() => null);
+  const shots = TIMES
+    ? TIMES.map(t => ({ t, label: `놓고 ${t}초` }))
+    : fin == null
+      ? FALLBACK_TIMES.map(t => ({ t, label: `놓고 ${t}초` }))
+      : BEAT_SHOTS.map(b => ({ t: Math.round(b.at(fin) * 1000) / 1000, label: b.label(fin) }));
   const pre = await page.screenshot();
   await touch('touchEnd', null);
   await cdp.detach();
@@ -143,9 +172,14 @@ async function shoot(id, name, mode) {
   const LANDED = 0.15;
   const after = [];
   let landed = null;
-  for (const t of [...new Set([...TIMES, LANDED])].sort((a, b) => a - b)) {
+  for (const t of [...new Set([...shots.map(x => x.t), LANDED])].sort((a, b) => a - b)) {
     await waitGameTime(t0 + t);
-    if (TIMES.includes(t)) after.push({ t, png: await page.screenshot() });
+    for (const sh of shots) {
+      if (sh.t !== t) continue;
+      // the game runs on while the picture is taken: the console says when it really was (game time)
+      const g = (await gameTime()) - t0;
+      after.push({ t, label: sh.label, png: await page.screenshot(), took: [g, (await gameTime()) - t0] });
+    }
     if (t === LANDED)
       landed = await page.evaluate(() => {
         const s = window.__proto.game.state;
@@ -173,6 +207,8 @@ async function shoot(id, name, mode) {
     `${id.padEnd(9)} ${MODE_LABEL[mode]} · ${view.ultName} · 버튼 「${view.pct}」 · 글자 「${view.tag?.text ?? '-'}」 · 부분 ${parts}` +
     (view.v?.move ? ` · 이동 ${view.v.move.kind} → ${view.v.move.to.x.toFixed(1)},${view.v.move.to.y.toFixed(1)}` : '') +
     ` · 겨눈 곳 ${view.v ? `${view.v.point.x.toFixed(1)},${view.v.point.y.toFixed(1)}` : '-'} · 시작 ${setup.field.x.toFixed(1)},${setup.field.y.toFixed(1)}` +
+    (fin != null ? ` · 마무리 ${fin}초` : '') +
+    ` · 찍은 때 ${after.map(a => `${a.took[0].toFixed(2)}~${a.took[1].toFixed(2)}`).join(' / ')}` +
     (landed ? ` · 0.15초 뒤 ${landed.x.toFixed(1)},${landed.y.toFixed(1)}` : '') +
     (problems.length ? `  ✗ ${problems.join(' / ')}` : '');
   console.log(line);
@@ -184,7 +220,7 @@ async function shoot(id, name, mode) {
   }
   return [
     { png: pre, label: `${head} · 미리보기${bad ? ` ✗ ${problems.join(', ')}` : ''}`, bad },
-    ...after.map(a => ({ png: a.png, label: `${name} · 놓고 ${a.t}초`, bad: !cast })),
+    ...after.map(a => ({ png: a.png, label: `${name} · ${a.label}`, bad: !cast })),
   ];
 }
 
@@ -195,7 +231,7 @@ try {
     for (let f = 0; f * PER < rows.length; f++) {
       const shots = rows.slice(f * PER, f * PER + PER).flat();
       const out = path.join(OUT_DIR, `ult-test-sheet-${mode}${f === 0 ? '' : `-${f + 1}`}.png`);
-      await writeSheet(page, shots, out, { scale: SCALE, per: 1 + TIMES.length, label: 22 });
+      await writeSheet(page, shots, out, { scale: SCALE, per: PER_ROW, label: 22 });
       console.log(out);
     }
   }

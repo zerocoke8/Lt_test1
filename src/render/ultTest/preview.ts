@@ -6,12 +6,17 @@
 //    dash = solid, with its hit band) and a ghost ring where it lands;
 //  - a ring on the enemy the ult's 'target' parts would hit;
 //  - cancel (finger back on the button): everything grey; not over the field: red.
+//  - 기획 23차 (「궁극기 연출 강화」, docs/ult-fx.md 2-4): the part the finisher lands on gets a second rim inside its own
+//    and a blinking dot at its middle — where the big blow falls (strokes only, never past the real footprint).
 
-import type { GameState, UltAimView } from '../../types';
-import { ULT_TEST } from '../../data/ultTest';
+import type { GameState, UltAimView, Vec2 } from '../../types';
+import { ULT_TEST, ultAlt, ultBeats } from '../../data/ultTest';
+import { areaCentroid } from '../../sim/geometry';
 import type { Camera } from '../camera';
 import { ALLY_TINT, drawAreaDirection } from '../preview';
-import { drawGroundArrow, groundEllipse, pathArea } from '../shapes';
+import { TAU, drawGroundArrow, groundEllipse, pathArea } from '../shapes';
+import { insetArea } from './decals';
+import { ULT_FX } from './settings';
 
 const INVALID = '#ef4444';
 const CANCEL = '#9aa3b2';
@@ -21,8 +26,8 @@ function tint(view: UltAimView): string {
   return view.cancel ? CANCEL : view.valid ? view.color : INVALID;
 }
 
-/** Ground layer: footprints, the aim line / move arrow, the target ring. */
-export function drawUltAimGround(ctx: CanvasRenderingContext2D, cam: Camera, view: UltAimView, state: GameState, time: number): void {
+/** Ground layer: footprints, the aim line / move arrow, the target ring. lp = whose preview (the finisher's rim). */
+export function drawUltAimGround(ctx: CanvasRenderingContext2D, cam: Camera, view: UltAimView, state: GameState, time: number, lp = -1): void {
   const color = tint(view);
   const live = view.valid && !view.cancel;
   const hasEnemy = view.parts.some(p => p.affects === 'enemies');
@@ -71,6 +76,11 @@ export function drawUltAimGround(ctx: CanvasRenderingContext2D, cam: Camera, vie
       ctx.setLineDash([]);
     }
     drawAreaDirection(ctx, cam, p.center, p.area, '#ffffff', live ? 0.9 : 0.6, live ? time : 0, false);
+  }
+  // 2b) 기획 23차: the finisher's part — a second rim and a blinking dot
+  if (live && ULT_FX.boost) {
+    const fp = view.parts[finisherPart(view, state, lp)];
+    if (fp && !isWhole(fp.area)) drawFinisherMark(ctx, cam, fp, time);
   }
   // 3) dash paths of the parts
   for (const p of view.parts) if (p.dash) drawGroundArrow(ctx, cam, p.dash.from.x, p.dash.from.y, p.dash.to.x, p.dash.to.y, '#ffffff', 5, 22, 1, live ? 1 : 0.6);
@@ -170,4 +180,86 @@ export function drawUltAimOverlay(ctx: CanvasRenderingContext2D, cam: Camera, vi
 
 function isWhole(a: UltAimView['parts'][number]['area']): boolean {
   return a.shape === 'circle' && a.radius >= ULT_TEST.wholeField;
+}
+
+/**
+ * 기획 23차: which preview part the finisher is (index into view.parts), −1 = none (a fallback, nobody on the field).
+ * The parts follow the alt's actions in order without the 'woundedAlly' and self-only ones (src/sim/ultTest.ts
+ * ultPreviewParts), so the finisher's action index maps onto them.
+ */
+export function finisherPart(view: UltAimView, state: GameState, lp: number): number {
+  const p = state.players[lp];
+  const defId = p && p.activeIndex != null ? p.party[p.activeIndex]?.defId : undefined;
+  const alt = defId ? ultAlt(defId, view.mode) : null;
+  const b = alt ? ultBeats(alt.id) : null;
+  if (!alt || !b || b.finisher < 0) return -1;
+  let k = 0;
+  for (let i = 0; i < alt.actions.length; i++) {
+    const a = alt.actions[i];
+    if (a.center === 'woundedAlly' || a.affects === 'self') {
+      if (i === b.finisher) return -1;
+      continue;
+    }
+    if (i === b.finisher) return k < view.parts.length ? k : -1;
+    k++;
+  }
+  return -1;
+}
+
+/** The middle of a part (a line / fan: half way along from where it starts; a rect / cone: its centroid). */
+function partMiddle(p: UltAimView['parts'][number], out: Vec2): Vec2 {
+  const a = p.area;
+  if ((a.shape === 'line' || a.shape === 'fan') && p.origin) {
+    const dx = p.center.x - p.origin.x;
+    const dy = p.center.y - p.origin.y;
+    const d = Math.hypot(dx, dy);
+    const half = (a.shape === 'line' ? a.length : a.radius) / 2;
+    if (d > 1e-4) {
+      out.x = p.origin.x + (dx / d) * half;
+      out.y = p.origin.y + (dy / d) * half;
+      return out;
+    }
+  }
+  const c = a.shape === 'rect' || a.shape === 'cone' ? areaCentroid(a, p.center) : p.center;
+  out.x = c.x;
+  out.y = c.y;
+  return out;
+}
+const MID: Vec2 = { x: 0, y: 0 };
+
+/** The finisher's part: its own rim again in white, a second rim just inside it, a blinking dot at its middle. */
+function drawFinisherMark(ctx: CanvasRenderingContext2D, cam: Camera, p: UltAimView['parts'][number], time: number): void {
+  const blink = 0.5 + 0.5 * Math.sin(time * 9);
+  for (const k of [1, 0.84]) {
+    pathArea(ctx, cam, p.center, p.origin, k === 1 ? p.area : insetArea(p.area, k), 1);
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = DARK;
+    ctx.stroke();
+    ctx.globalAlpha = k === 1 ? 0.95 : 0.6 + 0.35 * blink;
+    ctx.lineWidth = k === 1 ? 3 : 2.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+  }
+  partMiddle(p, MID);
+  const x = cam.sx(MID.x);
+  const y = cam.sy(MID.y);
+  // the dot, and a small ring leaving it now and then
+  const ring = (time * 1.4) % 1;
+  ctx.beginPath();
+  ctx.arc(x, y, 7 + 12 * ring, 0, TAU);
+  ctx.globalAlpha = 0.8 * (1 - ring);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, 5 + 2.5 * blink, 0, TAU);
+  ctx.globalAlpha = 0.7;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = DARK;
+  ctx.stroke();
+  ctx.globalAlpha = 0.55 + 0.45 * blink;
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.globalAlpha = 1;
 }

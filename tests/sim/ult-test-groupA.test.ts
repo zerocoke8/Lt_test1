@@ -5,10 +5,12 @@
 //  - every character × 조준 / 드래그 cast for real in a 궁극기 테스트 game against a boss: the cast carries the alt id, every
 //    part lands where the live preview says (the aimed point / the landing spot), the drag honours maxRange and the
 //    arena clamp, something real happens (damage + the design's own ally effects), 10 s more run clean;
-//  - the same on a roaming and an arena boss (src/data/bosses/forms.ts), and bots playing them in both modes.
+//  - the same on a roaming and an arena boss (src/data/bosses/forms.ts), and bots playing them in both modes;
+//  - 기획 23차 (docs/ult-fx.md 3장 A1–A16): every alt's climax (`finale`, 0.8–2.45 s), the renamed beats, the new and
+//    retimed parts landing when and where the tables say (성채 전개 · 성벽 돌파 · 철창 1초 · 혈귀 낙하 · 용암 분출 · 고드름).
 import { describe, expect, it } from 'vitest';
 import { getCharacter } from '../../src/data';
-import { ULT_CAST_TIME, ULT_GROUP_A_IDS, ULT_TEST, ultAlt, ultAltBySkill, type UltAltDef } from '../../src/data/ultTest';
+import { ULT_CAST_TIME, ULT_GROUP_A_IDS, ULT_TEST, ultAlt, ultAltBySkill, ultBeats, type UltAltDef } from '../../src/data/ultTest';
 import { GROUP_A } from '../../src/data/ultTest/groupA';
 import { ARENA_MARGIN } from '../../src/sim/constants';
 import { dashEnd } from '../../src/sim/geometry';
@@ -471,6 +473,137 @@ describe('boss forms: a roaming and an arena boss', () => {
       }
     });
   }
+});
+
+// ─────────────────────────── 기획 23차: the climax, the renamed beats, the new / retimed parts (docs/ult-fx.md 3장 A1–A16) ───────────────────────────
+
+type StageEv = Extract<GameEvent, { type: 'skillStage' }>;
+
+/** Cast for real (as the fixed-boss test does) and watch every skillStage of mine for `secs`, with its time after the release. */
+function watch(id: string, mode: Mode, secs: number): { tg: TestGame; plan: NonNullable<ReturnType<typeof planUlt>>; from: Vec2; stopped: Vec2; stages: { t: number; ev: StageEv }[] } {
+  const tg = ultGame(id, mode, FIXED);
+  const s = tg.w.state;
+  const me = activeEntity(tg.w, s.players[0])!;
+  const boss = bossOf(tg);
+  const from = { x: me.pos.x, y: me.pos.y };
+  const P = mode === 'aim' ? { x: boss.pos.x, y: boss.pos.y } : { x: boss.pos.x - 1, y: boss.pos.y + boss.radius + 1 };
+  const aim: UltAim = { mode, point: P };
+  const plan = planUlt(s, 0, aim)!;
+  expect(tg.game.dispatch({ type: 'ult', player: 0, aim }).ok).toBe(true);
+  const stopped = { x: me.pos.x, y: me.pos.y }; // where the move / a rush left it at the release
+  clearEvents(tg);
+  const stages: { t: number; ev: StageEv }[] = [];
+  const dt = 1 / 30;
+  for (let t = dt; t <= secs + 1e-9; t += dt) {
+    advance(tg, dt);
+    for (const e of drain(tg)) if (e.type === 'skillStage' && e.player === 0 && e.hit === 0) stages.push({ t, ev: e });
+    tg.events.length = 0;
+  }
+  return { tg, plan, from, stopped, stages };
+}
+
+/** The first landing of a stage (by its order among the stage's parts). */
+const landing = (w: ReturnType<typeof watch>, skillId: string, stage: string, nth = 0) => w.stages.filter(x => x.ev.skillId === skillId && x.ev.stage === stage)[nth];
+const unit = (a: Vec2, b: Vec2) => {
+  const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
+};
+
+describe('기획 23차: the climax and the beats', () => {
+  it('every alt names its finale (an enemy stage) and the climax lands between 0.8 and 2.45 s; its sound overrides are its own stages', () => {
+    for (const id of IDS) {
+      for (const mode of MODES) {
+        const def = alt(id, mode);
+        expect(def.finale, def.id).toBeTruthy();
+        expect(def.actions.some(a => a.stage === def.finale && a.affects === 'enemies'), `${def.id} finale ${def.finale}`).toBe(true);
+        const b = ultBeats(def.id)!;
+        expect(b.beats[b.finisher].stage, def.id).toBe(def.finale);
+        expect(b.finisherKind, def.id).toBe('strike');
+        expect(b.finisherAt, def.id).toBeGreaterThanOrEqual(0.8 - 1e-9);
+        expect(b.finisherAt, def.id).toBeLessThanOrEqual(2.45 + 1e-9);
+        for (const key of Object.keys(def.sfx ?? {})) {
+          if (key === '_path') expect(def.move?.path, `${def.id} sfx _path`).toBeDefined();
+          else expect(def.actions.some(a => a.stage === key), `${def.id} sfx ${key}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('each beat has its own stage name (the renames of 3장): the drag skill rows play the matching sounds', () => {
+    const stages = (d: UltAltDef) => d.actions.map(a => a.stage);
+    expect(stages(alt('guardian', 'aim'))).toEqual(['aegis', 'rally', 'citadel', 'wave', 'barrier', 'barrier']);
+    expect(stages(alt('guardian', 'drag'))).toEqual(['slam', 'aegis', 'citadel', 'barrier', 'barrier', 'wave']);
+    expect(alt('guardian', 'drag').move?.path?.stage).toBe('rally');
+    expect(stages(alt('paladin', 'drag'))).toEqual(['brand', 'blessing', 'tribunal', 'core']);
+    expect(alt('paladin', 'drag').move?.path?.stage).toBe('blessing');
+    expect(alt('paladin', 'drag').sfx).toEqual({ _path: null });
+    expect(stages(alt('blade', 'drag'))).toEqual(['dash', 'return', 'issen']);
+    expect(stages(alt('berserker', 'aim'))).toEqual(['split', 'frenzy', 'roar', 'quake', 'finale']);
+    expect(stages(alt('berserker', 'drag'))).toEqual(['slam', 'frenzy', 'split', 'quake', 'quake', 'quake']);
+    expect(stages(alt('shadow', 'drag'))).toEqual(['clone', 'clone', 'clone', 'clone', 'vanish', 'execute', 'moon']);
+    expect(stages(alt('ranger', 'drag'))).toEqual(['volley', 'pierce']);
+    expect(stages(alt('mage', 'aim'))).toEqual(['blizzard', 'hail', 'hail', 'hail', 'hail', 'hail', 'freeze', 'shatter']);
+    // the paladin's eight spears warn only briefly (the falling spear is the warning)
+    for (const a of alt('paladin', 'aim').actions.filter(x => x.stage === 'spear')) expect(a.telegraphLead).toBe(0.15);
+  });
+
+  it('가디언: 성채 전개 bursts on the aimed point at 1.5 s; 성벽 돌파 surges from 1.5 in front of the wall at 1.6 s', () => {
+    const a = watch('guardian', 'aim', 1.7);
+    const wave = landing(a, 'guardian_ua', 'wave');
+    expect(wave.t).toBeCloseTo(1.5, 1);
+    expect(near(wave.ev.center, a.plan.point, 1e-6)).toBe(true);
+    expect(landing(a, 'guardian_ua', 'citadel').t).toBeCloseTo(0.85, 1);
+    const d = watch('guardian', 'drag', 1.8);
+    const u = unit(d.from, d.plan.point);
+    const surge = landing(d, 'guardian_ud', 'wave');
+    expect(surge.t).toBeCloseTo(1.6, 1);
+    expect(near(surge.ev.center, { x: d.plan.point.x + u.x * 1.5, y: d.plan.point.y + u.y * 1.5 }, 1e-6)).toBe(true);
+    expect(near(landing(d, 'guardian_ud', 'slam').ev.center, d.plan.point, 1e-6)).toBe(true);
+  });
+
+  it('워든 조준: the cage falls at 1 s (after the reel-in), the release at 6 s', () => {
+    const w = watch('warden', 'aim', 6.1);
+    expect(landing(w, 'warden_ua', 'hook').t).toBeCloseTo(0.45, 1);
+    expect(landing(w, 'warden_ua', 'cage').t).toBeCloseTo(1, 1);
+    expect(landing(w, 'warden_ua', 'release').t).toBeCloseTo(6, 1);
+  });
+
+  it('버서커: 혈귀 낙하 slams where the rush stopped at 1.5 s; the drag erupts three times along the crack (3 · 6 · 9 cells, 1.25 / 1.38 / 1.5 s)', () => {
+    const a = watch('berserker', 'aim', 1.6);
+    const quake = landing(a, 'berserker_ua', 'quake');
+    expect(quake.t).toBeCloseTo(1.5, 1);
+    expect(near(quake.ev.center, a.stopped, 1e-6)).toBe(true);
+    expect(landing(a, 'berserker_ua', 'split').t).toBeCloseTo(0.45, 1);
+    const d = watch('berserker', 'drag', 1.6);
+    const u = unit(d.from, d.plan.point);
+    const times = [1.25, 1.38, 1.5];
+    for (const [i, x] of [3, 6, 9].entries()) {
+      const g = landing(d, 'berserker_ud', 'quake', i);
+      expect(g, `geyser ${i}`).toBeDefined();
+      expect(g.t).toBeCloseTo(times[i], 1);
+      expect(near(g.ev.center, { x: d.plan.point.x + u.x * x, y: d.plan.point.y + u.y * x }, 1e-6), `geyser ${i}`).toBe(true);
+    }
+    expect(d.stages.some(x => x.ev.stage === 'finale')).toBe(false); // the old 10-cell aftershock is gone
+  });
+
+  it('메이지 조준: the blizzard 2 s, five icicles inside the fan (0.9 → 1.7 s), freeze 2.05 s, shatter 2.45 s', () => {
+    const m = watch('mage', 'aim', 2.6);
+    const u = unit(m.from, m.plan.point);
+    const icicles = m.stages.filter(x => x.ev.skillId === 'mage_ua' && x.ev.stage === 'hail');
+    expect(icicles.map(x => Math.round(x.t * 10) / 10)).toEqual([0.9, 1.1, 1.3, 1.5, 1.7]);
+    for (const ic of icicles) {
+      // inside the fan (radius 8, 80°) the mage cast from
+      const dx = ic.ev.center.x - m.from.x;
+      const dy = ic.ev.center.y - m.from.y;
+      const dist = Math.hypot(dx, dy);
+      expect(dist).toBeLessThanOrEqual(8);
+      expect((dx * u.x + dy * u.y) / dist).toBeGreaterThan(Math.cos((40 * Math.PI) / 180));
+    }
+    expect(landing(m, 'mage_ua', 'freeze').t).toBeCloseTo(2.05, 1);
+    expect(landing(m, 'mage_ua', 'shatter').t).toBeCloseTo(2.45, 1);
+    // the fan's field is gone by then (2 s from 0.45)
+    expect(m.tg.w.state.zones.some(z => z.ownerPlayer === 0 && z.area?.shape === 'cone')).toBe(false);
+  });
 });
 
 describe('bots', () => {

@@ -10,7 +10,10 @@ import { DASH_LAND } from '../render/dashtime';
 import { stageCues, type Cue } from './stages';
 import { bossSkillKind } from './synth/bossVoices';
 import { fieldUltGauge } from '../sim/ultMode';
-import { ultAltEntries } from '../data/ultTest';
+import { type UltAltDef, type UltBeats, type UltCue, ultAltBySkill, ultAltEntries, ultBeats } from '../data/ultTest';
+// 기획 23차: the device switch and the alts' looks (when a dragged one touches down) — neither file imports the renderer
+import { ULT_FX } from '../render/ultTest/settings';
+import { TOUCHDOWN, touchdownAt, ultLook } from '../render/ultTest/stories';
 
 export interface SoundReq {
   id: string;
@@ -131,13 +134,21 @@ interface SkillInfo {
   slot: 'normal' | 'drag' | 'ult';
   /** 기획 22차: a character's own 조준 / 드래그 ult — its own actions (stage names shared with the ult get its cues). */
   actions?: readonly SkillAction[];
+  /**
+   * 기획 23차: the drag path of a 드래그 alt (skill id `<alt>_path`) — heard only with 「궁극기 연출 강화」 on (it was
+   * silent in 22차, and stays so with the switch off).
+   */
+  path?: true;
 }
 const SKILLS = new Map<string, SkillInfo>();
 for (const c of CHARACTERS) for (const slot of ['normal', 'drag', 'ult'] as const) SKILLS.set(c[slot].id, { char: c.id, role: c.role, slot });
 for (const [charId, set] of ultAltEntries()) {
   const role = CHARACTERS.find(c => c.id === charId)?.role;
   if (!role) continue;
-  for (const def of [set.aim, set.drag]) if (def && !SKILLS.has(def.id)) SKILLS.set(def.id, { char: charId, role, slot: 'ult', actions: def.actions });
+  for (const def of [set.aim, set.drag]) {
+    if (def && !SKILLS.has(def.id)) SKILLS.set(def.id, { char: charId, role, slot: 'ult', actions: def.actions });
+    if (def && !SKILLS.has(`${def.id}_path`)) SKILLS.set(`${def.id}_path`, { char: charId, role, slot: 'ult', actions: [], path: true });
+  }
 }
 /**
  * A stage's cues. 기획 22차: a character's own 조준 / 드래그 ult (info.actions) looks in its character's ult row first,
@@ -147,6 +158,48 @@ function cuesOf(info: SkillInfo, slot: 'drag' | 'ult', stage: string): ReturnTyp
   const own = stageCues(info.char, slot, stage);
   return own === undefined && info.actions && slot === 'ult' ? stageCues(info.char, 'drag', stage) : own;
 }
+
+/**
+ * 기획 23차 (docs/ult-fx.md 2-7): the cues of an alt's stage with 「궁극기 연출 강화」 on — the alt's own `sfx` (the path
+ * beat: its '_path' entry first; null = silent) → the character's ult row → its drag row; undefined = none anywhere
+ * (the role defaults below). `fin` = the stage is the alt's `finale` (only those reach other players); a row's own
+ * `fin` is dropped. Cached per def object (a test fixture gets its own).
+ */
+function altCues(def: UltAltDef, char: string, stage: string, path: boolean): readonly Cue[] | undefined {
+  let byDef = ALT_CUES.get(def);
+  if (!byDef) ALT_CUES.set(def, (byDef = new Map()));
+  const key = `${path ? '_path|' : ''}${stage}`;
+  if (byDef.has(key)) return byDef.get(key) ?? undefined;
+  const sfx = def.sfx;
+  let raw: UltCue | readonly UltCue[] | null | undefined;
+  if (path && sfx && Object.prototype.hasOwnProperty.call(sfx, '_path')) raw = sfx._path;
+  else if (sfx && Object.prototype.hasOwnProperty.call(sfx, stage)) raw = sfx[stage];
+  let list: readonly Cue[] | undefined;
+  if (raw !== undefined) list = raw == null ? [] : ((Array.isArray(raw) ? raw : [raw]) as readonly Cue[]);
+  else list = stageCues(char, 'ult', stage) ?? stageCues(char, 'drag', stage);
+  const fin = !path && stage === def.finale;
+  const out = list?.map(c => {
+    const q: Cue = { ...c };
+    if (fin) q.fin = true;
+    else delete q.fin;
+    return q;
+  });
+  byDef.set(key, out ?? null);
+  return out;
+}
+const ALT_CUES = new WeakMap<UltAltDef, Map<string, readonly Cue[] | null>>();
+
+/** 기획 23차: the alt beats of a skill event when 「궁극기 연출 강화」 is on (null: today's skill / a fallback / off). */
+function altBeats(info: SkillInfo | undefined, skillId: string): UltBeats | null {
+  return ULT_FX.boost && info?.actions ? ultBeats(skillId) : null;
+}
+
+/**
+ * 기획 23차 (2-7): the alt sound rules' numbers — my finisher's breath (the effect bus −10 dB for 0.18 s before it),
+ * the music −10 dB from 0.2 s before a finisher later than 1.2 s for 0.8 s, drag.crunch −3 dB on 2+ enemies, a cue-less
+ * finisher's ult._role 0.5 s early, a cue-less beat's drag._role −4 dB, the touchdown −2 dB, my blink −3 dB.
+ */
+export const ALT_SOUND = { duck: [-10, 0.18] as const, bgDb: -10, bgFrom: 0.2, bgHold: 0.8, bgLate: 1.2, crunchDb: -3, crunchTargets: 2, roleLead: 0.5, roleDb: -4, touchDb: -2, blinkDb: -3 } as const;
 const CHAR_ROLE = new Map<string, Role>(CHARACTERS.map(c => [c.id, c.role]));
 const RANGED_CHARS = new Set(CHARACTERS.filter(c => c.basic.kind !== 'melee').map(c => c.id));
 const PET_IDS = new Set(PETS.map(p => p.id));
@@ -236,6 +289,10 @@ export class Director {
   private stasisTill = 0;
   /** 기획 17차: telegraphs of my 저스트 — their landing whiffs on the empty spot (just.whiff). */
   private readonly whiffs = new Set<number>();
+  /** 기획 23차: my dragged alt was cast this frame — its caster's next dash / blink (same batch) is the ult's move. */
+  private readonly altMove = new Map<number, string>();
+  /** 기획 23차: `<caster>|<alt>` whose cue-less role sound already played this cast (once per cast). */
+  private readonly altRole = new Set<string>();
 
   reset(): void {
     this.snap = null;
@@ -255,6 +312,8 @@ export class Director {
     this.rewardShown = false;
     this.stasisTill = 0;
     this.whiffs.clear();
+    this.altMove.clear();
+    this.altRole.clear();
   }
 
   /** Loops were cut (pause / scene change): the watchers restart what should be playing. */
@@ -275,6 +334,7 @@ export class Director {
     const pending: { center: Vec2; info: TeleInfo }[] = [];
     for (const e of events) this.onEvent(ctx, e, pending);
     if (!fresh && prev) this.watch(ctx, prev, interrupted, pending);
+    this.altMove.clear(); // 기획 23차: a dragged alt's move comes in the same batch as its ultCast, or never
     this.loops(ctx);
     this.snap = takeSnap(s, view.localPlayer, this.snap);
     out.sounds = mergeFrame(out.sounds);
@@ -312,6 +372,11 @@ export class Director {
         c.duck('sfx', -8, 0, 1.2, 0.04, 0.4);
         this.ultDuckUntil = c.now + ULT_DUCK_SEC;
         c.duck('bg', -14, 0, 1.2, 0.04, 0.4);
+        // 기획 23차: my own 조준 / 드래그 design — a new cast (its role sound may play again); a 드래그 one's move follows
+        if (ULT_FX.boost && e.aim?.alt) {
+          this.altRole.delete(`${e.entityId}|${e.skillId}`);
+          if (e.aim.mode === 'drag') this.altMove.set(e.entityId, e.skillId);
+        }
         return;
       case 'statusApplied': {
         if (e.player !== c.lp) return;
@@ -342,6 +407,7 @@ export class Director {
       case 'dash':
         return this.onDash(c, e);
       case 'blink': {
+        if (this.altMove.size && this.altMoveSound(c, e.entityId, 'blink', e.to)) return;
         const m = c.ent(e.entityId);
         if (m && m.team === 'enemy') c.play('mon.blink', { pan: c.pan(e.to) });
         return;
@@ -517,6 +583,7 @@ export class Director {
   }
 
   private onDash(c: FrameCtx, e: Extract<GameEvent, { type: 'dash' }>): void {
+    if (this.altMove.size && this.altMoveSound(c, e.entityId, 'dash', e.to)) return;
     const m = c.ent(e.entityId);
     if (!m) return;
     if (m.team === 'enemy') {
@@ -526,6 +593,23 @@ export class Director {
     // a dash inside my drag / ult is part of its stage sound
     if (!c.isMine(m) || m.kind !== 'character' || (this.castWindow.get(m.id) ?? 0) > c.now) return;
     c.play(`dash.${CHAR_ROLE.get(m.defId) ?? 'melee'}`, { pan: c.pan(e.to) * 0.4 });
+  }
+
+  /**
+   * 기획 23차 (2-7): my dragged alt's move — dash.<role> / mon.blink −3 dB now, drag._role.<role> −2 dB when it touches
+   * down (the look's touchdownAt; none when the first beat is the landing). False = not an alt's move.
+   */
+  private altMoveSound(c: FrameCtx, entityId: number, kind: 'dash' | 'blink', to: Vec2): boolean {
+    const alt = this.altMove.get(entityId);
+    if (alt === undefined) return false;
+    this.altMove.delete(entityId);
+    const role = SKILLS.get(alt)?.role ?? 'melee';
+    const pan = c.pan(to) * 0.4;
+    if (kind === 'dash') c.play(`dash.${role}`, { pan });
+    else c.play('mon.blink', { pan, db: ALT_SOUND.blinkDb });
+    const at = touchdownAt(ultLook(alt), kind);
+    if (at < TOUCHDOWN.none) c.play(`drag._role.${role}`, { pan, db: ALT_SOUND.touchDb, delay: at });
+    return true;
   }
 
   private onDeath(c: FrameCtx, e: Extract<GameEvent, { type: 'death' }>): void {
@@ -596,8 +680,11 @@ export class Director {
       return;
     }
     if (e.slot !== 'drag' && e.slot !== 'ult') return;
+    if (info.path && !ULT_FX.boost) return; // 22차: a drag path made no sound
     if (e.sourceId != null) this.castWindow.set(e.sourceId, c.now + 1.2);
     if (!e.stage) return;
+    const alt = altBeats(info, e.skillId);
+    if (alt) return this.altCast(c, e, info, alt);
     const cues = cuesOf(info, e.slot, e.stage) ?? [];
     const far = e.player !== c.lp;
     const delay = e.delay ?? 0;
@@ -616,6 +703,69 @@ export class Director {
     }
   }
 
+  /**
+   * 기획 23차 (2-7): an alt's part was cast (「궁극기 연출 강화」 on). Its 'cast' / lead cues as today (a lead cue deduped
+   * per cue, so two of one stage both play); the finisher's: a cue-less one gets ult._role.<role> 0.5 s early (its boom
+   * meets the blow), and mine gets the breath before it (the effect bus −10 dB for 0.18 s unless a cue ducks already)
+   * and, when it lands later than 1.2 s, the music −10 dB from 0.2 s before it for 0.8 s.
+   */
+  private altCast(c: FrameCtx, e: Extract<GameEvent, { type: 'skillCast' }>, info: SkillInfo, b: UltBeats): void {
+    const stage = e.stage!;
+    const path = !!info.path;
+    const cues = altCues(b.def, info.char, stage, path);
+    const far = e.player !== c.lp;
+    const at = (e.delay ?? 0) / c.speed;
+    const pan = c.panAt(e.center, far);
+    for (const cue of cues ?? []) {
+      if (!c.farOk(cue, far, 'ult', true)) continue;
+      if (cue.on === 'cast') {
+        if (this.once(`c:${e.sourceId}:${e.skillId}:${cue.id}`, c.now, 0.5)) c.play(cue.id, { pan: c.heroPan(e.sourceId), far, db: cue.db, skill: e.skillId });
+        continue;
+      }
+      if (cue.duck && !far) c.duck('sfx', cue.duck[0], Math.max(0, at - cue.duck[1]), cue.duck[1], 0.02, 0.08);
+      if (cue.lead && (!cue.on || cue.on === 'land')) {
+        if (this.once(`l:${e.sourceId}:${e.skillId}:${stage}:${cue.id}`, c.now, 0.2)) c.play(cue.id, { delay: Math.max(0, at - cue.lead), pan, far, db: cue.db, skill: e.skillId });
+      }
+    }
+    if (path || (e.actionIndex ?? 0) !== b.finisher) return;
+    if (cues === undefined && this.once(`fr:${e.sourceId}:${e.skillId}`, c.now, 0.5)) {
+      c.play(`ult._role.${info.role}`, { delay: Math.max(0, at - ALT_SOUND.roleLead), pan, far, skill: e.skillId });
+    }
+    if (far || !this.once(`fl:${e.sourceId}:${e.skillId}`, c.now, 0.5)) return;
+    const finAt = b.finisherAt / c.speed;
+    if (!(cues ?? []).some(q => q.duck)) c.duck('sfx', ALT_SOUND.duck[0], Math.max(0, finAt - ALT_SOUND.duck[1]), ALT_SOUND.duck[1], 0.02, 0.08);
+    if (b.finisherAt > ALT_SOUND.bgLate) c.duck('bg', ALT_SOUND.bgDb, Math.max(0, finAt - ALT_SOUND.bgFrom), ALT_SOUND.bgHold, 0.04, 0.4);
+  }
+
+  /**
+   * 기획 23차 (2-7): an alt's part landed (「궁극기 연출 강화」 on). Its cues as today (others hear the finale stage only);
+   * a cue-less part: the finale stage stays quiet here (its sound was scheduled at the cast), any other plays
+   * drag._role.<role> −4 dB once per cast (mine). My finisher's last hit on 2+ enemies adds drag.crunch −3 dB.
+   */
+  private altStage(c: FrameCtx, e: Extract<GameEvent, { type: 'skillStage' }>, info: SkillInfo, b: UltBeats): void {
+    const path = !!info.path;
+    const cues = altCues(b.def, info.char, e.stage, path);
+    const far = e.player !== c.lp;
+    const action = path ? undefined : b.def.actions[e.actionIndex];
+    const pan = c.panAt(e.center, far);
+    const key = `${e.sourceId}:${e.skillId}:${e.stage}`;
+    if (cues === undefined) {
+      const once = `${e.sourceId}|${b.skillId}`;
+      if (!far && e.hit === 0 && (path || e.stage !== b.def.finale) && !this.altRole.has(once)) {
+        this.altRole.add(once);
+        c.play(`drag._role.${info.role}`, { pan, db: ALT_SOUND.roleDb, skill: e.skillId });
+      }
+    } else {
+      for (const cue of cues) {
+        if (!c.farOk(cue, far, 'ult', true) || cue.on === 'cast' || cue.lead) continue;
+        if (cue.on === 'zone') this.zoneCue(c, cue, e, action?.zone?.duration ?? 3, pan, far);
+        else if (cue.on === 'hit') this.hitCue(c, cue, key, e, pan, far, action?.delay ?? 0);
+        else if (e.hit === 0 && this.once(`s:${key}:${cue.id}`, c.now, 0.2)) this.landCue(c, cue, e, pan, far, action?.delay ?? 0, 0);
+      }
+    }
+    if (!far && !path && e.actionIndex === b.finisher && e.hit >= e.hits - 1 && e.targets >= ALT_SOUND.crunchTargets) c.play('drag.crunch', { pan, db: ALT_SOUND.crunchDb });
+  }
+
   private onStage(c: FrameCtx, e: Extract<GameEvent, { type: 'skillStage' }>): void {
     if (e.slot === 'monster') {
       if (e.stage === 'burst' && e.hit === 0) c.play('doll.burst', { pan: c.pan(e.center) });
@@ -624,6 +774,9 @@ export class Director {
     if (e.slot !== 'drag' && e.slot !== 'ult') return;
     const info = SKILLS.get(e.skillId);
     if (!info || e.player == null) return;
+    if (info.path && !ULT_FX.boost) return; // 22차: a drag path made no sound
+    const alt = altBeats(info, e.skillId);
+    if (alt) return this.altStage(c, e, info, alt);
     const far = e.player !== c.lp;
     const action = c.action(e.skillId, e.slot, e.actionIndex);
     const delay = action?.delay ?? 0;
@@ -1018,16 +1171,21 @@ class FrameCtx {
     return this.ent(entityId)?.defId ?? this.s.plan.bossId ?? 'abyss_watcher';
   }
 
-  /** Other players: drag cues all play (far); ult → only the final beat and up to 4 hits (4-3). */
-  farOk(cue: Cue, far: boolean, slot: 'drag' | 'ult'): boolean {
+  /**
+   * Other players: drag cues all play (far); ult → only the final beat and up to 4 hits (4-3). 기획 23차: an alt's
+   * (「궁극기 연출 강화」 on) → only its finale stage (altCues sets `fin` on exactly those).
+   */
+  farOk(cue: Cue, far: boolean, slot: 'drag' | 'ult', alt = false): boolean {
     if (!far) return true;
+    if (alt) return !!cue.fin;
     if (slot === 'drag') return !cue.loop;
     return !!cue.fin || cue.on === 'hit';
   }
 
   action(skillId: string, slot: 'drag' | 'ult', index: number) {
     const info = SKILLS.get(skillId);
-    if (info?.actions) return info.actions[index];
+    // 기획 23차: a test fixture's alt (same id, other actions) is read live
+    if (info?.actions) return (ultAltBySkill(skillId)?.def.actions ?? info.actions)[index];
     const c = info ? CHARACTERS.find(x => x.id === info.char) : undefined;
     return c?.[slot].actions[index];
   }

@@ -6,7 +6,13 @@ import { CHARACTERS, getCharacter, getMonster, getPet } from '../data';
 import { GUARD_HIT_COLOR, GUARD_HIT_TEXT } from '../data/bosses/forms';
 import { drawRewardFx, rewardFxEvent } from './rewardFx';
 import { drawUltFx, ultFxEvent } from './ultTest';
-import { ULT_TEST, ultAltBySkill } from '../data/ultTest';
+import { ULT_TEST, type UltBeat, type UltBeats, footprintRadius, ultAltBySkill, ultBeats } from '../data/ultTest';
+import { ULT_FX } from './ultTest/settings';
+import { ultTheme } from './ultTest/theme';
+import { FINISH_BLESS, FINISH_STRIKE, type UltHost, type UltKick, implodeSpeed, ultBreath, ultCharge, ultDecal, ultDefault, ultFinisher } from './ultTest/grammar';
+import { type UltAlias, type UltBeatInfo, type UltStory, touchdownAt, ultLook, ultStory } from './ultTest/stories';
+import { runAlias } from './ultTest/kit';
+import { resetUltCore, tickUltReal, ultFrameEnd, ultLockKeep, ultLockRadius, ultMoveStart, ultMoveTake } from './ultTest/core';
 import { JUST_GOLD, JustFx, type JustFxHost } from './justFx';
 import { RewardPills, type PillAvoid } from './rewardPills';
 import { JUST_STOP_SEC } from './juice';
@@ -20,12 +26,12 @@ import { DASH_LAND } from './dashtime';
 import { Fx, type FxHost, Impact, SkillFx } from './skillfx';
 import { type CastInfo, beam as beamFx, castFx, swingFx, xslash } from './castfx';
 import { Pk, drawParticle } from './fxparts';
-import { ScreenFx } from './cutin';
+import { STRIP, ScreenFx } from './cutin';
 import { LAND, PREP, STAGE_DETAIL, type StageHost, type StageInfo, genericLand } from './stagefx';
 import { type ImpactSpec, impactOf } from './impact';
 import { SkillMarks } from './marks';
 import { StatusFx } from './statusfx';
-import { Juice, impactStrength, landingKick, partKick } from './juice';
+import { FREEZE_MAX_SEC, Juice, impactStrength, landingKick, partKick } from './juice';
 
 // ─────────────────────────── effect records (pooled) ───────────────────────────
 
@@ -284,7 +290,14 @@ interface Kick {
   color: string;
 }
 
-export class Vfx implements FxHost, StageHost, JustFxHost {
+/** 기획 23차: the placeholder beat of the reused info (the router always fills a real one before a story reads it). */
+const NO_BEAT: UltBeat = { actionIndex: 0, stage: '', role: 'build', at: 0, end: 0, hits: 1, hitInterval: 0.2, radius: 1, affects: 'enemies', center: 'point', seq: 0, seqN: 1 };
+/** 기획 23차: my finisher once per caster + skill within this many seconds (a stray twin never fires a second one). */
+const FINISH_ONCE_SEC = 2;
+/** 기획 23차: pending later() calls at most (the oldest is dropped). */
+const LATER_MAX = 48;
+
+export class Vfx implements FxHost, StageHost, JustFxHost, UltHost {
   readonly floaters = new Pool<Floater>(
     () => ({ x: 0, y: 0, z: 0, dx: 0, age: 0, dur: 1, text: '', color: '#fff', size: 16, targetId: -1, kind: 0, amount: 0, pop: 0, label: '', stroke: '#0a0a0a', alpha: 1, key: '', tag: '', ox: 0, oy: 0 }),
     110,
@@ -375,7 +388,20 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   private readonly hops = new Map<number, { age: number; dur: number; h: number }>();
   /** Units drawn hidden until this vfx clock (shadow vanishing during the cut-in). */
   private readonly hides = new Map<number, number>();
-  private readonly stage: StageInfo = {
+  /** 기획 23차: world-clock callbacks of the 궁극기 테스트 stories (later()). */
+  private readonly laters: { t: number; fn: () => void }[] = [];
+  /** 기획 23차: when (vfx clock) a caster's alt finisher last fired, per `source|skill`. */
+  private readonly lastFinish = new Map<string, number>();
+  private readonly stage: UltBeatInfo = {
+    mode: 'aim',
+    charId: '',
+    role: 'build',
+    beat: NO_BEAT,
+    beats: null as unknown as UltBeats,
+    theme: ultTheme(''),
+    seq: 0,
+    seqN: 1,
+    toFinish: 0,
     skillId: '',
     stage: '',
     slot: '',
@@ -443,6 +469,9 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     this.hides.clear();
     this.just.reset();
     this.pills.reset();
+    this.laters.length = 0; // 기획 23차
+    this.lastFinish.clear();
+    resetUltCore();
   }
 
   // ─────────────────────────── event intake ───────────────────────────
@@ -452,7 +481,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     this.localPlayer = c.localPlayer;
     this.rewardState = c.state;
     rewardFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 17차 reward visuals
-    ultFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state }); // 기획 22차 궁극기 테스트
+    ultFxEvent(ev, { cam: null, localPlayer: c.localPlayer, host: this, state: c.state, fx: this.sfx }); // 기획 22차 궁극기 테스트
     if (ev.type === 'justSwap' || ev.type === 'interrupt') this.just.handle(ev, c.state, c.localPlayer, c.memos, this);
     else if (ev.type === 'rewardProc') this.pills.handle(ev, c.state, c.localPlayer, id => this.just.stampOn(id));
     switch (ev.type) {
@@ -497,7 +526,10 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
         this.castSeq.set(seqKey, idx + 1);
         // one skill = one flash: actions that share a footprint (bard's band hits allies AND enemies) arrive as twin casts
         const key = `${ev.sourceId}|${ev.skillId}|${ev.center.x},${ev.center.y}|${JSON.stringify(ev.area)}`;
-        if (this.castKeys.has(key)) break;
+        // 기획 23차: a staged part of a 궁극기 테스트 alt is a beat of its own (클레릭 드래그 stacks six parts on the landing;
+        // the finisher among them needs its wind-up) — every one reaches the router (with 「궁극기 연출 강화」 on)
+        const altPart = c.state.mode === 'ultTest' && ULT_FX.boost && !!ev.stage && ev.team === 'ally' && ultBeats(ev.skillId) !== null;
+        if (this.castKeys.has(key) && !altPart) break;
         this.castKeys.add(key);
         this.onSkillCast(ev, c, idx);
         break;
@@ -524,6 +556,11 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
         d.radius = ent ? ent.radius : 0.5;
         d.tier = ent ? ent.tier : 'character';
         d.s = ev.to.x >= ev.from.x ? 1 : -1;
+        // 기획 23차: the dash of a dragged 궁극기 테스트 ult (its ultCast came first in this batch)
+        if (c.state.mode === 'ultTest') {
+          const pm = ultMoveTake(ev.entityId);
+          if (pm) ultMoveStart(this.sfx, this, pm, 'dash', ev.entityId, ev.from, ev.to);
+        }
         break;
       }
       case 'appear': {
@@ -643,12 +680,18 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
         // 기획 8차: vanish in a puff of shadow, reappear next to the target with a ring (a thin trail says where it went).
         // 기획 22차 드래그: a character's blink (궁극기 테스트) is drawn in its own colour, not the shadow's purple
         const own = m && m.kind === 'character' && c.state.mode === 'ultTest' ? unitLook('character', m.defId).color : null;
+        // 기획 23차: a dragged ult's blink draws its own path (a bolt instead of the dotted trail) — render/ultTest/core.ts
+        const pm = c.state.mode === 'ultTest' ? ultMoveTake(ev.entityId) : null;
         const hue = own ?? '#c77dff';
         if (m) this.ghost(m, 1, 0.3, ev.from.x, ev.from.y);
         this.burst(ev.from.x, ev.from.y, 0.5, 12, own ? mix(own, '#000000', 0.6) : '#2a1f3d', 2.2, 2, 0.45, -1);
         this.burst(ev.from.x, ev.from.y, 0.5, 6, hue, 1.6, 1.5, 0.35, -1);
         this.ring(ev.to.x, ev.to.y, 0.2, 1.3, 0.3, hue, 3, 0.2);
         this.burst(ev.to.x, ev.to.y, 0.4, 10, own ? lighten(own, 0.5) : '#e0c3ff', 2.4, 2, 0.4);
+        if (pm) {
+          ultMoveStart(this.sfx, this, pm, 'blink', ev.entityId, ev.from, ev.to);
+          break;
+        }
         if (this.blinks.length > 8) this.blinks.shift();
         this.blinks.push({ fx: ev.from.x, fy: ev.from.y, tx: ev.to.x, ty: ev.to.y, age: 0, ...(own ? { color: own } : null) });
         break;
@@ -872,7 +915,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     // 기획 22차 통합: a stage-less delayed part of a 조준 / 드래그 ult (바드 드래그's right band, the twin of a staged left
     // one) warns in the character's colour like its twin — not in the generic blue of an unstyled ally warning
     if (ev.slot === 'ult' && !ev.stage && charColor !== null && (ev.delay ?? 0) > 0 && ultAltBySkill(ev.skillId)) {
-      this.marks.hint(ev, `${ev.skillId}:`, color, k);
+      this.marks.hint(ev, `${ev.skillId}:`, color, k, undefined, ULT_FX.boost ? ULT_FILL : 1); // 기획 23차: half the fill
     }
 
     const selfOnly = action?.affects === 'self';
@@ -931,6 +974,11 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
 
   /** A renewed beat was cast: its wind-up (PREP) and, when it is delayed, the look of its warning. */
   private prepStage(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, action: SkillAction | null, color: string, k: number, local: boolean, src: UnitMemo | null, ox: number, oy: number): void {
+    // 기획 23차: a character's own 조준 / 드래그 ult with 「궁극기 연출 강화」 on → the 궁극기 테스트 router
+    if (c.state.mode === 'ultTest' && ULT_FX.boost) {
+      const b = ultBeats(ev.skillId);
+      if (b) return this.ultPrep(ev, c, b, action, color, k, local, src, ox, oy);
+    }
     const key = `${ev.skillId}:${ev.stage}`;
     if ((ev.delay ?? 0) > 0) this.marks.hint(ev, key, color, k);
     const fn = PREP[key];
@@ -966,6 +1014,11 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     s.actionIndex = ev.actionIndex;
     // a drag beat that lands while its caster is still dropping in: its picture waits for the touchdown
     s.wait = ev.slot === 'drag' ? this.landWait(ev.sourceId) : 0;
+    // 기획 23차: a character's own 조준 / 드래그 ult with 「궁극기 연출 강화」 on → the 궁극기 테스트 router
+    if (c.state.mode === 'ultTest' && ULT_FX.boost) {
+      const b = ultBeats(ev.skillId);
+      if (b) return this.ultLand(ev, c, b, key, action, color, k);
+    }
     if (action?.zone && ev.hit === 0) this.marks.bindZone(c.state.zones, ev, key, color, k);
     const fn = LAND[key];
     STAGE_DETAIL.low = !s.local;
@@ -1053,6 +1106,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     s.dashTravel = this.dashTravel(sourceId);
     s.action = action;
     s.lineFrom = false;
+    s.rot = undefined;
     // a follow beat rides its caster (self-centred) or the enemy nearest its spot (target-centred)
     s.follow = !action?.follow ? -1 : action.center === 'self' ? s.src : this.nearestEnemy(x, y, c.memos);
     void key;
@@ -1083,6 +1137,208 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     return best;
   }
 
+  // ─────────────────────────── 기획 23차: the 궁극기 테스트 router (docs/ult-fx.md 4-5) ───────────────────────────
+
+  /** The beat of an alt's part: its path (`<alt>_path`) or its action. */
+  private beatOf(b: UltBeats, skillId: string, actionIndex: number): UltBeat | null {
+    return skillId.endsWith('_path') ? b.path : b.beats[actionIndex] ?? null;
+  }
+
+  /** The 23차 fields of the reused info (after fillStage). hitAt = when this hit lands (s after the cast). */
+  private fillBeat(s: UltBeatInfo, b: UltBeats, beat: UltBeat, hitAt: number): void {
+    s.mode = b.mode;
+    s.charId = b.charId;
+    s.role = beat.role;
+    s.beat = beat;
+    s.beats = b;
+    s.theme = ultTheme(b.charId);
+    s.seq = beat.seq;
+    s.seqN = beat.seqN;
+    s.toFinish = Math.max(0, b.finisherAt - hitAt);
+    // a turned rect / cone (rel 'aim'): its real direction for the stories that read it (stagefx.ts StageInfo.rot)
+    const a = s.area;
+    if ((a.shape === 'rect' || a.shape === 'cone') && a.rot != null) s.rot = (a.rot * Math.PI) / 180;
+  }
+
+  /** At an alt part's skillCast: its warning look (motif, half fill), the alias PREPs, its story, the finisher wind-up. */
+  private ultPrep(ev: Extract<GameEvent, { type: 'skillCast' }>, c: VfxContext, b: UltBeats, action: SkillAction | null, color: string, k: number, local: boolean, src: UnitMemo | null, ox: number, oy: number): void {
+    const key = `${ev.skillId}:${ev.stage}`;
+    const story = ultStory(key);
+    if ((ev.delay ?? 0) > 0) this.marks.hint(ev, key, color, k, story?.motif, ULT_FILL);
+    const beat = this.beatOf(b, ev.skillId, ev.actionIndex ?? 0);
+    if (!beat) return;
+    const s = this.fillStage(key, ev.skillId, ev.stage!, ev.slot, ev.center.x, ev.center.y, ev.area, action, color, k, local, src, ox, oy, ev.sourceId, c) as UltBeatInfo;
+    s.delay = ev.delay ?? 0;
+    s.hits = Math.max(1, ev.hits ?? 1);
+    s.actionIndex = ev.actionIndex ?? 0;
+    this.fillBeat(s, b, beat, 0);
+    STAGE_DETAIL.low = !local;
+    for (const a of aliasList(story)) runAlias(a, 'prep', this.sfx, this, s);
+    story?.prep?.(this.sfx, this, s);
+    if (beat.role === 'finisher') {
+      if (story?.charge !== null) ultCharge(this.sfx, this, s, story?.charge);
+      ultBreath(this, s, story?.finisher?.breath ?? (b.finisherKind === 'bless' ? FINISH_BLESS.breath : FINISH_STRIKE.breath));
+      // 조준: the lock-on stays until the finisher when it falls on the aimed spot
+      if (b.mode === 'aim' && ev.sourceId != null) ultLockKeep(ev.sourceId, ev.center.x, ev.center.y, footprintRadius(ev.area), s.toFinish);
+    }
+    STAGE_DETAIL.low = false;
+  }
+
+  /** At each hit / tick of an alt part: its zone binding, the alias LANDs, its story, the role default, the finisher. */
+  private ultLand(ev: Extract<GameEvent, { type: 'skillStage' }>, c: VfxContext, b: UltBeats, key: string, action: SkillAction | null, color: string, k: number): void {
+    const s = this.stage;
+    const beat = this.beatOf(b, ev.skillId, ev.actionIndex);
+    const story = ultStory(key);
+    // bound even without decor: the alt's field gets half the wash (marks.ts MarkStyle.fill)
+    if (action?.zone && ev.hit === 0) this.marks.bindZone(c.state.zones, ev, key, color, k, story?.decor ?? null, ULT_FILL);
+    if (!beat) return;
+    this.fillBeat(s, b, beat, beat.at + ev.hit * beat.hitInterval);
+    STAGE_DETAIL.low = !s.local;
+    for (const a of aliasList(story)) runAlias(a, 'land', this.sfx, this, s);
+    story?.land?.(this.sfx, this, s);
+    if (story?.wave ?? !(story && (story.alias || story.land))) ultDefault(this.sfx, this, s);
+    const last = ev.hit >= ev.hits - 1;
+    if (beat.role === 'finisher' && last) {
+      const fk = `${ev.sourceId}|${ev.skillId}`;
+      if (this.clock - (this.lastFinish.get(fk) ?? -99) >= FINISH_ONCE_SEC) {
+        this.lastFinish.set(fk, this.clock);
+        ultFinisher(this.sfx, this, s, story?.finisher);
+        if (story?.linger !== null) {
+          const th = s.theme;
+          const bless = b.finisherKind === 'bless';
+          ultDecal({ kind: bless ? 'sigil' : th.decal, x: s.x, y: s.y, area: ev.area, ox: s.ox, oy: s.oy, color: th.decalColor, dur: 3, alpha: 0.28, ...story?.linger }, s.local);
+        }
+      }
+    }
+    STAGE_DETAIL.low = false;
+    this.ultImpact(ev, c, s, beat, story, action, last);
+  }
+
+  /** A non-finisher beat's kick (mine) and area flash: the story's impact or the role default (2-1, 2-2). */
+  private ultImpact(ev: Extract<GameEvent, { type: 'skillStage' }>, c: VfxContext, s: UltBeatInfo, beat: UltBeat, story: UltStory | undefined, action: SkillAction | null, last: boolean): void {
+    if (beat.role === 'finisher' && last) return; // the grammar kicks
+    const imp = story?.impact;
+    const spec = imp === undefined ? roleImpact(s) : typeof imp === 'function' ? imp(s) : imp;
+    if (!spec) return;
+    const after = beat.role === 'after';
+    let stopMs = Math.min(spec.stop ?? 0, after ? ULT_STOP.after : ULT_STOP.contact);
+    // a stop only well before the finisher (two stops in a row read as a stutter) — 2-2
+    if (!after && s.toFinish < ULT_STOP.beforeFinish - 1e-6) stopMs = 0; // 0.95 − 0.45 = 0.4999… counts as 0.5
+    const screen = spec.screen ?? 0;
+    const shake = spec.shake ?? 0;
+    const flash = spec.flash ?? 0;
+    const big = stopMs > 0 || screen > 0;
+    const flurry = ev.hits > 1 && ev.hit > 0 && !big;
+    if (flash > 0 && !flurry && action?.affects !== 'self' && action?.affects !== 'allies') {
+      const f = this.flashes.spawn();
+      f.cx = ev.center.x;
+      f.cy = ev.center.y;
+      f.ox = s.ox;
+      f.oy = s.oy;
+      f.hasOrigin = true;
+      f.area = clampArea(ev.area);
+      f.age = 0;
+      f.dur = big ? 0.14 : 0.25;
+      f.color = big ? lighten(s.color, 0.4) : s.color;
+      f.strength = flash * s.k;
+    }
+    if (s.local) {
+      const none = ev.targets <= 0;
+      this.kick(0, { stopMs: none ? 0 : stopMs, shake: none ? shake * 0.5 : shake, screen, color: spec.screenColor ?? '#ffffff' }, true);
+    } else if (screen > 0 && c.camX !== undefined && Math.abs(ev.center.x - c.camX) < VIEW_WIDTH_UNITS / 2 + 2) {
+      this.screen.flash(screen * 0.5, spec.screenColor);
+    }
+  }
+
+  // ── UltHost (기획 23차) ──
+
+  kick(delaySec: number, k: UltKick, local: boolean): void {
+    if (!local) return;
+    if (delaySec > 0) this.later(delaySec, () => this.applyKick(k));
+    else this.applyKick(k);
+  }
+
+  private applyKick(k: UltKick): void {
+    const stop = ((k.stopMs ?? 0) / 1000) * (this.juice.settings.hitStopMs / 75);
+    if (stop > 0) this.juice.hitStop(stop, { cap: k.capSec ?? FREEZE_MAX_SEC, ignoreBudget: k.ignoreBudget });
+    if ((k.shake ?? 0) > 0) this.juice.shake(k.shake!, k.shakeDur ?? 0.22);
+    if ((k.screen ?? 0) > 0) this.screen.flash(k.screen!, k.color ?? '#ffffff');
+  }
+
+  implode(x: number, y: number, z: number, r: number, n: number, color: string, dur: number, kind: Pk = Pk.Square): void {
+    const v = implodeSpeed(r, dur);
+    for (let i = 0; i < n; i++) {
+      const p = this.particles.spawn();
+      const a = (i / Math.max(1, n)) * TAU + Math.random() * 0.4;
+      const rr = r * (0.85 + Math.random() * 0.3);
+      p.x = x + Math.cos(a) * rr;
+      p.y = y + Math.sin(a) * rr;
+      p.z = z + Math.random() * 0.4;
+      p.vx = -Math.cos(a) * v * (rr / r);
+      p.vy = -Math.sin(a) * v * (rr / r);
+      p.vz = 0;
+      p.g = 0;
+      p.age = 0;
+      p.dur = Math.max(0.08, dur);
+      p.color = color;
+      p.size = 3 + Math.random() * 2.5;
+      p.kind = kind;
+      p.spin = Math.random() * TAU;
+    }
+  }
+
+  hideFor(entityId: number, sec: number): void {
+    this.hides.set(entityId, this.clock + Math.max(0, sec));
+  }
+
+  later(delaySec: number, fn: () => void): void {
+    if (this.laters.length >= LATER_MAX) this.laters.shift();
+    this.laters.push({ t: Math.max(0, delaySec), fn });
+  }
+
+  drop(entityId: number, height: number, dur: number): void {
+    // the second half of a hop: from the top down onto the ground
+    const d = Math.max(0.02, dur);
+    this.hops.set(entityId, { age: d, dur: d * 2, h: height });
+  }
+
+  /** later() callbacks that are due (world clock). A callback may queue more. */
+  private runLaters(dt: number): void {
+    const ls = this.laters;
+    if (ls.length === 0) return;
+    let due: (() => void)[] | null = null;
+    for (let i = ls.length - 1; i >= 0; i--) {
+      ls[i].t -= dt;
+      if (ls[i].t > 0) continue;
+      (due ??= []).push(ls[i].fn);
+      ls.splice(i, 1);
+    }
+    if (due) for (let i = due.length - 1; i >= 0; i--) due[i]();
+  }
+
+  /**
+   * 기획 23차 (docs/ult-fx.md 2-4, 2-5): my aimed / dragged alt's cut-in. 조준 (the full band): its dim leaves the aimed
+   * spot bright (first on-point beat + 0.5, 1.2–4.5 cells). 드래그 (not 「컷인 짧게」): the forced small banner becomes the
+   * 착지 컷 strip from the touchdown + 0.03 s (the look's stripFrom) when ≥ 0.2 s of it is left before the wipe; its dim
+   * leaves the landing bright (first beat 2–5 cells + 0.4). m = the caster before its move (where it came from).
+   */
+  private ultCutIn(ev: Extract<GameEvent, { type: 'ultCast' }>, m: UnitMemo | undefined): void {
+    const b = ultBeats(ev.skillId);
+    const aim = ev.aim;
+    if (!b || !aim) return;
+    const cut = this.screen.cutin;
+    if (aim.mode === 'aim') {
+      if (!cut.short) cut.focus = { x: aim.x, y: aim.y, r: Math.max(1.2, Math.min(4.5, ultLockRadius(b) + 0.5)) };
+      return;
+    }
+    if (!cut.forced) return; // 「컷인 짧게」: the 22차 small banner
+    const look = ultLook(ev.skillId);
+    const from = look?.stripFrom ?? touchdownAt(look, b.def.move?.kind ?? 'blink') + 0.03;
+    if (STRIP.wipeTo - from < STRIP.minSec) return;
+    const r = Math.max(2, Math.min(5, b.firstRadius)) + 0.4;
+    cut.landing(from, { x: aim.x, y: aim.y, r }, m ? m.x > aim.x + 0.05 : false);
+  }
+
   /** An ult was tapped: my cut-in (or the "컷인 짧게" banner), others' corner banner, the caster's pose and quirks. */
   private onUltCast(ev: Extract<GameEvent, { type: 'ultCast' }>, c: VfxContext): void {
     const m = c.memos.get(ev.entityId);
@@ -1094,6 +1350,8 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
       // 기획 22차: a 드래그 ult gets the small banner — the full band would hide the move and the landing (at 0 s)
       this.screen.cutin.start(ev.defId, ev.name, look.color, look, ev.entityId, ev.aim?.mode === 'drag');
       this.banner.title = ev.name;
+      // 기획 23차: my own 조준 / 드래그 design with 「궁극기 연출 강화」 on → the bright hole / the 착지 컷 strip
+      if (c.state.mode === 'ultTest' && ULT_FX.boost && ev.aim?.alt) this.ultCutIn(ev, m);
     } else this.screen.cutin.mini(look, look.color, c.state.players[ev.player]?.name ?? '', ev.name);
     const x = m ? m.x : 0;
     const y = m ? m.y : 0;
@@ -1216,6 +1474,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
   /** Screen layer on the real clock (the cut-in keeps going through a hit-stop). */
   updateReal(dt: number): void {
     this.screen.update(dt);
+    tickUltReal(dt); // 기획 23차: the big glyph / sight lines keep moving through a hit-stop
   }
 
   /**
@@ -1896,6 +2155,8 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     this.castSeq.clear();
     this.pendingSwing.clear();
     this.clock += dt;
+    ultFrameEnd(); // 기획 23차: a dragged ult's move came in this batch or not at all
+    this.juice.tickZoom(dt);
     this.memosRef = c.memos;
     // melee hits that waited for the swing's wind-up
     const dq = this.deferred;
@@ -1914,6 +2175,7 @@ export class Vfx implements FxHost, StageHost, JustFxHost {
     this.pills.update(dt, c.state);
     this.updateLandings(dt, c);
     this.updateStageTimers(dt);
+    this.runLaters(dt); // 기획 23차
     this.marks.update(dt, c.state.telegraphs ?? NO_TELES, c.state.zones ?? NO_ZONES);
     this.pulseT += dt;
     if (this.myNames.size > 24) for (const [n, t] of this.myNames) if (t < this.clock) this.myNames.delete(n);
@@ -2506,6 +2768,42 @@ export function actionFor(skillId: string, slot: string, idx: number): SkillActi
     actionCache.set(skillId, list);
   }
   return list ? list[Math.min(idx, list.length - 1)] ?? null : null;
+}
+
+/** 기획 23차: the alts' warnings / fields get this much of today's fill (the flat colour slabs buried the beats). */
+const ULT_FILL = 0.5;
+/** 기획 23차 (2-2): a non-finisher stop at most `contact` ms (an encore `after` beat 100), never within 0.5 s of the finisher. */
+const ULT_STOP = { contact: 55, after: 100, beforeFinish: 0.5 } as const;
+
+/** 기획 23차: a story's aliases as a list. */
+function aliasList(story: UltStory | undefined): readonly UltAlias[] {
+  const al = story?.alias;
+  if (!al) return NO_ALIAS;
+  return Array.isArray(al) ? al : [al as UltAlias];
+}
+const NO_ALIAS: readonly UltAlias[] = [];
+
+/** 기획 23차 (2-1): the kick of a beat without its own impact, by role. */
+function roleImpact(s: UltBeatInfo): Partial<ImpactSpec> | null {
+  switch (s.role) {
+    case 'path':
+      return { shake: 2 };
+    case 'opener':
+      return { shake: 4, flash: 0.6 };
+    case 'after':
+      return { shake: 6, flash: 0.8 };
+    case 'twin':
+      return { flash: 0.7 };
+    case 'build':
+    case 'finisher': {
+      // grows with every beat of its stage (or hit of a flurry); a flurry's last hit hits hardest
+      const n = s.hits > 1 ? s.hit : s.seq;
+      if (s.hits > 1 && s.hit >= s.hits - 1) return { shake: 5, flash: 0.45 };
+      return { shake: Math.min(4.5, 1.5 + 0.5 * n), flash: n === 0 || n % 3 === 2 ? 0.45 : 0 };
+    }
+    default:
+      return null;
+  }
 }
 
 const BIG_CIRCLE: AreaShape = { shape: 'circle', radius: 30 };

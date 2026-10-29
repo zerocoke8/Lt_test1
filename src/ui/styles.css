@@ -6022,6 +6022,12 @@
   min-height: 74px;
 }
 
+/* 기획 23차: the 궁극기 테스트 pause has one more settings row (「궁극기 연출 강화」) and the raid's boss line — its main
+   buttons are slimmer so the box fits a phone (the 보스 레이드 box is ~30 px taller than the screen) */
+.pause.is-ult-test .pause-btns > .btn {
+  min-height: 48px;
+}
+
 .pl-build {
   padding-bottom: 6px;
 }

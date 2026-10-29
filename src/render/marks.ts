@@ -67,6 +67,11 @@ export interface MarkStyle {
   /** A second zone of the same stage (ally + enemy twin): drawn by its twin. */
   skip: boolean;
   seen: number;
+  /**
+   * 기획 23차: × the fill alphas (the light countdown fill of a warning, a zone's wash) — 1 for every renewed skill, 0.5
+   * for the 궁극기 테스트 alts (their flat colour slabs buried the beats); outlines and motifs stay as they are.
+   */
+  fill: number;
 }
 
 interface Hint {
@@ -78,10 +83,13 @@ interface Hint {
   k: number;
   until: number;
   follow: boolean;
+  /** 기획 23차: the motif / fill this hint's warning gets (undefined motif = TELE_MOTIF[key]). */
+  motif: TeleMotif | undefined;
+  fill: number;
 }
 
 export class SkillMarks {
-  private readonly hints = new Pool<Hint>(() => ({ key: '', x: 0, y: 0, area: { shape: 'single' }, color: '#fff', k: 1, until: 0, follow: false }), 48);
+  private readonly hints = new Pool<Hint>(() => ({ key: '', x: 0, y: 0, area: { shape: 'single' }, color: '#fff', k: 1, until: 0, follow: false, motif: undefined, fill: 1 }), 48);
   private readonly teles = new Map<number, MarkStyle>();
   private readonly zones = new Map<number, MarkStyle>();
   private clock = 0;
@@ -93,9 +101,14 @@ export class SkillMarks {
     this.zones.clear();
   }
 
-  /** A delayed beat was cast: its warning (when the sim makes one) gets this look. */
-  hint(ev: Extract<GameEvent, { type: 'skillCast' }>, key: string, color: string, k: number): void {
+  /**
+   * A delayed beat was cast: its warning (when the sim makes one) gets this look. 기획 23차 (궁극기 테스트 only): `motif`
+   * overrides TELE_MOTIF, `fill` scales the fills.
+   */
+  hint(ev: Extract<GameEvent, { type: 'skillCast' }>, key: string, color: string, k: number, motif?: TeleMotif, fill = 1): void {
     const h = this.hints.spawn();
+    h.motif = motif;
+    h.fill = fill;
     h.key = key;
     h.x = ev.center.x;
     h.y = ev.center.y;
@@ -106,17 +119,20 @@ export class SkillMarks {
     h.follow = !!ev.follow;
   }
 
-  /** A zone stage landed (hit 0): bind the new zone at that spot. */
-  bindZone(zones: readonly Zone[], ev: Extract<GameEvent, { type: 'skillStage' }>, key: string, color: string, k: number): void {
-    const decor = ZONE_DECOR[key];
-    if (!decor) return;
+  /**
+   * A zone stage landed (hit 0): bind the new zone at that spot. 기획 23차 (궁극기 테스트 only): a given `decor` replaces
+   * ZONE_DECOR[key] — null binds the zone anyway (the plain field look, with `fill` applied).
+   */
+  bindZone(zones: readonly Zone[], ev: Extract<GameEvent, { type: 'skillStage' }>, key: string, color: string, k: number, decorOverride?: ZoneDecor | null, fill = 1): void {
+    const decor = decorOverride !== undefined ? decorOverride : ZONE_DECOR[key];
+    if (!decor && decorOverride === undefined) return;
     let twin = false;
     for (const st of this.zones.values()) if (st.key === key && st.seen === -1) twin = true;
     for (const z of zones) {
       if (this.zones.has(z.id)) continue;
       if (Math.abs(z.center.x - ev.center.x) > 0.05 || Math.abs(z.center.y - ev.center.y) > 0.05) continue;
       // the second zone of a twin stage (방패벽: allies' def buff + enemies' slow on the same band) rides along
-      const st = style(key, color, k, 'outline', decor);
+      const st = style(key, color, k, 'outline', decor ?? null, fill);
       st.skip = twin;
       st.seen = -1;
       this.zones.set(z.id, st);
@@ -137,7 +153,7 @@ export class SkillMarks {
       }
       const h = this.takeHint(t);
       if (!h) continue;
-      const s = style(h.key, h.color, h.k, TELE_MOTIF[h.key] ?? 'outline', null);
+      const s = style(h.key, h.color, h.k, h.motif ?? TELE_MOTIF[h.key] ?? 'outline', null, h.fill);
       s.seen = stamp;
       this.teles.set(t.id, s);
     }
@@ -179,15 +195,17 @@ export class SkillMarks {
     out.key = h.key;
     out.color = h.color;
     out.k = h.k;
+    out.motif = h.motif;
+    out.fill = h.fill;
     hs.kill(best);
     return out;
   }
 }
 
-const TAKEN: Hint = { key: '', x: 0, y: 0, area: { shape: 'single' }, color: '#fff', k: 1, until: 0, follow: false };
+const TAKEN: Hint = { key: '', x: 0, y: 0, area: { shape: 'single' }, color: '#fff', k: 1, until: 0, follow: false, motif: undefined, fill: 1 };
 
-function style(key: string, color: string, k: number, motif: TeleMotif, decor: ZoneDecor | null): MarkStyle {
-  return { key, color, light: lighten(color, 0.45), k, motif, decor, skip: false, seen: 0 };
+function style(key: string, color: string, k: number, motif: TeleMotif, decor: ZoneDecor | null, fill = 1): MarkStyle {
+  return { key, color, light: lighten(color, 0.45), k, motif, decor, skip: false, seen: 0, fill };
 }
 
 function sameArea(a: AreaShape, b: AreaShape): boolean {
@@ -214,7 +232,7 @@ export function drawStyledTelegraph(ctx: CanvasRenderingContext2D, cam: Camera, 
   // 기획 13차 리뷰 (2-4): 퇴마사's big seal circles are outline + talismans only — a filled disc read as a monster warning
   const fill = !st.key.startsWith('exorcist_');
   pathArea(ctx, cam, t.center, t.origin, t.area, 1);
-  ctx.globalAlpha = fill ? 0.07 * k : 0;
+  ctx.globalAlpha = fill ? 0.07 * k * st.fill : 0;
   ctx.fillStyle = st.color;
   ctx.fill();
   if (FAN_ORDER[st.key] === 2) ctx.setLineDash(DASH_SOFT);
@@ -225,7 +243,7 @@ export function drawStyledTelegraph(ctx: CanvasRenderingContext2D, cam: Camera, 
   ctx.setLineDash(NO_DASH);
   if (p > 0.02) {
     pathArea(ctx, cam, t.center, t.origin, t.area, p);
-    ctx.globalAlpha = (fill ? 0.16 : 0) * k;
+    ctx.globalAlpha = (fill ? 0.16 : 0) * k * st.fill;
     ctx.fillStyle = st.color;
     ctx.fill();
     ctx.globalAlpha = 0.7 * k;
@@ -410,7 +428,7 @@ function CIRCLE_TMP(r: number): AreaShape {
 /** Hex panels on the rim of a band / dome, shimmering; they crack away in the last 0.4 s. */
 function hexDecor(ctx: CanvasRenderingContext2D, cam: Camera, z: Zone, area: AreaShape, st: MarkStyle, k: number, time: number): void {
   pathArea(ctx, cam, z.center, null, area, 1);
-  ctx.globalAlpha = 0.08 * k;
+  ctx.globalAlpha = 0.08 * k * st.fill;
   ctx.fillStyle = st.light;
   ctx.fill();
   ctx.globalAlpha = 0.85 * k;
@@ -578,7 +596,14 @@ function blizzardDecor(ctx: CanvasRenderingContext2D, cam: Camera, z: Zone, st: 
   const sx = cam.sx(z.center.x);
   const sy = cam.sy(z.center.y);
   const p = z.total > 0 ? 1 - z.remaining / z.total : 1;
-  ctx.globalAlpha = 0.12 * k;
+  // 기획 23차: a field that is not a circle (메이지 조준's fan) keeps its decor inside its own footprint
+  const clip = z.area !== undefined && z.area.shape !== 'circle';
+  if (clip) {
+    ctx.save();
+    pathArea(ctx, cam, z.center, null, z.area!, 1);
+    ctx.clip();
+  }
+  ctx.globalAlpha = 0.12 * k * st.fill;
   ctx.fillStyle = '#bfefff';
   ctx.beginPath();
   ctx.ellipse(sx, sy, R * PX_PER_UNIT, R * PX_PER_UNIT_Y, 0, 0, TAU);
@@ -597,7 +622,15 @@ function blizzardDecor(ctx: CanvasRenderingContext2D, cam: Camera, z: Zone, st: 
   ctx.beginPath();
   ctx.ellipse(sx, sy, (R + 0.35) * PX_PER_UNIT, (R + 0.35) * PX_PER_UNIT_Y, 0, -Math.PI / 2, -Math.PI / 2 + TAU * p);
   ctx.stroke();
-  void st;
+  if (clip) {
+    ctx.restore();
+    // the footprint's own rim (the clipped ellipse no longer outlines it)
+    pathArea(ctx, cam, z.center, null, z.area!, 1);
+    ctx.globalAlpha = 0.8 * k;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#e8fbff';
+    ctx.stroke();
+  }
 }
 
 /** Cleric sanctuary: a gold rim with 8 ticks; one goes out with every 0.5 s heal. */
@@ -605,7 +638,7 @@ function sanctuaryDecor(ctx: CanvasRenderingContext2D, cam: Camera, z: Zone, st:
   const R = z.radius;
   const sx = cam.sx(z.center.x);
   const sy = cam.sy(z.center.y);
-  ctx.globalAlpha = 0.1 * k;
+  ctx.globalAlpha = 0.1 * k * st.fill;
   ctx.fillStyle = '#fff3b0';
   ctx.beginPath();
   ctx.ellipse(sx, sy, R * PX_PER_UNIT, R * PX_PER_UNIT_Y, 0, 0, TAU);

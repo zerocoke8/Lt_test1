@@ -4,7 +4,7 @@
 // by code, C from the list. Started: all three are in the same ultTest game with the modes [조준, 드래그, 현재].
 // A holds its ult button and drags onto the field → releases: the guardian's ult lands at that spot on ALL THREE screens
 // (its barrier zone, the same centre). B drags its ult button onto the field → its guardian appears there and casts there,
-// seen the same on all three. The host's debug 「궁극기 방식」 switches everyone; a member has no debug button.
+// seen the same on all three. 기획 23차: each ult's ★ finisher warning sits at the same spot on all three screens too. The host's debug 「궁극기 방식」 switches everyone; a member has no debug button.
 
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
@@ -136,6 +136,21 @@ const zoneOf = (p: Player, pi: number, at: Vec2, eps: number) =>
       { timeout: 8000 },
     )
     .then(h => h.jsonValue() as Promise<Vec2>);
+/**
+ * 기획 23차: wait until this screen shows an ally warning with exactly this footprint (the ★ finisher's: 성채 전개 circle
+ * 4.5 / 성벽 돌파 rect 5 × 13 — no other part of those ults has it); resolves to its centre.
+ */
+const finisherWarning = (p: Player, area: Record<string, number | string>) =>
+  p.page
+    .waitForFunction(
+      want => {
+        const t = window.__proto!.game!.state.telegraphs.find(x => x.team === 'ally' && Object.entries(want).every(([k, v]) => (x.area as unknown as Record<string, unknown>)[k] === v));
+        return t ? { x: t.center.x, y: t.center.y } : null;
+      },
+      area,
+      { timeout: 8000, polling: 16 },
+    )
+    .then(h => h.jsonValue() as Promise<Vec2>);
 
 test('궁극기 테스트 방: 라벨 → 시작 → 방식 [조준 · 드래그 · 현재] → A 조준 → 세 화면 같은 자리 → B 드래그 → 세 화면 같은 자리', async ({ browser }, testInfo) => {
   test.setTimeout(240_000);
@@ -197,8 +212,14 @@ test('궁극기 테스트 방: 라벨 → 시작 → 방식 [조준 · 드래그
       expect(v?.valid).toBe(true);
       await A.page.screenshot({ path: testInfo.outputPath('ult-aim-a.png') });
     });
-    const centres = await Promise.all(all.map(p => zoneOf(p, 0, P, 0.2)));
+    // its barrier (0.85 s) and its ★ finisher 성채 전개 (1.5 s, warned from 1.15 s) at the same spot on every screen
+    const [centres, finA] = await Promise.all([
+      Promise.all(all.map(p => zoneOf(p, 0, P, 0.2))),
+      Promise.all(all.map(p => finisherWarning(p, { shape: 'circle', radius: 4.5 }))),
+    ]);
     for (const c of centres) expect(c).toEqual(centres[0]);
+    for (const c of finA) expect(c).toEqual(finA[0]);
+    expect(Math.hypot(finA[0].x - centres[0].x, finA[0].y - centres[0].y)).toBeLessThan(0.05);
     await sleep(300);
     await C.page.screenshot({ path: testInfo.outputPath('ult-aim-seen-by-c.png') });
 
@@ -212,8 +233,13 @@ test('궁극기 테스트 방: 라벨 → 시작 → 방식 [조준 · 드래그
     });
     const Q = { x: fromB.x < 12 ? fromB.x + 5 : fromB.x - 5, y: fromB.y < 6 ? fromB.y + 2 : fromB.y - 2 };
     await dragUlt(B, await fingerFor(B, Q));
-    const landed = await Promise.all(all.map(p => zoneOf(p, 1, Q, 0.6)));
+    // its wall (0.75 s) and its ★ finisher 성벽 돌파 (1.6 s, the band in front of the wall) the same on every screen
+    const [landed, finB] = await Promise.all([
+      Promise.all(all.map(p => zoneOf(p, 1, Q, 0.6))),
+      Promise.all(all.map(p => finisherWarning(p, { shape: 'rect', length: 5, width: 13 }))),
+    ]);
     for (const c of landed) expect(c).toEqual(landed[0]);
+    for (const c of finB) expect(c).toEqual(finB[0]);
     await sleep(300);
     await A.page.screenshot({ path: testInfo.outputPath('ult-drag-seen-by-a.png') });
 

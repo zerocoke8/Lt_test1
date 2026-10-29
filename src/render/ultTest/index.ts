@@ -8,15 +8,17 @@
 
 import type { GameEvent, GameState } from '../../types';
 import type { Camera } from '../camera';
-import type { FxHost } from '../skillfx';
+import type { FxHost, SkillFx } from '../skillfx';
 
 /** What an ult visual gets: the camera (world → screen; null during event intake), my player index, the effect pools. */
 export interface UltFxView {
   cam: Camera | null;
   localPlayer: number;
-  /** Rings, flashes, bursts, shake (the same pools the skill effects use). */
+  /** Rings, flashes, bursts, shake (the same pools the skill effects use). 기획 23차: render/vfx.ts Vfx (an UltHost). */
   host: FxHost;
   state: GameState;
+  /** 기획 23차: the skill-effect pool (render/vfx.ts passes it with every event). */
+  fx?: SkillFx;
 }
 
 export interface UltFxModule {
@@ -55,6 +57,9 @@ export function drawUltFx(ctx: CanvasRenderingContext2D, view: UltFxView, now: n
 export function ultFxModules(): readonly UltFxModule[] {
   return modules();
 }
+
+// 기획 23차: the screen layer (big glyph, sight lines, speed lines) — render/index.ts draws it after vfx.drawScreen
+export { drawUltScreen } from './core';
 
 // the shared looks, then the content tracks' modules (each registers itself on import)
 import './core';

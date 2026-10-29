@@ -64,27 +64,35 @@ export interface StageInfo {
   action: SkillAction | null;
   /** 기획 22차: a line / fan beat that knows where it started (ox, oy = that spot): its wave is drawn from there. */
   lineFrom?: boolean;
+  /**
+   * 기획 23차 (궁극기 연출 강화): the real direction (world radians) of a turned rect / cone — set only by the 궁극기 테스트
+   * router (render/ultTest) for an aimed / dragged footprint and for a 'line' passed as a rect. The stories it aliases
+   * read it ONLY when it is defined; undefined (every other mode) = today's code path, unchanged.
+   */
+  rot?: number;
 }
 
 type Story = (fx: SkillFx, h: StageHost, s: StageInfo) => void;
 
-const GOLD = '#ffd166';
-const HOLY = '#fff3b0';
-const ICE = '#7fdcff';
-const INK = '#c1121f';
-const TALISMAN = '#ffd23f';
-const PUPPET = '#ff5fa2';
-const HANJI = '#f3e9d2';
-const LAVA = '#ff3b1f';
-const MEDIC = '#2ec4b6';
+// 기획 23차: exported (unchanged) for the 궁극기 테스트 content tracks (render/ultTest/kit.ts)
+export const GOLD = '#ffd166';
+export const HOLY = '#fff3b0';
+export const ICE = '#7fdcff';
+export const INK = '#c1121f';
+export const TALISMAN = '#ffd23f';
+export const PUPPET = '#ff5fa2';
+export const HANJI = '#f3e9d2';
+export const LAVA = '#ff3b1f';
+export const MEDIC = '#2ec4b6';
 const BODY_Z = 0.65;
 
 // ─────────────────────────── small helpers ───────────────────────────
+// 기획 23차: exported unchanged — the 궁극기 테스트 content tracks build on them through render/ultTest/kit.ts.
 
 /** Grows a repeated picture a little per hit (2-1: "점점 커지게"). */
-const grow = (s: StageInfo, step = 0.08) => 1 + step * Math.min(8, s.hit);
+export const grow = (s: StageInfo, step = 0.08) => 1 + step * Math.min(8, s.hit);
 
-function fallAt(fx: SkillFx, x: number, y: number, obj: FallObj, size: number, height: number, wait: number, dur: number, color: string, k: number, follow = -1, ox = 0, oy = 0) {
+export function fallAt(fx: SkillFx, x: number, y: number, obj: FallObj, size: number, height: number, wait: number, dur: number, color: string, k: number, follow = -1, ox = 0, oy = 0) {
   const f = fx.add(Fx.Fall, x, y, Math.max(0.08, dur), color, k);
   f.n = obj;
   f.r = size;
@@ -96,7 +104,7 @@ function fallAt(fx: SkillFx, x: number, y: number, obj: FallObj, size: number, h
   return f;
 }
 
-function tetherFx(fx: SkillFx, x: number, y: number, x2: number, y2: number, style: TetherStyle, dur: number, color: string, k: number, follow = -1, follow2 = -1, sag = 0.4, width = 3, wait = 0) {
+export function tetherFx(fx: SkillFx, x: number, y: number, x2: number, y2: number, style: TetherStyle, dur: number, color: string, k: number, follow = -1, follow2 = -1, sag = 0.4, width = 3, wait = 0) {
   const f = fx.add(Fx.Tether, x, y, dur, color, k);
   f.x2 = x2;
   f.y2 = y2;
@@ -110,7 +118,7 @@ function tetherFx(fx: SkillFx, x: number, y: number, x2: number, y2: number, sty
   return f;
 }
 
-function glyphFx(fx: SkillFx, x: number, y: number, z: number, text: string, px: number, color: string, k: number, dur = 0.7, wait = 0) {
+export function glyphFx(fx: SkillFx, x: number, y: number, z: number, text: string, px: number, color: string, k: number, dur = 0.7, wait = 0) {
   const f = fx.add(Fx.Glyph, x, y, dur, color, k);
   f.text = text;
   f.r = px;
@@ -119,7 +127,7 @@ function glyphFx(fx: SkillFx, x: number, y: number, z: number, text: string, px:
   return f;
 }
 
-function areaFx(fx: SkillFx, kind: Fx, x: number, y: number, area: AreaShape, dur: number, color: string, k: number, wait = 0, n = 0) {
+export function areaFx(fx: SkillFx, kind: Fx, x: number, y: number, area: AreaShape, dur: number, color: string, k: number, wait = 0, n = 0) {
   const f = fx.add(kind, x, y, dur, color, k);
   f.area = area;
   f.wait = wait;
@@ -127,7 +135,7 @@ function areaFx(fx: SkillFx, kind: Fx, x: number, y: number, area: AreaShape, du
   return f;
 }
 
-function rune(fx: SkillFx, x: number, y: number, r: number, dur: number, color: string, k: number, wait = 0) {
+export function rune(fx: SkillFx, x: number, y: number, r: number, dur: number, color: string, k: number, wait = 0) {
   const f = fx.add(Fx.Rune, x, y, dur, color, k);
   f.r = r;
   f.n = 16;
@@ -135,7 +143,7 @@ function rune(fx: SkillFx, x: number, y: number, r: number, dur: number, color: 
   return f;
 }
 
-function scorchFx(fx: SkillFx, x: number, y: number, r: number, dur: number, ink: boolean, color: string, k: number, wait = 0) {
+export function scorchFx(fx: SkillFx, x: number, y: number, r: number, dur: number, ink: boolean, color: string, k: number, wait = 0) {
   const f = fx.add(Fx.Scorch, x, y, dur, color, k);
   f.r = r;
   f.n = ink ? 1 : 0;
@@ -143,7 +151,7 @@ function scorchFx(fx: SkillFx, x: number, y: number, r: number, dur: number, ink
   return f;
 }
 
-function boltFx(fx: SkillFx, x: number, y: number, x2: number, y2: number, dur: number, color: string, k: number, wait = 0) {
+export function boltFx(fx: SkillFx, x: number, y: number, x2: number, y2: number, dur: number, color: string, k: number, wait = 0) {
   const f = fx.add(Fx.Bolt, x, y, dur, color, k);
   f.x2 = x2;
   f.y2 = y2;
@@ -152,7 +160,7 @@ function boltFx(fx: SkillFx, x: number, y: number, x2: number, y2: number, dur: 
   return f;
 }
 
-function crosshairFx(fx: SkillFx, x: number, y: number, r: number, dur: number, color: string, k: number, follow: number, wait = 0) {
+export function crosshairFx(fx: SkillFx, x: number, y: number, r: number, dur: number, color: string, k: number, follow: number, wait = 0) {
   const f = fx.add(Fx.Crosshair, x, y, dur, color, k);
   f.r = r;
   f.follow = follow;
@@ -160,13 +168,13 @@ function crosshairFx(fx: SkillFx, x: number, y: number, r: number, dur: number, 
   return f;
 }
 
-function snow(fx: SkillFx, x: number, y: number, r: number, dur: number, k: number) {
+export function snow(fx: SkillFx, x: number, y: number, r: number, dur: number, k: number) {
   const f = fx.add(Fx.Snow, x, y, dur, '#e8f8ff', k);
   f.r = r;
   f.n = 55 * k;
 }
 
-function aura(fx: SkillFx, x: number, y: number, dur: number, color: string, k: number, follow: number) {
+export function aura(fx: SkillFx, x: number, y: number, dur: number, color: string, k: number, follow: number) {
   const f = fx.add(Fx.Aura, x, y, dur, color, k);
   f.r = 0.6;
   f.n = 14;
@@ -174,7 +182,7 @@ function aura(fx: SkillFx, x: number, y: number, dur: number, color: string, k: 
 }
 
 /** Fire burst (meteor / shell impact): flash circle, hot ring, embers, a few rocks. */
-function fireBurst(fx: SkillFx, h: StageHost, x: number, y: number, r: number, k: number, big: boolean): void {
+export function fireBurst(fx: SkillFx, h: StageHost, x: number, y: number, r: number, k: number, big: boolean): void {
   h.flash(x, y, x, y, { shape: 'circle', radius: r }, big ? 0.5 : 0.35, '#ff7b00', 0.85 * k);
   h.ring(x, y, 0.2, r * 1.15, big ? 0.45 : 0.32, GOLD, big ? 6 : 4, 0.2 * k);
   h.spray(x, y, 0.3, Math.round((big ? 18 : 6) * k), Pk.Ember, '#ff9e3d', r * 2.2, 3.5, 0.6, 6, big ? 5 : 4);
@@ -183,7 +191,7 @@ function fireBurst(fx: SkillFx, h: StageHost, x: number, y: number, r: number, k
 }
 
 /** Holy light column falling on a spot (팔라딘 / 클레릭 / 레인저 / 바드 / 메딕 Pillar). */
-function lightPillar(fx: SkillFx, x: number, y: number, w: number, hgt: number, color: string, k: number, dur = 0.6, follow = -1, wait = 0) {
+export function lightPillar(fx: SkillFx, x: number, y: number, w: number, hgt: number, color: string, k: number, dur = 0.6, follow = -1, wait = 0) {
   if (STAGE_DETAIL.low) return; // 리뷰 (perf): another player's beat skips the light pillars
   pillar(fx, x, y, w, hgt, color, k, dur, follow).wait = Math.max(0, wait);
 }
@@ -194,12 +202,12 @@ function lightPillar(fx: SkillFx, x: number, y: number, w: number, hgt: number, 
  */
 export const STAGE_DETAIL = { low: false };
 
-function rings(fx: SkillFx, x: number, y: number, from: number, to: number, n: number, dur: number, color: string, k: number, follow = -1, width = 4) {
+export function rings(fx: SkillFx, x: number, y: number, from: number, to: number, n: number, dur: number, color: string, k: number, follow = -1, width = 4) {
   return castRings(fx, x, y, from, to, STAGE_DETAIL.low ? Math.max(1, Math.ceil(n / 2)) : n, dur, color, k, follow, width);
 }
 
 /** Each enemy (memo) inside the area: called with the memo. */
-function eachEnemy(h: StageHost, s: StageInfo, area: AreaShape, fn: (m: UnitMemo, i: number) => void, max = 12): void {
+export function eachEnemy(h: StageHost, s: StageInfo, area: AreaShape, fn: (m: UnitMemo, i: number) => void, max = 12): void {
   const list = h.enemiesIn(area, s.x, s.y);
   const n = Math.min(max, list.length);
   for (let i = 0; i < n; i++) fn(list[i], i);
@@ -209,7 +217,7 @@ const isAllies = (s: StageInfo) => s.action?.affects === 'allies';
 const isSelf = (s: StageInfo) => s.action?.affects === 'self';
 
 /** Self parts of a stage (shield / buff on the caster): a bubble on it. */
-function selfBubble(fx: SkillFx, s: StageInfo, color = '#cfe8ff'): void {
+export function selfBubble(fx: SkillFx, s: StageInfo, color = '#cfe8ff'): void {
   if (s.src < 0) return;
   const d = fx.add(Fx.Dome, s.ox, s.oy, 0.6, color, s.k);
   d.r = 0.9;
@@ -218,7 +226,7 @@ function selfBubble(fx: SkillFx, s: StageInfo, color = '#cfe8ff'): void {
 }
 
 /** Ally parts: a light beam + sparkle on every ally inside the area (or every ally when it reaches the whole field). */
-function alliesGlow(fx: SkillFx, h: StageHost, s: StageInfo, color: string, beam = true): void {
+export function alliesGlow(fx: SkillFx, h: StageHost, s: StageInfo, color: string, beam = true): void {
   const a = s.area;
   const all = a.shape === 'circle' && a.radius > 30;
   const list = h.allies();
@@ -400,7 +408,7 @@ export const LAND: Readonly<Record<string, Story>> = {
   },
   'guardian_d:wave': (fx, h, s) => {
     const sw = fx.add(Fx.ShieldWave, s.x, s.y, 0.55, s.color, s.k);
-    sw.ang = s.area.shape === 'rect' ? dirAngle(s.area.dir) : 0;
+    sw.ang = s.rot !== undefined ? s.rot : s.area.shape === 'rect' ? dirAngle(s.area.dir) : 0;
     sw.r = s.area.shape === 'rect' ? s.area.length : 9;
     sw.w = s.area.shape === 'rect' ? s.area.width : 2.2;
     wave(fx, s.x, s.y, s.area, 0.5, s.color, s.k);
@@ -499,7 +507,7 @@ export const LAND: Readonly<Record<string, Story>> = {
   // ───────── 블레이드 ─────────
   'blade_d:dash': (fx, h, s) => {
     const len = s.area.shape === 'rect' ? s.area.length : 6;
-    const u = s.area.shape === 'rect' ? DIR_VEC[s.area.dir] : DIR_VEC.right;
+    const u = s.rot !== undefined ? rotTmp(s.rot) : s.area.shape === 'rect' ? DIR_VEC[s.area.dir] : DIR_VEC.right;
     const travel = s.dashTravel || 0.16;
     for (let i = 0; i < 4; i++) {
       const d = ((i + 0.6) / 4) * len;
@@ -509,6 +517,8 @@ export const LAND: Readonly<Record<string, Story>> = {
     wave(fx, s.x, s.y, s.area, 0.5, s.color, s.k, DASH_LAND);
   },
   'blade_d:return': (fx, h, s) => {
+    // 기획 23차: a turned footprint (궁극기 테스트) runs from its start (x, y) along s.rot — the far end first
+    if (s.rot !== undefined) return bladeReturnAlong(fx, h, s, s.rot);
     // the rush back ←: crossed sword marks along the path, from the far end to the drop point
     const L = s.area.shape === 'line' ? s.area.length : 6;
     const dx = s.ox - s.x;
@@ -578,14 +588,14 @@ export const LAND: Readonly<Record<string, Story>> = {
   },
   'berserker_d:split': (fx, h, s) => {
     const cr = fx.add(Fx.Crack, s.x, s.y, 1.4, LAVA, s.k);
-    cr.ang = s.area.shape === 'cone' ? dirAngle(s.area.dir) : 0;
+    cr.ang = s.rot !== undefined ? s.rot : s.area.shape === 'cone' ? dirAngle(s.area.dir) : 0;
     cr.w = s.area.shape === 'cone' ? (s.area.angle * Math.PI) / 180 : 1.6;
     cr.r = radiusOf(s.area);
     cr.n = 7;
     h.spray(s.x + Math.cos(cr.ang) * 2, s.y + Math.sin(cr.ang) * 2, 0.2, Math.round(10 * s.k), Pk.Ember, '#ff7b00', 2.5, 3, 0.7, 4, 4);
   },
   'berserker_d:quake': (fx, h, s) => {
-    const a0 = s.area.shape === 'cone' ? dirAngle(s.area.dir) : 0;
+    const a0 = s.rot !== undefined ? s.rot : s.area.shape === 'cone' ? dirAngle(s.area.dir) : 0;
     const R = radiusOf(s.area) * 0.85;
     for (let i = -1; i <= 1; i++) {
       const a = a0 + i * 0.32;
@@ -914,8 +924,8 @@ export const LAND: Readonly<Record<string, Story>> = {
   'paper_doll_grand_death:burst': (fx, h, s) => dollBurst(fx, h, s),
 };
 
-function shotgun(fx: SkillFx, h: StageHost, s: StageInfo): void {
-  const ang = s.area.shape === 'cone' ? dirAngle(s.area.dir) : Math.PI;
+export function shotgun(fx: SkillFx, h: StageHost, s: StageInfo): void {
+  const ang = s.rot !== undefined ? s.rot : s.area.shape === 'cone' ? dirAngle(s.area.dir) : Math.PI;
   const pe = fx.add(Fx.Pellets, s.x, s.y, 0.35, '#ffd166', s.k);
   pe.ang = ang;
   pe.w = s.area.shape === 'cone' ? (s.area.angle * Math.PI) / 180 : 1.2;
@@ -928,14 +938,34 @@ function shotgun(fx: SkillFx, h: StageHost, s: StageInfo): void {
   h.spray(s.x, s.y, 0.6, Math.round(3 * s.k), Pk.Smoke, '#adb5bd', 0.6, 1, 0.8, -0.5, 7);
 }
 
-function bardBand(fx: SkillFx, s: StageInfo, wait: number): void {
+export /** 기획 23차: the unit vector of a world angle (a shared scratch object: read it at once). */
+const ROT_TMP = { x: 1, y: 0 };
+function rotTmp(rad: number): { x: number; y: number } {
+  ROT_TMP.x = Math.cos(rad);
+  ROT_TMP.y = Math.sin(rad);
+  return ROT_TMP;
+}
+
+/** 기획 23차: 블레이드 되돌아 베기 along a turned line (궁극기 테스트): X marks from the far end (x, y) toward the landing. */
+function bladeReturnAlong(fx: SkillFx, h: StageHost, s: StageInfo, rot: number): void {
+  const L = s.area.shape === 'rect' || s.area.shape === 'line' ? s.area.length : 6;
+  const ux = Math.cos(rot);
+  const uy = Math.sin(rot);
+  for (let i = 0; i < 7; i++) {
+    const d = ((i + 0.5) / 7) * L;
+    xslash(fx, s.x + ux * d, s.y + uy * d, BODY_Z, 22 + i * 1.5, i % 2 ? '#ffffff' : s.color, s.k, 0.02 * i, i * 0.3);
+  }
+  h.spray(s.x + ux * L * 0.5, s.y + uy * L * 0.5, 0.6, Math.round(6 * s.k), Pk.Petal, '#ffc2d1', 3, 1.5, 0.6, 3, 4);
+}
+
+export function bardBand(fx: SkillFx, s: StageInfo, wait: number): void {
   if (isAllies(s)) return; // the ally twin of the same band: one picture
   areaFx(fx, Fx.Staff, s.x, s.y, s.area, 1.0, s.color, s.k, wait + s.wait);
   wave(fx, s.x, s.y, s.area, 0.45, s.color, s.k * 0.8, wait + s.wait);
   notes(fx, s.x, s.y, 1.2, s.color, s.k);
 }
 
-function dollBurst(fx: SkillFx, h: StageHost, s: StageInfo): void {
+export function dollBurst(fx: SkillFx, h: StageHost, s: StageInfo): void {
   h.spray(s.x, s.y, 0.5, Math.round(12 * s.k), Pk.Paper, HANJI, 3.2, 2.4, 0.7, 6, 5);
   h.spray(s.x, s.y, 0.5, Math.round(8 * s.k), Pk.Gold, PUPPET, 2.4, 1.6, 0.8, 2, 4);
   h.ring(s.x, s.y, 0.3, radiusOf(s.area), 0.4, PUPPET, 4, 0.18 * s.k);

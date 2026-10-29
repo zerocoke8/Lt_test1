@@ -225,5 +225,21 @@ test('궁극기 테스트: 메인 카드 → 편성 「조준」 → 버튼 끌�
   expect(await ultsUsed(page)).toBe(3);
   await expect(page.locator('.ult')).toHaveClass(/is-full/);
 
+  // ── 기획 23차: the pause menu here has 「궁극기 연출 강화」 (on), the box still fits the screen; off is saved ──
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pause')).toBeVisible();
+  const fx = page.locator('.btn-ultfx');
+  await expect(fx).toHaveText('궁극기 연출 강화 (궁극기 테스트): 켬');
+  const box = (await page.locator('.pause-box').boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
+  if (mobile) await fx.tap();
+  else await fx.click();
+  await expect(fx).toHaveText('궁극기 연출 강화 (궁극기 테스트): 끔');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('swap-tower.ultFx.v1') ?? '{}').boost)).toBe(false);
+  if (mobile) await fx.tap();
+  else await fx.click();
+  await page.keyboard.press('Escape');
+
   expect(errors).toEqual([]);
 });
