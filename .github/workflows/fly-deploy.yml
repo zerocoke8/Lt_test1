@@ -25,6 +25,8 @@ concurrency: fly-deploy
 
 jobs:
   deploy:
+    # 수동 실행도 이 두 가지에서만 배포 (art/renewal 등 다른 가지에서 누르면 건너뜀).
+    if: github.ref == 'refs/heads/claude/design-notes-v0' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
