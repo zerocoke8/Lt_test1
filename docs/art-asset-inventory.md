@@ -1,6 +1,7 @@
 # 아트 리뉴얼 — 무엇을 새로 만들어야 하나 (그림 · 움직임 · 효과음 목록)
 
-> 기준: 커밋 `ab97de5` (기획 24차). 새 브랜치에서 **플레이(sim 규칙 · 숫자 · 멀티)는 그대로** 두고, 그림 · 움직임 · 효과음만 새로 만들기 위한 목록입니다.
+> 기준: 커밋 `ab97de5` (기획 24차). 새 브랜치 `art/renewal`에서 그림 · 움직임 · 효과음을 새로 만들기 위한 목록입니다. 플레이(sim 규칙 · 숫자 · 멀티)는 **25차 A단계의 두 결정만** 바뀌고(원정 · 궁극기 테스트 숨김, 궁극기 = 조작형 조준 궁극기 + 탭 자동 — 인계 2-1) 그 밖은 그대로입니다.
+> **「이 가지에서 제외 (…)」** = 이 가지에서 안 보이거나 안 쓰는 것: 원정 / 궁극기 테스트(숨김) / 지금 탭 궁극기(`_u`, 오늘 궁극기) / 드래그 궁극기(`_ud`). 사실은 지우지 않고 표시만 하고, 개수 · 합계에서 뺍니다. 표 안의 「원정 N단계」 같은 말은 사실 기록일 뿐입니다(그 그림은 클래식 · 레이드에서도 씀).
 > 모든 id · 개수 · 크기는 코드와 문서에서 읽은 것입니다. 「확인 못 함」 = 이번에 확인하지 못한 것. 「제안」 = 정해진 규칙이 아니라 이 목록의 추천(프레임 수 · 프레임 크기 · 폴더 이름 등).
 > 크기 단위: **논리 px** = 1280×720 무대 기준. 폰(844×390 가로)에서는 ×0.54(CSS px), 폰 화면의 실제 점 = 논리 px × 1.625, PC 최대 ×2. → **그림 원본은 논리 크기의 2배면 어디서나 충분**합니다.
 
@@ -12,8 +13,8 @@
 
 | 분류 | 개수 | 동작(애니메이션) 수 | 대략 프레임 수 (제안 · 어림) | 우선순위 (제안) | 비고 |
 |---|---|---|---|---|---|
-| 캐릭터 | 15 | 필수 7 + 선택 4 | 필수 ≈ 520 + 선택 ≈ 210 = **≈ 730** (+ 컷인 상반신 15장) | 1 | 지금 15명 모두 **같은 캡슐 몸** + 소품 9종 + 가슴 역할 글자. 같은 소품 4묶음부터 풀 것 (2-3) |
-| 펫 | 8 | 0 (필드에 몸 없음) | 아이콘 8장 (UI 줄에 셈) | 2 | 필드 몸은 인계 11장 8번 |
+| 캐릭터 | 15 | 필수 7 + 선택 3 | 필수 ≈ 520 + 선택 ≈ 180 = **≈ 700** (+ 컷인 상반신 15장) | 1 | 지금 15명 모두 **같은 캡슐 몸** + 소품 9종 + 가슴 역할 글자. 같은 소품 4묶음부터 풀 것 (2-3) |
+| 펫 | 8 | 0 (필드에 몸 없음) | 아이콘 8장 (UI 줄에 셈) | 2 | 필드 몸은 인계 11장 15번 |
 | 아군 소환물 | id 9 · 새 그림 7 | 2–3 | ≈ 50 | 3 | `paper_doll_grand` · `rw_straw` 는 종이 인형 그림 재사용 |
 | 일반 몬스터 | 13 (웨이브 12 + `copy_mini`) | 4–6 | ≈ 280 | 1 | `copy_mini` 는 `copy_man` 과 같은 그리기 함수의 작은 판 |
 | 중형 보스 (= 원정 수문장) | 6 | 6–7 | ≈ 225 | 2 | 수문장은 따로 그림 없음. `ogre` 는 `golem` 그림의 큰 판 |
@@ -21,16 +22,16 @@
 | 보스 | 20 (고정 6 · 돌아다님 8 · 자리 옮김 3 · 경기장 3) | 움직이는 몸 14: 5 자세 (+ 보는 방향 3개인 보스 2) / 고정 6: 부품 그림 | 움직이는 몸 ≈ 590 + 고정 부품 ≈ 85장 + 그로기 소품 16장 | 2 (클래식 4) · 3 (레이드 16) | 레이드 보스는 디자이너가 지우거나 다시 맞출 수 있음 (game-design §32-4, §33-4) |
 | 배경 · 무대 · 소품 | 판 11 + 덧그림 ≈ 15 + 보스 바닥 8 (+ 2페이즈 3) + 고정 보스 벽 틀 6 + 장막 3 + 돌발 소품 4 | 반복 몇 개 (환풍기 4–6 등) | **≈ 50장** | 1 (구역 판 8) | 카메라가 안 움직임 → 판 하나 = 화면 하나 |
 | 괴담 방 · 돌발 괴담 | 방 12 · 흔적 22 · 돌발 7 | 0 | 아이콘 41장 (+ 방 큰 그림 12, 선택) | 2 | 지금은 인라인 SVG · 이모지 |
-| UI 그림 | 초상 15 · 펫 8 · 역할 5 · 상태 18 · 시너지 13 · 등급 틀 4 · 장비 등급 틀 4 · 장비 52 · 메뉴 카드 4 + 로고 1 · UI 아이콘 4 = 128 | 0 (CSS 움직임 유지) | 128장 + 틀 · 버튼 ≈ 40 | 2 (장비 52 = 3) | 글자는 DOM 글자 그대로 |
-| 효과 | (a) 코드 유지 ≈ 10 가족 · (b) 영상 → 스프라이트 후보 ≈ 20 플립북 · (c) 혼합 ≈ 70 텍스처 | — | (b) **≈ 185** | 2 | 판정 모양 · 시간이 담긴 것은 코드 (9장) |
-| 효과음 | 456 id (반복 15) | — | 요청 길이 730.6초 | 별도 트랙 | id · 규칙은 그대로, mp3 · `levels.json` 만 바뀜 (10장) |
+| UI 그림 | 초상 15 · 펫 8 · 역할 5 · 상태 18 · 시너지 13 · 등급 틀 4 · 메뉴 카드 2 + 로고 1 · UI 아이콘 4 = **70** (이 가지에서 제외 (원정 / 궁극기 테스트): 장비 52 · 장비 등급 틀 4 · 메뉴 카드 2 — 다 넣으면 128) | 0 (CSS 움직임 유지) | 70장 + 틀 · 버튼 ≈ 35 | 2 | 글자는 DOM 글자 그대로 |
+| 효과 | (a) 코드 유지 ≈ 10 가족 · (b) 영상 → 스프라이트 후보 ≈ 20 플립북 · (c) 혼합 ≈ 70 텍스처 | — | (b) **≈ 185** | 2 | 판정 모양 · 시간이 담긴 것은 코드 (9장). 궁극기 효과 = **조작형(조준) 궁극기 15개**, 지금 탭 · 드래그 궁극기만 쓰는 키는 건너뜀 (개수는 그대로) |
+| 효과음 | 456 id (반복 15) → 이 가지에서 울리는 것 **425** + 예비 기본음 10 (안 울리는 21개 건너뜀, 10-1) | — | 요청 길이 730.6초 (456개 기준) | 별도 트랙 | id · 규칙은 그대로, mp3 · `levels.json` 만 바뀜 (10장) |
 
-**합계 (어림)**: 움직이는 프레임 약 **2,200장** + 정지 그림 약 **450장** + 효과음 456개.
-**순서 제안**: 0단계 「스타일 시험」(25차, 인계 문서 10장) = 그림체 후보를 캐릭터 · 몬스터 · 배경 · 효과 1개씩 그려 고름 → 고른 그림체로 `guardian` 필수 7동작 + `slime` + 로비 일반 판 + 근접 휘두름 `Fx.Slash` 를 게임까지 → 1순위 → 2순위 → 3순위.
+**합계 (어림)**: 움직이는 프레임 약 **2,200장** + 정지 그림 약 **380장** (이 가지에서 제외 약 63장 — 장비 52 · 장비 등급 틀 4 · 메뉴 카드 2 · 원정 단계 칸 ≈ 5 — 를 뺌, 다 넣으면 약 450) + 효과음 434개 (울리는 425 − 바드 박자 + 예비 기본음 10).
+**순서 제안**: 25차 B (인계 문서 10장) = 바깥 사실 확인 → 도구 시험 (Codex 1장 · 시댄스 1클립) → 그림체 후보를 캐릭터 · 몬스터 · 배경 · 효과 1개씩 그려 고름 → 26차에 고른 그림체로 `guardian` 필수 7동작 + `slime` + 로비 일반 판 + 근접 휘두름 `Fx.Slash` 를 게임까지 → 1순위 → 2순위 → 3순위. (25차 A = 규칙 정리, 그림 없음)
 
 ### 0-2. 지금 상태 세 줄
-- **그림 파일 0장.** 모든 그림이 코드(Canvas 2D)로 그려집니다. 그림 파일 칸은 원정 장비 52장(`src/assets/gear/`, 지금 `.gitkeep` 만 있는 빈 폴더) 하나뿐입니다.
-- **몸 그리는 함수가 하나**(`drawBody`, `src/render/units.ts` 518–861, 영웅 case 536–579): 필드 · 잔상 · 죽음 유령 · 컷인 · 원정 인형이 모두 이 함수(부르는 곳 10곳)라, 맨 위에서 바꾸면 전부 같이 바뀝니다. 25차는 필드 · 잔상 · 죽음 · 저스트 호출만 바꿈 (인계 4-4).
+- **그림 파일 0장.** 모든 그림이 코드(Canvas 2D)로 그려집니다. 그림 파일 칸은 원정 장비 52장(`src/assets/gear/`, 지금 `.gitkeep` 만 있는 빈 폴더 — 이 가지에서 제외 (원정), 칸 모양만 본보기) 하나뿐입니다.
+- **몸 그리는 함수가 하나**(`drawBody`, `src/render/units.ts` 518–861, 영웅 case 536–579): 필드 · 잔상 · 죽음 유령 · 컷인 · 원정 인형이 모두 이 함수(부르는 곳 10곳)라, 맨 위에서 바꾸면 전부 같이 바뀝니다. 26차는 필드 · 잔상 · 죽음 · 저스트 호출만 바꿈 (0-4 · 인계 4-4, 원정 인형은 이 가지에서 제외).
 - **소리는 456개 모두 mp3 파일**(`src/audio/files/<id>.mp3`), 파일이 없거나 꺼 두면 합성음.
 
 ### 0-3. 화면 크기 계산 (모든 표의 기준)
@@ -56,6 +57,16 @@
 | 초상 · 컷인 상반신 | ≤ 88 · 몸 137×179 | | | 256² · 512×640 |
 | 효과 | | | | 논리 크기 × 2 |
 
+### 0-4. 코드 입구 (인계 4장에서 옮긴 자세한 판, 줄은 `ab97de5` 기준)
+- **렌더가 받는 것**: `createRenderer(canvas)`(`src/render/index.ts:78`) → `render(state, events, realDt, ui)`(`src/types.ts:1734`). 유닛(`Entity`, `types.ts:890`): `defId`, `pos`, `radius`, `facing`, `anim`(`:911`), `animTime`. 한 번짜리 연출은 `GameEvent`(46종), 유닛별 연출 기록은 렌더 메모(`UnitMemo`). 멀티: 스냅샷 15 Hz, `plan.waves[].spawns`가 비어서 옴 → 다음 웨이브 몬스터를 미리 못 앎.
+- **좌표**: 화면 y = 150 + wy × 29.33, 백버퍼 논리 px당 1.625(폰) · 최대 2(PC).
+- **그리는 순서**: 배경 → 보스 바닥 → [clip: 장판 · 아군 예고 · 바닥 효과] → 그림자 · 고리 → 고정 보스 → 적 예고 → 잔상 → 유닛(y 순, 내 것 마지막) → 투사체 · 공중 효과 → 머리 위 정보 → 화면층 → DOM HUD(`index.ts:1853–1965`).
+- **몸 `drawBody` 부르는 곳 10곳**: `index.ts:1376`(필드), `vfx.ts:2499 / 2518 / 2522 / 2529`(잔상 · 죽음 · 퇴장), `justFx.ts:229–230`, `cutin.ts:422 / 637`, `gearArt.ts:234`(원정 인형). 26차 분기는 필드 · `vfx.ts` 4곳 · `justFx.ts` 2곳만. 컷인(2.8배라 흐려짐 → 컷인 초상은 따로)은 27차까지 코드 그림. 원정 인형 · 장비를 낀 몸(`gear` 인자) · 장비 겹치기(`drawGearBack/Armor/Charm/Front`)는 이 가지에서 제외 (원정). 분기에서도 중형 왕관(`crown` `units.ts:293`, 부름 `:860`)은 그림. 자세는 모듈 변수로(본보기 `HERO_POSE` `units.ts:67`). `UnitLook`에 `id`를 `makeLook`(`look.ts:171`)에서 더함.
+- **내 외곽선**: 검정 4.5 + 플레이어 색 2.5 px, 「나」, ▼ (`index.ts:1483–1506`, `units.ts:1018–1037`) → 스프라이트 흰 실루엣(`source-in`, 한 번 구워 둠)으로 다시 만듦.
+- **그 밖의 입구**: 투사체 `drawProjectiles`(`index.ts:1570`) · `drawStyledProjectile`(`:2193`), 고정 보스 `drawBossArt`(`src/render/boss.ts:58`), 움직이는 보스 `drawBossBody`(`bosses/body.ts:265`), 보스 바닥 `BossStage`(`bosses/stage.ts:20`, `bake()` :66), 배경 `Backdrop.bake()`(`src/render/ground.ts:113`, 층마다 한 번; 위 HUD가 y 약 92 위를 가림, 바닥은 낮은 대비), DOM 초상 `portrait()` · `petIcon()`(`src/ui/preset.ts:74 / 81`), 컷인 띠 초상 `cutin.ts`(띠 1760×273.6, 캐시 `:370`).
+- **불러오기 · 메모리**: 우선순위 줄 + 동시 3개(소리 `FILE_JOBS` `src/audio/engine.ts:126` 본보기), `createImageBitmap`. 층 시작에 파티 · 펫 → `ZONES[zone].pool` · `mids` · `boss`(`src/config.ts:173`) → `plan.bossId` · `plan.nextBossId`. 구역이 바뀌면 놓아줌. 풀린 메모리 = 폭 × 높이 × 4: 192² 한 장 147,456 B → 근접 캐릭터 48장 ≈ 7.1 MB, 서로 다른 9명이면 ≈ 64 MB(추론) → 26차에 실제로 잰 뒤 예산.
+- **서버 · 빌드**: 서버는 해시 이름 파일을 이미 길게 캐시(`HASHED_ASSET` `server/http.ts:35`), `TYPES`에 png · webp · json 있음 → avif · webm · mp4만 추가. 보낸 파일을 메모리에 계속 둠(`:47–73`, 머신 256 MB).
+
 ---
 
 ## 1. 게임 정보라 그림이 바뀌어도 꼭 지킬 것
@@ -80,7 +91,7 @@
 | 궁극기 컷인 | 0.5초, 첫 타 ≥ 0.45초 (`ULT_CUTIN`) | `src/config.ts` 94 | 띠가 빠지는 순간 첫 타 |
 | 단계 타격 | `skillStage` 이벤트의 시각 · 자리. 떨어지는 물체는 `wait = delay − 낙하시간` | `src/render/stagefx.ts` PREP 243 | 물체가 딱 그 박자에 닿기 |
 | ★마무리 · 큰 박자 · 착지 | 멈춘 첫 화면이 곧 타격 | `docs/ult-fx.md` 2-3 | 터짐 플립북은 **가장 밝은 프레임부터** 시작 |
-| 돌진 | sim 은 한 틱에 이동, 그림만 `dash.duration` 동안 미끄러짐 (궁극기 테스트 0.16초) | `src/render/vfx.ts` 1871 `dashPose` | 줄무늬 길이 = 실제 출발 → 도착 |
+| 돌진 | sim 은 한 틱에 이동, 그림만 `dash.duration` 동안 미끄러짐 (드래그 궁극기 0.16초 `ULT_TEST.dashDuration` — 이 가지에서 제외 (드래그 궁극기)) | `src/render/vfx.ts` 1871 `dashPose` | 줄무늬 길이 = 실제 출발 → 도착 |
 | 몬스터 · 보스 시전 자세 | `max(0.4, 지연)` 동안 서 있음 (form 보스는 마지막 부분 지연) | `src/sim/units.ts` 444–445 | 시전 자세 = 예고 길이 (반복 프레임으로 채움) |
 | 그로기 | 쓰러짐 0.25초 · 5초 유지 (`bossGroggyDuration`) · 일어남 0.8초 | `src/config.ts` 37, `src/render/groggyFx.ts` | 쓰러진 자세가 5초 내내 읽혀야 |
 | 보스 등장 · 도착 · 돌진 · 퇴각 | 등장 1초 + 바닥에서 올라옴 0.35초, 자리 도착 0.4초, 돌진 0.3초, 퇴각 2초 | `src/render/bosses/body.ts`, `src/render/index.ts` 1184 | |
@@ -116,9 +127,9 @@
 - 흔들림 · 확대 여유: 마무리 흔들림 12 × 폰 보정 ≤ 1.6 ≈ 19 px, 확대 5 % → 배경 판은 사방 ≥ 20 px 여유 (또는 지금처럼 어두운 가장자리).
 
 ### 1-7. 금지 · 자동 검사
-- **글자 없음**: 궁극기 테스트 연출 30개에 글자 · 한자 금지 (24차, `tests/render/ult-fx-core.test.ts`). 생성 그림 · 영상 프롬프트에 「no text, no letters, no glyphs, no logos」, 결과도 눈으로 확인.
-- `src/sim` · `src/data` 숫자는 건드리지 않음 (골든 · 결정성 테스트, 멀티 스냅숏). 렌더는 게임 상태를 바꾸지 않음 (`tests/render/renderer.test.ts`).
-- 클래식 모습 해시 `tests/render/classic-look.test.ts` (`EXPECTED = '455258ec31c41b21'`, 캔버스 호출 · `drawImage` 수까지) — 코드 판은 계속 통과 (vitest 는 Node `vite.config.ts:70`, `Image` 없음 → 코드 경로를 검사). 「새 그림」을 기본으로 바꿀 때만 깨짐 → 디자이너 승인 뒤 한 번 다시 기록 (`CLASSIC_LOOK_PRINT=1`, 인계 8장).
+- **글자 없음**: 궁극기 연출에 글자 · 한자 금지 (24차, `tests/render/ult-fx-core.test.ts` — 검사는 alt 30개 그대로). 이 가지의 본 게임 궁극기 = 조작형(조준) 궁극기 15개. 생성 그림 · 영상 프롬프트에 「no text, no letters, no glyphs, no logos」, 결과도 눈으로 확인.
+- `src/sim` · `src/data` 숫자는 건드리지 않음 (골든 · 결정성 테스트, 멀티 스냅숏) — 예외는 25차 A단계의 두 결정뿐 (인계 2-1, 12-1). 렌더는 게임 상태를 바꾸지 않음 (`tests/render/renderer.test.ts`).
+- 클래식 모습 해시 `tests/render/classic-look.test.ts` (`EXPECTED = '455258ec31c41b21'`, 캔버스 호출 · `drawImage` 수까지) — 25차 A단계에서 궁극기가 바뀌어 한 번 다시 기록 (승인 뒤, 12-1). 그 뒤 코드 판은 계속 통과 (vitest 는 Node `vite.config.ts:70`, `Image` 없음 → 코드 경로를 검사). 마무리에 「새 그림」을 기본으로 바꿔 깨질 때만 디자이너 승인 뒤 한 번 다시 기록 (`CLASSIC_LOOK_PRINT=1`, 인계 8장) — Node 에는 `Image` 가 없어 안 깨질 수도 있음.
 - `shadowBlur` 금지 (테스트), 보스 그림 규칙(몸 ≤ 220 · 무대 장치 ≤ 360 캔버스 호출, 그라디언트 · `Math.random` 금지, 뒤집히는 몸에 글자 금지, 6 px 미만 금지 — `src/render/bosses/types.ts` 37–41, `src/render/bosses/kit.ts` 4–6).
 - 효과 예산: 시전 한 번 입자 ≤ 150 · SkillFx ≤ 40 · 바닥 자국 ≤ 6 (레코드 수를 셈 → **플립북 1개 = 레코드 1개**로 두면 그대로 통과).
 
@@ -128,7 +139,7 @@
 
 ### 2-1. 지금 그리는 곳 (15명 공통)
 - 몸: `src/render/units.ts` 536–579 (`drawBody` case `'hero'`, 캡슐 몸 + 허리띠 + 눈 2개 + 가슴 역할 글자, 팔 · 다리 · 입 없음)
-- 소품 9종 (`shield sword axe bow orb staff hammer gun lute`): `src/render/units.ts` 335–512 (`heroAccessoryAt`), 원정 무기 손잡이 → 끝 좌표 `src/render/gear.ts` 78–101 (`weaponAxis`) — 스프라이트 손 기준점에 그대로 쓰면 됨
+- 소품 9종 (`shield sword axe bow orb staff hammer gun lute`): `src/render/units.ts` 335–512 (`heroAccessoryAt`), 원정 무기 손잡이 → 끝 좌표 `src/render/gear.ts` 78–101 (`weaponAxis`) — 스프라이트 손 기준점 참고용 (원정 장비 자체는 이 가지에서 제외 (원정))
 - 동작: `src/render/index.ts` 958–1096 (`computePose`) — 몸 늘이기 · 누르기 · 기울이기 · 떠오름 · 무기 회전
 - 컷인: `src/render/cutin.ts` 407–425 · DOM 초상: `src/ui/preset.ts` 74–79
 - 데이터 (이름 · 색 · 스킬): `src/data/characters.ts` (줄 번호는 표)
@@ -146,14 +157,15 @@
 | `hit` 피격 (렌더 전용) | 피해 ≥ 0.5 | 흰 번쩍 0.12초 + 튕김 0.14초 — `vfx.ts` 767–784 | **2** (번쩍은 코드 흰 덧칠로 둬도 됨) | 월드 |
 | `death` 사망 (렌더 전용) | HP 0 | 0.5초 납작해지며 흐려짐 + 입자 — `vfx.ts` 613–633 | **6** | 월드 |
 | 선택 `ult` 궁극기 자세 | 궁극기 | 0.75초 `sin` 곡선, 정점 0.375초 — `index.ts` 1055–1062 | 6 | 월드 |
-| 선택 `dash` 돌진 자세 | 돌진형 드래그 · 궁극기 테스트 드래그 | 앞 기울기 0.3, 무기 +1.2 rad, 몸 잔상 4개 — `vfx.ts` 1871–1897 | 2 | 월드 |
+| 선택 `dash` 돌진 자세 | 돌진형 드래그 스킬 · 조준 궁극기 돌진 (버서커 · 섀도우) (드래그 궁극기 이동은 이 가지에서 제외 (드래그 궁극기)) | 앞 기울기 0.3, 무기 +1.2 rad, 몸 잔상 4개 — `vfx.ts` 1871–1897 | 2 | 월드 |
 | 선택 `stunned` 기절 | 기절 | ±0.14 rad 흔들 + 별 3개(코드) — `index.ts` 1047–1050 | 4 (반복) | 월드 |
-| 선택 `blink` 순간이동 | 블레이드 순보, 궁극기 테스트 드래그 | 사라짐 0.08초, 착지 0.18초 — `src/render/ultTest/core.ts` 65 | 2 | 월드 |
+| 선택 `blink` 순간이동 — **이 가지에서 제외 (지금 탭 궁극기 / 드래그 궁극기)** | 캐릭터 순간이동은 블레이드 순보(`blade_u` `hop`, `characters.ts:279`) · 섀도우 사라짐(`shadow_u` `vanish`, `:393`) · 드래그 궁극기 번쩍뿐 | — | 0 | — |
 | 코드로 둠 | 퇴장 0.35초(떠오르며 가늘어짐), 정지(그 프레임 멈춤 + 회색), 끌려감 0.2초, 잔상(흰 실루엣), 미리보기 유령, 숨김, 점프 | `vfx.ts` 600–612, `src/render/statusfx.ts` 109–133 | 0 | — |
 
-→ 한 명당 **근접 필수 36 / 원거리 필수 34 + 선택 14**. 근접 6명 × 36 + 원거리 9명 × 34 = 522, 선택 15 × 14 = 210.
-→ 시뮬 상태 이름은 `idle move attack cast appear stunned` 6개뿐 (`src/types.ts` 911). 나머지(`hit death ult dash blink`)는 렌더 전용 타이머라 sim · 네트워크를 안 건드림.
-→ 그 동작의 스프라이트가 있으면 그 동작의 코드 변형(`z` · `lean` · `hMul` · `wMul` · `tilt`)은 끄고 사건 변형(피격 튕김 · 착지 찌그러짐 · 궁극기 크기)만 남김. 걷기 프레임은 코드 걸음 주기(두 걸음 0.628초)에 맞춤 (인계 4-3). 25차 = 필수 7동작, 선택 4동작은 26차.
+→ 한 명당 **근접 필수 36 / 원거리 필수 34 + 선택 12** (`ult` 6 · `dash` 2 · `stunned` 4). 근접 6명 × 36 + 원거리 9명 × 34 = 522, 선택 15 × 12 = 180.
+→ 시뮬 상태 이름은 `idle move attack cast appear stunned` 6개뿐 (`src/types.ts` 911). 나머지(`hit death ult dash`)는 렌더 전용 타이머라 sim · 네트워크를 안 건드림 (`blink` 는 이 가지에서 안 씀).
+→ 그 동작의 스프라이트가 있으면 그 동작의 코드 변형(`z` · `lean` · `hMul` · `wMul` · `tilt`)은 끄고 사건 변형(피격 튕김 · 착지 찌그러짐 · 궁극기 크기)만 남김. 걷기 프레임은 코드 걸음 주기(두 걸음 0.628초)에 맞춤 (인계 4-3). 26차 = 필수 7동작 (가디언 시험), 선택 3동작은 27차.
+→ 재생 시계 식 (인계 4-3에서 옮김): 대기 = 렌더 시계 반복 ≈ 2.42초 (위상 `id × 1.618`, `src/render/units.ts:96`). 이동 프레임 = `floor(frac((time × 10 + m.phase) / 2π) × 8)` (두 걸음 0.628초, 속도와 무관).
 
 ### 2-3. 캐릭터 표 (15)
 
@@ -161,23 +173,23 @@
 
 | id | 이름 (역할) | 지금 그리는 곳 (전용) | 화면 크기 (소품) | 필요한 동작 · 프레임 (제안) | 꼭 지킬 것 |
 |---|---|---|---|---|---|
-| `guardian` | 가디언 (탱커) | `characters.ts` 51; 궁극기 테마 `src/render/ultTest/theme.ts` | 방패 앞 32 | 근접 36 + 선택 14 = 50 | 방패가 `warden` 과 같은 그림(색만 다름) → 새 그림에서 실루엣으로 구분 |
-| `paladin` | 팔라딘 (탱커) | `characters.ts` 104; 약화 십자 `statusfx.ts` 80 | 망치 (앞 ≤ 41) | 50 | 무거운 휘두름 0.26초 (`axe` · `hammer` = heavy, `vfx.ts` 855) |
-| `warden` | 워든 (탱커) | `characters.ts` 175; 족쇄 사슬 `statusfx` `tetherChain` | 방패 앞 32 | 50 | 스킬은 전부 사슬인데 소품은 방패 (인계 11장 6번) |
-| `blade` | 블레이드 (근접딜러) | `characters.ts` 230; 돌진 잔상 `stagefx.ts` 508; 순보 잔상 `vfx.ts` 684–689 | 검 앞 41 | 50 | 검이 `shadow` 와 같은 그림. 돌진 잔상 4개 = 몸 그림 반투명 |
-| `berserker` | 버서커 (근접딜러) | `characters.ts` 286; 궁극기 불씨 `vfx.ts` 1427–1429; 컷인 `rage` | 도끼 (앞 ≤ 41) | 50 | 무거운 휘두름, 광역 1 |
-| `shadow` | 섀도우 (근접딜러) | `characters.ts` 341; 궁극기 0.45초 사라짐 + 먹물 `vfx.ts` 1412–1416; 분신 `stagefx.ts` 632, 649; 컷인 `slash` | 검 앞 41 | 50 | 분신 · 잔상은 같은 프레임 흰 실루엣 |
-| `ranger` | 레인저 (원거리딜러) | `characters.ts` 402; 화살 `index.ts` 2199–; 궁극기 점프 1.4칸 0.45초 `vfx.ts` 1417–1419 | 활 앞 35 | 원거리 34 + 14 = 48 + 투사체(화살) | 평타 투사체 속도 18 |
-| `mage` | 메이지 (원거리딜러) | `characters.ts` 449; 불덩이 `index.ts` 2248–2266; 컷인 `frost` | 오브 위 68 | 48 + 투사체(불덩이 + 불씨) | 오브가 `chrono` · `puppeteer` 와 같은 그림 |
-| `gunner` | 거너 (원거리딜러) | `characters.ts` 514; 예광탄 `index.ts` 2231–2247; 총구 불꽃 r 13 `vfx.ts` 828–831 | 총 앞 41 | 48 + 투사체(예광 줄) | 총구 불꽃이 다른 캐릭터보다 큼 |
-| `cleric` | 클레릭 (힐러) | `characters.ts` 572; 빛 십자 `index.ts` 2267–; 궁극기 날개 1.7초 `vfx.ts` 1420–1426 | 지팡이 위 68 | 48 + 투사체(빛 십자) | 지팡이가 `medic` · `exorcist` 와 같은 그림 |
-| `medic` | 메딕 (힐러) | `characters.ts` 628; 주사기 다트 `index.ts` `case 'medic'`; 컷인 `siren` | 지팡이(임시) 위 68 | 48 + 투사체(주사기) | 기획 소품은 「주사기」 (`look.ts` 82, `docs/new-characters.md` 44). 청록 ↔ 레인저 · 팔라딘 색 가까움 |
-| `exorcist` | 퇴마사 (힐러) | `characters.ts` 679; 회전 부적 투사체; 컷인 `ink` | 지팡이(임시) 위 68 | 48 + 투사체(부적) | 기획 소품은 「부적 다발」 (`new-characters.md` 66). 몸은 핏빛, **스킬 범위는 노랑** (빨강 = 적 규칙) |
-| `bard` | 바드 (서포터) | `characters.ts` 729; 8분음표 투사체 `index.ts` `case 'bard'` | 류트 (앞 ≤ 41) | 48 + 투사체(음표, 위아래로 흔들) | — |
-| `chrono` | 크로노 (서포터) | `characters.ts` 788; 회전 마름모; 되감기 잔상 `stagefx.ts` 876; 컷인 `desat` | 오브 위 68 | 48 + 투사체(마름모) | 스킬은 시계 · 초침인데 소품은 메이지와 같은 오브 (인계 11장 6번). 정지 = 회색 처리(코드) |
-| `puppeteer` | 퍼펫티어 (서포터) | `characters.ts` 839; 바늘 + 실 투사체; 종이 인형 소환; 컷인 `curtain` | 오브(임시) 위 68 | 48 + 투사체(실 끄는 바늘) | 기획 소품은 「실타래」 (`new-characters.md` 91). 분홍 ↔ 적 `nurse_doll` 색 가까움 |
+| `guardian` | 가디언 (탱커) | `characters.ts` 51; 궁극기 테마 `src/render/ultTest/theme.ts` | 방패 앞 32 | 근접 36 + 선택 12 = 48 | 방패가 `warden` 과 같은 그림(색만 다름) → 새 그림에서 실루엣으로 구분 |
+| `paladin` | 팔라딘 (탱커) | `characters.ts` 104; 약화 십자 `statusfx.ts` 80 | 망치 (앞 ≤ 41) | 48 | 무거운 휘두름 0.26초 (`axe` · `hammer` = heavy, `vfx.ts` 855) |
+| `warden` | 워든 (탱커) | `characters.ts` 175; 족쇄 사슬 `statusfx` `tetherChain` | 방패 앞 32 | 48 | 스킬은 전부 사슬인데 소품은 방패 (인계 11장 13번) |
+| `blade` | 블레이드 (근접딜러) | `characters.ts` 230; 돌진 잔상 `stagefx.ts` 508 (순보 잔상 `vfx.ts` 684–689 는 지금 탭 궁극기 — 이 가지에서 제외) | 검 앞 41 | 48 | 검이 `shadow` 와 같은 그림. 돌진 잔상 4개 = 몸 그림 반투명 |
+| `berserker` | 버서커 (근접딜러) | `characters.ts` 286; 궁극기 불씨 `vfx.ts` 1427–1429; 컷인 `rage` | 도끼 (앞 ≤ 41) | 48 | 무거운 휘두름, 광역 1 |
+| `shadow` | 섀도우 (근접딜러) | `characters.ts` 341; 궁극기 0.45초 사라짐 + 먹물 `vfx.ts` 1412–1416; 분신 `stagefx.ts` 632, 649; 컷인 `slash` | 검 앞 41 | 48 | 분신 · 잔상은 같은 프레임 흰 실루엣 |
+| `ranger` | 레인저 (원거리딜러) | `characters.ts` 402; 화살 `index.ts` 2199–; 궁극기 점프 1.4칸 0.45초 `vfx.ts` 1417–1419 | 활 앞 35 | 원거리 34 + 12 = 46 + 투사체(화살) | 평타 투사체 속도 18 |
+| `mage` | 메이지 (원거리딜러) | `characters.ts` 449; 불덩이 `index.ts` 2248–2266; 컷인 `frost` | 오브 위 68 | 46 + 투사체(불덩이 + 불씨) | 오브가 `chrono` · `puppeteer` 와 같은 그림 |
+| `gunner` | 거너 (원거리딜러) | `characters.ts` 514; 예광탄 `index.ts` 2231–2247; 총구 불꽃 r 13 `vfx.ts` 828–831 | 총 앞 41 | 46 + 투사체(예광 줄) | 총구 불꽃이 다른 캐릭터보다 큼 |
+| `cleric` | 클레릭 (힐러) | `characters.ts` 572; 빛 십자 `index.ts` 2267–; 궁극기 날개 1.7초 `vfx.ts` 1420–1426 | 지팡이 위 68 | 46 + 투사체(빛 십자) | 지팡이가 `medic` · `exorcist` 와 같은 그림 |
+| `medic` | 메딕 (힐러) | `characters.ts` 628; 주사기 다트 `index.ts` `case 'medic'`; 컷인 `siren` | 지팡이(임시) 위 68 | 46 + 투사체(주사기) | 기획 소품은 「주사기」 (`look.ts` 82, `docs/new-characters.md` 44). 청록 ↔ 레인저 · 팔라딘 색 가까움 |
+| `exorcist` | 퇴마사 (힐러) | `characters.ts` 679; 회전 부적 투사체; 컷인 `ink` | 지팡이(임시) 위 68 | 46 + 투사체(부적) | 기획 소품은 「부적 다발」 (`new-characters.md` 66). 몸은 핏빛, **스킬 범위는 노랑** (빨강 = 적 규칙) |
+| `bard` | 바드 (서포터) | `characters.ts` 729; 8분음표 투사체 `index.ts` `case 'bard'` | 류트 (앞 ≤ 41) | 46 + 투사체(음표, 위아래로 흔들) | — |
+| `chrono` | 크로노 (서포터) | `characters.ts` 788; 회전 마름모; 되감기 잔상 `stagefx.ts` 876; 컷인 `desat` | 오브 위 68 | 46 + 투사체(마름모) | 스킬은 시계 · 초침인데 소품은 메이지와 같은 오브 (인계 11장 13번). 정지 = 회색 처리(코드) |
+| `puppeteer` | 퍼펫티어 (서포터) | `characters.ts` 839; 바늘 + 실 투사체; 종이 인형 소환; 컷인 `curtain` | 오브(임시) 위 68 | 46 + 투사체(실 끄는 바늘) | 기획 소품은 「실타래」 (`new-characters.md` 91). 분홍 ↔ 적 `nurse_doll` 색 가까움 |
 
-**캐릭터 수: 15명 · 동작 프레임 ≈ 730 (필수 ≈ 520) · 투사체 9 (9장 (c)에 셈).**
+**캐릭터 수: 15명 · 동작 프레임 ≈ 700 (필수 ≈ 520) · 투사체 9 (9장 (c)에 셈).**
 같은 그림을 나눠 쓰는 4묶음 (지금은 색으로만 구분): 방패 = `guardian` · `warden` / 검 = `blade` · `shadow` / 오브 = `mage` · `chrono` · `puppeteer` / 지팡이 = `cleric` · `medic` · `exorcist`.
 
 ### 2-4. 정지 그림 (컷인 · 원판 · 원정 인형)
@@ -185,8 +197,8 @@
 | id | 이름 | 지금 그리는 곳 | 화면 크기 (논리 px) | 필요한 것 (제안) | 꼭 지킬 것 |
 |---|---|---|---|---|---|
 | `bust` ×15 | 컷인 상반신 | `src/render/cutin.ts` 407–425 (`drawBody` 2.8배) | 몸 137×179, 띠가 가슴에서 자름 | 1장씩, 원본 ≥ 512 (2배 기준 ≈ 280×360) | 오른쪽 보기, 글자 없음, 띠 기하 · 0.5초는 코드 |
-| 얼굴 원판 ×15 | 「컷인 짧게」 · 착지 컷 · 남의 궁극기 띠 원판 | `cutin.ts` 490 (r 24), 570 (r 36), 667 (r 18) | r 18–36 | DOM 초상(8-1)과 같은 그림 재사용 | — |
-| 전신 큰 그림 | 원정 인형 (장비 화면 · 보관함 · 메인 메뉴) | `src/ui/expeditionDoll.ts` 39–66 | 캔버스 240×300 → 몸 108×140 (백버퍼 2배 216×281) | 대기 프레임 원본 해상도가 충분하면 재사용 | 장비(무기 · 방어구 · 장신구 · 유물)를 몸 위에 겹침 (8-2) |
+| 얼굴 원판 ×15 | 「컷인 짧게」 · 남의 궁극기 띠 원판 (착지 컷 `cutin.ts` 570 은 이 가지에서 제외 (드래그 궁극기)) | `cutin.ts` 490 (r 24), 667 (r 18) | r 18–24 | DOM 초상(8-1)과 같은 그림 재사용 | — |
+| 전신 큰 그림 | 원정 인형 (장비 화면 · 보관함 · 메인 메뉴) — **이 가지에서 제외 (원정)** | `src/ui/expeditionDoll.ts` 39–66 | 캔버스 240×300 → 몸 108×140 (백버퍼 2배 216×281) | 0 (원정을 되살리면: 대기 프레임 원본 해상도가 충분하면 재사용) | 장비(무기 · 방어구 · 장신구 · 유물)를 몸 위에 겹침 (8-2) |
 
 ### 2-5. 펫 8 (필드에 몸 없음)
 
@@ -203,7 +215,7 @@
 | `drum_raccoon` | 전투북 너구리 | 아이콘 + 6초 장판 | 〃 | 아이콘 1 | 반경 3.5 장판, `#c9184a` |
 | `rabbit_time` | 시간 토끼 | 아이콘 + 고리 · 입자 | 〃 | 아이콘 1 | 반경 3, `#f4d35e` |
 
-**펫 수: 8 · 아이콘 8장 (8-1 UI 줄에 셈) · 필드 몸 0** (인계 11장 8번).
+**펫 수: 8 · 아이콘 8장 (8-1 UI 줄에 셈) · 필드 몸 0** (인계 11장 15번).
 
 ### 2-6. 아군 소환물 (필드에 몸 있음)
 
@@ -274,8 +286,8 @@
 
 클래식 층별 중형 순서 (`src/config.ts` `mids`): 로비 [ogre, lich, elevator_girl, ogre] · 사무실 [copier_beast, lich, copier_beast, elevator_girl] · 폐병동 [head_nurse, copier_beast, signal_man, head_nurse] · 옥상 [signal_man, copier_beast, signal_man, head_nurse].
 
-### 4-2. 원정 수문장
-따로 그림 없음. `src/data/stages.ts` `STAGE_FOE` 가 중형보스를 다시 씀 (HP ×0.8). 보스 단계(3 · 6 · 9 · 12)는 그 구역 클래식 보스.
+### 4-2. 원정 수문장 — 이 가지에서 제외 (원정)
+따로 그림 없음 (새 그림 0이라 개수는 그대로). `src/data/stages.ts` `STAGE_FOE` 가 중형보스를 다시 씀 (HP ×0.8). 보스 단계(3 · 6 · 9 · 12)는 그 구역 클래식 보스.
 
 ### 4-3. 보스 소환 전용 유닛 4
 
@@ -383,7 +395,7 @@
 
 ### 7-1. 구역 판 11
 지금: `src/render/ground.ts` (1 214줄)가 판을 한 번 구워 두고 매 프레임 한 장으로 그림. 띠 x 0–1280 · y 40–548 (1280×508). 카메라 고정 → **판 하나 = 화면 하나**. 원본 2640×1520 (논리 사방 20 px 흔들림 여유, 16의 배수) 제안.
-누가 어떤 판: 클래식 일반층 = 일반 판, 5 · 10 · 15 · 20층 = 보스 판 / 원정 일반 단계 = 일반 판, 3 · 6 · 9 · 12 = 보스 판 (원정은 옥상 갈라짐 항상 0) / 보스 레이드 · 궁극기 테스트 = 보스 판만.
+누가 어떤 판: 클래식 일반층 = 일반 판, 5 · 10 · 15 · 20층 = 보스 판 / 원정 일반 단계 = 일반 판, 3 · 6 · 9 · 12 = 보스 판 (원정은 옥상 갈라짐 항상 0) / 보스 레이드 · 궁극기 테스트 = 보스 판만. (원정 · 궁극기 테스트는 이 가지에서 제외 — 판 수는 그대로)
 
 | id | 이름 | 지금 그리는 곳 | 화면 크기 | 필요한 것 | 꼭 지킬 것 |
 |---|---|---|---|---|---|
@@ -431,27 +443,29 @@
 | 상태 ×18 | `stun slow burn atkUp atkDown defUp haste regen vulnerable lifesteal drain taunt tether root stasis charm splashUp grudge` | `STATUS_GLYPH` `src/ui/format.ts:57` (DOM 글자 18 px) + 캔버스 머리 아이콘 8개 `ICON_ORDER` `src/render/statusfx.ts:12` (`stasis charm taunt tether root vulnerable drain atkDown`, 14 px) | 14 · 18 | 64 | 버프 청록 `#2ec4b6` / 디버프 빨강 `#ff4d6d` 구분. 머리 아이콘은 적에게만, 2개까지 |
 | 시너지 ×13 | `appear leave swap just ult pet status boss survive attack curse coop growth` | `SYNERGY_TAGS` `src/data/rewards/tags.ts` 15–28 (유니코드 ▼ ▲ ⇄ ✦ ★ ♣ ◎ ♛ ✚ ⚔ ☠ ∞ ↗), 캔버스 알약 `src/render/rewardPills.ts` 15 px | 15 · DOM 칩 | 64 | 태그 색 13개 유지 |
 | 등급 틀 ×4 | 일반 · 희귀 · 영웅 · 전설 | `RARITY_COLOR` `src/data/rewards/index.ts:21` (`#adb5bd #4cc9f0 #c77dff #ff8c42`), CSS | 보상 카드 380 폭 | 9-slice 틀 4 | 전설 = 도는 테두리 (`legendSpin` 4초, CSS) |
-| 장비 등급 틀 ×4 | 낡은 · 강화 · 퇴마 · 심연 | `BAND_COLOR` `src/data/gear.ts:52`, CSS `--bc` | 아이템 칸 80–128 | 9-slice 틀 4 | 별 ★ 개수 |
+| 장비 등급 틀 ×4 — **이 가지에서 제외 (원정)** | 낡은 · 강화 · 퇴마 · 심연 | `BAND_COLOR` `src/data/gear.ts:52`, CSS `--bc` | 아이템 칸 80–128 | 0 (되살리면 9-slice 틀 4) | 별 ★ 개수 |
 | UI 아이콘 ×4 | 설정 · 전체 화면 · 소리 켬 / 끔 | `ICON_GEAR`, `ICON_FULLSCREEN` (`src/ui/dom.ts` 78, 81), 🔊 🔇 (`src/ui/soundPanel.ts`) | 80×80 버튼 (24 viewBox) | 4 | 손가락 칸 ≥ 56 |
-| 메뉴 카드 ×4 + 로고 | 클래식 탑 · 원정 · 보스 레이드 · 궁극기 테스트, 로고 「스왑 타워」 | `src/ui/mainMenu.ts`, `expedition.css` 4–233, `bossRaid.css` 1–100, `ultTest.css` 1–60 (CSS로 만든 그림) | 그림 칸 356×300을 ×0.78 | 712×600 원본 4장 + 로고 | 원정 카드의 인형 3개는 지금 캔버스 (`createDoll`) |
+| 메뉴 카드 ×2 + 로고 | 클래식 탑 · 보스 레이드, 로고 「스왑 타워」. 원정 · 궁극기 테스트 카드 2장 (`expedition.css` 4–233, `ultTest.css` 1–60, 원정 카드의 인형 3개 = 캔버스 `createDoll`)은 **이 가지에서 제외 (원정 / 궁극기 테스트)** | `src/ui/mainMenu.ts`, `bossRaid.css` 1–100 (CSS로 만든 그림) | 그림 칸 356×300을 ×0.78 | 712×600 원본 2장 + 로고 | 카드 2장이면 메뉴 배치가 바뀜 (25차 A단계) |
+| 궁극기 테스트 UI (CSS, 장 수에 안 셈) | 궁극기 방식 상자 (편성) · 방식 칩 (HUD) — **이 가지에서 제외 (궁극기 테스트)**. 「충전」 버튼 (보라 원, `ultTest.css`) 은 인계 11장 4번 (추천)대로면 클래식 · 레이드 혼자 하기에 남음 | `src/ui/preset.ts`, `src/ui/hud.ts`, `src/ui/ultTest.css` | 「충전」 폰 43 px | 0 (「충전」은 틀 · 버튼 줄에서 함께) | — |
 
-보상 93종(`src/data/rewards/*.ts`)은 **종류별 아이콘이 없음** — 카드 아이콘 = 대상 초상 또는 첫 태그 기호의 보석. 새로 만들지는 인계 11장 22번 (지금 목록에 안 셈).
+보상 93종(`src/data/rewards/*.ts`)은 **종류별 아이콘이 없음** — 카드 아이콘 = 대상 초상 또는 첫 태그 기호의 보석. 새로 만들지는 인계 11장 29번 (지금 목록에 안 셈).
 
-### 8-2. 원정 장비 52장 (이미 있는 파일 칸)
+### 8-2. 원정 장비 52장 (이미 있는 파일 칸) — 이 가지에서 제외 (원정)
+원정을 숨긴 동안 안 그림 (개수 · 합계에서 뺌). 아래는 되살릴 때를 위한 기록이고, 장비 그림 칸은 「파일 칸 + 코드 예비」 본보기로 계속 씀 (인계 4-5).
 - 이름 (`gearArtNames`, `src/render/gearArt.ts` 17–25): `gear-weapon-<family>-b1..4` (family 9: `shield sword axe bow orb staff hammer gun lute` = 36장) · `gear-armor-b1..4` · `gear-charm-b1..4` · `gear-relic-<id>` 8장 (`echo_seal relay_flag vanguard_helm hunter_mark phoenix_feather beast_collar rage_breaker blood_chalice`).
 - 칸: `import.meta.glob('../assets/gear/*.png')` (`gearArt.ts` 15), 없으면 코드 아이콘. 목록 밖 이름 = 콘솔 경고.
 - 예산 (테스트 `tests/render/gear.test.ts` 126–138): 256×256 투명 PNG, **한 장 ≤ 60 KB, 전체 ≤ 3.5 MB**. 원본 1024×1024 (`docs/gear-art-prompts.md` 1장: `art/gear/` 에 보관) → `npm run art:gear` (`scripts/art-gear.mjs`)가 256으로 줄임. 단, 이 스크립트는 Chromium 경로가 `/opt/pw-browsers/chromium` 으로 고정(`scripts/art-gear.mjs:20`) → 디자이너 PC에서는 그대로 실패.
 - 프롬프트 시트 준비됨 (`docs/gear-art-prompts.md` 3장 공통 스타일 · 6장 목록 · 7장 Codex 일괄). **새 그림체로 바꾸면 3장 스타일 줄부터 고칠 것** (52장은 아직 안 만듦).
-- 전투에서 장비는 몸 위에 겹침 (방어구 = 몸통, 장신구 = 허리, 유물 = 머리 둘레를 돎, 무기 = 손; `src/render/gear.ts`). 무기 모양(family)은 **입는 캐릭터의 소품 종류**를 따름 (`WEAPON_FAMILY_BY_CHAR`, `src/data/gear.ts:61`, 데이터). 몸 소품 그림은 렌더(`ACCESSORY_BY_ID`, `src/render/look.ts` 69)라 그림만 바꾸면 데이터 family · 52 이름 · 테스트는 그대로. 원정 무기 그림과 몸 소품이 달라 보이는 문제와 스프라이트 몸 위에 장비를 겹치는 법은 26차 결정 (인계 4-4, 11장 6번).
+- 전투에서 장비는 몸 위에 겹침 (방어구 = 몸통, 장신구 = 허리, 유물 = 머리 둘레를 돎, 무기 = 손; `src/render/gear.ts`). 무기 모양(family)은 **입는 캐릭터의 소품 종류**를 따름 (`WEAPON_FAMILY_BY_CHAR`, `src/data/gear.ts:61`, 데이터). 몸 소품 그림은 렌더(`ACCESSORY_BY_ID`, `src/render/look.ts` 69)라 그림만 바꾸면 데이터 family · 52 이름 · 테스트는 그대로. 원정 무기 그림과 몸 소품이 달라 보이는 문제와 스프라이트 몸 위에 장비를 겹치는 법은 원정을 되살릴 때 정함 (0-4, 인계 11장 13번).
 
-### 8-3. 틀 · 버튼 (≈ 40, 9-slice 제안)
-어두운 패널(`--panel` rgba(10,12,20,0.74)) · 캐릭터 카드 2크기(112×136 / 필드 140×162) × 상태 5(보통 · 필드 · 준비 · 쿨 · 사망) · 펫 카드 · 궁극기 원판 126 + 고리 2 · 보스 막대 틀 + 채움(보통 / 광폭화) + 페이즈 표시 · 타이머 상자 3상태(보통 · 급함 · 광폭화) · 층 상자 · 배너 띠 · 토스트 · 내 빌드 시트 · 괴담 선택 버튼 4종 + 결과 카드 3톤 · 원정 단계 칸 5상태 · 버튼 5종(`.btn-primary` `.btn-secondary` `.btn-danger` `.btn-start` `.icon-btn`). 지금 모두 CSS (`styles.css` 등 5파일 9 434줄, `@keyframes` 71개). **글자는 DOM 그대로** (설명 숫자는 데이터에서 만들어지고 테스트됨).
+### 8-3. 틀 · 버튼 (≈ 35, 9-slice 제안)
+어두운 패널(`--panel` rgba(10,12,20,0.74)) · 캐릭터 카드 2크기(112×136 / 필드 140×162) × 상태 5(보통 · 필드 · 준비 · 쿨 · 사망) · 펫 카드 · 궁극기 원판 126 + 고리 2 (+ 「충전」 원 버튼, 인계 11장 4번) · 보스 막대 틀 + 채움(보통 / 광폭화) + 페이즈 표시 · 타이머 상자 3상태(보통 · 급함 · 광폭화) · 층 상자 · 배너 띠 · 토스트 · 내 빌드 시트 · 괴담 선택 버튼 4종 + 결과 카드 3톤 · ~~원정 단계 칸 5상태~~ (이 가지에서 제외 (원정), ≈ 5) · 버튼 5종(`.btn-primary` `.btn-secondary` `.btn-danger` `.btn-start` `.icon-btn`). 지금 모두 CSS (`styles.css` 등 5파일 9 434줄, `@keyframes` 71개). **글자는 DOM 그대로** (설명 숫자는 데이터에서 만들어지고 테스트됨).
 
 ### 8-4. 글꼴 · 색
 - 웹 글꼴 0개 (기기 글꼴: Pretendard → Apple SD Gothic Neo → Noto Sans KR → Malgun Gothic …, `styles.css:5`, 캔버스 `FONT_STACK` `src/render/look.ts:9`). 새 글꼴을 넣으면 솔로판에 인라인 (16 MB에 포함) → 한글 부분 글꼴(woff2 subset) 제안.
 - 구역 색이 지금 세 벌 (캔버스 강조 `#c9a227 #5aa9ff #59d18c #b388ff` · 레이드 메뉴 등 `#5eead4 #fbbf24 #93c5fd #c084fc` · 괴담 방 `#ffb347 #dfe9ff #7fe0d0 #ff5a5a`) → 새 그림체에서 한 벌로 정하기 좋은 때.
 
-**UI: 정지 그림 128장 (초상 15 · 펫 8 · 역할 5 · 상태 18 · 시너지 13 · 등급 틀 4 · 장비 등급 틀 4 · 장비 52 · 메뉴 4 + 로고 1 · UI 아이콘 4) + 틀 · 버튼 ≈ 40.**
+**UI: 정지 그림 70장 (초상 15 · 펫 8 · 역할 5 · 상태 18 · 시너지 13 · 등급 틀 4 · 메뉴 2 + 로고 1 · UI 아이콘 4) + 틀 · 버튼 ≈ 35.** 이 가지에서 제외 (원정 / 궁극기 테스트): 장비 52 · 장비 등급 틀 4 · 메뉴 카드 2 · 원정 단계 칸 ≈ 5 (다 넣으면 128장 + ≈ 40).
 
 ---
 
@@ -459,6 +473,12 @@
 
 나누는 기준: 판정 모양 · 시간 정보가 담긴 것 = **(a) 코드 유지**, 모양이 자유로운 터짐 · 베기 · 오라 · 폭발 = **(b) 영상 → 스프라이트 플립북**, 「정확한 모양 · 길이 · 두 점 사이」가 필요하지만 겉은 그림이어도 되는 것 = **(c) 코드 모양 + 그림 텍스처**.
 지금 효과는 전부 코드: SkillFx 종류 `Fx` 37개 (`src/render/skillfx.ts:16`), 파티클 모양 `Pk` 11개 (`src/render/fxparts.ts:876`), 스킬별 시전 효과 46 분기 (`src/render/castfx.ts:194`), 단계 연출 IMPACT 89 · LAND 89 · PREP 28 (`src/render/impact.ts:32`, `src/render/stagefx.ts` 243 / 401), 궁극기 테스트 alt 30개 (`src/data/ultTest/beats.ts`, 스토리 `src/render/ultTest/group{A,B}.ts`).
+
+**이 가지의 궁극기 효과 (25차 결정)**
+- 만들 것 = **조작형(조준) 궁극기 15개** `<char>_ua` 의 이야기 · ★마무리 · 충격 프레임 (`src/render/ultTest/group{A,B}.ts` 의 조준 부분) — 30차 효과 작업에서 가장 먼저. 컷인 상반신 15 · 컷인 띠 변형 7, 클레릭 `Fx.Wings` · 레인저 점프 · 섀도우 먹물 · 버서커 불씨 (`vfx.ts` 1411–1431, 모든 궁극기 시전에 붙음) 는 그대로 만듦.
+- 이 가지에서 제외 (드래그 궁극기): `_ud` 이야기 15개, 비스듬한 착지 컷 띠, 드래그 이동 줄무늬 (`ULT_TEST.dashDuration` 0.16).
+- 이 가지에서 제외 (지금 탭 궁극기): 오늘 궁극기 키 43개 (`stagefx.ts` · `impact.ts` · `marks.ts`) 중 조준 궁극기가 빌려 쓰지 않는 **15개** — `bard_u:beat` `bard_u:choir` `blade_u:hop` `blade_u:issen` `blade_u:storm` `gunner_u:shells` `mage_u:blizzard` `mage_u:freeze` `medic_u:siren` `ranger_u:barrage` `shadow_u:vanish` `warden_u:chainstorm` `warden_u:prison` + 드래그 궁극기만 빌리던 `mage_u:shatter` `exorcist_u:greatseal`. 나머지 28개는 조준 궁극기가 빌려 씀 → 그대로 만듦.
+- 아래 표는 효과를 **종류별로** 세서 개수는 안 바뀜 — 30차에 위 키만 건너뜀. 표 · 키 (`TABLES_22`) 는 지우지 않음.
 
 ### 9-1. (a) 코드 유지 (≈ 10 가족)
 
@@ -498,7 +518,7 @@
 | 죽음 터짐 · 종이 찢어짐 | 유닛 사망, 복사 인간 분열 | `vfx.ts` 613–633 | 유닛 크기 | 8 + 8 | |
 | 순간이동 연기 | 그림자 연기 → 보라 고리 | `vfx.ts` 681–709 | — | 6 | 고리는 코드 |
 | 블레이드 일섬 가로 섬광 | `ScreenFx.slash` | `src/render/cutin.ts` | 화면 가로 | 6 | 실제 시계 |
-| 충격 프레임 흰 별 · 빛줄기 · 충격 고리 | 궁극기 테스트 ★마무리 (24차) | `ultTest/core.ts` 481–495, 별 모양 `ultTest/theme.ts` `burst` (캐릭터별) | 별 반경 120–220 → ≤ 880 px, 빛줄기 1100×10, 고리 60 → 480 px | 6 (별 모양 15가지는 코드로 두거나 15장) | 글자 금지, 실제 시계, 별 중심 x 100–1180 · y 305–620, 윤곽 y ≥ 185, 내 것만 |
+| 충격 프레임 흰 별 · 빛줄기 · 충격 고리 | 조작형(조준) 궁극기 ★마무리 (24차, 이 가지에서는 본 게임 궁극기) | `ultTest/core.ts` 481–495, 별 모양 `ultTest/theme.ts` `burst` (캐릭터별) | 별 반경 120–220 → ≤ 880 px, 빛줄기 1100×10, 고리 60 → 480 px | 6 (별 모양 15가지는 코드로 두거나 15장) | 글자 금지, 실제 시계, 별 중심 x 100–1180 · y 305–620, 윤곽 y ≥ 185, 내 것만 |
 
 ### 9-3. (c) 혼합 — 코드 모양 + 그림 텍스처 (≈ 70장)
 
@@ -514,7 +534,7 @@
 | 투사체 | 캐릭터 9 (화살 · 예광탄 · 불덩이 · 빛 십자 · 주사기 다트 · 회전 부적 · 8분음표 · 회전 마름모 · 실 끄는 바늘) + 적 공통 1 (r 6, 빨간 테 `#ff2a2a`) | `src/render/index.ts` 2185–2266 (`PROJ_STYLE`), `drawProjectiles` | 높이 `PROJECTILE_Z` 0.75칸 | 10 (+ 꼬리) | 위치 = sim. 주인은 색으로 찾음 (2-3) |
 | 돌진 줄무늬 · 순간이동 줄 · 잔상 | 삼각 띠 + 속도선, 점선, 몸 잔상 4 | `vfx.ts` 548–576, 1871–1897, 2484–2534 | 실제 출발 → 도착 | 텍스처 2 | 잔상 = 캐릭터 스프라이트 반투명 흰 처리 |
 | 컷인 띠 + 변형 7 | `rage slash ink curtain desat siren frost` (+ `plain`) | `src/render/cutin.ts` 61 | 띠 높이 화면 38 %, 30° 기울기 | 띠 텍스처 7 + 초상(2-4) | 띠 기하 · 0.5초 · 40 % 어둡게는 코드 |
-| `Fx.Glyph` | 클래식 퇴마사 큰 글자 印 · 滅 | `stagefx.ts` 381, 823 | — | 인계 11장 10번 | 디자이너는 글자를 싫어함 (24차). 클래식은 지금 그대로 |
+| `Fx.Glyph` | 클래식 퇴마사 큰 글자 印 (드래그 스킬 `exorcist_d:destroy`) · 滅 (지금 탭 궁극기 `exorcist_u:destroy` — **이 가지에서 제외 (지금 탭 궁극기)**: 조준 궁극기 `exorcist_ua:destroy` 는 그 키의 LAND 만 부름(`runStory(…, 'land')`, `src/render/ultTest/groupB.ts:630`) — 滅은 PREP(`stagefx.ts:381`)라 안 그려짐; 드래그 궁극기는 `prep: false` 로 빌림, `:679`) | `stagefx.ts` 381, 823 | — | 인계 11장 17번 (印만) | 디자이너는 글자를 싫어함 (24차). 클래식은 지금 그대로 |
 
 ### 9-4. 효과 그림 규칙
 - **바닥 효과는 세로 0.55로 눌림** (고리 · 균열 · 자국 · 마법진 · 그림자). 위에서 본 그림을 눌러 그리거나 처음부터 쿼터뷰로. 서 있는 효과(빛기둥 · 베기 · 별)는 안 눌림.
@@ -525,7 +545,7 @@
 - **예산**: 플립북 하나 = 레코드 하나 (1-7). 전체 화면 크기 플립북 · 오프스크린 층은 폰에서 비쌈 (「전체 해상도 층 블릿이 폰 소프트웨어 캔버스에서 약 10 fps를 잃음」, `src/render/index.ts` 450).
 - 남의 것 · 봇: 흐리게(k 0.55), 멈춤 · 흔들림 · 확대 · 어둠 · 충격 프레임 없음 — 이 규칙은 코드 그대로.
 
-**효과: (a) 코드 유지 ≈ 10 가족 · (b) 플립북 ≈ 20 (≈ 185 프레임) · (c) 텍스처 ≈ 70장.**
+**효과: (a) 코드 유지 ≈ 10 가족 · (b) 플립북 ≈ 20 (≈ 185 프레임) · (c) 텍스처 ≈ 70장.** 궁극기 효과는 조작형(조준) 궁극기 15개 먼저, 지금 탭 궁극기 키 15개 · 드래그 궁극기 이야기 15개는 건너뜀 (9장 머리).
 
 ---
 
@@ -536,11 +556,11 @@
 | 가족 | 개수 | 메모 |
 |---|---|---|
 | `drag.<char>.<stage>` | 50 | 15명 드래그 단계 |
-| `drag._role.<role>` / `drag.crunch` | 5 / 1 | 역할 기본 착지 · 4명 이상 맞음 |
-| `ult.<char>.<stage>` | 40 | 궁극기 단계 |
-| `ult.<char>.cutin` | 15 | 내 궁극기 컷인 |
-| `ult.<char>.tick` | 15 | 실제로 울리는 것은 `ult.mage.tick` · `ult.bard.tick` 둘뿐 (13개 안 씀) |
-| `ult._role.<role>` / `ult.ready` / `ult.remind` | 5 / 1 / 1 | |
+| `drag._role.<role>` / `drag.crunch` | 5 / 1 | 역할 기본 착지 · 4명 이상 맞음. 이 가지: `drag._role` 5개는 안 울림(드래그 궁극기 착지가 빠지고 모든 단계에 소리가 있음, `director.ts` 622 · 778 · 809) — 파일이 없을 때 대신 울리는 예비 소리(`src/audio/ids.ts:148–153`)라 31차에 만듦 (추정) |
+| `ult.<char>.<stage>` | 40 | 궁극기 단계. 이 가지: 조준 궁극기가 38개를 씀 (`director.ts` `altCues`: 자기 `sfx` → 궁극기 줄 → 드래그 줄), `ult.blade.hop` · `ult.ranger.barrage` 2개는 **이 가지에서 제외 (지금 탭 궁극기)** |
+| `ult.<char>.cutin` | 15 | 내 궁극기 컷인 (모든 궁극기에서 울림) |
+| `ult.<char>.tick` | 15 | 24차까지 울리는 것은 `ult.mage.tick` · `ult.bard.tick` 둘뿐 (13개 안 씀). 이 가지: `ult.bard.tick` 은 드래그 궁극기 `bard_ud` 전용 (`src/data/ultTest/groupB.ts:471`) → **이 가지에서 제외 (드래그 궁극기)**, `ult.mage.tick` 은 조준 메이지 장판 카운트다운으로 계속 울림 |
+| `ult._role.<role>` / `ult.ready` / `ult.remind` | 5 / 1 / 1 | 이 가지: `ult._role` 5개는 안 울림(조준 궁극기 15개의 ★마무리 단계에 모두 소리가 있음, `director.ts:753`) — 예비 소리라 만듦 (추정) |
 | `normal.<char>` | 15 | 일반 스킬 |
 | `atk.swing.<role>` / `atk.shot.<char 또는 turret>` | 5 / 16 | 평타 (3가지 변주) |
 | `dash.<role>` | 5 | |
@@ -555,9 +575,16 @@
 | `groggy.*` · `just.*` | 4 · 3 | |
 | `floor.*` / `zone.enter` / `amb.*` | 6 / 1 / 6 | 배경음 반복 6 (음악 없음) |
 | `gd.*` · `fe.*` | 26 · 24 | 괴담 방 · 돌발 괴담 |
-| `ui.*` · `reward.*` / `relic.*` / `result.best` | 26 · 8 / 2 / 1 | |
-| `run.*` / `player.out` / `net.*` / `exp.*` | 3 / 1 / 5 / 4 | |
-| **합계** | **456** | 반복 15 (`amb.*` 6, `enrage.heart`, `groggy.stars`, 스킬 반복 7) |
+| `ui.*` · `reward.*` / `relic.*` / `result.best` | 26 · 8 / 2 / 1 | `ui.equip` (원정 장비 화면 `expeditionEquip.ts`) 은 **이 가지에서 제외 (원정)** |
+| `run.*` / `player.out` / `net.*` / `exp.*` | 3 / 1 / 5 / 4 | `exp.*` 4개 (`expeditionRun.ts` · `expeditionSolo.ts` 에서만) 는 **이 가지에서 제외 (원정)** |
+| **합계** | **456** | 반복 15 (`amb.*` 6, `enrage.heart`, `groggy.stars`, 스킬 반복 7). **이 가지에서 울리는 것 425** (아래 21개 + 예비 기본음 10개 뺌), 만들 것 434 (울리는 425 − `ult.bard.beat` `off` + 예비 10) |
+
+**이 가지에서 안 울리는 소리 21개 (건너뜀 — 31차 효과음 작업에서 안 만듦)**
+- 24차에도 안 울리던 tick 13: `ult.guardian.tick` `ult.paladin.tick` `ult.warden.tick` `ult.blade.tick` `ult.berserker.tick` `ult.shadow.tick` `ult.ranger.tick` `ult.gunner.tick` `ult.cleric.tick` `ult.medic.tick` `ult.exorcist.tick` `ult.chrono.tick` `ult.puppeteer.tick`.
+- 드래그 궁극기 1: `ult.bard.tick`.
+- 지금 탭 궁극기 2: `ult.blade.hop` `ult.ranger.barrage` (조준 15개 어디에도 그 단계가 없음).
+- 원정 5: `exp.bagLost` `exp.extract` `exp.relic` `exp.reveal` `ui.equip`.
+- 확인한 것: `ult.chrono.tock` · `ult.chrono.resume` 은 조준 크로노가 씀, `ult.<char>.cutin` 15 는 모든 궁극기에서 울림. 보상 `overcharge` · `ult_linger` 를 켜 두어도 그 단계 소리는 안 찾음 (스킬 id 가 보상 id) → 소리 수는 같음 (추정).
 
 ### 10-2. 생성 묶음 (프롬프트 파일 = 다시 만드는 단위)
 `scripts/sfx-prompts.json` 20 · `sfx-prompts.d/drag.json` 76 · `ult.json` 77 · `combat.json` 86 · `boss-kinds.json` 30 · `boss-voices.json` 62 · `goedam.json` 50 · `meta.json` 55 = **456개, 요청 길이 730.6초**. 스타일 줄은 `sfx-prompts.json` 의 `style` 한 줄 (339개에 붙음), `noStyle` 117개는 글 안에 스타일 말이 있어 손으로 고쳐야 함. 글자 수 한도 450 (스타일 줄 포함).
@@ -565,7 +592,7 @@
 ### 10-3. 바꿔도 그대로 둘 것
 - **id · `STAGE_CUES` (`src/audio/stages.ts`) · `src/audio/ids.ts` 행 · `src/audio/director.ts` · 합성 레시피(`src/audio/synth/recipes.ts`)** 는 그대로. 바뀌는 것은 프롬프트 글 · mp3 · `levels.json` · `generated.json` 뿐. sim · 서버는 `src/audio` 를 안 읽음 (테스트로 강제) → 플레이 · 멀티는 안 바뀜.
 - 합성음 = 파일 크기 맞춤의 기준 (`scripts/sfx-levels.mjs`) → 레시피를 지우면 안 됨.
-- 반복 15개는 파일 끝 → 처음이 매끄럽게 이어져야 함. 미리 울리는 소리(lead) 14개는 `levels.json` 이 맞춰 줌, 궁극기 테스트 전용 3개(`drag.guardian.charge`, `dash.melee`, `drag.chrono.wind`)는 안 맞춰 줌.
+- 반복 15개는 파일 끝 → 처음이 매끄럽게 이어져야 함. 미리 울리는 소리(lead) 14개는 `levels.json` 이 맞춰 줌, 궁극기 테스트 전용 3개(`drag.guardian.charge`, `dash.melee`, `drag.chrono.wind`)는 안 맞춰 줌. 이 가지에서는 드래그 궁극기가 빠져 2개(`drag.guardian.charge`, `dash.melee`)만 남음 — `drag.chrono.wind` 는 오늘 드래그 스킬이 계속 쓰고 앞당김 0.45만 사라짐.
 - `ult.bard.beat` 는 파일 꺼짐(`off`, 합성음) — 21차에 4번 만들어도 소리가 없었음.
 - 크기: 테스트 예산 7,212,276 바이트 (`tests/ui/audio.test.ts` 732–740), 솔로판 16 MB 안에서 **그림과 나눠 씀** (12장).
 - 소리 시각은 그림 시각에 묶여 있음 (1-2 마지막 줄): 새 스프라이트의 타격 프레임을 sim 시각에 맞추면 소리도 맞음.
@@ -573,15 +600,15 @@
 ### 10-4. 다시 만드는 순서 (인계 문서 6장의 자세한 판)
 1. 분위기 문장: `scripts/sfx-prompts.json` `style` (지금 145자, 339개에 붙음). 한도 `TEXT_MAX = 450` (`scripts/sfx-gen.mjs:65`, 지금 최대 445) — 50자 늘면 3개, 100자면 19개 넘침.
 2. `noStyle` 117개는 글 안의 분위기 말을 손으로. 나머지도 부딪히는 말 고침. `id` · `ko` · `seconds` · `loop` 는 그대로.
-3. 시험 (25차): `npm run sfx:gen -- --dry --force` → `npm run sfx:gen -- --force --only=hit.basic,ui.tap,drag.guardian.slam,ult.blade.issen,ult.shadow.cutin,boss.windup.doors,boss.impact.doors,boss.intro.elevator_keeper,amb.lobby,gd.enter,fe.warn,mon.death,reward.pick.epic,run.victory` → `npx vite-node scripts/sfx-levels.mjs` → `npm run sfx:preview` → 디자이너가 듣고 고름.
-4. 묶음별 전부 (30차): drag 76 · ult 77 · combat 86 · boss-kinds 30 · boss-voices 62 · goedam 50 · meta 55 + 첫 20. `--family=` 는 id 앞부분 기준 → 묶음은 `--only=` 로. 안 울리는 `ult.<char>.tick` 13개는 건너뜀.
+3. 시험 (26차, 아래 `--only=` 목록은 14개 — 15개를 채우려면 하나 더 고름): `npm run sfx:gen -- --dry --force` → `npm run sfx:gen -- --force --only=hit.basic,ui.tap,drag.guardian.slam,ult.blade.issen,ult.shadow.cutin,boss.windup.doors,boss.impact.doors,boss.intro.elevator_keeper,amb.lobby,gd.enter,fe.warn,mon.death,reward.pick.epic,run.victory` → `npx vite-node scripts/sfx-levels.mjs` → `npm run sfx:preview` → 디자이너가 듣고 고름.
+4. 묶음별 전부 (31차): drag 76 · ult 77 · combat 86 · boss-kinds 30 · boss-voices 62 · goedam 50 · meta 55 + 첫 20. `--family=` 는 id 앞부분 기준 → 묶음은 `--only=` 로. 이 가지에서 안 울리는 21개 (10-1 아래 목록) 는 건너뜀.
 5. 매번 `sfx-levels.mjs`: `off` · `short` · `late` 확인. 크기는 합성음에 맞춰짐 (바꾸려면 `ids.ts` dB).
 6. 듣기: 반복 15개 이음새, 보스 페이즈 20개 구별, 버서커 컷인이 사람 목소리 같지 않은지, 남의 소리(3.5 kHz)도 들리는지 — §34 「남은 것」이 확인 목록.
-7. 주의: `ult.bard.beat` 는 `off` (4번 다 조용 → 합성음 유지). 궁극기 테스트 전용 앞당김 3개 (`drag.guardian.charge` 0.5, `dash.melee` 0.45 / 0.35, `drag.chrono.wind` 0.45) 는 자동으로 안 맞춤 → 귀로. `--force` 만 쓰면 456개 전부 다시 만듦.
+7. 주의: `ult.bard.beat` 는 `off` (4번 다 조용 → 합성음 유지). 궁극기 테스트 전용 앞당김 3개 중 이 가지에서 남는 것은 `drag.guardian.charge` 0.5 · `dash.melee` 0.45 (조준 가디언 · 레인저, 10-3) — 자동으로 안 맞춤 → 귀로. `--force` 만 쓰면 456개 전부 다시 만듦.
 8. 검사: `npx vitest run tests/ui/audio.test.ts tests/render/ult-fx-core.test.ts` → 전체. 크기 한도 7,212,276 바이트 (`tests/ui/audio.test.ts:732–740`, 여유 약 1.1 MB) — 넘으면 한도 올리고 문서에.
 9. 문서: `docs/sfx.md` 2-2 (파일 만드는 흐름) · 3장 (id마다 원하는 느낌) · 4장 (섞는 규칙), `src/audio/files/README.md` (낡음), `docs/game-design.md` §31 (18차) · §34 (21차) + 새 결정 장, `CLAUDE.md` 「Sound files」 줄. 키는 `.env.local` 의 `ELEVENLABS_API_KEY` (열지 말 것).
 
-**효과음: 456 id · 반복 15 · 요청 730.6초 · 묶음 8.**
+**효과음: 456 id · 반복 15 · 요청 730.6초 · 묶음 8. 이 가지에서 울리는 것 425 · 예비 기본음 10 · 만들 것 434 · 건너뜀 21 (+ `ult.bard.beat` `off`).**
 
 ---
 
@@ -597,7 +624,7 @@ src/assets/art/
                              · 몬스터 slime … red_mask (copy_mini 는 copy_man 재사용 가능)
                              · 중형 ogre lich elevator_girl copier_beast head_nurse signal_man
                              · 소환 · 돌발 prize_doll lost_sock bed_decoy fe_toad fe_printer fe_shadow fe_patient fe_child
-                             동작(animations 키) = idle move attack cast appear stunned (sim 이름) + hit death ult dash blink (렌더 전용)
+                             동작(animations 키) = idle move attack cast appear stunned (sim 이름) + hit death ult dash (렌더 전용; blink 는 이 가지에서 안 씀)
   bosses/<bossId>.*          포즈 = idle walk windup attack groggy (BossPose), 보는 방향 side front back (예 walk-front)
                              고정 6의 부품 · 단서 층 <bossId>-part-<이름> (예 dead_monitor-part-cursor), 그로기 판
   stage/<bossId>-p<phase>.webp       보스 바닥 8 (+ 2페이즈)
@@ -624,15 +651,15 @@ src/audio/files/<id>.mp3     그대로
 
 | 검사 | 지키는 것 | 아트 가지에서 |
 |---|---|---|
-| sim 골든 4개 (`default-off-golden` · `determinism` · `healers` `GOLDEN` · `boss-raid` `GOLDEN_ORDER_SEED_1`) | 플레이 결과 | 다시 기록 금지 |
-| `tests/render/classic-look.test.ts` `'455258ec31c41b21'` | 클래식 · 원정 · 레이드의 모든 캔버스 호출 해시 (`drawImage` 수 포함, `:73`) | 「코드」 판은 계속 통과 (Node 에 Image 없음). 「새 그림」을 기본으로 바꿀 때만, 승인 뒤 한 번 `CLASSIC_LOOK_PRINT=1 npx vitest run tests/render/classic-look.test.ts` |
-| 새로 더할 것 | — | 그림 이름 표 · 크기 예산, 「코드」 모드 · Node 는 불러오기 · `drawImage` 없음, 가짜 비트맵으로 새 그림 길 (모든 유닛 · 보스 · 구역 · 방향 · 동작, `animProgress` 프레임, 발 기준점), 층당 메모리 예산 |
+| sim 골든 4개 (`default-off-golden` · `determinism` · `healers` `GOLDEN` · `boss-raid` `GOLDEN_ORDER_SEED_1`) | 플레이 결과 | 25차 A단계에서 승인 뒤 한 번: `default-off-golden` · `healers` 만 바뀜 (12-1). 그 뒤 다시 기록 금지 |
+| `tests/render/classic-look.test.ts` `'455258ec31c41b21'` | 클래식 · 원정 · 레이드의 모든 캔버스 호출 해시 (`drawImage` 수 포함, `:73`) | 25차 A단계에서 승인 뒤 한 번 (궁극기가 바뀜, 12-1). 그 뒤 「코드」 판은 계속 통과 (Node 에 Image 없음). 마무리에 「새 그림」을 기본으로 바꿔 깨질 때만 (안 깨질 수도 있음), 승인 뒤 한 번 `CLASSIC_LOOK_PRINT=1 npx vitest run tests/render/classic-look.test.ts` |
+| 새로 더할 것 | — | 그림 이름 표 · 크기 예산, 「코드」 모드 · Node 는 불러오기 · `drawImage` 없음, 가짜 비트맵으로 새 그림 길 (모든 유닛 · 보스 · 구역 · 방향 · 동작, 유닛당 `drawImage` 1번 · 뒤집기 · 발 기준점 · 걷기 반복 · `animProgress` 타격 프레임 · 파일 없으면 코드), 층당 메모리 예산 |
 | `tests/render/ult-fx-core.test.ts` `TABLES_22 'f6a0e926f494f1ca'` | `PREP` `LAND` `IMPACT` `TELE_MOTIF` `ZONE_DECOR` `STAGE_CUES` | 스프라이트 연결은 같은 키의 새 표로 → 안 깨짐. 이 표(특히 `STAGE_CUES`)를 고치면 깨짐 |
 | 같은 파일 「글자 없음」 (:1817–1933) | alt 30개 글자 · 한자 없음 | 그대로 (디자이너가 바꾸지 않는 한) |
 | 같은 파일 시전당 예산 | 입자 ≤ 150 (B ≤ 120) · 효과 ≤ 40 · 자국 ≤ 6 | 플립북 1개 = 기록 1개 |
 | `boss-looks` · `boss-body` · `teleseq` · 보스 sim | 호출 한도 · 글자 없음 · 포즈 · 상자 API | API 유지, 몸만 그림 |
 | `renderer` · `shapes-render` | 상태 불변, `shadowBlur` 없음, 예고 = 판정 | 유지 |
-| `tests/render/gear.test.ts` | 52 이름 · 한 장 ≤ 60 KB · 전체 ≤ 3.5 MB | 장비 그림 차에 |
+| `tests/render/gear.test.ts` | 52 이름 · 한 장 ≤ 60 KB · 전체 ≤ 3.5 MB | 이 가지에서 제외 (원정) — 장비 그림을 안 만드니 그대로 통과 |
 | `tests/ui/audio.test.ts` | 이름 = id, `levels.json` 행, ≤ 7,212,276 바이트, ogg 금지 | 효과음 차에 예산 다시 |
 | e2e `smoke.spec.ts:211–214` · `:242` | 밝은 점 > 25 %, 색 > 60 · 초상 위 쿨 숫자 | 어두운 그림체면 디자이너와 기준 조정 (가짜로 밝히지 않음) · 숫자는 DOM 글자 |
 | e2e `boss-raid.spec.ts:794–801` | 연필 바닥 색이 25 넘게 다름 | 전장 바닥은 확 다르게 |
@@ -640,14 +667,44 @@ src/audio/files/<id>.mp3     그대로
 | e2e 사진 | `docs/screenshots/` 덮어씀 (93개 · 약 72 MB) | 고른 것만 커밋 |
 
 - e2e 는 DOM 글자를 읽음 → 라벨은 DOM 글자로 유지.
-- 검사 도구 (이미 있음): `tests/visual/render-sandbox.html?scene=zoo&…` (`tests/visual/zoo-sandbox.ts`), `node tests/visual/shoot-zoo.mjs`, `boss-sheet.mjs` · `boss-phone-sheet.mjs` · `boss-pattern-sheet.mjs`, `zone-tour.mjs`, `cast-frames.mjs`, `new-chars.mjs`, `ult-test-sheet.mjs`, `ult-fx-video.mjs`, `tests/playtest/perf.mjs phone` (PC 에서는 Chromium 경로를 먼저 고칠 것이 많음 — 인계 8장). 지금 모습 사진: `docs/screenshots/` (`combat.png`, `zone-1/6/11/16.png`, `bosses-20.png`, `bosses-20-phone.png`, `boss-patterns-20.png`, `landing-seq.png`, `ult-cutin.png` …).
+- 검사 도구 (이미 있음): `tests/visual/render-sandbox.html?scene=zoo&…` (`tests/visual/zoo-sandbox.ts`), `node tests/visual/shoot-zoo.mjs`, `boss-sheet.mjs` · `boss-phone-sheet.mjs` · `boss-pattern-sheet.mjs`, `zone-tour.mjs`, `cast-frames.mjs`, `new-chars.mjs`, `ult-test-sheet.mjs` · `ult-fx-video.mjs` · `ult-charge-shot.mjs` (지금 `?mode=ultTest` 주소 → 25차 A단계에서 레이드 주소로), `tests/playtest/perf.mjs phone`.
+- **PC 에서 안 도는 도구** (Chromium 경로 `/opt/pw-browsers/chromium` 고정, 인계 8장에서 옮김): `tests/visual/` `cast-frames` `new-chars` `shoot-exp-bands` `shoot-gear` `shoot-preset` `shoot-shapes` `shoot-zoo` `ui-shoot` `zone-tour`, `tests/render/shoot-sandbox.mjs`, `tests/playtest/lib.mjs`(→ `perf.mjs`) · `mp-*`, `tests/review/card-diamond*.mjs` · `playwright.*review.config.ts`, `scripts/art-gear.mjs:20` → `boss-sheet.mjs:48` 처럼 「있으면 쓰고 없으면 기본」으로 고칠 것. 지금 모습 사진: `docs/screenshots/` (`combat.png`, `zone-1/6/11/16.png`, `bosses-20.png`, `bosses-20-phone.png`, `boss-patterns-20.png`, `landing-seq.png`, `ult-cutin.png` …).
 - 네트워크: OpenAI 주소(auth.openai.com, api.openai.com, chatgpt.com)는 클라우드 세션에서 막혀 있음 → Codex 그림 생성 전에 디자이너가 환경 설정에서 허용해야 함 (CLAUDE.md). 생성은 PC 에서 (인계 9장).
+
+### 12-1. 25차 A단계 (규칙 정리) — 고칠 곳 · 바뀌는 검사 (인계 2-1 의 자세한 판)
+결정 · 탭 표 · 골든 절차는 인계 2-1. 줄은 `ab97de5` 기준.
+
+**고칠 곳 (코드)**
+- 새 문 하나 「조작형 궁극기 판」 = 클래식 · 레이드, `state.expedition` 이면 꺼짐 (숨긴 원정이 안 바뀌게). 지금의 `mode === 'ultTest'` 문을 이 함수로:
+  - sim: `src/sim/ultTest.ts:42 · 52 · 208`, `src/sim/players.ts:358` (지금은 다른 모드의 aim 을 버림), `src/sim/bot.ts:326`, `src/sim/game.ts:161`, `src/sim/skills.ts:541` (단계 이벤트의 `origin`), `src/sim/rewards/offers.ts:165` (보상 2개 뺌).
+  - UI · 그림 · 소리 · 서버: `src` · `server` 에서 `'ultTest'` 검색 — 예 `src/ui/ultAim.ts:128–129`, `src/ui/hud.ts:540` (「충전」), `src/audio/director.ts:379`, `src/render/vfx.ts`, `src/render/index.ts`, `src/render/ultTest/`, `ULT_FX.boost` 읽는 곳.
+- `src/sim/ultTest.ts`: `ultModeOf` (두 모드 = `'aim'`), `ultAimProblem` (aim 받음, `drag` 거절), `planUlt` 입구, `ultNameFor`, 새 순수 함수 `tapUltAim(state, pi)` (인계 2-1 규칙 + `tapAim` 칸), 맨 위 주석 「nothing here runs outside mode 'ultTest'」.
+- `src/sim/players.ts` `useUlt` (:354–414): aim 이 없고 조작형 판이면 `tapUltAim` 으로 채움 — 탭은 지금처럼 `{ type: 'ult' }` 로 보내고 sim (서버) 이 겨눔 → Space 키 · 멀티 · 옛 테스트 명령이 그대로.
+- 데이터: `src/data/ultTest/types.ts` 에 `tapAim` 칸 (제안), `groupB.ts` 의 클레릭 · 메딕 조준 궁극기만 `tapAim: 'self'` (나머지는 기본 `'enemy'`, 인계 2-1 목적 기준). 오늘 궁극기 (`characters.ts` `ult`) · 드래그 궁극기 데이터는 지우지 않음.
+- UI: `src/ui/ultAim.ts` (begin 문, 탭 글 「놓으면 지금 궁극기」 :311 → 「놓으면 자동으로」), `src/ui/hud.ts` (방식 칩 숨김, 시트 궁극기 줄 = 조준 궁극기 + 「탭 = 자동」), `src/ui/preset.ts:300–309` (궁극기 줄) · 궁극기 방식 상자, `src/ui/pause.ts:95–107` (「궁극기 연출 강화」 버튼과 저장값 읽기 `loadUltFx()` :98 를 지움 — `ULT_FX.boost` 늘 켬, 옛 저장값 `swap-tower.ultFx.v1` 무시), `src/ui/mainMenu.ts` (카드 2장), `src/ui/app.ts:164–170` (`?mode=ultTest` → 레이드, `&chars=` 를 레이드도 받음 — `&boss=` 는 이미 받음), `src/ui/expeditionStore.ts` `loadMode()` (`'expedition'` · `'ultTest'` 면 클래식), `src/ui/debug.ts` (「원정」 · 「궁극기 방식」 칸), `src/ui/lobby.ts` (궁극기 테스트 방).
+- 통신 · 서버: `src/net/protocol.ts:29` `PROTOCOL_VERSION` 8 → 9 (클래식 · 레이드 방이 aim 을 받고 탭의 뜻이 바뀜 — 옛 화면과 섞이면 안 됨). 서버는 `ultTest` 방 만들기 · 원정 대기열 거절. `server/validate.ts` 는 그대로 (드래그는 sim 이 거절). 「충전」 손님 거절 (`server/room.ts:420`) 은 인계 11장 4번 (추천)이면 그대로.
+
+**바뀌는 검사**
+- 한 번 다시 기록 (승인 뒤): `tests/sim/default-off-golden.test.ts` `GOLDEN.rich` · `GOLDEN.boss` (검사 :92 · :95, 값 :106 — 봇이 궁극기를 씀, 이벤트도 해시됨), `tests/sim/healers.test.ts` `GOLDEN` (:361, 봇 세 판), `tests/render/classic-look.test.ts` `EXPECTED` (:16 — 클래식 · 레이드에서 모든 캐릭터 궁극기를 탭함).
+- 안 바뀜 (추정): `tests/sim/determinism.test.ts` (두 판 비교, 고정 값 없음), `tests/sim/boss-raid.test.ts` 순서 골든 (:89 · :113), `tests/render/ult-fx-core.test.ts` `TABLES_22` (:290 · :295 — 오늘 궁극기 표는 지우지 않음, 조준 그림이 그 키 28개를 빌려 씀).
+- 뜻을 뒤집어 고침: `tests/sim/ult-test.test.ts:105` (클래식 · 레이드 줄은 「aim 받음」으로 뒤집고, 원정 줄 :107 은 「aim 무시」 그대로) · `:613` (다른 모드는 `origin` 없음), `tests/net/ult-test.test.ts:230` (「클래식 방은 aim 무시」), `tests/render/ult-fx-core.test.ts` 「5. the classic tower / 보스 레이드 never reach the 23차 paths」 (describe :483–) · `:1140`. `tests/net/ult-test.test.ts:209` (「충전」 손님 거절) 는 그대로.
+- 하나씩 확인 (클래식에서 탭해 오늘 궁극기를 보던 것): `tests/sim/` `ult-per-character` `ult-death` `skill-stages` `statuses-13` `groggy` `rewards-combat` `rewards-rules` `roster`, `tests/render/` `skillfx` `stagefx` `renderer`, `tests/net/` `cast-events` `remoteGame` `server-limits`, `tests/review/` `invariants-fuzz` `net-adversarial` `wire-determinism` `rules-review`.
+- e2e 건너뜀 (`playwright.config.ts` `testIgnore`): `expedition.spec.ts` · `multi-expedition.spec.ts` · `ult-test.spec.ts` · `multi-ult-test.spec.ts`. e2e 고침: `artifact.spec.ts` (원정 부분), `boss-raid.spec.ts:92–107` (카드 수 :93 `toHaveCount(4)` → 2, 네 장 나란히 :99–107 → 두 장, 「the third card」 → 두 번째 카드), `smoke.spec.ts:323` (시트 궁극기 글 = `skillSummary(sheetDef.ult)` → 조준 궁극기 글), `tests/review/ui-review.spec.ts`. 그대로 돌림 (탭이 계속 됨): `smoke.spec.ts:373`, `ult-per-char.spec.ts`, `flows.spec.ts`, `multi.spec.ts`, `multi-just.spec.ts`, `perf.spec.ts` — 결과는 확인.
+- 숨긴 모드의 단위 테스트 (`tests/sim/expedition*.test.ts` · `gear.test.ts`, `tests/ui/expedition-*.test.ts`, `tests/net/expedition.test.ts`, `tests/render/gear.test.ts`, `tests/sim/ult-test*.test.ts`, `tests/ui/ult-test-ui.test.ts`, `tests/render/ult-fx-group{A,B}.test.ts` · `ult-test-render.test.ts`) 는 계속 돌림 (숨긴 코드가 썩지 않게).
+- 사진: 원정 `docs/screenshots/expedition-*.png` · `gear-bands.png`, 궁극기 테스트 `ult-test-*.png` · `ult-charge-button.png` 는 새로 안 찍음 (남겨 둠).
+- 벤치 (추천: 정보로 한 번, 숫자는 안 고침 — 승인 전에 디자이너에게 보여 줌): `tests/review/critic-20f.ts` (클래식 20층, 지금 직접 94 % · 봇형 88 %), `tests/review/boss-raid-bench.ts`. 참고: `tests/playtest/ult-bench.ts`, `tests/review/reward-bench.ts`.
+
+**고칠 문서 (이 가지에서, A단계 커밋에 함께)**
+- `docs/game-design.md` 새 장 `## 38. 25차 결정` (결정 · 답한 질문 · 「골든 다시 기록 — 이유: 25차 A」).
+- `docs/current-rules.md`: 맨 위 상자의 내용을 본문으로 — 1장 (모드), 5장 (궁극기), 13장 (보상 「두 번 차는 게이지」 · 「궁극기 여운」 안 나옴), 16장 (멀티 · 프로토콜 9). 그 뒤 맨 위 상자는 지움.
+- `docs/ult-test.md` 첫머리에 한 줄 (「이 가지에서는 조준 궁극기가 클래식 · 레이드의 본 궁극기」).
+- `CLAUDE.md` (이 가지의 규칙 — 새 세션의 첫 일).
 
 ---
 
 ## 13. 정해 주실 것 → 인계 문서 11장으로 합침
 이 목록에 있던 11개는 인계 문서 11장 하나로 옮김 ((추천)이 다르던 둘은 인계 쪽으로 맞춤):
-1 역할 글자 → 11-5 · 2 같은 소품 → 11-6 (그림만 바꿈, 데이터 family · 장비 52 이름은 그대로) · 3 펫 몸 → 11-8 · 4 퇴마사 印 · 滅 → 11-10 (새 그림 판만 글자 없는 그림, 코드 판은 지금 해시대로 — §37-5 8번) · 5 구역 색 → 11-19 · 6 배경 글씨 → 11-9 · 7 이모지 → 11-20 · 8 레이드 보스 시기 → 11-21 · 9 솔로판 그림 → 인계 7-3 · 10 해시 다시 기록 → 인계 8장 (새 그림을 기본으로 바꿀 때 한 번, 승인 뒤 **(추천)** / 단계마다) · 11 보상 소환물 · 아이콘 → 11-22.
+1 역할 글자 → 11-12 · 2 같은 소품 → 11-13 (그림만 바꿈, 데이터는 그대로) · 3 펫 몸 → 11-15 · 4 퇴마사 印 · 滅 → 11-17 (이 가지에서는 印만 — 滅은 지금 탭 궁극기 것, 9-3) · 5 구역 색 → 11-26 · 6 배경 글씨 → 11-16 · 7 이모지 → 11-27 · 8 레이드 보스 시기 → 11-28 · 9 솔로판 그림 → 인계 7-3 · 10 해시 다시 기록 → 인계 8장 (25차 A단계에서 한 번 + 새 그림을 기본으로 바꿔 깨질 때만 한 번, 둘 다 승인 뒤 **(추천)** / 단계마다) · 11 보상 소환물 · 아이콘 → 11-29. 25차 결정에서 나온 새 질문 7개는 인계 11장 1~7번, 폰으로 보는 길 · 그리는 방식(옛 인계 7장 2 · 1번)은 11-31 · 11-32.
 
 ---
 
@@ -656,8 +713,34 @@ src/audio/files/<id>.mp3     그대로
 - 보상 소환물(`rw_shade` 등)이 화면에서 정말 덩어리로 보이는지 (코드 경로로만 판단), 덩어리의 키.
 - 고정 보스의 정확한 그림 범위: `overtime_lord`, `surgeon_director`, `karaoke_room` (미러볼 · 마이크 끝), `abyss_watcher` (촉수 · 후광 전체). 무대 장치의 층 시작 등장 연출이 화면 페이드 말고 있는지.
 - 8 보스 바닥 중 `reverse_escalator` · `answering_pencil` · `inverted_moon` 말고 2페이즈에 그림이 바뀌는 것이 있는지.
-- Codex 그림 생성 · Seedance 2.5 영상의 출력 형식 · 투명(알파) 지원 여부 (저장소 밖, 인계 5장은 출처만 — 25차에 다시 확인).
+- Codex 그림 생성 · Seedance 2.5 영상의 출력 형식 · 투명(알파) 지원 여부 (저장소 밖, 15장은 출처 기록 — 25차 B ①에 다시 확인).
+- 25차 A단계의 「안 바뀜 (추정)」 검사 (12-1), 역할 기본음 10개가 안 울린다는 판단 (10-1) — 코드를 읽고 따진 것, 돌려 보지 않음.
 - 가산 합성 · 큰 플립북 · WebP 디코딩의 폰 실제 성능 (측정 안 함).
 - 솔로판(claude.ai 아티팩트)이 바깥 글꼴 링크를 허용하는지 (인라인이 안전).
 - 효과음: ElevenLabs 비용, 클라우드 세션에서 api.elevenlabs.io 접속 여부, mp3 반복 이음매.
 - (풀린 것) 적 투사체 색 = 몬스터 데이터 `color` — `Projectile.color` 는 sim 상태 (`src/types.ts:1138`), 값 `src/sim/units.ts:470` `charDef.color ?? monDef.color`. 클래식 퇴마사 滅이 안 보이는 이유 = 같은 자리 · 같은 크기 시전 셋을 「한 스킬 = 한 번쩍」 규칙이 하나로 줄임 (game-design §37-5 8번).
+
+---
+
+## 15. 그림 · 영상 도구 메모 (인계 5장 ② ~ ④에서 옮김 — 바깥 제품 사실, 25차 B ①에서 다시 확인)
+
+### 15-1. Codex 이미지 생성
+- 내장 생성 = `gpt-image-2`, Codex 사용 한도에서 빠짐(평균 3~5배 빨리 닳음). 말로 부탁 또는 `$imagegen`, CLI `-i/--image`로 참고 그림 [S1][S2]. 결과는 `$CODEX_HOME/*` → `art/raw/`로 옮기기. 긴 변 ≤ 3840, 16의 배수, 비율 ≤ 3:1 [S2]. 그림 하나 = 호출 하나(확인 필요).
+- **투명 배경 불확실**: "CLI `gpt-image-2` does not support `background=transparent`" [S2]. API의 `gpt-image-2.5-flare` · `-sunburst`는 투명 지원 [S3][S4](API 키 + 조직 인증). → 단색 배경으로 받아 지우기.
+- **키 색은 대상마다**(대상 색과 먼 색, clip json `key` 칸): 기본 `#00FF00`. 초록 · 청록 대상(`slime` `#74c69d`, `warden` `#80b918`, `ranger` `#06d6a0`, `medic` `#2ec4b6`, 펫 `#80ffdb` · `#52b788`, 종이 인형 외곽선 `#3ddc84`)은 `#FF00FF` + despill 안 함.
+- API 값: `gpt-image-2` 1024² low/medium/high = $0.006/$0.053/$0.211 [S3].
+
+### 15-2. 시댄스 2.5 영상
+- Dreamina Seedance 2.5, 모델 id `dreamina-seedance-2-5-260628` [S11]. 길: BytePlus ModelArk API(`https://ark.ap-southeast.bytepluses.com/api/v3`, `POST /contents/generations/tasks`, 비동기; 잔액 USD 30 초과 또는 플랜 · 리소스 팩) [S11] / fal.ai(약 2배 값) [S18] / Dreamina 앱(AI 표시 · C2PA, 한국 계정 — 확인 필요).
+- 첫 프레임, 또는 첫 + 끝(같은 그림 허용 → 반복 동작; 멈춘 영상이 나온다는 3자 경고 → 확인 필요). 비율 `adaptive`(정사각 → 정사각) [S11]. 4~30초(정수), **24 fps**, 480p/720p/1080p(정사각 640²/960²/1440², 확인 필요), **알파 없음** → `output_format: "mov"`(H.264 yuv444p) [S12].
+- `camera_fixed` · `seed` 안 됨 [S12] → 프롬프트에 "static locked-off camera, no zoom, no pan, no cuts, plain <키 색> background". 걷기 · 대기는 "running in place on the spot, feet return to the same spot" + 첫 = 끝 같은 그림. `generate_audio: false`(확인 필요). 주소는 **24시간** 뒤 사라짐 → 바로 내려받기 [S11]. 2.0과 섞지 않기 [S17]. 「예비 → 동작 → 따라감 → 복귀」, 먼지 · 충격은 따로 [S22]. 실제 사람 얼굴 참고 금지 [S11].
+- 값: 공식 예시 720p 16:9 5초 $1.156 [S16] → 화소 × 초 비례로 정사각 4초 ≈ 480p $0.41 · 720p $0.92 · 1080p $2.08(추론; 1080p 단가가 다르면 확인 필요).
+
+### 15-3. 스프라이트 만들기 (제안 스크립트, 아직 없음)
+1. `scripts/art-frames.mjs`: `ffmpeg -i clip.mov art/raw/<id>/<motion>/%04d.png`(전 프레임) → 키 빼기 시작 값 `chromakey=0x00FF00:0.10:0.05,despill=type=green`(초록 키일 때, 미검증) [S29] → 접촉 시트.
+2. 고르기: `art/clips/<id>/<motion>.json`(쓸 프레임 · 반복 구간 · 타격 프레임 · `key`). 걷기는 발이 닿는 프레임으로 두 걸음 한 주기를 찾아 8장을 고르게(4초 = 96장 중). 첫 = 끝 클립은 끝을 빼고 반복.
+3. `scripts/art-sprites.mjs`: 클립 전체에 한 이동 · 배율(캐릭터 몸 키 114 px = 논리 57 × 2). 흐르면 발 점(맨 아래 불투명 줄 가운데)을 매끈히 맞춤. 알파를 곱한 상태로 줄임(sharp 이슈 #4051 [S34] → `scripts/art-gear.mjs`처럼 Chromium 캔버스도). 묶기 free-tex-packer-core(MIT, `JsonHash`, 회전 끔, padding · extrude) [S33] → `src/assets/art/**`.
+4. 키가 흔들리면 rembg `isnet-anime` / BiRefNet [S30]. 체크무늬 위에서 눈으로.
+
+### 15-4. 출처 (2026-10-31 봄)
+[S1] learn.chatgpt.com/docs/image-generation · [S2] github.com/openai/codex/blob/main/codex-rs/skills/src/assets/samples/imagegen/SKILL.md · [S3] developers.openai.com/api/docs/guides/image-generation · [S4] developers.openai.com/api/docs/changelog · [S11] docs.byteplus.com/en/docs/modelark/seedance-2-5 · [S12] …/modelark/create-video-generation-task-api · [S16] …/ModelArk/1544106 · [S17] …/modelark/seedance-2-5-prompt-guide · [S18] fal.ai/learn/tools/how-to-access-seedance-2-5-on-fal · [S19] learn.chatgpt.com/docs/windows/windows-sandbox.md · [S22] layrkits.com/guides/sprite-sheet (3자) · [S29] ffmpeg.org/ffmpeg-filters.html · [S30] github.com/danielgatis/rembg · [S33] github.com/odrick/free-tex-packer-core · [S34] github.com/lovell/sharp/issues/4051
